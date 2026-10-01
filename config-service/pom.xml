@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+	<modelVersion>4.0.0</modelVersion>
+
+	<parent>
+		<groupId>com.group5</groupId>
+		<artifactId>nexus-parent</artifactId>
+		<version>1.0.0</version>
+		<relativePath>../lib/pom.xml</relativePath>
+	</parent>
+
+	<artifactId>config-service</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+
+	<name/>
+	<description/>
+	<url/>
+
+	<licenses>
+		<license/>
+	</licenses>
+
+	<developers>
+		<developer/>
+	</developers>
+
+	<scm>
+		<connection/>
+		<developerConnection/>
+		<tag/>
+		<url/>
+	</scm>
+
+	<dependencies>
+
+		<!--
+			Spring Cloud Config Server:
+			Biến application này thành Config Server,
+			cung cấp configuration tập trung cho
+			các microservice.
+		-->
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-config-server</artifactId>
+		</dependency>
+
+		<!--
+			DevTools:
+			Hỗ trợ development/restart.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-devtools</artifactId>
+			<scope>runtime</scope>
+			<optional>true</optional>
+		</dependency>
+
+		<!--
+			Test:
+			JUnit, Spring Test và các công cụ
+			test Spring Boot.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+	</dependencies>
+
+</project>

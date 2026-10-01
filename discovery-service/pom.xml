@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+	<modelVersion>4.0.0</modelVersion>
+
+	<!-- Parent POM chung -->
+	<parent>
+		<groupId>com.group5</groupId>
+		<artifactId>nexus-parent</artifactId>
+		<version>1.0.0</version>
+		<relativePath>../lib/pom.xml</relativePath>
+	</parent>
+
+	<artifactId>discovery-service</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+
+	<name/>
+	<description/>
+	<url/>
+
+	<licenses>
+		<license/>
+	</licenses>
+
+	<developers>
+		<developer/>
+	</developers>
+
+	<scm>
+		<connection/>
+		<developerConnection/>
+		<tag/>
+		<url/>
+	</scm>
+
+	<dependencies>
+
+		<!--
+			Eureka Server:
+			Biến discovery-service thành Service Registry.
+			Các microservice đăng ký và tìm nhau thông qua Eureka.
+		-->
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-netflix-eureka-server</artifactId>
+		</dependency>
+
+		<!--
+			Config Client:
+			Cho phép discovery-service lấy cấu hình
+			từ config-service.
+		-->
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-config</artifactId>
+		</dependency>
+
+	</dependencies>
+
+</project>
