@@ -4,23 +4,138 @@ This document describes the Kafka instance that is actually defined in
 `infra/local-dev/compose.yaml`. The examples were verified against the project image
 `apache/kafka:4.3.1`; they are not ZooKeeper-era commands copied from an older tutorial.
 
-Run the commands from:
+## How Kafka runs in this project
 
-```bash
-cd be-project-nexus/infra/local-dev
+Kafka is not installed directly on each developer's Windows machine. Docker Desktop starts
+one Linux container named `nexus-kafka` from `apache/kafka:4.3.1`:
+
+```text
+Windows / IntelliJ                    Docker Compose network
+localhost:29092                       kafka:9092
+        \                                 /
+         \                               /
+          +------- nexus-kafka ---------+
+                  broker + controller
+                  topics + partitions
+                  offsets in kafka-data
 ```
 
-The examples use a POSIX shell. On Windows, run them from WSL or Git Bash. Commands using
-`docker run --network host` also require Docker Desktop host networking to be enabled. If
-Kafka CLI tools are installed directly on the host, use the same command after
-`/opt/kafka/bin/` and keep `--bootstrap-server localhost:29092`.
+The complete path of one message is:
+
+1. `docker compose up -d kafka` starts the container and attaches the persistent
+   `kafka-data` volume.
+2. The **controller** role maintains cluster metadata with KRaft: nodes, topics,
+   partitions, leaders, and replicas.
+3. The **broker** role accepts records from producers, appends them to topic partitions,
+   and serves records to consumers. This local container performs both roles.
+4. A producer first connects to a bootstrap address, receives broker metadata, chooses a
+   partition, and sends the record to that partition.
+5. Consumers with the same `group.id` divide the partitions. Kafka stores each group's
+   committed next offset, so a restarted consumer knows where to resume.
+6. The data survives a container restart because it is stored in the Compose volume. It is
+   deleted only by a command such as `docker compose down -v`.
+
+## Windows prerequisites and command conventions
+
+The primary instructions below are for **Windows PowerShell 7 or Windows PowerShell 5.1**.
+Install and start Docker Desktop, then run PowerShell from the repository root:
+
+```powershell
+Set-Location be-project-nexus\infra\local-dev
+```
+
+PowerShell uses a backtick (`` ` ``) for line continuation. The backtick must be the final
+character on the line; do not put a space after it. Commands without a continuation also
+work in Command Prompt, but the pipelines and multi-line examples below are PowerShell.
+
+The exercises that explicitly test `localhost:29092` run a temporary Kafka CLI container
+with `--network host`. Docker Desktop 4.34 or later is required. Enable **Settings > Resources > Network > Enable
+host networking**, then restart Docker Desktop. If company policy does not allow that
+setting, use the internal-listener exercises normally and verify `localhost:29092` by
+starting a project Spring service or Kafka CLI directly on Windows.
+
+## 0. Five-minute Windows smoke test
+
+This shortest exercise proves that the broker can store and return records. Run it before
+the listener, group, and redelivery exercises.
+
+Create the ignored local environment file:
+
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+notepad .env
+```
+
+Use available local ports and local-only credentials. One valid example is:
+
+```dotenv
+TZ=Asia/Ho_Chi_Minh
+DB_HOST=localhost
+DB_PORT=5432
+DB_USERNAME=nexus
+DB_PASSWORD=nexus-local-only
+KAFKA_PORT=29092
+KAFKA_UI_PORT=8080
+REDIS_PORT=6379
+REDIS_PASSWORD=nexus-local-only
+MAILPIT_SMTP_PORT=1025
+MAILPIT_UI_PORT=8025
+```
+
+Start the broker and wait until its state is `healthy`:
+
+```powershell
+docker compose up -d kafka
+docker compose ps kafka
+```
+
+Create a two-partition training topic. `--if-not-exists` makes the command safe to repeat:
+
+```powershell
+docker compose exec kafka `
+  /opt/kafka/bin/kafka-topics.sh `
+  --bootstrap-server kafka:9092 `
+  --create --if-not-exists `
+  --topic windows-smoke-test `
+  --partitions 2 `
+  --replication-factor 1
+```
+
+Send two records. PowerShell writes the two strings to the producer's standard input:
+
+```powershell
+@("hello-from-windows", "kafka-is-running") | docker compose exec -T kafka `
+  /opt/kafka/bin/kafka-console-producer.sh `
+  --bootstrap-server kafka:9092 `
+  --topic windows-smoke-test
+```
+
+Read exactly two records with a new consumer group:
+
+```powershell
+$smokeGroup = "windows-smoke-reader-$([guid]::NewGuid())"
+
+docker compose exec kafka `
+  /opt/kafka/bin/kafka-console-consumer.sh `
+  --bootstrap-server kafka:9092 `
+  --topic windows-smoke-test `
+  --group $smokeGroup `
+  --from-beginning `
+  --max-messages 2 `
+  --formatter-property print.partition=true `
+  --formatter-property print.offset=true
+```
+
+The output must contain both `hello-from-windows` and `kafka-is-running`. At this point the
+full route is proven: PowerShell supplied input, the CLI inside `nexus-kafka` produced it,
+the broker stored it in topic partitions, and a consumer group read it back.
 
 ## 1. Start and inspect the broker
 
 Copy the local environment template and fill every blank value:
 
-```bash
-cp .env.example .env
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
 Kafka specifically expects:
@@ -35,7 +150,7 @@ whole file before selecting the `kafka` service. Credentials belong only in the 
 
 Start Kafka without starting the rest of the stack:
 
-```bash
+```powershell
 docker compose up -d kafka
 docker compose ps kafka
 ```
@@ -48,14 +163,14 @@ nexus-kafka   apache/kafka:4.3.1   Up ... (healthy)
 
 Follow startup logs when it does not become healthy:
 
-```bash
+```powershell
 docker compose logs -f --tail=200 kafka
 ```
 
 List the services declared by the Compose file and confirm that there is no ZooKeeper
 service:
 
-```bash
+```powershell
 docker compose config --services
 ```
 
@@ -93,9 +208,9 @@ KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
 
 Show the running metadata quorum:
 
-```bash
-docker compose exec kafka \
-  /opt/kafka/bin/kafka-metadata-quorum.sh \
+```powershell
+docker compose exec kafka `
+  /opt/kafka/bin/kafka-metadata-quorum.sh `
   --bootstrap-server localhost:9092 describe --status
 ```
 
@@ -108,8 +223,8 @@ CurrentVoters: [{"id": 1, "endpoints": ["CONTROLLER://kafka:9093"]}]
 
 Show the effective KRaft environment:
 
-```bash
-docker compose exec kafka env | grep '^KAFKA_' | sort
+```powershell
+docker compose exec kafka env | Select-String '^KAFKA_' | Sort-Object
 ```
 
 ## 3. Listeners: why there are two client addresses
@@ -133,8 +248,8 @@ One client address cannot serve both network namespaces:
 
 Inspect the resolved listener configuration:
 
-```bash
-docker compose config kafka | grep -E 'KAFKA_(ADVERTISED_)?LISTENERS'
+```powershell
+docker compose config kafka | Select-String 'KAFKA_(ADVERTISED_)?LISTENERS'
 ```
 
 Expected values:
@@ -169,27 +284,27 @@ producers should not depend on auto-creation.
 
 The following command uses the published `EXTERNAL` listener:
 
-```bash
-docker run --rm --network host apache/kafka:4.3.1 \
-  /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server localhost:29092 \
-  --create \
-  --topic nexus-kraft-host \
-  --partitions 4 \
+```powershell
+docker run --rm --network host apache/kafka:4.3.1 `
+  /opt/kafka/bin/kafka-topics.sh `
+  --bootstrap-server localhost:29092 `
+  --create `
+  --topic nexus-kraft-host `
+  --partitions 4 `
   --replication-factor 1
 ```
 
 List and describe the same topic through the internal listener:
 
-```bash
-docker compose exec kafka \
-  /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server kafka:9092 \
+```powershell
+docker compose exec kafka `
+  /opt/kafka/bin/kafka-topics.sh `
+  --bootstrap-server kafka:9092 `
   --list
 
-docker compose exec kafka \
-  /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server kafka:9092 \
+docker compose exec kafka `
+  /opt/kafka/bin/kafka-topics.sh `
+  --bootstrap-server kafka:9092 `
   --describe --topic nexus-kraft-host
 ```
 
@@ -198,20 +313,20 @@ as leader and in-sync replica.
 
 ### 4.2 Create inside the network, inspect from the host
 
-```bash
-docker compose exec kafka \
-  /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server kafka:9092 \
-  --create \
-  --topic nexus-kraft-internal \
-  --partitions 2 \
+```powershell
+docker compose exec kafka `
+  /opt/kafka/bin/kafka-topics.sh `
+  --bootstrap-server kafka:9092 `
+  --create `
+  --topic nexus-kraft-internal `
+  --partitions 2 `
   --replication-factor 1
 ```
 
-```bash
-docker run --rm --network host apache/kafka:4.3.1 \
-  /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server localhost:29092 \
+```powershell
+docker run --rm --network host apache/kafka:4.3.1 `
+  /opt/kafka/bin/kafka-topics.sh `
+  --bootstrap-server localhost:29092 `
   --describe --topic nexus-kraft-internal
 ```
 
@@ -220,12 +335,12 @@ Kafka clusters.
 
 ### 4.3 Show that auto-create is off
 
-```bash
-printf 'should-fail\n' | docker run --rm -i --network host apache/kafka:4.3.1 \
-  /opt/kafka/bin/kafka-console-producer.sh \
-  --bootstrap-server localhost:29092 \
-  --topic nexus-kraft-must-not-autocreate \
-  --command-property max.block.ms=3000 \
+```powershell
+"should-fail" | docker run --rm -i --network host apache/kafka:4.3.1 `
+  /opt/kafka/bin/kafka-console-producer.sh `
+  --bootstrap-server localhost:29092 `
+  --topic nexus-kraft-must-not-autocreate `
+  --command-property max.block.ms=3000 `
   --command-property request.timeout.ms=2000
 ```
 
@@ -237,11 +352,11 @@ Topic nexus-kraft-must-not-autocreate not present in metadata after 3000 ms.
 
 Confirm that it was not created:
 
-```bash
-docker compose exec kafka \
-  /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server kafka:9092 \
-  --list | grep nexus-kraft-must-not-autocreate
+```powershell
+docker compose exec kafka `
+  /opt/kafka/bin/kafka-topics.sh `
+  --bootstrap-server kafka:9092 `
+  --list | Select-String '^nexus-kraft-must-not-autocreate$'
 ```
 
 The final command must print nothing.
@@ -252,47 +367,45 @@ The final command must print nothing.
 
 Produce through `localhost:29092`:
 
-```bash
-printf 'host-message-1\nhost-message-2\n' | \
-docker run --rm -i --network host apache/kafka:4.3.1 \
-  /opt/kafka/bin/kafka-console-producer.sh \
-  --bootstrap-server localhost:29092 \
+```powershell
+@("host-message-1", "host-message-2") | docker run --rm -i --network host apache/kafka:4.3.1 `
+  /opt/kafka/bin/kafka-console-producer.sh `
+  --bootstrap-server localhost:29092 `
   --topic nexus-kraft-host
 ```
 
 Consume through `kafka:9092`:
 
-```bash
-docker compose exec kafka \
-  /opt/kafka/bin/kafka-console-consumer.sh \
-  --bootstrap-server kafka:9092 \
-  --topic nexus-kraft-host \
-  --group nexus-cross-listener-internal \
-  --from-beginning \
-  --max-messages 2 \
-  --formatter-property print.partition=true \
+```powershell
+docker compose exec kafka `
+  /opt/kafka/bin/kafka-console-consumer.sh `
+  --bootstrap-server kafka:9092 `
+  --topic nexus-kraft-host `
+  --group nexus-cross-listener-internal `
+  --from-beginning `
+  --max-messages 2 `
+  --formatter-property print.partition=true `
   --formatter-property print.offset=true
 ```
 
 ### 5.2 Internal producer to host consumer
 
-```bash
-printf 'internal-message-1\ninternal-message-2\n' | \
-docker compose exec -T kafka \
-  /opt/kafka/bin/kafka-console-producer.sh \
-  --bootstrap-server kafka:9092 \
+```powershell
+@("internal-message-1", "internal-message-2") | docker compose exec -T kafka `
+  /opt/kafka/bin/kafka-console-producer.sh `
+  --bootstrap-server kafka:9092 `
   --topic nexus-kraft-internal
 ```
 
-```bash
-docker run --rm --network host apache/kafka:4.3.1 \
-  /opt/kafka/bin/kafka-console-consumer.sh \
-  --bootstrap-server localhost:29092 \
-  --topic nexus-kraft-internal \
-  --group nexus-cross-listener-host \
-  --from-beginning \
-  --max-messages 2 \
-  --formatter-property print.partition=true \
+```powershell
+docker run --rm --network host apache/kafka:4.3.1 `
+  /opt/kafka/bin/kafka-console-consumer.sh `
+  --bootstrap-server localhost:29092 `
+  --topic nexus-kraft-internal `
+  --group nexus-cross-listener-host `
+  --from-beginning `
+  --max-messages 2 `
+  --formatter-property print.partition=true `
   --formatter-property print.offset=true
 ```
 
@@ -318,13 +431,13 @@ records from partitions `0`, `1`, `2`, and `3`. This movement is a group rebalan
 
 ### 6.1 Create the group exercise topic
 
-```bash
-docker compose exec kafka \
-  /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server kafka:9092 \
-  --create \
-  --topic nexus-kraft-groups \
-  --partitions 4 \
+```powershell
+docker compose exec kafka `
+  /opt/kafka/bin/kafka-topics.sh `
+  --bootstrap-server kafka:9092 `
+  --create `
+  --topic nexus-kraft-groups `
+  --partitions 4 `
   --replication-factor 1
 ```
 
@@ -332,37 +445,36 @@ docker compose exec kafka \
 
 Run this command in terminal A, then run the same command in terminal B:
 
-```bash
-docker compose exec kafka \
-  /opt/kafka/bin/kafka-console-consumer.sh \
-  --bootstrap-server kafka:9092 \
-  --topic nexus-kraft-groups \
-  --group nexus-kraft-workers \
-  --from-beginning \
-  --formatter-property print.partition=true \
+```powershell
+docker compose exec kafka `
+  /opt/kafka/bin/kafka-console-consumer.sh `
+  --bootstrap-server kafka:9092 `
+  --topic nexus-kraft-groups `
+  --group nexus-kraft-workers `
+  --from-beginning `
+  --formatter-property print.partition=true `
   --formatter-property print.offset=true
 ```
 
 Inspect the members and assignments from terminal C:
 
-```bash
-docker compose exec kafka \
-  /opt/kafka/bin/kafka-consumer-groups.sh \
-  --bootstrap-server kafka:9092 \
-  --describe \
-  --group nexus-kraft-workers \
+```powershell
+docker compose exec kafka `
+  /opt/kafka/bin/kafka-consumer-groups.sh `
+  --bootstrap-server kafka:9092 `
+  --describe `
+  --group nexus-kraft-workers `
   --members --verbose
 ```
 
 Produce records across all partitions. `RoundRobinPartitioner` is specified so that the
 exercise does not depend on the default sticky batching behavior:
 
-```bash
-seq 1 20 | sed 's/^/group-message-/' | \
-docker compose exec -T kafka \
-  /opt/kafka/bin/kafka-console-producer.sh \
-  --bootstrap-server kafka:9092 \
-  --topic nexus-kraft-groups \
+```powershell
+1..20 | ForEach-Object { "group-message-$_" } | docker compose exec -T kafka `
+  /opt/kafka/bin/kafka-console-producer.sh `
+  --bootstrap-server kafka:9092 `
+  --topic nexus-kraft-groups `
   --command-property partitioner.class=org.apache.kafka.clients.producer.RoundRobinPartitioner
 ```
 
@@ -395,48 +507,54 @@ internal topic `__consumer_offsets`.
 
 Create a one-partition topic and one record:
 
-```bash
-docker compose exec kafka \
-  /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server kafka:9092 \
-  --create \
-  --topic nexus-kraft-redelivery \
-  --partitions 1 \
+```powershell
+docker compose exec kafka `
+  /opt/kafka/bin/kafka-topics.sh `
+  --bootstrap-server kafka:9092 `
+  --create `
+  --topic nexus-kraft-redelivery `
+  --partitions 1 `
   --replication-factor 1
 
-printf 'redeliver-me\n' | docker compose exec -T kafka \
-  /opt/kafka/bin/kafka-console-producer.sh \
-  --bootstrap-server kafka:9092 \
+"redeliver-me" | docker compose exec -T kafka `
+  /opt/kafka/bin/kafka-console-producer.sh `
+  --bootstrap-server kafka:9092 `
   --topic nexus-kraft-redelivery
 ```
 
-Start a consumer with auto-commit disabled in the container background:
+Start a consumer with auto-commit disabled in the container background. PowerShell sends
+this script to the Linux shell inside `nexus-kafka`; Windows does not need `bash`, `grep`,
+or Kafka CLI installed:
 
-```bash
-docker compose exec -T kafka sh -lc '
-  rm -f /tmp/redelivery-first.log /tmp/redelivery-first.pid
-  nohup /opt/kafka/bin/kafka-console-consumer.sh \
-    --bootstrap-server kafka:9092 \
-    --topic nexus-kraft-redelivery \
-    --group nexus-kraft-redelivery-group \
-    --from-beginning \
-    --command-property enable.auto.commit=false \
-    --command-property session.timeout.ms=6000 \
-    --command-property heartbeat.interval.ms=2000 \
-    --formatter-property print.partition=true \
-    --formatter-property print.offset=true \
-    > /tmp/redelivery-first.log 2>&1 < /dev/null &
-  echo $! > /tmp/redelivery-first.pid
-'
+```powershell
+$consumerScript = @'
+rm -f /tmp/redelivery-first.log /tmp/redelivery-first.pid
+nohup /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server kafka:9092 \
+  --topic nexus-kraft-redelivery \
+  --group nexus-kraft-redelivery-group \
+  --from-beginning \
+  --command-property enable.auto.commit=false \
+  --command-property session.timeout.ms=6000 \
+  --command-property heartbeat.interval.ms=2000 \
+  --formatter-property print.partition=true \
+  --formatter-property print.offset=true \
+  > /tmp/redelivery-first.log 2>&1 < /dev/null &
+echo $! > /tmp/redelivery-first.pid
+'@
+
+# Linux sh requires LF. Normalize the CRLF created by Windows PowerShell.
+$consumerScript = $consumerScript -replace "`r`n", "`n"
+docker compose exec -T kafka sh -lc $consumerScript
 ```
 
 Wait until the record appears, then kill the consumer without allowing a commit:
 
-```bash
-docker compose exec kafka sh -lc \
+```powershell
+docker compose exec kafka sh -lc `
   "grep 'redeliver-me' /tmp/redelivery-first.log"
 
-docker compose exec kafka sh -lc \
+docker compose exec kafka sh -lc `
   'kill -9 $(cat /tmp/redelivery-first.pid)'
 ```
 
@@ -446,18 +564,21 @@ The verified first delivery was:
 Partition:0  Offset:0  redeliver-me
 ```
 
-Restart the same group:
+Wait approximately ten seconds for Kafka to remove the killed group member, then restart
+the same group:
 
-```bash
-docker compose exec kafka \
-  /opt/kafka/bin/kafka-console-consumer.sh \
-  --bootstrap-server kafka:9092 \
-  --topic nexus-kraft-redelivery \
-  --group nexus-kraft-redelivery-group \
-  --from-beginning \
-  --max-messages 1 \
-  --command-property enable.auto.commit=false \
-  --formatter-property print.partition=true \
+```powershell
+Start-Sleep -Seconds 10
+
+docker compose exec kafka `
+  /opt/kafka/bin/kafka-console-consumer.sh `
+  --bootstrap-server kafka:9092 `
+  --topic nexus-kraft-redelivery `
+  --group nexus-kraft-redelivery-group `
+  --from-beginning `
+  --max-messages 1 `
+  --command-property enable.auto.commit=false `
+  --formatter-property print.partition=true `
   --formatter-property print.offset=true
 ```
 
@@ -471,10 +592,10 @@ It is the same record, not a second produced copy: partition and offset are iden
 
 Inspect committed offsets and lag for any group:
 
-```bash
-docker compose exec kafka \
-  /opt/kafka/bin/kafka-consumer-groups.sh \
-  --bootstrap-server kafka:9092 \
+```powershell
+docker compose exec kafka `
+  /opt/kafka/bin/kafka-consumer-groups.sh `
+  --bootstrap-server kafka:9092 `
   --describe --group nexus-kraft-workers
 ```
 
@@ -488,32 +609,32 @@ append a second copy of that batch. Kafka requires compatible delivery settings 
 Kafka producers enable idempotence by default when no conflicting setting disables it. We
 still set it explicitly in this exercise so the requirement is visible:
 
-```bash
-docker compose exec kafka \
-  /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server kafka:9092 \
-  --create \
-  --topic nexus-kraft-idempotence \
-  --partitions 1 \
+```powershell
+docker compose exec kafka `
+  /opt/kafka/bin/kafka-topics.sh `
+  --bootstrap-server kafka:9092 `
+  --create `
+  --topic nexus-kraft-idempotence `
+  --partitions 1 `
   --replication-factor 1
 
-printf 'idempotent-send\n' | docker compose exec -T kafka \
-  /opt/kafka/bin/kafka-console-producer.sh \
-  --bootstrap-server kafka:9092 \
-  --topic nexus-kraft-idempotence \
-  --command-property enable.idempotence=true \
-  --command-property acks=all \
+"idempotent-send" | docker compose exec -T kafka `
+  /opt/kafka/bin/kafka-console-producer.sh `
+  --bootstrap-server kafka:9092 `
+  --topic nexus-kraft-idempotence `
+  --command-property enable.idempotence=true `
+  --command-property acks=all `
   --command-property retries=5
 ```
 
 The client rejects a conflicting configuration before sending:
 
-```bash
-printf 'must-not-send\n' | docker compose exec -T kafka \
-  /opt/kafka/bin/kafka-console-producer.sh \
-  --bootstrap-server kafka:9092 \
-  --topic nexus-kraft-idempotence \
-  --command-property enable.idempotence=true \
+```powershell
+"must-not-send" | docker compose exec -T kafka `
+  /opt/kafka/bin/kafka-console-producer.sh `
+  --bootstrap-server kafka:9092 `
+  --topic nexus-kraft-idempotence `
+  --command-property enable.idempotence=true `
   --command-property acks=1
 ```
 
@@ -539,43 +660,43 @@ is not an end-to-end exactly-once guarantee.
 
 ## 9. Daily inspection commands
 
-```bash
+```powershell
 # Container state and logs
 docker compose ps kafka
 docker compose logs --tail=200 kafka
 
 # KRaft quorum
-docker compose exec kafka /opt/kafka/bin/kafka-metadata-quorum.sh \
+docker compose exec kafka /opt/kafka/bin/kafka-metadata-quorum.sh `
   --bootstrap-server kafka:9092 describe --status
 
 # Topics
-docker compose exec kafka /opt/kafka/bin/kafka-topics.sh \
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh `
   --bootstrap-server kafka:9092 --list
-docker compose exec kafka /opt/kafka/bin/kafka-topics.sh \
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh `
   --bootstrap-server kafka:9092 --describe --topic TOPIC_NAME
 
 # Consumer groups, assignments, committed offsets, and lag
-docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh \
+docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh `
   --bootstrap-server kafka:9092 --list
-docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh \
+docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh `
   --bootstrap-server kafka:9092 --describe --group GROUP_ID
-docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh \
+docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh `
   --bootstrap-server kafka:9092 --describe --group GROUP_ID --members --verbose
 
 # Topic end offsets
-docker compose exec kafka /opt/kafka/bin/kafka-get-offsets.sh \
+docker compose exec kafka /opt/kafka/bin/kafka-get-offsets.sh `
   --bootstrap-server kafka:9092 --topic TOPIC_NAME
 ```
 
 Stop Kafka while preserving its named volume:
 
-```bash
+```powershell
 docker compose stop kafka
 ```
 
 Remove the local Kafka data only when a full reset is intentional:
 
-```bash
+```powershell
 docker compose down -v
 ```
 
@@ -598,6 +719,7 @@ this operational guide.
 
 ## 11. Apache Kafka 4.3 references
 
+- [Docker host networking on Docker Desktop](https://docs.docker.com/engine/network/drivers/host/)
 - [KRaft configuration and combined roles](https://kafka.apache.org/43/operations/kraft/)
 - [Differences between KRaft and ZooKeeper mode](https://kafka.apache.org/43/getting-started/zk2kraft/)
 - [Listener configuration](https://kafka.apache.org/43/security/listener-configuration/)
