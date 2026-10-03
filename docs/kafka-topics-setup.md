@@ -1,13 +1,13 @@
 # Kafka topics setup trong project Nexus
 
-Tài liệu này dùng sau khi đã đọc `docs/kafka-kraft.md`. File KRaft giải thích Kafka 4.x chạy như thế nào; file này giải thích cách project Nexus khai báo topic, chia partition, chạy smoke flow producer -> consumer, và xem kết quả trên Kafka UI.
+Tài liệu này dùng sau khi đã đọc `docs/kafka-kraft.md`. File KRaft giải thích Kafka 4.x chạy như thế nào; file này giải thích cách project Nexus khai báo topic, chia partition, chạy hai kiểu demo producer -> consumer, và xem kết quả trên Kafka UI.
 
 ## Chạy nhanh trên máy mỗi developer
 
 1. Điền `infra/local-dev/.env` một lần (xem ví dụ ở mục **Chuẩn bị local infra**).
 2. Trong `be-project-nexus\infra\local-dev`, chạy `docker compose --profile debug up -d`. Compose tự tạo 7 topic, mỗi topic 4 partition; **không cần chạy `.ps1`**.
-3. Trong IntelliJ IDEA, chạy `config-service` (không profile), `notification-service` và `commerce-service` (cùng profile `kafka-smoke`).
-4. POST `http://localhost:8083/internal/kafka-smoke/messages` với JSON `{"key":"order-demo-001","message":"hello-kafka"}`. GET `http://localhost:8086/internal/kafka-smoke/messages` để thấy record đó.
+3. Chọn một trong hai đường demo: **normal + PostgreSQL** ở mục [Demo với DB](#demo-giữa-hai-service-chạy-bình-thường-với-postgresql), hoặc **`kafka-smoke`** ở mục [Smoke flow](#chạy-smoke-flow-trong-project) để kiểm tra Kafka nhanh mà không cần DB/Eureka.
+4. POST message từ Commerce rồi GET ở Notification theo endpoint của đường demo đã chọn.
 5. Mở `http://localhost:18090` → **Topics** → `nexus.training.integration.v1` → **Messages** để xem cùng `eventId`, partition, offset.
 
 Đây là Kafka riêng của từng máy, nhưng cả team dùng cùng định nghĩa topic/partition trong Git. Các lệnh chi tiết và cách kiểm tra nằm bên dưới.
@@ -18,11 +18,12 @@ Tài liệu này dùng sau khi đã đọc `docs/kafka-kraft.md`. File KRaft gi�
 - Topic contract local nằm ở `infra/local-dev/kafka/topics.conf`.
 - Compose tự chạy one-shot service `kafka-init` để tạo/validate topic từ `topics.conf`; developer không cần chạy script hằng ngày.
 - Sáu business topic đang là scaffold để thống nhất tên topic và partition trước khi viết handler domain thật.
-- Flow đang chạy end-to-end trong branch này là smoke flow:
+- Hai flow demo độc lập cùng dùng topic `nexus.training.integration.v1`:
   - producer: `commerce-service`
-  - topic: `nexus.training.integration.v1`
   - consumer: `notification-service`
-- Profile `kafka-smoke` chỉ dùng để demo transport Kafka. Profile này tắt database auto-config và Eureka client, nên không ghi outbox, không ghi database, không dedup bằng `processed_events`.
+- **Normal/default profile**: kết nối PostgreSQL, lưu bản ghi demo ở `commerce_db.outbox`, gửi Kafka, consumer ghi `notification_db.event_logs` và chống xử lý trùng bằng `processed_events`.
+- **`kafka-smoke` profile**: vẫn giữ để demo transport nhanh. Nó tắt database auto-config và Eureka client, dùng bộ nhớ tạm để xem message. Không dùng profile này để kiểm chứng persistence.
+- Normal demo hiện gửi Kafka đồng bộ trong request, **chưa phải transactional outbox publisher có retry**; không dùng làm mẫu đảm bảo atomic DB/Kafka trong production.
 
 ## Topic contract
 
@@ -184,7 +185,81 @@ docker run --rm --network host apache/kafka:4.3.1 /opt/kafka/bin/kafka-topics.sh
 
 Lệnh `docker run --network host` cần Docker Desktop 4.34+ và bật host networking. Nếu Docker Desktop không bật host networking, dùng CLI bên trong broker cho các bước Kafka và dùng Spring service chạy từ host để kiểm tra `localhost:29092`.
 
+## Demo giữa hai service chạy bình thường với PostgreSQL
+
+Đây là đường demo **không bật profile `kafka-smoke`**. Commerce và Notification dùng database riêng, Flyway chạy `db/migration/V1__init.sql` khi kết nối DB mới; Config Server và Eureka chạy như cấu hình thông thường. Endpoint `/internal/kafka-demo/*` chỉ là demo nội bộ, chưa phải API tạo đơn hàng thật.
+
+### 1. Chạy infra và cấu hình IntelliJ IDEA
+
+Từ `be-project-nexus\infra\local-dev`, chạy `docker compose --profile debug up -d`, đợi `postgres`/`kafka` healthy và `kafka-init` `Exited (0)`. Chạy các Run Configuration theo thứ tự:
+
+| Run Configuration | Port | Active profiles / Program arguments | Environment variables |
+|---|---:|---|---|
+| `config-service` | 8888 | giữ mặc định | không cần DB |
+| `discovery-service` | 8761 | để trống | không cần DB |
+| `notification-service` | 8086 | **để trống**, không dùng `kafka-smoke` | `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD` |
+| `commerce-service` | 8083 | **để trống**, không dùng `kafka-smoke` | `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD` |
+
+Trong IntelliJ: **Run → Edit Configurations → chọn service → Environment variables**. Hai service Java chạy trên host nên `DB_HOST=localhost`, `DB_PORT` là **port host** trong `infra/local-dev/.env` (ví dụ `5433`), và `DB_USERNAME`/`DB_PASSWORD` phải khớp Postgres Docker. File `.env` của Compose **không tự truyền** vào Run Configuration. Đừng commit password. Config Server cấp URL riêng: `commerce_db` cho Commerce, `notification_db` cho Notification. Flyway tự tạo các bảng trên DB rỗng; nếu DB đã có bảng tạo thủ công nhưng chưa có `flyway_schema_history`, cần kiểm tra migration trạng thái trước, không xóa volume tùy tiện.
+
+Nếu chạy bằng terminal trong PowerShell, có thể đặt biến cho **từng terminal** trước `mvnw.cmd spring-boot:run`:
+
+```powershell
+$env:DB_HOST = 'localhost'
+$env:DB_PORT = '5433' # thay bằng DB_PORT trong .env của máy bạn
+$env:DB_USERNAME = 'nexus' # thay bằng DB_USERNAME trong .env
+$env:DB_PASSWORD = 'nexus-local-only' # thay bằng DB_PASSWORD trong .env
+```
+
+Không thêm `-Dspring-boot.run.profiles=kafka-smoke` cho đường này.
+
+### 2. Gửi, nhận, kiểm tra DB và Kafka UI
+
+Gửi event từ Commerce bằng CMD hoặc PowerShell:
+
+```cmd
+curl.exe -i -X POST http://localhost:8083/internal/kafka-demo/messages -H "Content-Type: application/json" -d "{\"key\":\"order-demo-001\",\"message\":\"hello-from-normal-services\"}"
+```
+
+Response `201` có `outboxId`, `eventId`, `topic`, `partition`, `offset`. Ghi lại `eventId` rồi xem Notification đã lưu vào DB:
+
+```cmd
+curl.exe http://localhost:8086/internal/kafka-demo/messages
+```
+
+GET trả các record gần nhất lấy từ `notification_db.event_logs`, **không phải danh sách memory**. Dùng IntelliJ Database tool hoặc `psql` kiểm tra trực tiếp:
+
+```sql
+-- commerce_db
+SELECT id, topic, published_at FROM outbox ORDER BY occurred_at DESC LIMIT 5;
+-- notification_db
+SELECT event_id, event_type, received_at FROM event_logs ORDER BY received_at DESC LIMIT 5;
+SELECT event_id, consumer FROM processed_events ORDER BY handled_at DESC LIMIT 5;
+```
+
+Mở `http://localhost:18090` (hoặc `KAFKA_UI_PORT` của máy bạn) → **Topics** → `nexus.training.integration.v1` → **Messages**, tìm `eventId` và đối chiếu key/partition/offset với POST/GET. Vào **Consumers** → `nexus.notification.kafka-demo.v1` để xem member và committed offset. Consumer ghi `event_logs` + `processed_events` trong một DB transaction; khi nhận lại cùng `eventId`, nó bỏ qua DB side effect đã làm nhưng Kafka vẫn có thể giao lại record.
+
+Giới hạn: producer hiện insert `outbox`, gửi Kafka đồng bộ và đánh dấu `published_at` trong request. Đây là **DB-backed integration demo**, chưa có outbox worker/retry bảo đảm eventual delivery hay atomicity giữa Postgres và Kafka; Kafka send thành công nhưng DB commit lỗi vẫn có thể lệch state. Sáu business topic khác chưa có handler nghiệp vụ thật.
+
+### 3. Xem group và redelivery trong normal mode (tùy chọn)
+
+Để xem hai instance chia 4 partitions, giữ Notification port `8086`, chạy thêm Notification trong IntelliJ với **cùng biến DB**, không active profile, thêm **Program arguments**:
+
+```text
+--server.port=8087 --nexus.kafka.demo.client-id=notification-demo-2
+```
+
+Từ `infra/local-dev`, xem assignments; hai instance trong cùng `group-id` chia partitions, thường là 2/2. Dừng instance `8087`, chạy lại command và đợi `8086` nhận cả 4 partitions:
+
+```cmd
+docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:9092 --describe --group nexus.notification.kafka-demo.v1 --members --verbose
+```
+
+Để thử **kill trước commit**, dừng các Notification khác trong group; chạy duy nhất một Notification với `--nexus.kafka.demo.processing-delay-ms=60000`, POST một key mới, chờ log `KAFKA_DEMO_DELAY_BEFORE_RETURN`, rồi kill đúng JVM trước 60 giây (`jps -l`, `taskkill /PID <PID> /F`). Khởi động lại Notification **cùng group**, không reset offset: log phải hiện lại cùng topic/partition/offset với `stored=false` nếu DB đã ghi ở lần đầu. `stored=false` là dedup bằng `processed_events`, **không phải Kafka không redeliver**. Bài CLI độc lập và command đầy đủ để kiểm chứng offset nằm trong [`kafka-kraft.md`](kafka-kraft.md#7-offsets-commits-and-redelivery).
+
 ## Chạy smoke flow trong project
+
+Đây là đường demo **tùy chọn, vẫn được giữ nguyên**. Chọn đường này khi chỉ muốn kiểm tra Kafka mà không cần PostgreSQL/Eureka; nó không chứng minh DB persistence. Không chạy normal và smoke instance cùng port một lúc.
 
 Mở 3 run configuration trong IntelliJ IDEA hoặc 3 terminal từ `be-project-nexus`.
 
@@ -407,6 +482,16 @@ Sau khi listener return thành công, chạy lại group describe. `CURRENT-OFFS
 
 Topic `nexus.training.qa.new.v1` trong bài test thêm topic là topic QA tạm ở stack cách ly, **không nằm trong manifest của project**.
 
+### Kiểm tra thêm normal-mode + DB trên nhánh hiện tại (2026-10-03)
+
+- Đã chạy `config-service` port `8888`, `discovery-service` port `8761`, Commerce port `8083` và Notification port `8086` **không bật `kafka-smoke`**, với PostgreSQL Docker ở host port `55432` của máy kiểm tra; cả hai service lấy config từ Config Server và kết nối DB riêng.
+- Flyway chạy V1 trên `commerce_db` rỗng; Notification xác nhận V1 đã có. Đây là dữ liệu local của máy kiểm tra, **không phải yêu cầu mọi dev dùng port `55432`**.
+- POST `/internal/kafka-demo/messages` key `normal-db-demo-20261003` trả HTTP `201`, `eventId=cece6c86-5de9-49fe-947b-788cbf54e37c`, topic `nexus.training.integration.v1`, partition `0`, offset `5`. GET `/internal/kafka-demo/messages` trả cùng event ID/key/partition/offset và payload.
+- Query `commerce_db.outbox` thấy row cùng ID và `published_at` khác NULL; query `notification_db.event_logs` thấy `KAFKA_DEMO_RECEIVED` cùng ID; query `notification_db.processed_events` thấy consumer `notification-service.kafka-demo` cùng ID.
+- Đã chạy lại Commerce/Notification với `kafka-smoke` trên port phụ `18083`/`18086` **không cấp biến DB**. POST smoke key `retained-smoke-verify-20261003` trả HTTP `201`, event ID `76a913ae-8001-4650-aa2d-012cddb922d0`, partition `3`, offset `3`; GET smoke trả cùng record. Endpoint `/internal/kafka-demo/messages` trong instance smoke trả `404`, chứng minh hai đường demo tách nhau. Một lần POST trước đó thất bại khi broker đang restart/health `starting`; sau khi broker `healthy`, retry thành công. Không coi lỗi lúc broker chưa sẵn sàng là bằng chứng smoke flow pass.
+- Host CLI tạo `nexus-kraft-host-verify-20261003` qua `localhost:29092`, internal CLI describe được hai partitions qua `kafka:9092`; tạo `nexus-kraft-internal-verify-20261003` trong Compose rồi host CLI describe được hai partitions. Produce/consume chéo hai listener nhận `host-to-internal-20261003` ở partition `1` offset `0` và `internal-to-host-20261003` ở partition `0` offset `0`.
+- Bài chia group và kill-before-commit CLI có lệnh tái hiện ở [`kafka-kraft.md`](kafka-kraft.md); evidence của lần kiểm tra trước được ghi ở bảng bên dưới. Không lấy hai bài đó từ normal DB demo để thay thế bằng chứng CLI của issue.
+
 ## Verification đã chạy trong branch này
 
 Bảng dưới ghi lại bài test từ commit trước khi chuyển sang `kafka-init`; kết quả của setup tự động mới nằm ở mục ngay trên.
@@ -433,7 +518,8 @@ Ngày verify: 2026-10-03. Môi trường verify là Linux với Java 25 compile 
 - Smoke endpoint là endpoint nội bộ theo profile `kafka-smoke`, không expose qua API Gateway.
 - Smoke consumer lưu 100 message trong memory để quan sát nhanh, restart service là mất danh sách này.
 - Invalid JSON vẫn có thể được lưu raw với `eventId=null` trong smoke demo; chưa có DLT.
-- `commerce-service/src/main/resources/db/migration/V1__init.sql` đã có migration cho `orders`, `outbox`, và `processed_events`, nhưng profile `kafka-smoke` cố ý tắt database. Flow smoke hiện tại chưa implement outbox publisher, transactional boundary, database side effect, hoặc `processed_events` dedup runtime.
+- Normal demo dùng database thật và `processed_events` ở Notification, nhưng vẫn chưa phải order business flow; `TrainingEvent` không tạo một đơn hàng trong `orders`.
+- Commerce normal demo chưa có outbox worker/retry và không có atomic commit giữa PostgreSQL với Kafka. Không suy ra đảm bảo exactly-once end-to-end từ row `outbox` hoặc `enable.idempotence=true`.
 - `enable.idempotence=true` chỉ chống duplicate do producer retry trong cùng producer session; không chống double-click HTTP, không chống app gọi `send()` hai lần, không chống consumer redelivery.
 
 ## Checklist cho developer
@@ -443,9 +529,9 @@ Mỗi backend developer nên chạy ít nhất một lần:
 1. `docker compose --profile debug up -d`.
 2. Confirm `kafka-init` `Exited (0)` bằng `docker compose ps -a kafka-init` hoặc `docker compose logs kafka-init`.
 3. Confirm `nexus.training.integration.v1` có 4 partitions trên CLI hoặc Kafka UI.
-4. Start Config Server không profile; `commerce-service` và `notification-service` với profile `kafka-smoke`.
-5. POST một message vào `commerce-service`.
-6. GET message từ `notification-service`.
+4. Chọn **normal + DB** (Config, Discovery, Commerce, Notification không `kafka-smoke`) hoặc **smoke** (Config, Commerce, Notification với `kafka-smoke`).
+5. POST một message vào `commerce-service` bằng endpoint tương ứng.
+6. GET message từ `notification-service`; với normal demo, kiểm tra thêm `outbox`, `event_logs`, `processed_events` trong PostgreSQL.
 7. Search cùng `eventId` trên Kafka UI.
 8. Start 2 notification instances cùng group và xem partition assignment.
 9. Kill một consumer trước commit và thấy redelivery cùng partition/offset.

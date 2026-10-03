@@ -40,6 +40,8 @@ spring:
 
 nexus:
   kafka:
+    demo:
+      topic: nexus.training.integration.v1
     topics:
       user: nexus.user.events.v1
       product: nexus.catalog.product.events.v1

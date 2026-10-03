@@ -4,7 +4,7 @@ This document describes the Kafka instance that is actually defined in
 `infra/local-dev/compose.yaml`. The examples were verified against the project image
 `apache/kafka:4.3.1`; they are not ZooKeeper-era commands copied from an older tutorial.
 
-For the project topic manifest, smoke producer/consumer flow, and Kafka UI checks, see
+For the project topic manifest, normal DB-backed and optional smoke producer/consumer flows, and Kafka UI checks, see
 [`kafka-topics-setup.md`](kafka-topics-setup.md).
 
 ## How Kafka runs in this project
