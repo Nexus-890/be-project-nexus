@@ -133,6 +133,70 @@ services:
     networks:
       - nexus-network
 
+  zipkin:
+    image: openzipkin/zipkin:3.6.1
+    container_name: nexus-zipkin
+
+    environment:
+      TZ: ${TZ}
+
+    ports:
+      - "${ZIPKIN_PORT:-9411}:9411"
+
+    restart: unless-stopped
+
+    networks:
+      - nexus-network
+
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v3.15.0
+    container_name: nexus-prometheus
+
+    environment:
+      TZ: ${TZ}
+
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    restart: unless-stopped
+
+    networks:
+      - nexus-network
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:13.2.3
+    container_name: nexus-grafana
+
+    environment:
+      TZ: ${TZ}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+
+    depends_on:
+      - prometheus
+
+    restart: unless-stopped
+
+    networks:
+      - nexus-network
+
 
 networks:
   nexus-network:
@@ -145,4 +209,8 @@ volumes:
   kafka-data:
     driver: local
   redis-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
     driver: local
