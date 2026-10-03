@@ -1,0 +1,28 @@
+# Local transport demonstration only: no database/business side effects.
+server:
+  address: 127.0.0.1
+
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+      - org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration
+      - org.springframework.boot.data.jpa.autoconfigure.DataJpaRepositoriesAutoConfiguration
+  kafka:
+    producer:
+      properties:
+        "[max.block.ms]": 5000
+        "[request.timeout.ms]": 5000
+        "[delivery.timeout.ms]": 10000
+
+eureka:
+  client:
+    enabled: false
+
+nexus:
+  kafka:
+    smoke:
+      topic: nexus.training.integration.v1
+      group-id: nexus.notification.kafka-smoke.v1
+      client-id: notification-smoke
+      processing-delay-ms: 0

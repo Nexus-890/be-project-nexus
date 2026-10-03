@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "bootstrapServer": "kafka:9092",
+  "defaults": {
+    "partitions": 4,
+    "replicationFactor": 1,
+    "configs": {
+      "cleanup.policy": "delete",
+      "retention.ms": "604800000"
+    }
+  },
+  "topics": [
+    {
+      "name": "nexus.user.events.v1",
+      "owner": "user-service",
+      "key": "userId",
+      "status": "proposed",
+      "description": "Future user domain events; no business handler is wired yet."
+    },
+    {
+      "name": "nexus.catalog.product.events.v1",
+      "owner": "catalog-service",
+      "key": "productId",
+      "status": "proposed",
+      "description": "Future catalog product domain events; no business handler is wired yet."
+    },
+    {
+      "name": "nexus.commerce.order.events.v1",
+      "owner": "commerce-service",
+      "key": "orderId",
+      "status": "proposed",
+      "description": "Future commerce order domain events; no business handler is wired yet."
+    },
+    {
+      "name": "nexus.auction.events.v1",
+      "owner": "auction-service",
+      "key": "auctionId",
+      "status": "proposed",
+      "description": "Future auction domain events; no business handler is wired yet."
+    },
+    {
+      "name": "nexus.fulfillment.reservation.events.v1",
+      "owner": "fulfillment-service",
+      "key": "orderId",
+      "status": "proposed",
+      "description": "Future fulfillment reservation domain events; no business handler is wired yet."
+    },
+    {
+      "name": "nexus.fulfillment.shipment.events.v1",
+      "owner": "fulfillment-service",
+      "key": "shipmentId",
+      "status": "proposed",
+      "description": "Future fulfillment shipment domain events; no business handler is wired yet."
+    },
+    {
+      "name": "nexus.training.integration.v1",
+      "owner": "commerce-service -> notification-service",
+      "key": "request key / aggregateId",
+      "status": "demo",
+      "description": "Active smoke topic used to prove producer-to-consumer flow and Kafka UI visibility."
+    }
+  ]
+}

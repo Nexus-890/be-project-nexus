@@ -12,3 +12,38 @@ springdoc:
   api-docs:
     enabled: true
     path: /v3/api-docs
+
+# Only services with the Kafka starter instantiate Kafka clients.
+# Override SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092 for Compose-network clients.
+spring:
+  kafka:
+    bootstrap-servers: localhost:29092
+    admin:
+      auto-create: false
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        "[enable.idempotence]": true
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      properties:
+        "[allow.auto.create.topics]": false
+    listener:
+      ack-mode: record
+      concurrency: 1
+      missing-topics-fatal: true
+
+nexus:
+  kafka:
+    topics:
+      user: nexus.user.events.v1
+      product: nexus.catalog.product.events.v1
+      order: nexus.commerce.order.events.v1
+      auction: nexus.auction.events.v1
+      reservation: nexus.fulfillment.reservation.events.v1
+      shipment: nexus.fulfillment.shipment.events.v1
