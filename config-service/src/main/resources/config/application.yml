@@ -12,3 +12,19 @@ springdoc:
   api-docs:
     enabled: true
     path: /v3/api-docs
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,refresh,prometheus
+  tracing:
+    sampling:
+      probability: 1.0
+    export:
+      zipkin:
+        endpoint: http://localhost:${ZIPKIN_PORT:9411}/api/v2/spans
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true

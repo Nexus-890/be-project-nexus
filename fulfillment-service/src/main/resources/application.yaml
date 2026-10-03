@@ -3,4 +3,7 @@ spring:
     name: fulfillment-service
 
   config:
-    import: configserver:http://localhost:8888
+    import:
+      - optional:file:../infra/local-dev/.env[.properties]
+      - optional:file:./infra/local-dev/.env[.properties]
+      - configserver:http://localhost:8888
