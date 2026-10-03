@@ -25,8 +25,8 @@ localhost:29092                       kafka:9092
 
 The complete path of one message is:
 
-1. `docker compose up -d kafka` starts the container and attaches the persistent
-   `kafka-data` volume.
+1. `docker compose up -d kafka kafka-init` starts the broker and runs the one-shot
+   topic initializer against the persistent `kafka-data` volume.
 2. The **controller** role maintains cluster metadata with KRaft: nodes, topics,
    partitions, leaders, and replicas.
 3. The **broker** role accepts records from producers, appends them to topic partitions,
@@ -88,8 +88,8 @@ MAILPIT_UI_PORT=8025
 Start the broker and wait until its state is `healthy`:
 
 ```powershell
-docker compose up -d kafka
-docker compose ps kafka
+docker compose up -d kafka kafka-init
+docker compose ps -a kafka kafka-init
 ```
 
 Create a two-partition training topic. `--if-not-exists` makes the command safe to repeat:
@@ -151,23 +151,27 @@ The other port variables must also be non-empty because Docker Compose interpola
 whole file before selecting the `kafka` service. Credentials belong only in the ignored
 `.env` file.
 
-Start Kafka without starting the rest of the stack:
+Start Kafka and the topic initializer without starting the rest of the stack:
 
 ```powershell
-docker compose up -d kafka
-docker compose ps kafka
+docker compose up -d kafka kafka-init
+docker compose ps -a kafka kafka-init
 ```
 
 Expected state:
 
 ```text
-nexus-kafka   apache/kafka:4.3.1   Up ... (healthy)
+nexus-kafka       apache/kafka:4.3.1   Up ... (healthy)
+nexus-local-kafka-init-1  apache/kafka:4.3.1   Exited (0)
 ```
 
-Follow startup logs when it does not become healthy:
+`kafka-init` is a one-shot CLI container. It may briefly show `Up` while initializing; `Exited (0)` means topic initialization completed successfully. Wait for that final state before starting project consumers.
+
+Follow startup logs when Kafka does not become healthy or topic init fails:
 
 ```powershell
 docker compose logs -f --tail=200 kafka
+docker compose logs kafka-init
 ```
 
 List the services declared by the Compose file and confirm that there is no ZooKeeper
@@ -177,14 +181,7 @@ service:
 docker compose config --services
 ```
 
-The output contains these four services (the display order is not significant):
-
-```text
-kafka
-mailpit
-postgres
-redis
-```
+The output contains infrastructure services including `kafka` and `kafka-init`. `kafka-ui` appears when the `debug` profile is enabled. There is no ZooKeeper service.
 
 ## 2. KRaft: what replaced ZooKeeper
 
@@ -278,10 +275,12 @@ a one-partition topic with broker defaults. Topic creation is an infrastructure/
 operation because the partition count, replication factor, retention, and compaction
 policy are part of the event contract.
 
-This repository does not yet contain automated topic provisioning. For local development,
-a developer creates the required topics explicitly. In a deployed environment, the
-platform/deployment process should provision reviewed topic definitions; application
-producers should not depend on auto-creation.
+This repository provisions project topics through the `kafka-init` one-shot container,
+which reads `infra/local-dev/kafka/topics.conf`. Developers still create the manual
+training topics in this document by hand because those topics are temporary exercises, not
+project event contracts. In deployed environments, the platform/deployment process should
+provision reviewed topic definitions; application producers should not depend on
+auto-creation.
 
 ### 4.1 Create from the host, inspect inside the Compose network
 
@@ -665,8 +664,9 @@ is not an end-to-end exactly-once guarantee.
 
 ```powershell
 # Container state and logs
-docker compose ps kafka
+docker compose ps -a kafka kafka-init
 docker compose logs --tail=200 kafka
+docker compose logs kafka-init
 
 # KRaft quorum
 docker compose exec kafka /opt/kafka/bin/kafka-metadata-quorum.sh `

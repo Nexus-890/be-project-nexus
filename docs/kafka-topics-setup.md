@@ -2,13 +2,21 @@
 
 Tài liệu này dùng sau khi đã đọc `docs/kafka-kraft.md`. File KRaft giải thích Kafka 4.x chạy như thế nào; file này giải thích cách project Nexus khai báo topic, chia partition, chạy smoke flow producer -> consumer, và xem kết quả trên Kafka UI.
 
+## Chạy nhanh trên máy mỗi developer
+
+1. Điền `infra/local-dev/.env` một lần (xem ví dụ ở mục **Chuẩn bị local infra**).
+2. Trong `be-project-nexus\infra\local-dev`, chạy `docker compose --profile debug up -d`. Compose tự tạo 7 topic, mỗi topic 4 partition; **không cần chạy `.ps1`**.
+3. Trong IntelliJ IDEA, chạy `config-service` (không profile), `notification-service` và `commerce-service` (cùng profile `kafka-smoke`).
+4. POST `http://localhost:8083/internal/kafka-smoke/messages` với JSON `{"key":"order-demo-001","message":"hello-kafka"}`. GET `http://localhost:8086/internal/kafka-smoke/messages` để thấy record đó.
+5. Mở `http://localhost:18090` → **Topics** → `nexus.training.integration.v1` → **Messages** để xem cùng `eventId`, partition, offset.
+
+Đây là Kafka riêng của từng máy, nhưng cả team dùng cùng định nghĩa topic/partition trong Git. Các lệnh chi tiết và cách kiểm tra nằm bên dưới.
+
 ## Phạm vi hiện tại
 
 - Kafka chạy bằng `infra/local-dev/compose.yaml`, không có ZooKeeper.
-- Topic contract local nằm ở `infra/local-dev/kafka/topics.json`.
-- Script provision nằm ở:
-  - `infra/local-dev/kafka/provision-topics.ps1` cho Windows PowerShell.
-  - `infra/local-dev/kafka/provision-topics.sh` cho Bash/Linux/macOS/Git Bash khi máy có `bash` và `python3`.
+- Topic contract local nằm ở `infra/local-dev/kafka/topics.conf`.
+- Compose tự chạy one-shot service `kafka-init` để tạo/validate topic từ `topics.conf`; developer không cần chạy script hằng ngày.
 - Sáu business topic đang là scaffold để thống nhất tên topic và partition trước khi viết handler domain thật.
 - Flow đang chạy end-to-end trong branch này là smoke flow:
   - producer: `commerce-service`
@@ -95,12 +103,14 @@ MAILPIT_SMTP_PORT=1025
 MAILPIT_UI_PORT=8025
 ```
 
-Start Kafka và Kafka UI:
+Start Kafka, topic initializer, và Kafka UI bằng một lệnh thường dùng:
 
 ```cmd
-docker compose --profile debug up -d --wait kafka kafka-ui
-docker compose ps kafka kafka-ui
+docker compose --profile debug up -d
+docker compose ps -a kafka kafka-init kafka-ui
 ```
+
+`kafka-init` là container one-shot dùng cùng image `apache/kafka:4.3.1`. Nó đợi broker healthy, đọc `kafka/topics.conf`, tạo topic còn thiếu, rồi validate partition/RF/config. Trạng thái `Exited (0)` là bình thường: init đã xong, không phải service bị crash.
 
 Kafka UI:
 
@@ -110,35 +120,45 @@ http://localhost:18090
 
 Nếu team dùng `KAFKA_UI_PORT` khác trong `.env`, đổi URL theo port đó.
 
-## Provision topics
+Mỗi developer có Kafka local riêng vì Compose volume nằm trên máy của người đó. Topic config thì giống nhau vì đi theo Git trong `infra/local-dev/kafka/topics.conf`. Khi pull thay đổi topic manifest, chạy lại `docker compose --profile debug up -d`; Compose sẽ chạy init path cần thiết theo dependency mới. Nếu chỉ bấm Restart container trong Docker Desktop hoặc chạy `docker compose restart kafka`, đừng xem đó là topic migration path vì completed one-shot init không được đảm bảo chạy lại.
 
-Windows PowerShell 5.1+:
+## Topic init tự động
+
+`kafka-init` validate manifest trước khi mutate Kafka. Init sẽ fail nếu manifest sai format, topic bị duplicate, hoặc topic đang tồn tại nhưng lệch partition/config. Init không delete topic, không tự tăng partition, và không alter config để tránh phá dữ liệu local.
+
+Kiểm tra log init khi cần debug:
 
 ```cmd
-powershell -NoProfile -ExecutionPolicy Bypass -File .\kafka\provision-topics.ps1
+docker compose logs kafka-init
+docker compose ps -a kafka-init
 ```
 
-Chỉ kiểm tra, không tạo topic thiếu:
+Nếu chỉ muốn check thủ công, wrapper PowerShell/Bash là diagnostic tool, không phải bước startup thường ngày:
 
 ```cmd
 powershell -NoProfile -ExecutionPolicy Bypass -File .\kafka\provision-topics.ps1 -CheckOnly
 ```
 
-Bash/Git Bash có `python3`:
-
 ```bash
-./kafka/provision-topics.sh
 ./kafka/provision-topics.sh --check-only
 ```
 
-Script đọc `kafka/topics.json`, tạo topic thiếu, rồi validate:
+Manifest `topics.conf` giữ một danh sách topic duy nhất, ví dụ format:
+
+```text
+default|partitions|4
+default|replication.factor|1
+config|cleanup.policy|delete
+config|retention.ms|604800000
+topic|nexus.training.integration.v1|commerce-service -> notification-service|request key / aggregateId|demo|Smoke producer -> consumer
+```
+
+`kafka-init` validate:
 
 - partition count đúng `4`;
 - replication factor đúng `1`;
 - `cleanup.policy=delete`;
 - `retention.ms=604800000`.
-
-Script không delete topic và không alter topic đang lệch config. Nếu có mismatch, sửa thủ công hoặc reset Kafka volume khi team thống nhất reset local data.
 
 ## Kiểm tra topic từ CLI
 
@@ -166,7 +186,17 @@ Lệnh `docker run --network host` cần Docker Desktop 4.34+ và bật host net
 
 ## Chạy smoke flow trong project
 
-Mở 3 terminal từ `be-project-nexus`.
+Mở 3 run configuration trong IntelliJ IDEA hoặc 3 terminal từ `be-project-nexus`.
+
+| Service | Port | Profile / Program arguments | Mục đích |
+|---|---:|---|---|
+| `config-service` | `8888` | không cần profile | Config Server |
+| `commerce-service` | `8083` | `--spring.profiles.active=kafka-smoke` | Producer smoke endpoint |
+| `notification-service` | `8086` | `--spring.profiles.active=kafka-smoke` | Consumer smoke endpoint |
+
+Trong IntelliJ: mở **Run → Edit Configurations**, đặt các argument ở cột trên vào **Program arguments** (không phải VM options). Chạy Config Server trước, đợi started, rồi chạy notification và commerce.
+
+Nếu muốn chạy bằng terminal:
 
 Terminal 1 - Config Server:
 
@@ -189,7 +219,7 @@ cd notification-service
 mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=kafka-smoke
 ```
 
-Profile `kafka-smoke` bind service vào `127.0.0.1`, tắt Eureka, tắt database auto-config, nhưng vẫn cần Config Server vì các service import config từ `http://localhost:8888`.
+Profile `kafka-smoke` bind service vào `127.0.0.1`, tắt Eureka, tắt database auto-config, nhưng vẫn cần Config Server vì các service import config từ `http://localhost:8888`. Có thể gọi HTTP bằng `curl.exe` như bên dưới hoặc dùng Postman với cùng URL/body.
 
 ## Produce từ commerce-service
 
@@ -365,16 +395,30 @@ Kết quả đúng: log `KAFKA_SMOKE_RECEIVED` in lại cùng `topic`, `partitio
 
 Sau khi listener return thành công, chạy lại group describe. `CURRENT-OFFSET` của partition đó phải tăng lên `offset + 1`.
 
+## Kiểm tra setup tự động (2026-10-03)
+
+Đã chạy trên một Compose stack/volume **cách ly** (Kafka host `39092`, UI `38090`), không reset dữ liệu Kafka/Postgres đang có trên máy:
+
+- Lệnh Compose từ Kafka mới tạo đúng 7 topic trong manifest, mỗi topic 4 partition/RF 1, cấu hình `cleanup.policy=delete`, `retention.ms=604800000`; `kafka-init` kết thúc `Exited (0)` trước khi UI khởi động.
+- Chạy lại `docker compose up -d` giữ nguyên message đã gửi (`qa-preserved`). Chỉnh manifest **chỉ trong stack test** rồi chạy lại đã tạo được thêm đúng một topic, không xóa topic cũ.
+- Thử cố tình để manifest yêu cầu 3 partition trong stack test: init báo lệch `partitions=4 expected=3`, Compose thất bại và UI mới không khởi động. Khôi phục manifest hợp lệ: Compose lên lại, message cũ vẫn còn.
+- `commerce-service` POST event `90beb8bd-fee0-41d5-ac68-09506037ec52` key `compose-auto-001` vào partition `0`, offset `0`; `notification-service` GET thấy đúng cùng metadata. Kafka UI API báo cluster KRaft online và topic có 4 partition.
+- Fake Kafka CLI regression, Bash syntax, PowerShell parse, Bash/PowerShell 7.5 `-CheckOnly` wrapper và Maven tests của commerce/notification đều pass. Chưa chạy native Windows PowerShell 5.1 ở môi trường Linux này.
+
+Topic `nexus.training.qa.new.v1` trong bài test thêm topic là topic QA tạm ở stack cách ly, **không nằm trong manifest của project**.
+
 ## Verification đã chạy trong branch này
+
+Bảng dưới ghi lại bài test từ commit trước khi chuyển sang `kafka-init`; kết quả của setup tự động mới nằm ở mục ngay trên.
 
 Ngày verify: 2026-10-03. Môi trường verify là Linux với Java 25 compile target release 21, Docker Compose đang chạy `apache/kafka:4.3.1` healthy. Windows CMD/PowerShell command ở trên là command team dùng trên máy Windows; riêng PowerShell đã được verify bằng PowerShell 7.5.4, chưa verify native Windows PowerShell 5.1 trong môi trường này.
 
 | Hạng mục | Kết quả | Evidence |
 |---|---|---|
-| Kafka local | Pass | `docker compose ps` showed `nexus-kafka` healthy, no ZooKeeper container |
-| Topic provision Bash | Pass | `bash kafka/provision-topics.sh` and `bash kafka/provision-topics.sh --check-only` passed |
-| Topic provision PowerShell | Pass on PS 7.5.4 | `provision-topics.ps1 -CheckOnly` passed |
-| Topic shape | Pass | `nexus.training.integration.v1` has 4 partitions, RF 1, delete cleanup, 7-day retention |
+| Kafka local | Historical pass | `docker compose ps` showed `nexus-kafka` healthy, no ZooKeeper container |
+| Topic provision Bash | Historical pass | Manual wrapper passed before `kafka-init` automation |
+| Topic check PowerShell | Historical pass on PS 7.5.4 | Manual check wrapper passed; not required for normal startup |
+| Topic shape | Historical pass | `nexus.training.integration.v1` had 4 partitions, RF 1, delete cleanup, 7-day retention |
 | Producer -> consumer smoke | Pass | POST produced `eventId=ab511243-8eed-4507-8fcf-577aa86c1bd8`, `key=root-e2e-001`, partition `1`, offset `0`; notification GET returned the same metadata |
 | Kafka UI message view | Pass | Browser verified raw event JSON, key, partition, and offset in Kafka UI Messages |
 | Two consumers same group | Pass | With notification instances on ports `8086` and `8087`, 12 spread events split as 7 records on partitions `0,1` and 5 records on partitions `2,3` |
@@ -396,10 +440,10 @@ Ngày verify: 2026-10-03. Môi trường verify là Linux với Java 25 compile 
 
 Mỗi backend developer nên chạy ít nhất một lần:
 
-1. `docker compose --profile debug up -d --wait kafka kafka-ui`.
-2. Provision topics từ manifest.
+1. `docker compose --profile debug up -d`.
+2. Confirm `kafka-init` `Exited (0)` bằng `docker compose ps -a kafka-init` hoặc `docker compose logs kafka-init`.
 3. Confirm `nexus.training.integration.v1` có 4 partitions trên CLI hoặc Kafka UI.
-4. Start Config Server, `commerce-service`, `notification-service` với profile `kafka-smoke`.
+4. Start Config Server không profile; `commerce-service` và `notification-service` với profile `kafka-smoke`.
 5. POST một message vào `commerce-service`.
 6. GET message từ `notification-service`.
 7. Search cùng `eventId` trên Kafka UI.
