@@ -34,8 +34,11 @@ be-project-nexus/
 │
 ├─ infra/
 │  └─ local-dev/
-│     ├─ compose.yaml         postgres · kafka · kafka-ui · redis · mailpit
+│     ├─ compose.yaml         postgres · kafka · kafka-ui · redis · mailpit · zipkin
+│     │                       prometheus · grafana
 │     ├─ init.sql             creates the 6 databases
+│     ├─ prometheus/          scrape targets
+│     ├─ grafana/             provisioned data source and dashboard
 │     ├─ .env                 gitignored
 │     └─ .env.example
 │
@@ -180,13 +183,18 @@ Class name suffixes:
 
 ```
 user-service/src/main/resources/application.yaml
-    spring.application.name and the Config Server import. Nothing else.
+    spring.application.name, the Config Server import and the import of
+    infra/local-dev/.env. Nothing else.
 
 config-service/src/main/resources/config/user-service.yml
     port, datasource, JPA, Swagger, business settings.
 
+config-service/src/main/resources/config/application.yml
+    what every service shares: Eureka, actuator endpoints, tracing, metrics.
+
 infra/local-dev/.env
-    credentials for docker compose only. Never committed.
+    credentials for docker compose and for the datasource of each service.
+    Never committed.
 ```
 
 Values in the local `application.yaml` **win** over values from Config Server, because
