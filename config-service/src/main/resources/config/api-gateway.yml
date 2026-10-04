@@ -1,6 +1,14 @@
 server:
   port: 8080
 
+spring:
+  cloud:
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: 1000
+
 springdoc:
   api-docs:
     enabled: true
