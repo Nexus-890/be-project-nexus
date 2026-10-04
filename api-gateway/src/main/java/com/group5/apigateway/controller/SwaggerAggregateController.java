@@ -2,7 +2,6 @@ package com.group5.apigateway.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.client.discovery.DiscoveryClient;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,9 +20,6 @@ import java.util.Map;
 public class SwaggerAggregateController {
     private final DiscoveryClient discoveryClient;
     private final WebClient.Builder webClientBuilder;
-
-    @Value("${app.api-prefix:api}")
-    private String apiPrefix;
 
     @GetMapping("/swagger-docs/all")
     public Mono<Map<String, Object>> getAllSwagger() {
@@ -149,19 +145,7 @@ public class SwaggerAggregateController {
                                     ? path
                                     : "/" + path;
 
-                    /*
-                     * /demo
-                     *
-                     * thành
-                     *
-                     * /api/demo/demo
-                     */
-                    String gatewayPath =
-                            "/"
-                                    + normalizePrefix(apiPrefix)
-                                    + "/"
-                                    + service
-                                    + normalizedPath;
+                    String gatewayPath = normalizedPath;
 
                     // Đổi tag để phân biệt service
                     addServiceTag(
@@ -334,15 +318,6 @@ public class SwaggerAggregateController {
                 );
             }
         }
-    }
-
-    private String normalizePrefix(
-            String prefix
-    ) {
-
-        return prefix
-                .replaceAll("^/+", "")
-                .replaceAll("/+$", "");
     }
 
 }
