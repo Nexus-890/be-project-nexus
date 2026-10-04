@@ -66,6 +66,27 @@ services:
     networks:
       - nexus-network
 
+  # One-shot CLI client: create/validate project topics after Kafka is ready.
+  # Exited (0) is expected; this is not another broker or controller.
+  kafka-init:
+    image: apache/kafka:4.3.1
+    entrypoint: ["/bin/bash", "/opt/nexus/kafka/init-topics.sh"]
+
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+    volumes:
+      - ./kafka:/opt/nexus/kafka:ro
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+    restart: "no"
+
+    networks:
+      - nexus-network
+
   redis:
     image: redis:8-alpine
     container_name: nexus-redis
@@ -107,8 +128,8 @@ services:
       - "${KAFKA_UI_PORT}:8080"
 
     depends_on:
-      kafka:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
 
     restart: unless-stopped
 
