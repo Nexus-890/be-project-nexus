@@ -2,7 +2,6 @@ package com.group5.apigateway.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -17,9 +16,6 @@ import java.util.Map;
 @Slf4j
 public class SwaggerProxyController {
     private final WebClient.Builder webClientBuilder;
-
-    @Value("${app.api-prefix:api}")
-    private String apiPrefix;
 
     @GetMapping("/swagger-docs/{serviceName}")
     public Mono<Map<String, Object>> getSwagger(
@@ -58,7 +54,7 @@ public class SwaggerProxyController {
                 List.of(
                         Map.of(
                                 "url",
-                                "/" + apiPrefix + "/" + service,
+                                "/",
                                 "description",
                                 "API Gateway"
                         )
