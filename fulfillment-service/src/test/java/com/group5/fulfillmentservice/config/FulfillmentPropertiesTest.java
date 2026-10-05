@@ -1,5 +1,6 @@
 package com.group5.fulfillmentservice.config;
 
+import com.group5.fulfillmentservice.shared.config.FulfillmentProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
 import org.springframework.boot.context.properties.bind.Bindable;

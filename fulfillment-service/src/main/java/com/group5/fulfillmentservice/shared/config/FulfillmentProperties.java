@@ -1,4 +1,4 @@
-package com.group5.fulfillmentservice.config;
+package com.group5.fulfillmentservice.shared.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
