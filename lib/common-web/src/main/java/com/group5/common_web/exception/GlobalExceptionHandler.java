@@ -1,4 +1,5 @@
 package com.group5.common_web.exception;
+
 import com.group5.common_core.constant.ErrorCode;
 import com.group5.common_core.exception.DomainException;
 
@@ -7,7 +8,6 @@ import io.micrometer.tracing.Tracer;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,31 +18,34 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 
 import org.springframework.validation.FieldError;
 
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
-
 
     private static final Logger log =
             LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     private final Tracer tracer;
 
-
     public GlobalExceptionHandler(Tracer tracer) {
         this.tracer = tracer;
     }
 
-    // 1. JSON REQUEST BODY KHÔNG HỢP LỆ
+
+    // =========================================================
+    // 1. INVALID OR MALFORMED REQUEST BODY
+    // =========================================================
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ProblemDetail> handleUnreadableRequestBody(
@@ -66,7 +69,7 @@ public class GlobalExceptionHandler {
         );
 
         problem.setDetail(
-                "Dữ liệu yêu cầu không hợp lệ"
+                "The request body is invalid or malformed"
         );
 
         problem.setInstance(
@@ -80,7 +83,10 @@ public class GlobalExceptionHandler {
                 .body(problem);
     }
 
-    // 2. DOMAIN EXCEPTION
+
+    // =========================================================
+    // 2. DOMAIN / BUSINESS EXCEPTION
+    // =========================================================
 
     @ExceptionHandler(DomainException.class)
     public ResponseEntity<ProblemDetail> handleDomainException(
@@ -105,15 +111,6 @@ public class GlobalExceptionHandler {
                 )
         );
 
-        /*
-         * Ví dụ status = 404
-         *
-         * title = "Not Found"
-         *
-         * status = 400
-         *
-         * title = "Bad Request"
-         */
         problem.setTitle(
                 httpStatus != null
                         ? httpStatus.getReasonPhrase()
@@ -123,7 +120,7 @@ public class GlobalExceptionHandler {
         problem.setDetail(
                 exception.getMessage() != null
                         ? exception.getMessage()
-                        : "Đã xảy ra lỗi"
+                        : "A domain error occurred"
         );
 
         problem.setInstance(
@@ -136,6 +133,12 @@ public class GlobalExceptionHandler {
                 .status(status)
                 .body(problem);
     }
+
+
+    // =========================================================
+    // 3. REQUEST VALIDATION ERROR
+    // @NotBlank, @Size, @Email, @Pattern, ...
+    // =========================================================
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ProblemDetail> handleValidation(
@@ -159,16 +162,23 @@ public class GlobalExceptionHandler {
         );
 
         problem.setDetail(
-                "Dữ liệu không hợp lệ"
+                "The request data is invalid"
         );
 
         problem.setInstance(
                 URI.create(request.getRequestURI())
         );
 
+        /*
+         * Keeps only one validation error per field.
+         *
+         * Example:
+         *
+         * email -> Invalid email address!
+         * name  -> cannot be blank!
+         */
         Map<String, String> uniqueErrors =
                 new LinkedHashMap<>();
-
 
         for (
                 FieldError error
@@ -181,17 +191,11 @@ public class GlobalExceptionHandler {
             String message =
                     getValidationMessage(enumKey);
 
-            /*
-             * Nếu cùng một field có nhiều lỗi:
-             *
-             * chỉ lấy lỗi đầu tiên.
-             */
             uniqueErrors.putIfAbsent(
                     error.getField(),
                     message
             );
         }
-
 
         List<ValidationError> errors =
                 uniqueErrors
@@ -205,7 +209,6 @@ public class GlobalExceptionHandler {
                         )
                         .toList();
 
-
         problem.setProperty(
                 "errors",
                 errors
@@ -213,13 +216,114 @@ public class GlobalExceptionHandler {
 
         addTraceId(problem);
 
+        return ResponseEntity
+                .badRequest()
+                .body(problem);
+    }
+
+
+    // =========================================================
+    // 4. HTTP METHOD NOT SUPPORTED
+    // Example:
+    // Endpoint supports GET but client sends POST
+    // =========================================================
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ProblemDetail> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException exception,
+            HttpServletRequest request
+    ) {
+
+        ProblemDetail problem =
+                ProblemDetail.forStatus(
+                        HttpStatus.METHOD_NOT_ALLOWED
+                );
+
+        problem.setType(
+                URI.create(
+                        "urn:problem:method-not-allowed"
+                )
+        );
+
+        problem.setTitle(
+                "Method Not Allowed"
+        );
+
+        problem.setDetail(
+                "The HTTP method is not supported for this endpoint"
+        );
+
+        problem.setInstance(
+                URI.create(request.getRequestURI())
+        );
+
+        addTraceId(problem);
+
+        return ResponseEntity
+                .status(HttpStatus.METHOD_NOT_ALLOWED)
+                .body(problem);
+    }
+
+
+    // =========================================================
+    // 5. INVALID PARAMETER TYPE
+    // Example:
+    // UUID id expected but client sends "abc"
+    // =========================================================
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ProblemDetail> handleTypeMismatch(
+            MethodArgumentTypeMismatchException exception,
+            HttpServletRequest request
+    ) {
+
+        ProblemDetail problem =
+                ProblemDetail.forStatus(
+                        HttpStatus.BAD_REQUEST
+                );
+
+        problem.setType(
+                URI.create(
+                        "urn:problem:invalid-parameter"
+                )
+        );
+
+        problem.setTitle(
+                "Invalid Parameter"
+        );
+
+        if (exception.getRequiredType() == UUID.class) {
+
+            problem.setDetail(
+                    "Value '" + exception.getValue()
+                            + "' is not a valid UUID for parameter '"
+                            + exception.getName() + "'"
+            );
+
+        } else {
+
+            problem.setDetail(
+                    "Value '" + exception.getValue()
+                            + "' is invalid for parameter '"
+                            + exception.getName() + "'"
+            );
+        }
+
+        problem.setInstance(
+                URI.create(request.getRequestURI())
+        );
+
+        addTraceId(problem);
 
         return ResponseEntity
                 .badRequest()
                 .body(problem);
     }
 
-    // 4. TẤT CẢ LỖI KHÔNG DỰ ĐOÁN ĐƯỢC
+
+    // =========================================================
+    // 6. UNEXPECTED / UNHANDLED ERROR
+    // =========================================================
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ProblemDetail> handleUnexpectedException(
@@ -229,18 +333,23 @@ public class GlobalExceptionHandler {
 
         String traceId =
                 getTraceId();
+
+        /*
+         * The real exception and stack trace are logged
+         * on the server only.
+         *
+         * They are never exposed to the client.
+         */
         log.error(
                 "Unexpected exception. traceId={}",
                 traceId,
                 exception
         );
 
-
         ProblemDetail problem =
                 ProblemDetail.forStatus(
                         HttpStatus.INTERNAL_SERVER_ERROR
                 );
-
 
         problem.setType(
                 URI.create(
@@ -253,14 +362,12 @@ public class GlobalExceptionHandler {
         );
 
         problem.setDetail(
-                "Đã xảy ra lỗi hệ thống"
+                "An unexpected error occurred"
         );
-
 
         problem.setInstance(
                 URI.create(request.getRequestURI())
         );
-
 
         if (traceId != null) {
 
@@ -270,15 +377,15 @@ public class GlobalExceptionHandler {
             );
         }
 
-
         return ResponseEntity
-                .status(
-                        HttpStatus.INTERNAL_SERVER_ERROR
-                )
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(problem);
     }
 
-    // VALIDATION MESSAGE
+
+    // =========================================================
+    // VALIDATION MESSAGE RESOLUTION
+    // =========================================================
 
     private String getValidationMessage(
             String enumKey
@@ -288,30 +395,35 @@ public class GlobalExceptionHandler {
                 enumKey == null
                         || enumKey.isBlank()
         ) {
-            return "Dữ liệu không hợp lệ";
+            return "Invalid request data";
         }
-
 
         try {
 
             ErrorCode errorCode =
                     ErrorCode.valueOf(enumKey);
 
-
             if (errorCode.getMessage() != null) {
                 return errorCode.getMessage();
             }
-
 
             return enumKey;
 
         } catch (IllegalArgumentException exception) {
 
+            /*
+             * If the annotation contains a normal message
+             * instead of an ErrorCode enum name,
+             * return the message directly.
+             */
             return enumKey;
         }
     }
 
+
+    // =========================================================
     // TRACE ID
+    // =========================================================
 
     private void addTraceId(
             ProblemDetail problem
@@ -319,7 +431,6 @@ public class GlobalExceptionHandler {
 
         String traceId =
                 getTraceId();
-
 
         if (traceId != null) {
 
@@ -337,15 +448,12 @@ public class GlobalExceptionHandler {
             return null;
         }
 
-
         Span span =
                 tracer.currentSpan();
-
 
         if (span == null) {
             return null;
         }
-
 
         return span
                 .context()
@@ -353,7 +461,9 @@ public class GlobalExceptionHandler {
     }
 
 
+    // =========================================================
     // VALIDATION ERROR RESPONSE
+    // =========================================================
 
     private record ValidationError(
             String field,
