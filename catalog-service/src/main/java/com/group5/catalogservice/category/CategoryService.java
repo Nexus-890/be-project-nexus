@@ -97,15 +97,16 @@ public class CategoryService {
     }
 
     @Transactional
-    public CategoryResponse update (
+    public CategoryResponse update(
             UUID id,
-            CategoryRequest request){
+            CategoryRequest request) {
         log.info("Update category: name={},slug={}, description={}", request.getName(),
-                request.getSlug(),request.getDescription());
+                request.getSlug(), request.getDescription());
 
         Category category = categoryRepository
                 .findByIdAndDeleteAtIsNull(id)
                 .orElseThrow(() -> {
+
                     log.warn("Category not found: id={}", id);
 
                     return new IllegalArgumentException(
@@ -113,7 +114,7 @@ public class CategoryService {
                     );
                 });
 
-        String slug = slugValidation.normalizeAndValidate(request.getSlug()) ;
+        String slug = slugValidation.normalizeAndValidate(request.getSlug());
 
         if (categoryRepository.existsBySlugAndIdNot(slug, id)) {
             log.warn(
@@ -125,8 +126,8 @@ public class CategoryService {
             );
         }
 
-        category.setName(request.getName());
-        category.setSlug(request.getSlug());
+        category.setName(request.getName().trim());
+        category.setSlug(slug);
         category.setDescription(request.getDescription());
 
         Category saved = categoryRepository.saveAndFlush(category);
@@ -141,38 +142,38 @@ public class CategoryService {
         return toResponse(saved);
     }
 
-        @Transactional(readOnly = true)
-        public CategoryResponse getById (UUID id){
-            log.debug("Getting category: id={}", id);
+    @Transactional(readOnly = true)
+    public CategoryResponse getById(UUID id) {
+        log.debug("Getting category: id={}", id);
 
-            Category category = categoryRepository
-                    .findByIdAndDeleteAtIsNull(id)
-                    .orElseThrow(() ->{
-                            log.warn("Category not found: id={}", id);
+        Category category = categoryRepository
+                .findByIdAndDeleteAtIsNull(id)
+                .orElseThrow(() -> {
+                    log.warn("Category not found: id={}", id);
 
-            return new IllegalArgumentException(
-                    "Category not found"
-            );
-        });
+                    return new IllegalArgumentException(
+                            "Category not found"
+                    );
+                });
 
-    log.debug(
-            "Category found: id={}, name={}, slug={}",
-            category.getId(),
-            category.getName(),
-            category.getSlug()
-            );
+        log.debug(
+                "Category found: id={}, name={}, slug={}",
+                category.getId(),
+                category.getName(),
+                category.getSlug()
+        );
 
-            return toResponse(category);
-        }
+        return toResponse(category);
+    }
 
-        private CategoryResponse toResponse (Category category){
-            return new CategoryResponse(
-                    category.getId(),
-                    category.getParentId(),
-                    category.getName(),
-                    category.getSlug(),
-                    category.getLevel(),
-                    category.getPath()
-            );
-        }
+    private CategoryResponse toResponse(Category category) {
+        return new CategoryResponse(
+                category.getId(),
+                category.getParentId(),
+                category.getName(),
+                category.getSlug(),
+                category.getLevel(),
+                category.getPath()
+        );
+    }
 }
