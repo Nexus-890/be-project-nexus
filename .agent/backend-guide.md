@@ -63,7 +63,19 @@ Recommended root structure:
 be-project-nexus/
 |
 |-- lib/
-|   `-- pom.xml
+|   |-- pom.xml
+|   |-- mvnw
+|   |-- mvnw.cmd
+|   |-- .mvn/
+|   |   `-- wrapper/
+|   |-- common-core/
+|   |   `-- pom.xml
+|   |-- common-web/
+|   |   `-- pom.xml
+|   |-- common-security/
+|   |   `-- pom.xml
+|   `-- common-test/
+|       `-- pom.xml
 |
 |-- config-service/
 |   |-- pom.xml
@@ -165,6 +177,14 @@ A business-specific dependency should stay inside that service's own `pom.xml`.
 
     <packaging>pom</packaging>
 
+    <!-- Shared library modules built together from lib/ -->
+    <modules>
+        <module>common-core</module>
+        <module>common-web</module>
+        <module>common-security</module>
+        <module>common-test</module>
+    </modules>
+
     <name/>
     <description/>
     <url/>
@@ -255,6 +275,265 @@ inside the parent means:
 > "Every child service inherits this dependency."
 
 Therefore, use parent `<dependencies>` carefully.
+
+---
+
+## 3.3 Shared Library Modules in `lib/`
+
+The `lib/` directory is not only the Maven parent. It also contains reusable Java libraries shared by multiple services.
+
+Current module layout:
+
+```text
+lib/
+|-- pom.xml
+|-- mvnw
+|-- mvnw.cmd
+|-- .mvn/
+|   `-- wrapper/
+|-- common-core/
+|-- common-web/
+|-- common-security/
+`-- common-test/
+```
+
+Module responsibilities:
+
+| Module | Responsibility |
+|---|---|
+| `common-core` | Shared domain-level types such as `DomainException`, `ErrorCode`, pagination/request models, and other code that is not tied to a running service. |
+| `common-web` | Shared Servlet/WebMVC behavior such as `GlobalExceptionHandler`, `TraceIdFilter`, and Spring Boot auto-configuration. |
+| `common-security` | Shared security components. It may remain empty initially, but it must still build successfully. |
+| `common-test` | Shared test utilities. It may remain empty initially, but it must still build successfully. |
+
+These modules are **libraries**, not standalone microservices. They do not need their own `@SpringBootApplication`, server port, `application.yml`, templates, or static resources unless a future requirement explicitly needs them.
+
+### 3.3.1 Shared libraries must build as plain JARs
+
+The parent POM applies the Spring Boot Maven plugin to child modules. A shared library must not be repackaged as an executable Spring Boot JAR.
+
+Each shared library module should disable Spring Boot repackaging:
+
+```xml
+<properties>
+    <spring-boot.repackage.skip>true</spring-boot.repackage.skip>
+</properties>
+```
+
+The result must remain a normal dependency JAR that other services can place on their classpath.
+
+### 3.3.2 `common-web` depends on `common-core`
+
+`common-web` handles exceptions defined in `common-core`, so its `pom.xml` must include `common-core`:
+
+```xml
+<dependency>
+    <groupId>com.group5</groupId>
+    <artifactId>common-core</artifactId>
+    <version>${project.version}</version>
+</dependency>
+```
+
+`common-web` also needs the web, auto-configuration, servlet, and tracing APIs used by the handler/filter implementation. Keep these dependencies in `common-web`; do not move them into unrelated services or into `common-core` unless the code there directly requires them.
+
+### 3.3.3 `common-web` auto-configuration
+
+A Servlet service should receive the shared exception handler and trace filter by adding the `common-web` dependency. The service should **not** need to write:
+
+```java
+@Import(GlobalExceptionHandler.class)
+```
+
+To make this work, `common-web` registers an auto-configuration class, for example:
+
+```java
+@AutoConfiguration
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+public class CommonWebAutoConfiguration {
+    // @Bean GlobalExceptionHandler
+    // @Bean TraceIdFilter
+}
+```
+
+and must contain this resource file:
+
+```text
+common-web/src/main/resources/
+`-- META-INF/
+    `-- spring/
+        `-- org.springframework.boot.autoconfigure.AutoConfiguration.imports
+```
+
+The file contains the fully-qualified auto-configuration class name:
+
+```text
+com.group5.common_web.autoconfigure.CommonWebAutoConfiguration
+```
+
+At startup Spring Boot reads this file, loads `CommonWebAutoConfiguration`, and registers the shared web components.
+
+Conceptually:
+
+```text
+Business Service
+      |
+      | dependency: common-web
+      v
+common-web JAR
+      |
+      | AutoConfiguration.imports
+      v
+CommonWebAutoConfiguration
+      |
+      +--> GlobalExceptionHandler
+      `--> TraceIdFilter
+```
+
+### 3.3.4 Using `common-web` from a Servlet business service
+
+A Spring MVC business service that wants the shared handler/filter adds:
+
+```xml
+<dependency>
+    <groupId>com.group5</groupId>
+    <artifactId>common-web</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+No manual `@Import(GlobalExceptionHandler.class)` or component-scan expansion should be required when the auto-configuration resource is present.
+
+`common-web` already depends on `common-core`, so Maven can resolve `common-core` transitively. If a service directly imports and uses `DomainException`, `ErrorCode`, or other `common-core` APIs in its own source code, declaring `common-core` explicitly in that service is recommended because it is then a direct dependency of the service:
+
+```xml
+<dependency>
+    <groupId>com.group5</groupId>
+    <artifactId>common-core</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+### 3.3.5 Throwing a domain exception
+
+The project uses the shared `ErrorCode` enum to avoid hard-coding the HTTP status/message at every throw site.
+
+Example:
+
+```java
+throw new DomainException(ErrorCode.NOT_FOUND);
+```
+
+or, when a dynamic message is intentionally needed:
+
+```java
+throw new DomainException(
+        ErrorCode.INVALID_QUANTITY,
+        "Quantity must be greater than zero"
+);
+```
+
+The flow is:
+
+```text
+ErrorCode
+   |
+   v
+DomainException
+   |
+   v
+GlobalExceptionHandler
+   |
+   v
+RFC 7807 ProblemDetail response
+```
+
+The shared handler is responsible for translating the exception into the HTTP response. Business code should not build the error response manually.
+
+### 3.3.6 Error response contract
+
+Shared web exceptions use Spring `ProblemDetail` rather than the normal success `APIResponse<T>` wrapper.
+
+A domain error response should contain the RFC 7807 fields and the current tracing identifier:
+
+```json
+{
+  "type": "urn:problem:domain-error",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "Not found!",
+  "instance": "/api/example/123",
+  "traceId": "<current-trace-id>"
+}
+```
+
+Validation failures return HTTP `400` and an `errors` array. Each field should appear at most once:
+
+```json
+{
+  "type": "urn:problem:validation-error",
+  "title": "Validation Failed",
+  "status": 400,
+  "detail": "Dữ liệu không hợp lệ",
+  "instance": "/api/example",
+  "traceId": "<current-trace-id>",
+  "errors": [
+    {
+      "field": "email",
+      "message": "Invalid email address!"
+    }
+  ]
+}
+```
+
+Unexpected exceptions return HTTP `500`. The response must not expose the original exception message, Java class name, or stack trace. The full exception is logged server-side once together with the trace ID.
+
+### 3.3.7 Trace ID behavior
+
+`TraceIdFilter` must reuse the trace that Micrometer Tracing has already created for the current request.
+
+It must **not** create another ID with `UUID.randomUUID()` or another generator.
+
+The current trace ID is copied to the response header:
+
+```text
+X-Trace-Id: <current-trace-id>
+```
+
+The same trace ID is also added to the `ProblemDetail` body when available.
+
+### 3.3.8 Local build and usage workflow
+
+The shared libraries are local Maven modules. They do not have to be deployed to Nexus before other services can use them during local development.
+
+From `lib/`, build and install all shared modules into the local Maven repository:
+
+Linux/macOS:
+
+```bash
+./mvnw clean install
+```
+
+Windows:
+
+```text
+mvnw.cmd clean install
+```
+
+Then build or run the consuming service normally.
+
+When a shared library changes, reinstall `lib/` before rebuilding a service that consumes the updated JAR.
+
+Important distinction:
+
+```text
+mvn install
+    -> installs the artifact into the developer's local Maven repository
+
+mvn deploy
+    -> publishes the artifact to a remote repository such as Nexus
+```
+
+For the current local workflow, `install` is sufficient.
 
 ---
 

@@ -19,6 +19,13 @@
 
     <!-- Đây là Parent POM, không phải application -->
     <packaging>pom</packaging>
+    <modules>
+
+        <module>common-core</module>
+
+        <module>common-web</module>
+
+    </modules>
 
     <name/>
     <description/>
