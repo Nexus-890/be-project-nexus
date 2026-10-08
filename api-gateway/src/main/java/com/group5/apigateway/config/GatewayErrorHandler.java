@@ -3,14 +3,12 @@ package com.group5.apigateway.config;
 import io.micrometer.tracing.handler.TracingObservationHandler.TracingContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
-import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
+import org.springframework.http.*;
 import org.springframework.http.codec.HttpMessageWriter;
 import org.springframework.http.codec.ServerCodecConfigurer;
 import org.springframework.http.server.reactive.observation.ServerRequestObservationContext;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import org.springframework.web.reactive.result.view.ViewResolver;
 import org.springframework.web.server.ResponseStatusException;
@@ -68,15 +66,34 @@ public class GatewayErrorHandler implements WebExceptionHandler {
 
         return ServerResponse.status(status)
                 .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .headers(headers -> {
+                    // Giữ thời gian chờ từ TTL Redis khi limiter phát sinh lỗi 429.
+                    if (ex instanceof HttpClientErrorException.TooManyRequests error) {
+                        HttpHeaders sourceHeaders = error.getResponseHeaders();
+
+                        if (sourceHeaders != null) {
+                            String retryAfter =
+                                    sourceHeaders.getFirst(HttpHeaders.RETRY_AFTER);
+
+                            if (retryAfter != null) {
+                                headers.set(HttpHeaders.RETRY_AFTER, retryAfter);
+                            }
+                        }
+                    }
+                })
                 .bodyValue(problem)
                 .flatMap(response -> response.writeTo(exchange, responseContext));
     }
-
 
     private HttpStatus resolveStatus(Throwable ex) {
         //NOT HAVE ROUTE SPRINT THROW ERROR CODE          404
         //EUREKA NOT HAVE INSTANCE -> GATEWAY THROW       503
         //SERVICE DOWN | EUREKA CHƯA KỊP UPDATE           503
+
+        if (ex instanceof HttpClientErrorException.TooManyRequests) {
+            return HttpStatus.TOO_MANY_REQUESTS;
+        }
+
         if (ex instanceof ResponseStatusException statusException) {
             HttpStatusCode code = statusException.getStatusCode();
             HttpStatus status = HttpStatus.resolve(code.value());
@@ -95,6 +112,7 @@ public class GatewayErrorHandler implements WebExceptionHandler {
             case NOT_FOUND -> "No route matches this path";
             case SERVICE_UNAVAILABLE -> "The service behind this path is not available";
             case GATEWAY_TIMEOUT -> "The service behind this path did not answer in time";
+            case TOO_MANY_REQUESTS -> "Too many requests from this IP; retry after the indicated delay";
             default -> status.getReasonPhrase();
         };
     }

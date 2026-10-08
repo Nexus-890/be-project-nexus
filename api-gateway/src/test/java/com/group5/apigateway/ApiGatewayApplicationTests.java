@@ -3,7 +3,12 @@ package com.group5.apigateway;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "spring.config.name=api-gateway-test",
+        "spring.cloud.config.enabled=false",
+        "eureka.client.enabled=false",
+        "spring.cloud.discovery.enabled=false"
+})
 class ApiGatewayApplicationTests {
 
 	@Test
