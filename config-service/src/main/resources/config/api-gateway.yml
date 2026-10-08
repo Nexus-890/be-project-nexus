@@ -1,7 +1,15 @@
 server:
   port: 8080
+  forward-headers-strategy: none
 
 spring:
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      connect_timeout: 200ms
+      timeout: 200ms
   cloud:
     gateway:
       server:
@@ -22,3 +30,8 @@ springdoc:
     url: /swagger-docs/all
 
     disable-swagger-default-url: true
+
+nexus:
+  gateway:
+    rate-limit:
+      request-per-minute: 100
