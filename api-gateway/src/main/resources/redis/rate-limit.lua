@@ -1,3 +1,5 @@
+-- Kiểm tra và tăng counter nguyên tử, kể cả khi chạy nhiều gateway.
+-- Kết quả: {được phép (1/0), quota còn lại, TTL còn lại (mili giây)}.
 local key = KEYS[1]
 local limit = tonumber(ARGV[1])
 local windowMillis = tonumber(ARGV[2])
@@ -25,12 +27,3 @@ end
 
 count = redis.call("INCR", key)
 return {1, limit - count, ttlMillis}
-
--- return result: [allowed, remaining, ttlMillis]
-
---```
--- Ví dụ:
-
---[1, 99, 60000] → được phép, còn 99 request
---[0, 0, 42000]  → bị chặn, còn khoảng 42 giây
---```

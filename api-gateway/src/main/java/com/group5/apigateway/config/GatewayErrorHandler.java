@@ -64,13 +64,10 @@ public class GatewayErrorHandler implements WebExceptionHandler {
         problem.setInstance(URI.create(path));
         problem.setProperty("traceId", traceId(exchange));
 
-//        return ServerResponse.status(status)
-//                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-//                .bodyValue(problem)
-//                .flatMap(response -> response.writeTo(exchange, responseContext));
         return ServerResponse.status(status)
                 .contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .headers(headers -> {
+                    // Giữ thời gian chờ từ TTL Redis khi limiter phát sinh lỗi 429.
                     if (ex instanceof HttpClientErrorException.TooManyRequests error) {
                         HttpHeaders sourceHeaders = error.getResponseHeaders();
 
@@ -88,28 +85,27 @@ public class GatewayErrorHandler implements WebExceptionHandler {
                 .flatMap(response -> response.writeTo(exchange, responseContext));
     }
 
+    private HttpStatus resolveStatus(Throwable ex) {
+        //NOT HAVE ROUTE SPRINT THROW ERROR CODE          404
+        //EUREKA NOT HAVE INSTANCE -> GATEWAY THROW       503
+        //SERVICE DOWN | EUREKA CHƯA KỊP UPDATE           503
 
-        private HttpStatus resolveStatus(Throwable ex) {
-            //NOT HAVE ROUTE SPRINT THROW ERROR CODE          404
-            //EUREKA NOT HAVE INSTANCE -> GATEWAY THROW       503
-            //SERVICE DOWN | EUREKA CHƯA KỊP UPDATE           503
-
-            if (ex instanceof HttpClientErrorException.TooManyRequests) {
-                return HttpStatus.TOO_MANY_REQUESTS;
-            }
-
-            if (ex instanceof ResponseStatusException statusException) {
-                HttpStatusCode code = statusException.getStatusCode();
-                HttpStatus status = HttpStatus.resolve(code.value());
-                return status != null ? status : HttpStatus.INTERNAL_SERVER_ERROR;
-            }
-            for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
-                if (cause instanceof ConnectException || cause instanceof UnknownHostException) {
-                    return HttpStatus.SERVICE_UNAVAILABLE;
-                }
-            }
-            return HttpStatus.INTERNAL_SERVER_ERROR;
+        if (ex instanceof HttpClientErrorException.TooManyRequests) {
+            return HttpStatus.TOO_MANY_REQUESTS;
         }
+
+        if (ex instanceof ResponseStatusException statusException) {
+            HttpStatusCode code = statusException.getStatusCode();
+            HttpStatus status = HttpStatus.resolve(code.value());
+            return status != null ? status : HttpStatus.INTERNAL_SERVER_ERROR;
+        }
+        for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConnectException || cause instanceof UnknownHostException) {
+                return HttpStatus.SERVICE_UNAVAILABLE;
+            }
+        }
+        return HttpStatus.INTERNAL_SERVER_ERROR;
+    }
 
     private String detail(HttpStatus status) {
         return switch (status) {

@@ -1,14 +1,12 @@
 package com.group5.apigateway.ratelimit;
 
 import com.group5.apigateway.config.RateLimitProperties;
-import org.apache.http.HttpHeaders;
-import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cloud.gateway.filter.ratelimit.AbstractRateLimiter;
-import org.springframework.cloud.gateway.support.ConfigurationService;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataAccessException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -71,6 +69,7 @@ public class RedisWindowRateLimiter extends AbstractRateLimiter<RateLimitPropert
                             Integer.toString(limit),
                             Long.toString(WINDOW_MILLIS))
                     .single()
+                    // Chặn cả trường hợp Redis nhận kết nối nhưng không trả lời.
                     .timeout(REDIS_TIMEOUT)
                     .map(result -> {
                         if (result.size() != 3) {
@@ -94,6 +93,7 @@ public class RedisWindowRateLimiter extends AbstractRateLimiter<RateLimitPropert
                                     Long.toString(remaining)));
                         }
 
+                        // Retry-After tính bằng giây; làm tròn lên theo TTL còn lại.
                         long retryAfter = Math.max(
                                 1, (ttlMillis + 999) / 1000);
 
@@ -119,5 +119,5 @@ public class RedisWindowRateLimiter extends AbstractRateLimiter<RateLimitPropert
                                         new Response(true, Map.of()));
                             });
         });
-    }   
-}   
+    }
+}

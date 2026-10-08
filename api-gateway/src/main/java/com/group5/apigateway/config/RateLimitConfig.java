@@ -14,6 +14,7 @@ import reactor.core.publisher.Mono;
 public class RateLimitConfig {
 
     @Bean
+    // Refresh thay cấu hình quota, không xóa counter đang có trong Redis.
     @RefreshScope
     @ConfigurationProperties(prefix = "nexus.gateway.rate-limit")
     public RateLimitProperties rateLimitProperties() {
@@ -24,6 +25,7 @@ public class RateLimitConfig {
     @Primary
     public KeyResolver clientIpKeyResolver() {
         return exchange -> {
+            // Không dùng X-Forwarded-For: client có thể giả IP để né quota.
             var remoteAddress = exchange.getRequest().getRemoteAddress();
 
             if (remoteAddress == null || remoteAddress.getAddress() == null) {

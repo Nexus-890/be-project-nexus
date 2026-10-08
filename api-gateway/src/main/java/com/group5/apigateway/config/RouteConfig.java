@@ -16,6 +16,8 @@ public class RouteConfig {
             RouteLocatorBuilder builder,
             RedisWindowRateLimiter limiter,
             @Qualifier("clientIpKeyResolver") KeyResolver resolver) {
+        // Chỉ giới hạn các route nghiệp vụ, không áp dụng cho Actuator/Swagger.
+        // throwOnLimit chuyển 429 sang GatewayErrorHandler để trả JSON và Retry-After.
         return builder.routes()
 
                 .route("user-service", route -> route

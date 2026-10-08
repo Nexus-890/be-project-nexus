@@ -1,5 +1,6 @@
 server:
   port: 8080
+  # Dùng IP kết nối trực tiếp; không tin header IP do client tự gửi.
   forward-headers-strategy: none
 
 spring:
@@ -8,7 +9,8 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
-      connect_timeout: 200ms
+      # Giới hạn thời gian chờ Redis để fail-open không làm treo request.
+      connect-timeout: 200ms
       timeout: 200ms
   cloud:
     gateway:
@@ -34,4 +36,5 @@ springdoc:
 nexus:
   gateway:
     rate-limit:
-      request-per-minute: 100
+      # Có thể đổi qua Config Server và /actuator/refresh; đủ cho polling 2 giây.
+      requests-per-minute: 100
