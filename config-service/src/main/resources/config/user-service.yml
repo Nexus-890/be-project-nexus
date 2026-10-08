@@ -1,6 +1,13 @@
 server:
   port: 8081
-
+nexus:
+  iam:
+    jwt:
+      issuer: user-service
+      audience: nexus-services
+      key-id: ${JWT_KEY_ID:}
+      private-key-path: ${JWT_PRIVATE_KEY_PATH:}
+      public-key-path: ${JWT_PUBLIC_KEY_PATH:}
 spring:
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/user_db
@@ -9,7 +16,6 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
-
 springdoc:
   api-docs:
     enabled: true
