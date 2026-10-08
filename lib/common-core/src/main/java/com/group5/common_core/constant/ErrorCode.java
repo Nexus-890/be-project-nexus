@@ -53,7 +53,13 @@ public enum ErrorCode {
     TOO_MANY_OTP("You sent otp too much", HttpStatus.BAD_REQUEST),
     INVALID_DEPOSIT("Deposit is invalid", HttpStatus.BAD_REQUEST),
     INVALID_TERM("Month term is invalid", HttpStatus.BAD_REQUEST),
-    NOT_FOUND("Not found!", HttpStatus.NOT_FOUND);
+    NOT_FOUND("Not found!", HttpStatus.NOT_FOUND),
+    //===============Catalog service=====================
+    SLUG_DUPLICATED("Slug duplicated", HttpStatus.CONFLICT),
+    CATEGORY_NOT_FOUND("Category not found", HttpStatus.NOT_FOUND),
+    CATEGORY_LEVEL_MAX("Category max level",HttpStatus.BAD_REQUEST),
+    INVALID_PARENT("Category cannot be its own parent",HttpStatus.BAD_REQUEST),
+    INVALID_CHANGE_PARENT("Cannot change parent of a category that has children",HttpStatus.BAD_REQUEST);
 
     final String message;
     final HttpStatus status;
