@@ -8,3 +8,6 @@ spring:
       - optional:file:./infra/local-dev/.env[.properties]
       - configserver:http://localhost:8888
 
+nexus:
+  catalog:
+    category-max-level: 3

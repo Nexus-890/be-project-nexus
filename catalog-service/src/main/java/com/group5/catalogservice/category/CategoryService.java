@@ -4,6 +4,8 @@ import com.group5.catalogservice.category.dto.CategoryRequest;
 import com.group5.catalogservice.category.dto.CategoryResponse;
 import com.group5.catalogservice.shared.config.CatalogProperties;
 import com.group5.catalogservice.shared.validation.SlugValidation;
+import com.group5.common_core.constant.ErrorCode;
+import com.group5.common_core.exception.DomainException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -28,9 +30,8 @@ public class CategoryService {
 
         if (categoryRepository.existsBySlug(slug)) {
             log.warn("Slug is exists: slug={}", slug);
-            throw new IllegalArgumentException(
-                    "Slug exists: " + slug
-            );
+            throw new DomainException(
+                    ErrorCode.SLUG_DUPLICATED);
         }
 
         Category parent = null;
@@ -39,9 +40,8 @@ public class CategoryService {
         if (request.getParentId() != null) {
             parent = categoryRepository
                     .findByIdAndDeleteAtIsNull(request.getParentId())
-                    .orElseThrow(() -> new IllegalArgumentException(
-                            "Parent catagory not found"
-                    ));
+                    .orElseThrow(() -> new DomainException(
+                            ErrorCode.NOT_FOUND));
 
             level = (short) ((short) parent.getLevel() + 1);
 
@@ -55,10 +55,7 @@ public class CategoryService {
                     request.getParentId()
             );
 
-            throw new IllegalArgumentException(
-                    "Category level cannot exceed "
-                            + catalogProperties.getCategoryMaxLevel()
-            );
+            throw new DomainException(ErrorCode.CATEGORY_LEVEL_MAX);
         }
 
 // Tạo category ở ngoài if
@@ -109,9 +106,8 @@ public class CategoryService {
 
                     log.warn("Category not found: id={}", id);
 
-                    return new IllegalArgumentException(
-                            "Category not found"
-                    );
+                    return new DomainException(
+                            ErrorCode.CATEGORY_NOT_FOUND );
                 });
 
         String slug = slugValidation.normalizeAndValidate(request.getSlug());
@@ -121,9 +117,8 @@ public class CategoryService {
                     "Category slug already exists: slug={}, categoryId={}", slug, id
             );
 
-            throw new IllegalArgumentException(
-                    "Slug exists: " + slug
-            );
+            throw new DomainException(
+                    ErrorCode.SLUG_DUPLICATED);
         }
 
         category.setName(request.getName().trim());
@@ -151,9 +146,8 @@ public class CategoryService {
                 .orElseThrow(() -> {
                     log.warn("Category not found: id={}", id);
 
-                    return new IllegalArgumentException(
-                            "Category not found"
-                    );
+                    return new DomainException(
+                            ErrorCode.CATEGORY_NOT_FOUND);
                 });
 
         log.debug(
