@@ -73,7 +73,7 @@ public class CategoryService {
 
         String path = parent == null
                 ? "/" + slug + "/"
-                : parent.getSlug() +"/" + slug + "/";
+                : parent.getPath() + slug + "/";
 
         category.setPath(path);
 
@@ -122,14 +122,11 @@ public class CategoryService {
                 request.getSlug()
         );
 
-        if(!category.getSlug().equals(slug)){
+        if (!category.getSlug().equals(slug)) {
             if (categoryRepository.existsBySlugAndIdNot(slug, id)) {
 
                 log.warn(
-                        "Category slug already exists: slug={}, categoryId={}",
-                        slug,
-                        id
-                );
+                        "Category slug already exists: slug={}, categoryId={}", slug, id);
 
                 throw new DomainException(
                         ErrorCode.SLUG_DUPLICATED
@@ -152,7 +149,7 @@ public class CategoryService {
                         id
                 );
 
-                throw new DomainException( ErrorCode.INVALID_CHANGE_PARENT);
+                throw new DomainException(ErrorCode.INVALID_CHANGE_PARENT);
             }
         }
 
@@ -199,7 +196,7 @@ public class CategoryService {
         // Update path
         String path = parent == null
                 ? "/" + category.getSlug() + "/"
-                : parent.getSlug() + "/" + category.getSlug() + "/";
+                : parent.getPath() + category.getSlug() + "/";
 
         category.setPath(path);
 
