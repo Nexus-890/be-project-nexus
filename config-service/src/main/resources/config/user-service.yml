@@ -2,6 +2,7 @@ server:
   port: 8081
 nexus:
   iam:
+    access-token-expiry-minutes: 60
     jwt:
       issuer: user-service
       audience: nexus-services
