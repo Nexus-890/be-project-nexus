@@ -3,14 +3,12 @@ package com.group5.apigateway.config;
 import io.micrometer.tracing.handler.TracingObservationHandler.TracingContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
-import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
+import org.springframework.http.*;
 import org.springframework.http.codec.HttpMessageWriter;
 import org.springframework.http.codec.ServerCodecConfigurer;
 import org.springframework.http.server.reactive.observation.ServerRequestObservationContext;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import org.springframework.web.reactive.result.view.ViewResolver;
 import org.springframework.web.server.ResponseStatusException;
@@ -66,35 +64,59 @@ public class GatewayErrorHandler implements WebExceptionHandler {
         problem.setInstance(URI.create(path));
         problem.setProperty("traceId", traceId(exchange));
 
+//        return ServerResponse.status(status)
+//                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+//                .bodyValue(problem)
+//                .flatMap(response -> response.writeTo(exchange, responseContext));
         return ServerResponse.status(status)
                 .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .headers(headers -> {
+                    if (ex instanceof HttpClientErrorException.TooManyRequests error) {
+                        HttpHeaders sourceHeaders = error.getResponseHeaders();
+
+                        if (sourceHeaders != null) {
+                            String retryAfter =
+                                    sourceHeaders.getFirst(HttpHeaders.RETRY_AFTER);
+
+                            if (retryAfter != null) {
+                                headers.set(HttpHeaders.RETRY_AFTER, retryAfter);
+                            }
+                        }
+                    }
+                })
                 .bodyValue(problem)
                 .flatMap(response -> response.writeTo(exchange, responseContext));
     }
 
 
-    private HttpStatus resolveStatus(Throwable ex) {
-        //NOT HAVE ROUTE SPRINT THROW ERROR CODE          404
-        //EUREKA NOT HAVE INSTANCE -> GATEWAY THROW       503
-        //SERVICE DOWN | EUREKA CHƯA KỊP UPDATE           503
-        if (ex instanceof ResponseStatusException statusException) {
-            HttpStatusCode code = statusException.getStatusCode();
-            HttpStatus status = HttpStatus.resolve(code.value());
-            return status != null ? status : HttpStatus.INTERNAL_SERVER_ERROR;
-        }
-        for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
-            if (cause instanceof ConnectException || cause instanceof UnknownHostException) {
-                return HttpStatus.SERVICE_UNAVAILABLE;
+        private HttpStatus resolveStatus(Throwable ex) {
+            //NOT HAVE ROUTE SPRINT THROW ERROR CODE          404
+            //EUREKA NOT HAVE INSTANCE -> GATEWAY THROW       503
+            //SERVICE DOWN | EUREKA CHƯA KỊP UPDATE           503
+
+            if (ex instanceof HttpClientErrorException.TooManyRequests) {
+                return HttpStatus.TOO_MANY_REQUESTS;
             }
+
+            if (ex instanceof ResponseStatusException statusException) {
+                HttpStatusCode code = statusException.getStatusCode();
+                HttpStatus status = HttpStatus.resolve(code.value());
+                return status != null ? status : HttpStatus.INTERNAL_SERVER_ERROR;
+            }
+            for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+                if (cause instanceof ConnectException || cause instanceof UnknownHostException) {
+                    return HttpStatus.SERVICE_UNAVAILABLE;
+                }
+            }
+            return HttpStatus.INTERNAL_SERVER_ERROR;
         }
-        return HttpStatus.INTERNAL_SERVER_ERROR;
-    }
 
     private String detail(HttpStatus status) {
         return switch (status) {
             case NOT_FOUND -> "No route matches this path";
             case SERVICE_UNAVAILABLE -> "The service behind this path is not available";
             case GATEWAY_TIMEOUT -> "The service behind this path did not answer in time";
+            case TOO_MANY_REQUESTS -> "Too many requests from this IP; retry after the indicated delay";
             default -> status.getReasonPhrase();
         };
     }
