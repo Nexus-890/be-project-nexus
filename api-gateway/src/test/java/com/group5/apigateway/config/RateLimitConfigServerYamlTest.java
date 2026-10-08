@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.core.env.PropertiesPropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.FileSystemResource;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -14,6 +15,31 @@ import java.nio.file.Path;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class RateLimitConfigServerYamlTest {
+
+    @Test
+    void importsLocalEnvFromServiceOrBackendWorkingDirectory() {
+        YamlPropertiesFactoryBean yamlFactory = new YamlPropertiesFactoryBean();
+        yamlFactory.setResources(new FileSystemResource("src/main/resources/application.yaml"));
+        var yaml = yamlFactory.getObject();
+
+        assertThat(yaml.getProperty("spring.config.import[0]"))
+                .isEqualTo("optional:file:../infra/local-dev/.env[.properties]");
+        assertThat(yaml.getProperty("spring.config.import[1]"))
+                .isEqualTo("optional:file:./infra/local-dev/.env[.properties]");
+        assertThat(yaml.getProperty("spring.config.import[2]"))
+                .isEqualTo("configserver:http://localhost:8888");
+    }
+
+    @Test
+    void disablesRedisHealthWithoutDisablingRedisPasswordConfiguration() {
+        YamlPropertiesFactoryBean yamlFactory = new YamlPropertiesFactoryBean();
+        yamlFactory.setResources(new FileSystemResource(
+                "../config-service/src/main/resources/config/api-gateway.yml"));
+        var yaml = yamlFactory.getObject();
+
+        assertThat(yaml.getProperty("management.health.redis.enabled")).isEqualTo("false");
+        assertThat(yaml.getProperty("spring.data.redis.password")).isEqualTo("${REDIS_PASSWORD:}");
+    }
 
     @Test
     void bindsRequestsPerMinuteFromConfigServerYaml() throws Exception {

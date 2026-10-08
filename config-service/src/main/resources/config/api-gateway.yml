@@ -19,6 +19,12 @@ spring:
           httpclient:
             connect-timeout: 1000
 
+management:
+  health:
+    redis:
+      # Redis lỗi vẫn fail-open, không làm health của Gateway chuyển DOWN.
+      enabled: false
+
 springdoc:
   api-docs:
     enabled: true
