@@ -57,7 +57,9 @@ public enum ErrorCode {
     //===============Catalog service=====================
     SLUG_DUPLICATED("Slug duplicated", HttpStatus.CONFLICT),
     CATEGORY_NOT_FOUND("Category not found", HttpStatus.NOT_FOUND),
-    CATEGORY_LEVEL_MAX("Category max level",HttpStatus.BAD_REQUEST);
+    CATEGORY_LEVEL_MAX("Category max level",HttpStatus.BAD_REQUEST),
+    INVALID_PARENT("Category cannot be its own parent",HttpStatus.BAD_REQUEST),
+    INVALID_CHANGE_PARENT("Cannot change parent of a category that has children",HttpStatus.BAD_REQUEST);
 
     final String message;
     final HttpStatus status;

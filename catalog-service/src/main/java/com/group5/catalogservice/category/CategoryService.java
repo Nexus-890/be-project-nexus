@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Objects;
 import java.util.UUID;
 
 @Slf4j
@@ -39,7 +40,7 @@ public class CategoryService {
 
         if (request.getParentId() != null) {
             parent = categoryRepository
-                    .findByIdAndDeleteAtIsNull(request.getParentId())
+                    .findByIdAndDeletedAtIsNull(request.getParentId())
                     .orElseThrow(() -> new DomainException(
                             ErrorCode.NOT_FOUND));
 
@@ -71,8 +72,8 @@ public class CategoryService {
         category.setProductCount(0);
 
         String path = parent == null
-                ? "/" + id + "/"
-                : parent.getPath() + id + "/";
+                ? "/" + slug + "/"
+                : parent.getSlug() +"/" + slug + "/";
 
         category.setPath(path);
 
@@ -97,42 +98,120 @@ public class CategoryService {
     public CategoryResponse update(
             UUID id,
             CategoryRequest request) {
-        log.info("Update category: name={},slug={}, description={}", request.getName(),
-                request.getSlug(), request.getDescription());
+
+        log.info(
+                "Update category: name={}, slug={}, description={}, parentId={}",
+                request.getName(),
+                request.getSlug(),
+                request.getDescription(),
+                request.getParentId()
+        );
 
         Category category = categoryRepository
-                .findByIdAndDeleteAtIsNull(id)
+                .findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> {
 
                     log.warn("Category not found: id={}", id);
 
                     return new DomainException(
-                            ErrorCode.CATEGORY_NOT_FOUND );
+                            ErrorCode.CATEGORY_NOT_FOUND
+                    );
                 });
 
-        String slug = slugValidation.normalizeAndValidate(request.getSlug());
+        String slug = slugValidation.normalizeAndValidate(
+                request.getSlug()
+        );
 
-        if (categoryRepository.existsBySlugAndIdNot(slug, id)) {
-            log.warn(
-                    "Category slug already exists: slug={}, categoryId={}", slug, id
-            );
+        if(!category.getSlug().equals(slug)){
+            if (categoryRepository.existsBySlugAndIdNot(slug, id)) {
 
-            throw new DomainException(
-                    ErrorCode.SLUG_DUPLICATED);
+                log.warn(
+                        "Category slug already exists: slug={}, categoryId={}",
+                        slug,
+                        id
+                );
+
+                throw new DomainException(
+                        ErrorCode.SLUG_DUPLICATED
+                );
+            }
+        }
+
+
+        // Check changing parent
+        UUID oldParentId = category.getParentId();
+        UUID newParentId = request.getParentId();
+
+        if (!Objects.equals(oldParentId, newParentId)) {
+
+            // Category has children -> do not allow changing parent
+            if (categoryRepository.existsByParentIdAndDeletedAtIsNull(id)) {
+
+                log.warn(
+                        "Cannot change parent because category has children: id={}",
+                        id
+                );
+
+                throw new DomainException( ErrorCode.INVALID_CHANGE_PARENT);
+            }
+        }
+
+        Category parent = null;
+        short level = 1;
+
+        if (newParentId != null) {
+
+            if (newParentId.equals(id)) {
+
+                throw new DomainException(ErrorCode.INVALID_PARENT);
+            }
+
+            parent = categoryRepository
+                    .findByIdAndDeletedAtIsNull(newParentId)
+                    .orElseThrow(() -> {
+
+                        log.warn(
+                                "Parent category not found: parentId={}",
+                                newParentId
+                        );
+
+                        return new DomainException(ErrorCode.NOT_FOUND);
+                    });
+
+            level = (short) (parent.getLevel() + 1);
+        }
+
+        if (level > catalogProperties.getCategoryMaxLevel()) {
+
+            throw new DomainException(ErrorCode.CATEGORY_LEVEL_MAX);
         }
 
         category.setName(request.getName().trim());
         category.setSlug(slug);
         category.setDescription(request.getDescription());
 
+        // Update parent
+        category.setParentId(newParentId);
+
+        // Update level
+        category.setLevel(level);
+
+        // Update path
+        String path = parent == null
+                ? "/" + category.getSlug() + "/"
+                : parent.getSlug() + "/" + category.getSlug() + "/";
+
+        category.setPath(path);
+
         Category saved = categoryRepository.saveAndFlush(category);
 
-        log.debug(
-                "Prepared category update: id={}, name={}, slug={}",
-                id, category.getName(), category.getSlug()
+        log.info(
+                "Finished updating category: id={}, parentId={}, level={}, path={}",
+                saved.getId(),
+                saved.getParentId(),
+                saved.getLevel(),
+                saved.getPath()
         );
-
-        log.info("Finished updating category: id={}", saved.getId());
 
         return toResponse(saved);
     }
@@ -142,7 +221,7 @@ public class CategoryService {
         log.debug("Getting category: id={}", id);
 
         Category category = categoryRepository
-                .findByIdAndDeleteAtIsNull(id)
+                .findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> {
                     log.warn("Category not found: id={}", id);
 

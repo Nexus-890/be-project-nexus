@@ -9,7 +9,8 @@ import java.util.UUID;
 
 @Repository
 public interface CategoryRepository extends JpaRepository<Category, UUID> {
-    Optional<Category> findByIdAndDeleteAtIsNull(UUID id);
+    Optional<Category> findByIdAndDeletedAtIsNull(UUID id);
     boolean existsBySlug(String slug);
     boolean existsBySlugAndIdNot(String slug, UUID id);
+    boolean existsByParentIdAndDeletedAtIsNull(UUID parentId);
 }
