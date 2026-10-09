@@ -13,9 +13,8 @@
 	</parent>
 
 	<artifactId>user-service</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
 
-	<name/>
+ 	<name/>
 	<description/>
 	<url/>
 
@@ -115,6 +114,16 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-validation</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>com.group5</groupId>
+			<artifactId>common-core</artifactId>
+			<version>1.0.0</version>
+		</dependency>
+		<dependency>
+			<groupId>com.group5</groupId>
+			<artifactId>common-web</artifactId>
+			<version>1.0.0</version>
 		</dependency>
 	</dependencies>
 

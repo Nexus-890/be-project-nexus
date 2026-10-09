@@ -10,11 +10,11 @@ import org.springframework.http.HttpStatus;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 @AllArgsConstructor
 public enum ErrorCode {
+
     // ===============  check validation ===============
     EMAIL_EXISTED("Email is existed", HttpStatus.BAD_REQUEST),
     PHONE_EXISTED("Phone is existed", HttpStatus.BAD_REQUEST),
     INVALID_SIZE_100("name must not exceed 100 characters", HttpStatus.BAD_REQUEST),
-    INVALID_CREDENTIALS("Username or password invalid!", HttpStatus.BAD_REQUEST),
     INVALID_PHONE_NUMBER("Invalid phone number!", HttpStatus.BAD_REQUEST),
     INVALID_EMAIL("Invalid email address!", HttpStatus.BAD_REQUEST),
     FIELD_REQUIRED("cannot be blank!", HttpStatus.BAD_REQUEST),
@@ -54,12 +54,17 @@ public enum ErrorCode {
     INVALID_DEPOSIT("Deposit is invalid", HttpStatus.BAD_REQUEST),
     INVALID_TERM("Month term is invalid", HttpStatus.BAD_REQUEST),
     NOT_FOUND("Not found!", HttpStatus.NOT_FOUND),
+    //===============User service=====================
+    INVALID_CREDENTIALS("Invalid email or password", HttpStatus.UNAUTHORIZED),
+
+
     //===============Catalog service=====================
     SLUG_DUPLICATED("Slug duplicated", HttpStatus.CONFLICT),
     CATEGORY_NOT_FOUND("Category not found", HttpStatus.NOT_FOUND),
     CATEGORY_LEVEL_MAX("Category max level",HttpStatus.BAD_REQUEST),
     INVALID_PARENT("Category cannot be its own parent",HttpStatus.BAD_REQUEST),
     INVALID_CHANGE_PARENT("Cannot change parent of a category that has children",HttpStatus.BAD_REQUEST);
+
 
     final String message;
     final HttpStatus status;
