@@ -25,9 +25,9 @@ public class CategoryService {
 
     @Transactional
     public CategoryResponse create(CategoryRequest request) {
-        log.info("Start creating categoty: name={}, slug={}", request.getName(), request.getSlug());
+        log.info("Start creating categoty: name={}, slug={}", request.name(), request.slug());
 
-        String slug = slugValidation.normalizeAndValidate(request.getSlug());
+        String slug = slugValidation.normalizeAndValidate(request.slug());
 
         if (categoryRepository.existsBySlug(slug)) {
             log.warn("Slug is exists: slug={}", slug);
@@ -38,9 +38,9 @@ public class CategoryService {
         Category parent = null;
         short level = 1;
 
-        if (request.getParentId() != null) {
+        if (request.parentId() != null) {
             parent = categoryRepository
-                    .findByIdAndDeletedAtIsNull(request.getParentId())
+                    .findByIdAndDeletedAtIsNull(request.parentId())
                     .orElseThrow(() -> new DomainException(
                             ErrorCode.NOT_FOUND));
 
@@ -53,7 +53,7 @@ public class CategoryService {
                     "Category level exceeds maximum: level={}, maxLevel={}, parentId={}",
                     level,
                     catalogProperties.getCategoryMaxLevel(),
-                    request.getParentId()
+                    request.parentId()
             );
 
             throw new DomainException(ErrorCode.CATEGORY_LEVEL_MAX);
@@ -64,10 +64,10 @@ public class CategoryService {
 
         Category category = new Category();
         category.setId(id);
-        category.setName(request.getName().trim());
+        category.setName(request.name().trim());
         category.setSlug(slug);
-        category.setDescription(request.getDescription());
-        category.setParentId(request.getParentId());
+        category.setDescription(request.description());
+        category.setParentId(request.parentId());
         category.setLevel(level);
         category.setProductCount(0);
 
@@ -101,10 +101,10 @@ public class CategoryService {
 
         log.info(
                 "Update category: name={}, slug={}, description={}, parentId={}",
-                request.getName(),
-                request.getSlug(),
-                request.getDescription(),
-                request.getParentId()
+                request.name(),
+                request.slug(),
+                request.description(),
+                request.parentId()
         );
 
         Category category = categoryRepository
@@ -119,7 +119,7 @@ public class CategoryService {
                 });
 
         String slug = slugValidation.normalizeAndValidate(
-                request.getSlug()
+                request.slug()
         );
 
         if (!category.getSlug().equals(slug)) {
@@ -137,7 +137,7 @@ public class CategoryService {
 
         // Check changing parent
         UUID oldParentId = category.getParentId();
-        UUID newParentId = request.getParentId();
+        UUID newParentId = request.parentId();
 
         if (!Objects.equals(oldParentId, newParentId)) {
 
@@ -183,9 +183,9 @@ public class CategoryService {
             throw new DomainException(ErrorCode.CATEGORY_LEVEL_MAX);
         }
 
-        category.setName(request.getName().trim());
+        category.setName(request.name().trim());
         category.setSlug(slug);
-        category.setDescription(request.getDescription());
+        category.setDescription(request.description());
 
         // Update parent
         category.setParentId(newParentId);
@@ -319,7 +319,7 @@ public class CategoryService {
                 CategoryTreeResponse parent =
                         responseMap.get(category.getParentId());
 
-                parent.getChildren().add(current);
+                parent.children().add(current);
             }
         }
 
@@ -334,13 +334,13 @@ public class CategoryService {
 
         categories.sort(
                 Comparator.comparing(
-                        CategoryTreeResponse::getName,
+                        CategoryTreeResponse::name,
                         String.CASE_INSENSITIVE_ORDER
                 )
         );
 
         for (CategoryTreeResponse category : categories) {
-            sortCategoryTree(category.getChildren());
+            sortCategoryTree(category.children());
         }
     }
 }
