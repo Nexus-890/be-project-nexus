@@ -287,7 +287,7 @@ public class CategoryService {
             }
         }
 
-        // 4. Tránh lặp lại quan hệ cha -con
+        // 4. Tránh lặp lại quan hệ cha - con
         for (Category category : categories) {
             Set<UUID> visited = new HashSet<>();
             Category current = category;
@@ -332,12 +332,16 @@ public class CategoryService {
     private void sortCategoryTree(
             List<CategoryTreeResponse> categories) {
 
-        categories.sort(
-                Comparator.comparing(
-                        CategoryTreeResponse:: getName,
-                        String.CASE_INSENSITIVE_ORDER
-                )
-        );
+        try {
+            categories.sort(
+                    Comparator.comparing(
+                            CategoryTreeResponse::getName,
+                            String.CASE_INSENSITIVE_ORDER
+                    )
+            );
+        } catch (Exception e) {
+            throw new DomainException(ErrorCode.INVALID_SORT);
+        }
 
         for (CategoryTreeResponse category : categories) {
             sortCategoryTree(category.getChildren());
