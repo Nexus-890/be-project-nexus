@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.text.Collator;
 import java.util.*;
 
 @Slf4j
@@ -329,19 +330,11 @@ public class CategoryService {
         return roots;
     }
 
-    private void sortCategoryTree(
-            List<CategoryTreeResponse> categories) {
+    private void sortCategoryTree(List<CategoryTreeResponse> categories) {
+        Collator collator = Collator.getInstance(Locale.forLanguageTag("vi"));
+        collator.setStrength(Collator.PRIMARY);
 
-        try {
-            categories.sort(
-                    Comparator.comparing(
-                            CategoryTreeResponse::getName,
-                            String.CASE_INSENSITIVE_ORDER
-                    )
-            );
-        } catch (Exception e) {
-            throw new DomainException(ErrorCode.INVALID_SORT);
-        }
+        categories.sort(Comparator.comparing(CategoryTreeResponse::getName, collator));
 
         for (CategoryTreeResponse category : categories) {
             sortCategoryTree(category.getChildren());
