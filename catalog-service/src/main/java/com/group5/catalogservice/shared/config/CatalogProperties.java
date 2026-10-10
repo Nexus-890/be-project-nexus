@@ -13,5 +13,18 @@ import org.springframework.validation.annotation.Validated;
 public class CatalogProperties {
     @Min(1)
     private short categoryMaxLevel = 3;
+
+    private CategoryTree categoryTree = new CategoryTree();
+
+    @Getter
+    @Setter
+    public static class CategoryTree {
+
+        private String sortBy = "name";
+
+        private String sortDirection = "ASC";
+
+        private boolean sortIgnoreCase = true;
+    }
 }
 

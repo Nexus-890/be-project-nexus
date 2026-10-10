@@ -5,7 +5,6 @@ import lombok.*;
 import java.util.List;
 import java.util.UUID;
 
-@AllArgsConstructor
 @Value
 public class CategoryTreeResponse {
 
@@ -14,6 +13,5 @@ public class CategoryTreeResponse {
         String name;
         String slug;
         Short level;
-        String path;
         List<CategoryTreeResponse> children;
 }

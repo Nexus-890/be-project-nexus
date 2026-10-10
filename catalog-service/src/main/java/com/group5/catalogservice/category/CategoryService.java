@@ -257,7 +257,7 @@ public class CategoryService {
             return Collections.emptyList();
         }
 
-        // 2. Tạo map nhanh để dò các parent
+        // 2. Tạo map nhanh để dò các parent theo id
         Map<UUID, Category> categoryById = new HashMap<>();
         Map<UUID, CategoryTreeResponse> responseMap = new HashMap<>();
 
@@ -270,7 +270,6 @@ public class CategoryService {
                     category.getName(),
                     category.getSlug(),
                     category.getLevel(),
-                    category.getPath(),
                     new ArrayList<>()
             );
 
@@ -324,17 +323,56 @@ public class CategoryService {
             }
         }
 
-        // 6. Sort root categories and every child list
+        // 6. Sort nhánh cha và mọi nhánh con
         sortCategoryTree(roots);
 
         return roots;
     }
 
     private void sortCategoryTree(List<CategoryTreeResponse> categories) {
-        Collator collator = Collator.getInstance(Locale.forLanguageTag("vi"));
-        collator.setStrength(Collator.PRIMARY);
+        CatalogProperties.CategoryTree sortConfig =
+                catalogProperties.getCategoryTree();
 
-        categories.sort(Comparator.comparing(CategoryTreeResponse::getName, collator));
+        Comparator<CategoryTreeResponse> comparator;
+
+        switch (sortConfig.getSortBy().toLowerCase()) {
+            case "slug":
+                comparator = Comparator.comparing(
+                        CategoryTreeResponse::getSlug,
+                        sortConfig.isSortIgnoreCase()
+                                ? String.CASE_INSENSITIVE_ORDER
+                                : Comparator.naturalOrder()
+                );
+                break;
+
+            case "level":
+                comparator = Comparator.comparing(
+                        CategoryTreeResponse::getLevel
+                );
+                break;
+
+            case "name":
+            default:
+                Collator collator = Collator.getInstance(
+                        Locale.forLanguageTag("vi")
+                );
+
+                if (sortConfig.isSortIgnoreCase()) {
+                    collator.setStrength(Collator.PRIMARY);
+                }
+
+                comparator = Comparator.comparing(
+                        CategoryTreeResponse::getName,
+                        collator
+                );
+                break;
+        }
+
+        if ("DESC".equalsIgnoreCase(sortConfig.getSortDirection())) {
+            comparator = comparator.reversed();
+        }
+
+        categories.sort(comparator);
 
         for (CategoryTreeResponse category : categories) {
             sortCategoryTree(category.getChildren());
