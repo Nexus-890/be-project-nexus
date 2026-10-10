@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.Comparator;
 
 import java.text.Collator;
 import java.util.*;
@@ -330,46 +331,38 @@ public class CategoryService {
     }
 
     private void sortCategoryTree(List<CategoryTreeResponse> categories) {
-        CatalogProperties.CategoryTree sortConfig =
-                catalogProperties.getCategoryTree();
+        CategorySortType sortType =
+                catalogProperties.getCategoryTree().getSortType();
 
         Comparator<CategoryTreeResponse> comparator;
 
-        switch (sortConfig.getSortBy().toLowerCase()) {
-            case "slug":
-                comparator = Comparator.comparing(
-                        CategoryTreeResponse::getSlug,
-                        sortConfig.isSortIgnoreCase()
-                                ? String.CASE_INSENSITIVE_ORDER
-                                : Comparator.naturalOrder()
-                );
-                break;
-
-            case "level":
-                comparator = Comparator.comparing(
-                        CategoryTreeResponse::getLevel
-                );
-                break;
-
-            case "name":
-            default:
-                Collator collator = Collator.getInstance(
-                        Locale.forLanguageTag("vi")
-                );
-
-                if (sortConfig.isSortIgnoreCase()) {
-                    collator.setStrength(Collator.PRIMARY);
-                }
-
+        switch (sortType) {
+            case NAME_DESC:
                 comparator = Comparator.comparing(
                         CategoryTreeResponse::getName,
-                        collator
+                        String.CASE_INSENSITIVE_ORDER
+                ).reversed();
+                break;
+
+            case SLUG_ASC:
+                comparator = Comparator.comparing(
+                        CategoryTreeResponse::getSlug
                 );
                 break;
-        }
 
-        if ("DESC".equalsIgnoreCase(sortConfig.getSortDirection())) {
-            comparator = comparator.reversed();
+            case SLUG_DESC:
+                comparator = Comparator.comparing(
+                        CategoryTreeResponse::getSlug
+                ).reversed();
+                break;
+
+            case NAME_ASC:
+            default:
+                comparator = Comparator.comparing(
+                        CategoryTreeResponse::getName,
+                        String.CASE_INSENSITIVE_ORDER
+                );
+                break;
         }
 
         categories.sort(comparator);

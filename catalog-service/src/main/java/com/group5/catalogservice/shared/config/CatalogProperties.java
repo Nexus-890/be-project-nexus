@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
+import com.group5.catalogservice.category.CategorySortType;
 
 @ConfigurationProperties(prefix = "nexus.catalog")
 @Getter
@@ -20,11 +21,7 @@ public class CatalogProperties {
     @Setter
     public static class CategoryTree {
 
-        private String sortBy = "name";
-
-        private String sortDirection = "ASC";
-
-        private boolean sortIgnoreCase = true;
+        private CategorySortType sortType = CategorySortType.NAME_ASC;
     }
 }
 
