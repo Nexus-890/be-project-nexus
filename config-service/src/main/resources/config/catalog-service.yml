@@ -16,3 +16,9 @@ springdoc:
     path: /v3/api-docs
   swagger-ui:
     enabled: true
+
+nexus:
+  catalog:
+    category-max-level: 3
+    category-tree:
+      sort-type: NAME_ASC
