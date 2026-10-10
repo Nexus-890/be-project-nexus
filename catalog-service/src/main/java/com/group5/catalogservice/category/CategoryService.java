@@ -178,7 +178,7 @@ public class CategoryService {
 
         Category saved = categoryRepository.saveAndFlush(category);
 
-        log.info("Finished creating category: id={}", saved.getId());
+        log.info("Finished updating category: id={}", saved.getId());
 
         return toResponse(saved);
     }
