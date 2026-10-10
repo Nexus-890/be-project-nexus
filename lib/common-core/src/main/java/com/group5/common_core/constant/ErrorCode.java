@@ -63,7 +63,9 @@ public enum ErrorCode {
     CATEGORY_NOT_FOUND("Category not found", HttpStatus.NOT_FOUND),
     CATEGORY_LEVEL_MAX("Category max level",HttpStatus.BAD_REQUEST),
     INVALID_PARENT("Category cannot be its own parent",HttpStatus.BAD_REQUEST),
-    INVALID_CHANGE_PARENT("Cannot change parent of a category that has children",HttpStatus.BAD_REQUEST);
+    INVALID_CHANGE_PARENT("Cannot change parent of a category that has children",HttpStatus.BAD_REQUEST),
+    RELATIONSHIP_ERROR ("Circular category relationship detected",HttpStatus.CONFLICT),
+    INVALID_SORT("Unable to sort categories",HttpStatus.BAD_REQUEST);
 
 
     final String message;

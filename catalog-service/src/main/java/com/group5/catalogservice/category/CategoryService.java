@@ -2,6 +2,7 @@ package com.group5.catalogservice.category;
 
 import com.group5.catalogservice.category.dto.CategoryRequest;
 import com.group5.catalogservice.category.dto.CategoryResponse;
+import com.group5.catalogservice.category.dto.CategoryTreeResponse;
 import com.group5.catalogservice.shared.config.CatalogProperties;
 import com.group5.catalogservice.shared.validation.SlugValidation;
 import com.group5.common_core.constant.ErrorCode;
@@ -10,9 +11,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.Comparator;
 
-import java.util.Objects;
-import java.util.UUID;
+import java.text.Collator;
+import java.util.*;
 
 @Slf4j
 @Service
@@ -246,4 +248,140 @@ public class CategoryService {
                 category.getPath()
         );
     }
+
+    @Transactional(readOnly = true)
+    public List<CategoryTreeResponse> getCategoryTree() {
+        // 1. Load hết category trong một lần SELECT
+        List<Category> categories = categoryRepository.findAllByDeletedAtIsNull();
+
+        if (categories.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        // 2. Tạo map nhanh để dò các parent theo id
+        Map<UUID, Category> categoryById = new HashMap<>();
+        Map<UUID, CategoryTreeResponse> responseMap = new HashMap<>();
+
+        for (Category category : categories) {
+            categoryById.put(category.getId(), category);
+
+            CategoryTreeResponse response = new CategoryTreeResponse(
+                    category.getId(),
+                    category.getParentId(),
+                    category.getName(),
+                    category.getSlug(),
+                    category.getLevel(),
+                    new ArrayList<>()
+            );
+
+            responseMap.put(category.getId(), response);
+        }
+        // 3. Kiểm tra parent
+        for (Category category : categories) {
+            UUID parentId = category.getParentId();
+
+            if (parentId != null && !categoryById.containsKey(parentId)) {
+                log.error("Invalid category parent: categoryId={}, parentId={}", category.getId(), parentId);
+
+                throw new DomainException(
+                        ErrorCode.CATEGORY_NOT_FOUND);
+            }
+        }
+
+        // 4. Tránh lặp lại quan hệ cha - con
+        for (Category category : categories) {
+            Set<UUID> visited = new HashSet<>();
+            Category current = category;
+
+            while (current != null) {
+                if (!visited.add(current.getId())) {
+                    log.error("Circular category relationship detected: categoryId={}", category.getId());
+
+                    throw new DomainException(ErrorCode.RELATIONSHIP_ERROR);
+                }
+
+                UUID parentId = current.getParentId();
+                current = parentId == null
+                        ? null
+                        : categoryById.get(parentId);
+            }
+        }
+
+        // 5. Tạo tree trong memory
+        List<CategoryTreeResponse> roots = new ArrayList<>();
+
+        for (Category category : categories) {
+            CategoryTreeResponse current =
+                    responseMap.get(category.getId());
+
+            if (category.getParentId() == null) {
+                roots.add(current);
+            } else {
+                CategoryTreeResponse parent =
+                        responseMap.get(category.getParentId());
+
+                parent.getChildren().add(current);
+            }
+        }
+
+        // 6. Sort nhánh cha và mọi nhánh con
+        sortCategoryTree(roots);
+
+        return roots;
+    }
+
+
+    private void sortCategoryTree(List<CategoryTreeResponse> categories) {
+        CategorySortType sortType =
+                catalogProperties.getCategoryTree().getSortType();
+
+        Comparator<CategoryTreeResponse> comparator;
+
+        switch (sortType) {
+            case NAME_DESC: {
+                Collator collator = Collator.getInstance(
+                        Locale.forLanguageTag("vi")
+                );
+                collator.setStrength(Collator.PRIMARY);
+
+                comparator = Comparator.comparing(
+                        CategoryTreeResponse::getName,
+                        collator
+                ).reversed();
+                break;
+            }
+
+            case SLUG_ASC:
+                comparator = Comparator.comparing(
+                        CategoryTreeResponse::getSlug
+                );
+                break;
+
+            case SLUG_DESC:
+                comparator = Comparator.comparing(
+                        CategoryTreeResponse::getSlug
+                ).reversed();
+                break;
+
+            case NAME_ASC:
+            default: {
+                Collator collator = Collator.getInstance(
+                        Locale.forLanguageTag("vi")
+                );
+                collator.setStrength(Collator.PRIMARY);
+
+                comparator = Comparator.comparing(
+                        CategoryTreeResponse::getName, collator
+                );
+                break;
+            }
+        }
+
+        categories.sort(comparator);
+
+        for (CategoryTreeResponse category : categories) {
+            sortCategoryTree(category.getChildren());
+        }
+    }
+
 }
