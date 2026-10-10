@@ -15,4 +15,5 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
     boolean existsBySlugAndIdNot(String slug, UUID id);
     boolean existsByParentIdAndDeletedAtIsNull(UUID parentId);
     List<Category> findAllByDeletedAtIsNull();
+    List<Category> findByPathStartingWithAndIdNot(String path, UUID id);
 }

@@ -3,6 +3,7 @@ package com.group5.catalogservice.category;
 import com.group5.catalogservice.category.dto.CategoryRequest;
 import com.group5.catalogservice.category.dto.CategoryResponse;
 import com.group5.catalogservice.category.dto.CategoryTreeResponse;
+import com.group5.catalogservice.category.dto.CategoryUpdateRequest;
 import com.group5.catalogservice.shared.config.CatalogProperties;
 import com.group5.catalogservice.shared.validation.SlugValidation;
 import com.group5.common_core.constant.ErrorCode;
@@ -11,10 +12,20 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import java.util.Comparator;
 
 import java.text.Collator;
-import java.util.*;
+
+import java.util.Objects;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.UUID;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.ArrayList;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.Locale;
 
 @Slf4j
 @Service
@@ -97,122 +108,87 @@ public class CategoryService {
     }
 
     @Transactional
-    public CategoryResponse update(
-            UUID id,
-            CategoryRequest request) {
+    public CategoryResponse update(UUID id, CategoryUpdateRequest request) {
+        Category category = categoryRepository.findByIdAndDeletedAtIsNull(id)
+                .orElseThrow(() -> new DomainException(ErrorCode.CATEGORY_NOT_FOUND));
 
-        log.info(
-                "Update category: name={}, slug={}, description={}, parentId={}",
-                request.getName(),
-                request.getSlug(),
-                request.getDescription(),
-                request.getParentId()
-        );
+        String name = request.hasName() ? request.getName() : category.getName();
+        String slug = request.hasSlug() ? request.getSlug() : category.getSlug();
+        String description = request.hasDescription() ? request.getDescription() : category.getDescription();
+        UUID parentId = request.hasParentId() ? request.getParentId() : category.getParentId();
 
-        Category category = categoryRepository
-                .findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> {
-
-                    log.warn("Category not found: id={}", id);
-
-                    return new DomainException(
-                            ErrorCode.CATEGORY_NOT_FOUND
-                    );
-                });
-
-        String slug = slugValidation.normalizeAndValidate(
-                request.getSlug()
-        );
-
-        if (!category.getSlug().equals(slug)) {
-            if (categoryRepository.existsBySlugAndIdNot(slug, id)) {
-
-                log.warn(
-                        "Category slug already exists: slug={}, categoryId={}", slug, id);
-
-                throw new DomainException(
-                        ErrorCode.SLUG_DUPLICATED
-                );
-            }
+        name = name.trim();
+        boolean slugChanged = !Objects.equals(category.getSlug(), slug);//nếu thay đổi -> True
+        boolean parentChanged = !Objects.equals(category.getParentId(), parentId);//nếu thay đổi -> True
+        if (slugChanged && categoryRepository.existsBySlugAndIdNot(slug, id)) {
+            throw new DomainException(ErrorCode.SLUG_DUPLICATED);//này so sánh slug mới có trùng slug khác trong hệ thống không ( né ID chính nó rùi )
         }
 
-
-        // Check changing parent
-        UUID oldParentId = category.getParentId();
-        UUID newParentId = request.getParentId();
-
-        if (!Objects.equals(oldParentId, newParentId)) {
-
-            // Category has children -> do not allow changing parent
-            if (categoryRepository.existsByParentIdAndDeletedAtIsNull(id)) {
-
-                log.warn(
-                        "Cannot change parent because category has children: id={}",
-                        id
-                );
-
-                throw new DomainException(ErrorCode.INVALID_CHANGE_PARENT);
-            }
-        }
-
-        Category parent = null;
-        short level = 1;
-
-        if (newParentId != null) {
-
-            if (newParentId.equals(id)) {
-
-                throw new DomainException(ErrorCode.INVALID_PARENT);
+        //nếu 1 trong 2 change
+        if (slugChanged || parentChanged) {
+            String oldPath = category.getPath();
+            Category parent = null;
+            if (parentId != null) {
+                if (parentId.equals(id)) {//k làm con chính nó
+                    throw new DomainException(ErrorCode.INVALID_PARENT);
+                }
+                parent = categoryRepository.findByIdAndDeletedAtIsNull(parentId)//tìm Id cha xem có tồn tại k
+                        .orElseThrow(() -> new DomainException(ErrorCode.NOT_FOUND));
+                if (parent.getPath().startsWith(oldPath)) {//kiểm tra xem có chuyển trong nhánh đó không ( dựa theo path cũ )
+                    throw new DomainException(ErrorCode.DATA_INVALID);
+                }
             }
 
-            parent = categoryRepository
-                    .findByIdAndDeletedAtIsNull(newParentId)
-                    .orElseThrow(() -> {
+            int newLevel = parent == null ? 1 : parent.getLevel() + 1;//này set lại level //lv2 -> lv1----     lv3 + -1 = 2
+            //-1
+            int levelDelta = newLevel - category.getLevel();//level lệch lúc old và lúc new để thay đổi level của con
+            String newPath = parent == null ? "/" + slug + "/" : parent.getPath() + slug + "/";//này đổi path chính nó
+            validateTreePosition(newLevel, newPath);
+            //
+            List<Category> descendants = categoryRepository.findByPathStartingWithAndIdNot(oldPath, id);
 
-                        log.warn(
-                                "Parent category not found: parentId={}",
-                                newParentId
-                        );
+            for (Category descendant : descendants) {
+                String descendantPath = newPath + descendant.getPath().substring(oldPath.length());//cái substring
+                //khối này để validate thôi
+                // sẽ lấy cái oldPath(cái path của cate đang đổi)
+                /*
+                * Path của Apple: /dien-tu/dien-thoai/apple/
+                oldPath:        /dien-tu/dien-thoai/
+                Phần còn lại:   apple/  -> biến thành newPath + phần còn lại
+                    /smartphone/ + apple/
+                    = /smartphone/apple/
+                *
+                */
+                validateTreePosition(descendant.getLevel() + levelDelta, descendantPath);
+            }
 
-                        return new DomainException(ErrorCode.NOT_FOUND);
-                    });
-
-            level = (short) (parent.getLevel() + 1);
+            for (Category descendant : descendants) {
+                //này set vô
+                descendant.setPath(newPath + descendant.getPath().substring(oldPath.length()));
+                descendant.setLevel((short) (descendant.getLevel() + levelDelta));
+            }
+            category.setParentId(parentId);
+            category.setLevel((short) newLevel);
+            category.setPath(newPath);
         }
 
-        if (level > catalogProperties.getCategoryMaxLevel()) {
-
-            throw new DomainException(ErrorCode.CATEGORY_LEVEL_MAX);
-        }
-
-        category.setName(request.getName().trim());
+        category.setName(name);
         category.setSlug(slug);
-        category.setDescription(request.getDescription());
-
-        // Update parent
-        category.setParentId(newParentId);
-
-        // Update level
-        category.setLevel(level);
-
-        // Update path
-        String path = parent == null
-                ? "/" + category.getSlug() + "/"
-                : parent.getPath() + category.getSlug() + "/";
-
-        category.setPath(path);
+        category.setDescription(description);
 
         Category saved = categoryRepository.saveAndFlush(category);
 
-        log.info(
-                "Finished updating category: id={}, parentId={}, level={}, path={}",
-                saved.getId(),
-                saved.getParentId(),
-                saved.getLevel(),
-                saved.getPath()
-        );
+        log.info("Finished updating category: id={}", saved.getId());
 
         return toResponse(saved);
+    }
+    private void validateTreePosition(int level, String path) {
+        if (level > catalogProperties.getCategoryMaxLevel()) {
+            throw new DomainException(ErrorCode.CATEGORY_LEVEL_MAX);
+        }
+        if (path.length() > 500) {
+            throw new DomainException(ErrorCode.DATA_INVALID);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -238,16 +214,7 @@ public class CategoryService {
         return toResponse(category);
     }
 
-    private CategoryResponse toResponse(Category category) {
-        return new CategoryResponse(
-                category.getId(),
-                category.getParentId(),
-                category.getName(),
-                category.getSlug(),
-                category.getLevel(),
-                category.getPath()
-        );
-    }
+
 
     @Transactional(readOnly = true)
     public List<CategoryTreeResponse> getCategoryTree() {
@@ -382,6 +349,16 @@ public class CategoryService {
         for (CategoryTreeResponse category : categories) {
             sortCategoryTree(category.getChildren());
         }
+    }
+    private CategoryResponse toResponse(Category category) {
+        return new CategoryResponse(
+                category.getId(),
+                category.getParentId(),
+                category.getName(),
+                category.getSlug(),
+                category.getLevel(),
+                category.getPath()
+        );
     }
 
 }

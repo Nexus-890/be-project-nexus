@@ -2,6 +2,7 @@ package com.group5.catalogservice.category;
 
 import com.group5.catalogservice.category.dto.CategoryRequest;
 import com.group5.catalogservice.category.dto.CategoryResponse;
+import com.group5.catalogservice.category.dto.CategoryUpdateRequest;
 import com.group5.catalogservice.category.dto.CategoryTreeResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -29,17 +30,16 @@ public class CategoryController {
         return categoryService.create(request);
     }
 
+    @PatchMapping("/{id}")
+    public CategoryResponse update(
+            @PathVariable UUID id,
+            @Valid @RequestBody CategoryUpdateRequest request) {
+
+        return categoryService.update(id, request);
+    }
     @GetMapping("/tree")
     public List<CategoryTreeResponse> getCategoryTree() {
         return categoryService.getCategoryTree();
-    }
-
-    @PutMapping("/{id}")
-    public CategoryResponse update(
-            @PathVariable UUID id,
-            @Valid @RequestBody CategoryRequest request) {
-
-        return categoryService.update(id, request);
     }
 
     @GetMapping("/{id}")
