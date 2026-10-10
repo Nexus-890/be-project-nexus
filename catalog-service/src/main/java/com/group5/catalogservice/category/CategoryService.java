@@ -330,6 +330,7 @@ public class CategoryService {
         return roots;
     }
 
+
     private void sortCategoryTree(List<CategoryTreeResponse> categories) {
         CategorySortType sortType =
                 catalogProperties.getCategoryTree().getSortType();
@@ -337,12 +338,18 @@ public class CategoryService {
         Comparator<CategoryTreeResponse> comparator;
 
         switch (sortType) {
-            case NAME_DESC:
+            case NAME_DESC: {
+                Collator collator = Collator.getInstance(
+                        Locale.forLanguageTag("vi")
+                );
+                collator.setStrength(Collator.PRIMARY);
+
                 comparator = Comparator.comparing(
                         CategoryTreeResponse::getName,
-                        String.CASE_INSENSITIVE_ORDER
+                        collator
                 ).reversed();
                 break;
+            }
 
             case SLUG_ASC:
                 comparator = Comparator.comparing(
@@ -357,12 +364,17 @@ public class CategoryService {
                 break;
 
             case NAME_ASC:
-            default:
+            default: {
+                Collator collator = Collator.getInstance(
+                        Locale.forLanguageTag("vi")
+                );
+                collator.setStrength(Collator.PRIMARY);
+
                 comparator = Comparator.comparing(
-                        CategoryTreeResponse::getName,
-                        String.CASE_INSENSITIVE_ORDER
+                        CategoryTreeResponse::getName, collator
                 );
                 break;
+            }
         }
 
         categories.sort(comparator);
@@ -371,4 +383,5 @@ public class CategoryService {
             sortCategoryTree(category.getChildren());
         }
     }
+
 }
