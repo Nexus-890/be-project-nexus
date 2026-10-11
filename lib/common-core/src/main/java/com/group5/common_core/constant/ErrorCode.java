@@ -61,7 +61,9 @@ public enum ErrorCode {
     INVALID_PARENT("Category cannot be its own parent",HttpStatus.BAD_REQUEST),
     INVALID_CHANGE_PARENT("Cannot change parent of a category that has children",HttpStatus.BAD_REQUEST),
     RELATIONSHIP_ERROR ("Circular category relationship detected",HttpStatus.CONFLICT),
-    INVALID_SORT("Unable to sort categories",HttpStatus.BAD_REQUEST);
+    INVALID_SORT("Unable to sort categories",HttpStatus.BAD_REQUEST),
+    CATEGORY_HAS_PRODUCTS("Cannot delete a category that has products", HttpStatus.CONFLICT),
+    CATEGORY_HAS_CHILDREN("Cannot delete a category that has child categories", HttpStatus.CONFLICT);
 
     final String message;
     final HttpStatus status;
