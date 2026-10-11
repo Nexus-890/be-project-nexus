@@ -12,6 +12,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+<<<<<<< HEAD
+=======
+
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.Comparator;
+>>>>>>> 50c4c2c (feat: delete catalog)
 
 import java.text.Collator;
 
@@ -361,4 +368,34 @@ public class CategoryService {
         );
     }
 
+    @Transactional
+    public void delete(UUID id) {
+        Category category = categoryRepository
+                .findByIdAndDeletedAtIsNull(id)
+                .orElseThrow(() ->
+                        new DomainException(ErrorCode.CATEGORY_NOT_FOUND)
+                );
+
+        if (categoryRepository.existsByParentIdAndDeletedAtIsNull(id)) {
+            throw new DomainException(ErrorCode.CATEGORY_HAS_CHILDREN);
+        }
+
+        boolean hasProducts =
+                categoryRepository.existsProductByCategoryId(id);
+
+        if (hasProducts) {
+            if (!catalogProperties.isAllowCategoryDeleteWithProduct()) {
+                throw new DomainException(ErrorCode.CATEGORY_HAS_PRODUCTS);
+            }
+
+            // Xóa mềm category tại đây.
+            // Giữ nguyên products.category_id để không phá khóa ngoại.
+            category.setDeletedAt(OffsetDateTime.now());
+            categoryRepository.save(category);
+            return;
+        }
+
+        categoryRepository.delete(category);
+        categoryRepository.flush();
+    }
 }

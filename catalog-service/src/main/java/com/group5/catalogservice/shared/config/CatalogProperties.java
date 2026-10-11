@@ -23,5 +23,7 @@ public class CatalogProperties {
 
         private CategorySortType sortType = CategorySortType.NAME_ASC;
     }
+
+    private boolean allowCategoryDeleteWithProduct = false;
 }
 
