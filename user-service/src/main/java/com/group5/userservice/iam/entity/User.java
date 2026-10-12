@@ -24,6 +24,7 @@ import org.hibernate.annotations.UuidGenerator;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -98,4 +99,11 @@ public class User {
             joinColumns = @JoinColumn(name = "user_id"),
             inverseJoinColumns = @JoinColumn(name = "role_id"))
     private Set<Role> roles = new HashSet<>();
+
+    public void assignInitialRole(Role role) {
+        if (!roles.isEmpty()) {
+            throw new IllegalStateException("An initial role has already been assigned");
+        }
+        roles.add(Objects.requireNonNull(role, "Initial role is required"));
+    }
 }
