@@ -4,6 +4,15 @@ server:
   forward-headers-strategy: none
 
 spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Fetch keys directly from user-service, never through this gateway.
+          jwk-set-uri: ${USER_SERVICE_JWKS_URI:http://localhost:8081/.well-known/jwks.json}
+          issuer-uri: user-service
+          audiences:
+            - nexus-services
   data:
     redis:
       host: ${REDIS_HOST:localhost}
