@@ -56,7 +56,7 @@ public enum ErrorCode {
     NOT_FOUND("Not found!", HttpStatus.NOT_FOUND),
     //===============User service=====================
     INVALID_CREDENTIALS("Invalid email or password", HttpStatus.UNAUTHORIZED),
-
+    ACCOUNT_LOCKED("Account is locked", HttpStatus.LOCKED),
 
     //===============Catalog service=====================
     SLUG_DUPLICATED("Slug duplicated", HttpStatus.CONFLICT),
@@ -68,6 +68,8 @@ public enum ErrorCode {
     INVALID_SORT("Unable to sort categories",HttpStatus.BAD_REQUEST),
     CATEGORY_HAS_PRODUCTS("Cannot delete a category that has products", HttpStatus.CONFLICT),
     CATEGORY_HAS_CHILDREN("Cannot delete a category that has child categories", HttpStatus.CONFLICT);
+
+
 
 
     final String message;

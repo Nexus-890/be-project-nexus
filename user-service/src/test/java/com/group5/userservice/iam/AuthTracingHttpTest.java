@@ -1,0 +1,119 @@
+package com.group5.userservice.iam;
+
+import com.group5.common_core.constant.ErrorCode;
+import com.group5.common_core.exception.DomainException;
+import com.group5.common_web.filter.TraceIdFilter;
+import com.group5.userservice.iam.dto.LoginRequest;
+import com.jayway.jsonpath.JsonPath;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.data.jpa.autoconfigure.DataJpaRepositoriesAutoConfiguration;
+import org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration;
+import org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration;
+import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
+import org.springframework.boot.kafka.autoconfigure.KafkaAutoConfiguration;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.http.MediaType;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+/**
+ * Real embedded HTTP server and Boot's inherited Brave/Micrometer tracing configuration.
+ * The service is mocked only to trigger the account-locked error; tracing is never mocked.
+ */
+class AuthTracingHttpTest {
+
+    @Test
+    void aLockedAccountReturnsAProblemWithTheRealHttpRequestTraceId() throws Exception {
+        SpringApplication application = new SpringApplication(TestApplication.class);
+        try (ConfigurableApplicationContext context = application.run(
+                "--spring.config.name=auth-tracing-http-test",
+                "--spring.config.import=",
+                "--spring.cloud.config.enabled=false",
+                "--spring.cloud.compatibility-verifier.enabled=false",
+                "--spring.cloud.discovery.enabled=false",
+                "--eureka.client.enabled=false",
+                "--server.address=127.0.0.1",
+                "--server.port=0",
+                "--management.tracing.sampling.probability=1.0",
+                "--management.tracing.export.zipkin.enabled=false",
+                "--spring.main.banner-mode=off")) {
+
+            Tracer tracer = context.getBean(Tracer.class);
+            AuthService authService = context.getBean(AuthService.class);
+            AtomicReference<String> requestTraceId = new AtomicReference<>();
+            when(authService.login(any(LoginRequest.class))).thenAnswer(invocation -> {
+                Span span = tracer.currentSpan();
+                assertThat(span).as("HTTP observation must create an active tracing span").isNotNull();
+                requestTraceId.set(span.context().traceId());
+                throw new DomainException(ErrorCode.ACCOUNT_LOCKED);
+            });
+
+            int port = context.getEnvironment().getRequiredProperty("local.server.port", Integer.class);
+            HttpRequest request = HttpRequest.newBuilder(
+                            URI.create("http://127.0.0.1:" + port + "/api/v1/auth/login"))
+                    .timeout(Duration.ofSeconds(10))
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                    .POST(HttpRequest.BodyPublishers.ofString("""
+                            {"email":"seller@nexus.local","password":"correct-password"}
+                            """))
+                    .build();
+            try (HttpClient client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(5)).build()) {
+                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+                assertThat(response.statusCode()).isEqualTo(423);
+                MediaType responseType = MediaType.parseMediaType(
+                        response.headers().firstValue("Content-Type").orElseThrow());
+                assertThat(responseType.isCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)).isTrue();
+
+                var problem = JsonPath.parse(response.body());
+                assertThat(problem.read("$.type", String.class)).isEqualTo("urn:problem:domain-error");
+                assertThat(problem.read("$.title", String.class)).isEqualTo("Locked");
+                assertThat(problem.read("$.status", Integer.class)).isEqualTo(423);
+                assertThat(problem.read("$.detail", String.class)).isEqualTo("Account is locked");
+                assertThat(problem.read("$.instance", String.class)).isEqualTo("/api/v1/auth/login");
+                assertThat(requestTraceId.get()).matches("[0-9a-f]{32}");
+                assertThat(problem.read("$.traceId", String.class)).isEqualTo(requestTraceId.get());
+                assertThat(response.headers().firstValue(TraceIdFilter.TRACE_ID_HEADER))
+                        .contains(requestTraceId.get());
+            }
+        }
+    }
+
+    @TestConfiguration(proxyBeanMethods = false)
+    @EnableAutoConfiguration(exclude = {
+            DataSourceAutoConfiguration.class,
+            HibernateJpaAutoConfiguration.class,
+            DataJpaRepositoriesAutoConfiguration.class,
+            FlywayAutoConfiguration.class,
+            KafkaAutoConfiguration.class
+    })
+    static class TestApplication {
+
+        @Bean
+        AuthService authService() {
+            return mock(AuthService.class);
+        }
+
+        @Bean
+        AuthController authController(AuthService authService) {
+            return new AuthController(authService);
+        }
+    }
+}

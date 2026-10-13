@@ -3,6 +3,8 @@ server:
 nexus:
   iam:
     access-token-expiry-minutes: 60
+    max-login-attempts: 5
+    lock-duration-minutes: 15
     jwt:
       issuer: user-service
       audience: nexus-services

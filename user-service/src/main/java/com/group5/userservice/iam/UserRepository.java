@@ -1,7 +1,9 @@
 package com.group5.userservice.iam;
 
 import com.group5.userservice.iam.entity.User;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -12,6 +14,8 @@ import java.util.UUID;
 
 public interface UserRepository extends JpaRepository<User, UUID> {
 
+    //Annotation của Spring Data JPA, dùng để chỉ định chế độ khóa khi thực hiện truy vấn.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<User> findByEmailAndDeletedAtIsNull(String email);
 
     @Query("""
