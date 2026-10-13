@@ -36,3 +36,4 @@ nexus:
     category-max-level: 3
     category-tree:
       sort-type: NAME_ASC
+    allow-category-delete-with-product: false
