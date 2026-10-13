@@ -18,6 +18,20 @@ springdoc:
     enabled: true
 
 nexus:
+  security:
+    jwt:
+      issuer: user-service
+      audience: nexus-services
+      jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:8081/.well-known/jwks.json}
+    public-endpoints:
+      - method: GET
+        path: /api/v1/products/{id}
+      - method: GET
+        path: /api/v1/categories/**
+      - method: GET
+        path: /v3/api-docs/**
+      - method: GET
+        path: /swagger-ui/**
   catalog:
     category-max-level: 3
     category-tree:
