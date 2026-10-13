@@ -14,6 +14,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.cloud.gateway.route.RouteLocator;
@@ -66,10 +67,17 @@ class SecurityConfigTest {
 
     @LocalServerPort
     private int port;
+    @Autowired
+    private SecurityConfig.GatewaySecurityProperties permissions;
     private WebTestClient client;
 
     @DynamicPropertySource
     static void jwksUri(DynamicPropertyRegistry registry) {
+        GatewayPermissionsTest.gatewayYaml().forEach((key, value) -> {
+            if (key.toString().startsWith("nexus.security.")) {
+                registry.add(key.toString(), () -> value);
+            }
+        });
         registry.add("spring.security.oauth2.resourceserver.jwt.jwk-set-uri",
                 () -> "http://127.0.0.1:" + JWKS.getAddress().getPort() + "/.well-known/jwks.json");
     }
@@ -154,7 +162,7 @@ class SecurityConfigTest {
 
     @Test
     void allNinePublicPairsWorkWithoutBearerToken() {
-        for (SecurityConfig.Endpoint endpoint : SecurityConfig.ENDPOINTS) {
+        for (SecurityConfig.Endpoint endpoint : permissions.endpoints()) {
             if (endpoint.isPublic()) {
                 client.method(endpoint.method()).uri(endpoint.path().replace("{id}", ID))
                         .exchange().expectStatus().isOk();
@@ -165,7 +173,7 @@ class SecurityConfigTest {
 
     @Test
     void otherMethodsOnPublicPathsAreNotPublic() {
-        for (SecurityConfig.Endpoint endpoint : SecurityConfig.ENDPOINTS) {
+        for (SecurityConfig.Endpoint endpoint : permissions.endpoints()) {
             if (!endpoint.isPublic()) {
                 continue;
             }
@@ -190,7 +198,7 @@ class SecurityConfigTest {
 
     @Test
     void everyDocumentedPrivilegeIsRequiredAndSufficient() {
-        for (SecurityConfig.Endpoint endpoint : SecurityConfig.ENDPOINTS) {
+        for (SecurityConfig.Endpoint endpoint : permissions.endpoints()) {
             if (endpoint.isPublic()) {
                 continue;
             }

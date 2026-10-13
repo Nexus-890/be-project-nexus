@@ -1,10 +1,13 @@
 # Gateway permissions
 
 This is the single gateway permission table for the current sprint. Every issue
-adding or changing an endpoint must update this document and
-`api-gateway/src/main/java/com/group5/apigateway/config/SecurityConfig.java` in the
-same merge request. Owning issues identify endpoint contracts; listed policies
-may precede the merge of their service implementations.
+adding or changing an endpoint must update this document and the endpoint policy
+in `config-service/src/main/resources/config/api-gateway.yml` in the same merge
+request. `SecurityConfig.java` binds `nexus.security.public-endpoints` and
+`nexus.security.protected-endpoints` and applies their method/path rules; it has
+no hardcoded endpoint list. Update `SecurityConfig.java` in that MR when matcher
+or authorization behavior changes. Owning issues identify endpoint contracts;
+listed policies may precede the merge of their service implementations.
 
 `Public` means no bearer token is required; a supplied invalid bearer token is
 still rejected. Listed SRS 2.7 privileges must appear verbatim in the JWT
@@ -70,9 +73,15 @@ Tests use real RS256 tokens and a local HTTP JWKS fixture, not a mocked decoder.
 A real gateway HTTP route forwards accepted requests to an instrumented HTTP
 service; rejected requests leave its request log empty. Tests cover all nine
 public pairs, other methods, listed privileges, invalid tokens, and fallback.
-The permission test compares all explicit rows (including privileges) in both
-directions and independently checks the nine public pairs. Newly public
-undocumented pairs, stale document rows, duplicates, and missing owners fail.
+The permission test binds the same YAML properties consumed by `SecurityConfig`
+and compares all explicit rows (including privileges) in both directions. It also
+independently checks the nine public pairs. Newly public undocumented pairs,
+stale document rows, duplicates, and missing owners fail.
+Configuration-binding tests verify that changed paths/privileges are honored;
+invalid methods, missing paths/privileges, and duplicate policies are rejected.
+This follows Vinh's configuration-driven public endpoint pattern in commits
+`131e7f3` (`NexusSecurityProperties` and `SecurityAutoConfiguration`) and `3fce9d5`
+(`user-service.yml`), while keeping the gateway reactive and its public list exact.
 
 Fixtures prove gateway behavior, not the existence of unmerged service endpoints.
 Live register/login/product/profile acceptance also requires their owning issues,

@@ -1,7 +1,10 @@
 package com.group5.apigateway.config;
 
 import io.micrometer.tracing.Tracer;
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerProperties;
 import org.springframework.context.annotation.Bean;
@@ -40,46 +43,26 @@ import reactor.core.publisher.Mono;
 
 import java.net.URI;
 import java.time.Instant;
-import java.util.List;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 @Configuration
 @EnableWebFluxSecurity
-@EnableConfigurationProperties(OAuth2ResourceServerProperties.class)
+@EnableConfigurationProperties({OAuth2ResourceServerProperties.class, SecurityConfig.GatewaySecurityProperties.class})
 public class SecurityConfig {
-
-    // Keep this list and docs/api/gateway-permissions.md in the same MR.
-    static final List<Endpoint> ENDPOINTS = List.of(
-            new Endpoint(HttpMethod.POST, "/api/v1/auth/register", null),
-            new Endpoint(HttpMethod.POST, "/api/v1/auth/login", null),
-            new Endpoint(HttpMethod.GET, "/.well-known/jwks.json", null),
-            new Endpoint(HttpMethod.GET, "/api/v1/products", null),
-            new Endpoint(HttpMethod.GET, "/api/v1/products/{id}", null),
-            new Endpoint(HttpMethod.GET, "/api/v1/categories/{id}", null),
-            new Endpoint(HttpMethod.GET, "/api/v1/categories/tree", null),
-            new Endpoint(HttpMethod.GET, "/api/v1/products/{id}/skus", null),
-            new Endpoint(HttpMethod.GET, "/api/v1/skus/{id}", null),
-            new Endpoint(HttpMethod.GET, "/api/v1/users/me", "PROFILE.VIEW"),
-            new Endpoint(HttpMethod.PUT, "/api/v1/users/me", "PROFILE.UPDATE"),
-            new Endpoint(HttpMethod.POST, "/api/v1/products", "PRODUCT.CREATE"),
-            new Endpoint(HttpMethod.GET, "/api/v1/products/mine", "PRODUCT.LIST"),
-            new Endpoint(HttpMethod.PUT, "/api/v1/products/{id}", "PRODUCT.UPDATE"),
-            new Endpoint(HttpMethod.PATCH, "/api/v1/products/{id}/status", "PRODUCT.UPDATE"),
-            new Endpoint(HttpMethod.DELETE, "/api/v1/products/{id}", "PRODUCT.DELETE"),
-            new Endpoint(HttpMethod.POST, "/api/v1/categories", "CATEGORY.CREATE"),
-            new Endpoint(HttpMethod.PATCH, "/api/v1/categories/{id}", "CATEGORY.UPDATE"),
-            new Endpoint(HttpMethod.DELETE, "/api/v1/categories/{id}", "CATEGORY.DELETE"),
-            new Endpoint(HttpMethod.POST, "/api/v1/products/{id}/skus", "PRODUCT.UPDATE"),
-            new Endpoint(HttpMethod.PUT, "/api/v1/skus/{id}", "PRODUCT.UPDATE")
-    );
 
     private static final String TYPE_PREFIX = "https://nexus/errors/";
     private static final String UUID_REGEX = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 
     @Bean
     SecurityWebFilterChain securityWebFilterChain(
-            ServerHttpSecurity http,
+            ServerHttpSecurity http, GatewaySecurityProperties properties,
             ServerCodecConfigurer codecs, ObjectProvider<Tracer> tracer,
             ReactiveJwtAuthenticationConverter jwtAuthenticationConverter) {
 
@@ -90,6 +73,7 @@ public class SecurityConfig {
         ServerAccessDeniedHandler deniedHandler = (exchange, exception) ->
                 writeProblem(exchange, codecs, tracer.getIfAvailable(), HttpStatus.FORBIDDEN);
 
+        List<Endpoint> endpoints = properties.endpoints();
         return http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
@@ -98,12 +82,12 @@ public class SecurityConfig {
                 .securityContextRepository(NoOpServerSecurityContextRepository.getInstance())
                 .requestCache(cache -> cache.requestCache(NoOpServerRequestCache.getInstance()))
                 .authorizeExchange(exchanges -> {
-                    ENDPOINTS.stream()
+                    endpoints.stream()
                             .filter(Endpoint::isPublic)
                             .forEach(endpoint -> exchanges
                                     .pathMatchers(endpoint.method(), matcherPath(endpoint.path()))
                                     .permitAll());
-                    ENDPOINTS.stream()
+                    endpoints.stream()
                             .filter(endpoint -> !endpoint.isPublic())
                             .forEach(endpoint -> exchanges
                                     .pathMatchers(endpoint.method(), matcherPath(endpoint.path()))
@@ -212,7 +196,35 @@ public class SecurityConfig {
                 }));
     }
 
-    record Endpoint(HttpMethod method, String path, String privilege) {
+    // Same configuration contract as common-security's NexusSecurityProperties,
+    // without importing its servlet-only auto-configuration into WebFlux.
+    @Getter
+    @Setter
+    @ConfigurationProperties(prefix = "nexus.security")
+    public static class GatewaySecurityProperties {
+        private List<Endpoint> publicEndpoints = new ArrayList<>();
+        private List<Endpoint> protectedEndpoints = new ArrayList<>();
+
+        List<Endpoint> endpoints() {
+            Set<String> pairs = new HashSet<>();
+            publicEndpoints.forEach(endpoint ->
+                    Assert.isTrue(endpoint.isPublic(), "Public endpoints must not declare a privilege"));
+            protectedEndpoints.forEach(endpoint ->
+                    Assert.hasText(endpoint.privilege(), "Protected endpoint privilege is required"));
+            return Stream.concat(publicEndpoints.stream(), protectedEndpoints.stream())
+                    .peek(endpoint -> {
+                        Assert.isTrue(Arrays.asList(HttpMethod.values()).contains(endpoint.method()),
+                                "Endpoint method must be a standard HTTP method");
+                        Assert.hasText(endpoint.path(), "Endpoint path is required");
+                        Assert.isTrue(endpoint.path().startsWith("/"), "Endpoint path must start with /");
+                        Assert.isTrue(pairs.add(endpoint.method() + " " + endpoint.path()),
+                                "Duplicate endpoint method/path pair");
+                    })
+                    .toList();
+        }
+    }
+
+    public record Endpoint(HttpMethod method, String path, String privilege) {
         boolean isPublic() {
             return privilege == null;
         }

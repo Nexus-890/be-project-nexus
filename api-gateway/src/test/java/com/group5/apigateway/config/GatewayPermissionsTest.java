@@ -1,12 +1,19 @@
 package com.group5.apigateway.config;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.core.env.PropertiesPropertySource;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.http.HttpMethod;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Properties;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -33,7 +40,8 @@ class GatewayPermissionsTest {
 
     private static void assertPermissions(Set<Row> docRows) {
         Set<Row> codeRows = new HashSet<>();
-        for (SecurityConfig.Endpoint endpoint : SecurityConfig.ENDPOINTS) {
+        List<SecurityConfig.Endpoint> endpoints = bind(gatewayYaml()).endpoints();
+        for (SecurityConfig.Endpoint endpoint : endpoints) {
             codeRows.add(new Row(
                     endpoint.path(),
                     endpoint.method().name(),
@@ -41,7 +49,7 @@ class GatewayPermissionsTest {
         }
 
         assertThat(docRows).isEqualTo(codeRows);
-        assertThat(codeRows).hasSize(SecurityConfig.ENDPOINTS.size());
+        assertThat(codeRows).hasSize(endpoints.size());
         assertThat(docRows.stream().filter(row -> row.access().equals("Public")).collect(Collectors.toSet()))
                 .isEqualTo(EXPECTED_PUBLIC);
     }
@@ -58,6 +66,58 @@ class GatewayPermissionsTest {
         extra.add(new Row("/api/v1/products", "POST", "Public"));
         assertThatThrownBy(() -> assertPermissions(extra))
                 .isInstanceOf(AssertionError.class);
+    }
+
+    @Test
+    void endpointPoliciesAreBoundFromConfigurationWithoutJavaDefaults() {
+        Properties yaml = gatewayYaml();
+        yaml.setProperty("nexus.security.public-endpoints[1].path", "/api/v1/auth/configured-login");
+        yaml.setProperty("nexus.security.protected-endpoints[0].privilege", "PROFILE.CONFIGURED");
+        List<SecurityConfig.Endpoint> endpoints = bind(yaml).endpoints();
+
+        assertThat(endpoints).contains(
+                new SecurityConfig.Endpoint(HttpMethod.POST,
+                        "/api/v1/auth/configured-login", null),
+                new SecurityConfig.Endpoint(HttpMethod.GET,
+                        "/api/v1/users/me", "PROFILE.CONFIGURED"));
+        assertThat(endpoints).doesNotContain(
+                new SecurityConfig.Endpoint(HttpMethod.POST,
+                        "/api/v1/auth/login", null));
+        assertThat(new SecurityConfig.GatewaySecurityProperties().endpoints()).isEmpty();
+    }
+
+    @Test
+    void invalidEndpointConfigurationFailsInsteadOfWideningAccess() {
+        for (String property : List.of(
+                "nexus.security.public-endpoints[0].method",
+                "nexus.security.public-endpoints[0].path",
+                "nexus.security.protected-endpoints[0].privilege")) {
+            Properties yaml = gatewayYaml();
+            yaml.setProperty(property, "");
+            assertThatThrownBy(() -> bind(yaml).endpoints()).isInstanceOf(RuntimeException.class);
+        }
+        Properties badMethod = gatewayYaml();
+        badMethod.setProperty("nexus.security.public-endpoints[0].method", "TYPO");
+        assertThatThrownBy(() -> bind(badMethod).endpoints()).isInstanceOf(IllegalArgumentException.class);
+        Properties publicWithPrivilege = gatewayYaml();
+        publicWithPrivilege.setProperty("nexus.security.public-endpoints[0].privilege", "PROFILE.VIEW");
+        assertThatThrownBy(() -> bind(publicWithPrivilege).endpoints()).isInstanceOf(IllegalArgumentException.class);
+        Properties duplicate = gatewayYaml();
+        duplicate.setProperty("nexus.security.public-endpoints[0].path", "/api/v1/auth/login");
+        assertThatThrownBy(() -> bind(duplicate).endpoints()).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    static Properties gatewayYaml() {
+        YamlPropertiesFactoryBean yaml = new YamlPropertiesFactoryBean();
+        yaml.setResources(new FileSystemResource("../config-service/src/main/resources/config/api-gateway.yml"));
+        return yaml.getObject();
+    }
+
+    private static SecurityConfig.GatewaySecurityProperties bind(Properties yaml) {
+        StandardEnvironment environment = new StandardEnvironment();
+        environment.getPropertySources().addFirst(new PropertiesPropertySource("gateway-yaml", yaml));
+        return Binder.get(environment).bind("nexus.security", SecurityConfig.GatewaySecurityProperties.class)
+                .orElseThrow(IllegalStateException::new);
     }
 
     private static Set<Row> readRows(Path path) throws Exception {
