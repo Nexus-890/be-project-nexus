@@ -24,9 +24,10 @@ class AuthControllerTest {
     private static final String LOGIN = "/api/v1/auth/login";
 
     private final AuthService authService = mock(AuthService.class);
+    private final UserService userService = mock(UserService.class);
 
     private final MockMvc mockMvc = MockMvcBuilders
-            .standaloneSetup(new AuthController(authService))
+            .standaloneSetup(new AuthController(authService, userService))
             .setControllerAdvice(new GlobalExceptionHandler(null))
             .build();
 
@@ -45,6 +46,8 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.accessToken").value("signed-token"))
                 .andExpect(jsonPath("$.expiresIn").value(3600))
                 .andExpect(jsonPath("$.tokenType").value("Bearer"));
+
+        verifyNoInteractions(userService);
     }
 
     @Test
@@ -57,7 +60,7 @@ class AuthControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("password"));
 
-        verifyNoInteractions(authService);
+        verifyNoInteractions(authService, userService);
     }
 
     @Test
@@ -70,7 +73,7 @@ class AuthControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("email"));
 
-        verifyNoInteractions(authService);
+        verifyNoInteractions(authService, userService);
     }
 
     @Test
@@ -87,5 +90,7 @@ class AuthControllerTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(401))
                 .andExpect(jsonPath("$.detail").value("Invalid email or password"));
+
+        verifyNoInteractions(userService);
     }
 }
