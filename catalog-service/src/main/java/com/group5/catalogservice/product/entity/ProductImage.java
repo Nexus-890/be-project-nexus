@@ -20,6 +20,7 @@ import java.util.UUID;
 public class ProductImage {
     @Id
     @ColumnDefault("uuidv7()")
+    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false)
     private UUID id;
 

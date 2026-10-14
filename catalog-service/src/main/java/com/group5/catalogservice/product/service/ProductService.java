@@ -40,15 +40,13 @@ public class ProductService {
                 .orElseThrow(() -> new DomainException(ErrorCode.CATEGORY_NOT_FOUND));
 
 
-        UUID productId = UUID.randomUUID();
         String name = request.getName().trim();
 
         Product product = new Product();
-        product.setId(productId);
         product.setCategory(category);
         product.setSellerId(currentUser.id());
         product.setName(name);
-        product.setSlug(productSlugGenerator.generate(name, productId));//Slug = name + id
+        product.setSlug(productSlugGenerator.generate(name, product.getId()));//Slug = name + id
         product.setDescription(request.getDescription());
         product.setStatus("DRAFT");
         product.setAuctionEnable(Boolean.TRUE.equals(request.getAuctionEnable()));

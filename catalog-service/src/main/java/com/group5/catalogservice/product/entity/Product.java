@@ -30,7 +30,7 @@ public class Product {
     @Id
     @ColumnDefault("uuidv7()")
     @Column(name = "id", nullable = false)
-    private UUID id;
+    private UUID id = UUID.randomUUID();
 
     @NotNull
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
