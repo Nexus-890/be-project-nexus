@@ -6,21 +6,13 @@ import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.entity.Role;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.Gender;
-import jakarta.validation.Valid;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.core.env.Environment;
-import org.springframework.http.CacheControl;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 
@@ -104,23 +96,5 @@ public class UserService {
             }
         }
         return null;
-    }
-
-    // Kept here to honor the issue's five-production-file boundary.
-    @RestController
-    @RequestMapping("/api/v1/auth")
-    public static class RegistrationController {
-        private final UserService userService;
-
-        public RegistrationController(UserService userService) {
-            this.userService = userService;
-        }
-
-        @PostMapping("/register")
-        public ResponseEntity<UserResponse> register(@Valid @RequestBody RegisterRequest request) {
-            return ResponseEntity.status(HttpStatus.CREATED)
-                    .cacheControl(CacheControl.noStore())
-                    .body(userService.register(request));
-        }
     }
 }
