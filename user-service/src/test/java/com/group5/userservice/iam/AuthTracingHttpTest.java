@@ -112,8 +112,13 @@ class AuthTracingHttpTest {
         }
 
         @Bean
-        AuthController authController(AuthService authService) {
-            return new AuthController(authService);
+        UserService userService() {
+            return mock(UserService.class);
+        }
+
+        @Bean
+        AuthController authController(AuthService authService, UserService userService) {
+            return new AuthController(authService, userService);
         }
     }
 }

@@ -23,5 +23,7 @@ public class IamProperties {
     @Min(1)
     private long lockDurationMinutes = 15;
 
+    private String defaultUserRole = "BUYER";
 
+    private boolean allowSelfRegistration = true;
 }
