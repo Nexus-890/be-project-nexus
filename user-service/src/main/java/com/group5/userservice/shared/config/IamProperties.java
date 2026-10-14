@@ -15,5 +15,7 @@ public class IamProperties {
     @Min(1) //Protect wrong value when starting
     private long accessTokenExpiryMinutes = 60;
 
+    private String defaultUserRole = "BUYER";
 
+    private boolean allowSelfRegistration = true;
 }
