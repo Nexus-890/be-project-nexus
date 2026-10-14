@@ -4,6 +4,15 @@ server:
   forward-headers-strategy: none
 
 spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Fetch keys directly from user-service, never through this gateway.
+          jwk-set-uri: ${USER_SERVICE_JWKS_URI:http://localhost:8081/.well-known/jwks.json}
+          issuer-uri: user-service
+          audiences:
+            - nexus-services
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -40,6 +49,64 @@ springdoc:
     disable-swagger-default-url: true
 
 nexus:
+  security:
+    # Keep endpoint policies and docs/api/gateway-permissions.md in the same MR.
+    public-endpoints:
+      - method: POST
+        path: /api/v1/auth/register
+      - method: POST
+        path: /api/v1/auth/login
+      - method: GET
+        path: /.well-known/jwks.json
+      - method: GET
+        path: /api/v1/products
+      - method: GET
+        path: /api/v1/products/{id}
+      - method: GET
+        path: /api/v1/categories/{id}
+      - method: GET
+        path: /api/v1/categories/tree
+      - method: GET
+        path: /api/v1/products/{id}/skus
+      - method: GET
+        path: /api/v1/skus/{id}
+    protected-endpoints:
+      - method: GET
+        path: /api/v1/users/me
+        privilege: PROFILE.VIEW
+      - method: PUT
+        path: /api/v1/users/me
+        privilege: PROFILE.UPDATE
+      - method: POST
+        path: /api/v1/products
+        privilege: PRODUCT.CREATE
+      - method: GET
+        path: /api/v1/products/mine
+        privilege: PRODUCT.LIST
+      - method: PUT
+        path: /api/v1/products/{id}
+        privilege: PRODUCT.UPDATE
+      - method: PATCH
+        path: /api/v1/products/{id}/status
+        privilege: PRODUCT.UPDATE
+      - method: DELETE
+        path: /api/v1/products/{id}
+        privilege: PRODUCT.DELETE
+      - method: POST
+        path: /api/v1/categories
+        privilege: CATEGORY.CREATE
+      - method: PATCH
+        path: /api/v1/categories/{id}
+        privilege: CATEGORY.UPDATE
+      - method: DELETE
+        path: /api/v1/categories/{id}
+        privilege: CATEGORY.DELETE
+      - method: POST
+        path: /api/v1/products/{id}/skus
+        privilege: PRODUCT.UPDATE
+      - method: PUT
+        path: /api/v1/skus/{id}
+        privilege: PRODUCT.UPDATE
   gateway:
     rate-limit:
       # Có thể đổi qua Config Server và /actuator/refresh; đủ cho polling 2 giây.
