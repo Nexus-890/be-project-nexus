@@ -1,7 +1,9 @@
 package com.group5.userservice.iam;
 
 import com.group5.common_security.CurrentUser;
+import com.group5.userservice.iam.dto.PageResponse;
 import com.group5.userservice.iam.dto.UpdateProfileRequest;
+import com.group5.userservice.iam.dto.UserListRequest;
 import com.group5.userservice.iam.dto.UserResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -40,5 +42,11 @@ public class UserController {
     @PreAuthorize("hasAuthority('USER.VIEW') or #currentUser.id() == #id")
     public UserResponse getUser(@PathVariable UUID id, CurrentUser currentUser) {
         return userService.getUser(id);
+    }
+
+    @GetMapping
+    @PreAuthorize("hasAuthority('USER.LIST')")
+    public PageResponse<UserResponse> listUsers(@Valid UserListRequest request) {
+        return userService.listUsers(request);
     }
 }

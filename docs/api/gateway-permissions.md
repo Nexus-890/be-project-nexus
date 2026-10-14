@@ -28,6 +28,7 @@ independently, as required by ADR-006.
 | `/api/v1/skus/{id}` | GET | Public | #86 / #100 — SKU reads and product visibility |
 | `/api/v1/users/me` | GET | PROFILE.VIEW | #75 — Own profile: read and update |
 | `/api/v1/users/me` | PUT | PROFILE.UPDATE | #75 — Own profile: read and update |
+| `/api/v1/users` | GET | USER.LIST | #76 — Admin user list and user by id |
 | `/api/v1/products` | POST | PRODUCT.CREATE | #83 — Product create, update and read |
 | `/api/v1/products/mine` | GET | PRODUCT.LIST | #99 — Product lists |
 | `/api/v1/products/{id}` | PUT | PRODUCT.UPDATE | #83 — Product create, update and read |

@@ -4,6 +4,7 @@ import com.group5.userservice.iam.entity.User;
 import jakarta.persistence.LockModeType;
 import com.group5.userservice.iam.entity.Role;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -12,7 +13,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-public interface UserRepository extends JpaRepository<User, UUID> {
+public interface UserRepository extends JpaRepository<User, UUID>, JpaSpecificationExecutor<User> {
 
     //Annotation của Spring Data JPA, dùng để chỉ định chế độ khóa khi thực hiện truy vấn.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
