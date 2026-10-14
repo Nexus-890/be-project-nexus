@@ -36,7 +36,7 @@ public class ProductService {
             products = productRepository.findByStatusAndDeletedAtIsNull(
                     "ACTIVE", pageable);
         } else {
-            products = productRepository.findByCategoryIdAndStatusAndDeletedAtIsNull(
+            products = productRepository.findByCategory_IdAndStatusAndDeletedAtIsNull(
                     categoryId, "ACTIVE", pageable);
         }
 

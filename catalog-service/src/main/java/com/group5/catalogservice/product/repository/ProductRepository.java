@@ -10,7 +10,7 @@ import java.util.UUID;
 
 public interface ProductRepository extends JpaRepository<Product, UUID> {
 
-    Page<Product> findByCategoryIdAndStatusAndDeletedAtIsNull(
+    Page<Product> findByCategory_IdAndStatusAndDeletedAtIsNull(
             UUID categoryId,
             String status,
             Pageable pageable);

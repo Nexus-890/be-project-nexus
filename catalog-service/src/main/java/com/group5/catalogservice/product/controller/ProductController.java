@@ -3,6 +3,8 @@ package com.group5.catalogservice.product.controller;
 
 import com.group5.catalogservice.product.dto.response.ProductResponse;
 import com.group5.catalogservice.product.service.ProductService;
+import com.group5.common_security.CurrentUser;
+import com.group5.common_security.autoconfigure.NexusSecurityProperties;
 import org.springframework.data.domain.Page;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -34,11 +36,13 @@ public class ProductController {
 
     @GetMapping("/mine")
     public Page<ProductResponse> getMyProducts(
+            @AuthenticationPrincipal NexusSecurityProperties.Jwt jwt,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
-        // TODO: Lấy sellerId từ cơ chế xác thực hiện tại của project.
-        // Không nhận sellerId từ client.
-        throw new UnsupportedOperationException("Seller authentication integration is not implemented");
+        CurrentUser currentUser = CurrentUser.from(jwt);
+
+        return productService.getMyProducts(
+                currentUser.id(), page, size);
     }
 }

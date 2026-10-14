@@ -1,5 +1,6 @@
 package com.group5.catalogservice.product.dto.response;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 import lombok.Value;
@@ -14,4 +15,5 @@ public class ProductResponse {
     private String status;
     private UUID categoryId;
     private UUID sellerId;
+
 }
