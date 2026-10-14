@@ -1,5 +1,12 @@
 package com.group5.catalogservice.product.repository;
 
+import com.group5.catalogservice.product.entity.Product;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.stereotype.Repository;
+
+import java.util.UUID;
+import java.util.Optional;
 
 import com.group5.catalogservice.product.entity.Product;
 import org.springframework.data.domain.Page;
@@ -22,4 +29,5 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
     Page<Product> findBySellerIdAndDeletedAtIsNull(
             UUID sellerId,
             Pageable pageable);
+
 }
