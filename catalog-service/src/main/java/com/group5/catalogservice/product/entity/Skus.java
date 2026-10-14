@@ -6,8 +6,10 @@ import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.ColumnDefault;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -16,10 +18,16 @@ import java.util.UUID;
 @Getter
 @Setter
 @Entity
-@Table(name = "skus")
+@Table(name = "skus", indexes = {
+        @Index(name = "idx_skus_variant",
+                columnList = "product_id, color, size",
+                unique = true),
+        @Index(name = "idx_skus_product",
+                columnList = "product_id")}, uniqueConstraints = {@UniqueConstraint(name = "skus_sku_code_key",
+        columnNames = {"sku_code"})})
 public class Skus {
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
+    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false)
     private UUID id;
 
@@ -49,6 +57,7 @@ public class Skus {
     @Size(max = 3)
     @NotNull
     @ColumnDefault("'VND'")
+    @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "currency", nullable = false, length = 3)
     private String currency;
 

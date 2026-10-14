@@ -7,6 +7,8 @@ import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.ColumnDefault;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.OffsetDateTime;
 import java.util.LinkedHashSet;
@@ -16,14 +18,21 @@ import java.util.UUID;
 @Getter
 @Setter
 @Entity
-@Table(name = "products")
+@Table(name = "products", indexes = {
+        @Index(name = "idx_products_category",
+                columnList = "category_id, status"),
+        @Index(name = "idx_products_seller",
+                columnList = "seller_id, status"),
+        @Index(name = "idx_products_status",
+                columnList = "status, deleted_at")}, uniqueConstraints = {@UniqueConstraint(name = "products_slug_key",
+        columnNames = {"slug"})})
 public class Product {
-
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
+    @ColumnDefault("uuidv7()")
     @Column(name = "id", nullable = false)
-    private UUID id;
+    private UUID id = UUID.randomUUID();
 
+    @NotNull
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "category_id", nullable = false)
     private Category category;
@@ -34,7 +43,7 @@ public class Product {
 
     @Size(max = 255)
     @NotNull
-    @Column(name = "name", nullable = false, length = 255)
+    @Column(name = "name", nullable = false)
     private String name;
 
     @Size(max = 300)
@@ -66,26 +75,25 @@ public class Product {
     @Column(name = "in_auction", nullable = false)
     private Boolean inAuction;
 
-    @NotNull
-    @ColumnDefault("now()")
-    @Column(name = "created_at", nullable = false)
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
-    @NotNull
-    @ColumnDefault("now()")
+    @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
     @Column(name = "deleted_at")
     private OffsetDateTime deletedAt;
 
-    @OneToMany(mappedBy = "product", fetch = FetchType.LAZY)
+    @OneToMany(mappedBy = "product")
     private Set<ProductImage> productImages = new LinkedHashSet<>();
 
-    @OneToOne(mappedBy = "products1", fetch = FetchType.LAZY)
+    @OneToOne(mappedBy = "products")
     private ProductStat productStat;
 
-    @OneToMany(mappedBy = "product", fetch = FetchType.LAZY)
+    @OneToMany(mappedBy = "product")
     private Set<Skus> skuses = new LinkedHashSet<>();
+
 
 }

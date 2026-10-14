@@ -1,9 +1,8 @@
 package com.group5.catalogservice.product.dto.response;
 
-import java.math.BigDecimal;
 import java.util.UUID;
 
-import lombok.Value;
+import lombok.*;
 
 
 @Value

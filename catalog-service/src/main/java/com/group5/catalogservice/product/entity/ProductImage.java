@@ -15,10 +15,12 @@ import java.util.UUID;
 @Getter
 @Setter
 @Entity
-@Table(name = "product_images")
+@Table(name = "product_images", indexes = {@Index(name = "idx_product_images_product",
+        columnList = "product_id, sort_order")})
 public class ProductImage {
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
+    @ColumnDefault("uuidv7()")
+    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false)
     private UUID id;
 

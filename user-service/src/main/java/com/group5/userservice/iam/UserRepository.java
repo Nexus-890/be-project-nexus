@@ -1,8 +1,10 @@
 package com.group5.userservice.iam;
 
 import com.group5.userservice.iam.entity.User;
+import jakarta.persistence.LockModeType;
 import com.group5.userservice.iam.entity.Role;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -12,6 +14,8 @@ import java.util.UUID;
 
 public interface UserRepository extends JpaRepository<User, UUID> {
 
+    //Annotation của Spring Data JPA, dùng để chỉ định chế độ khóa khi thực hiện truy vấn.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<User> findByEmailAndDeletedAtIsNull(String email);
 
     boolean existsByEmail(String email);
@@ -41,6 +45,17 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             """)
     //đã test và thấy gọn nhất rồi
     List<RoleGrant> findRoleGrants(@Param("userId") UUID userId);
+
+    Optional<User> findByIdAndDeletedAtIsNull(UUID id);
+
+    boolean existsByEmailAndIdNot(String email, UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+        select u from User u
+        where u.id = :userId and u.deletedAt is null
+        """)
+    Optional<User> findForProfileUpdate(@Param("userId") UUID userId);
 
     interface RoleGrant {
 

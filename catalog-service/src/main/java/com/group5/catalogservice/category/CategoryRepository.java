@@ -17,7 +17,10 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
     boolean existsBySlugAndIdNot(String slug, UUID id);
     boolean existsByParentIdAndDeletedAtIsNull(UUID parentId);
     List<Category> findAllByDeletedAtIsNull();
+<<<<<<< HEAD
 
+=======
+>>>>>>> b88defe6ec5f8216c3fd459d319293b7864055bc
     List<Category> findByPathStartingWithAndIdNot(String path, UUID id);
 
     @Query(value = "SELECT EXISTS (SELECT 1 FROM products WHERE category_id = :categoryId)", nativeQuery = true)
