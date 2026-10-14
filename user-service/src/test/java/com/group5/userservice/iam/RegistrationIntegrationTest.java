@@ -55,6 +55,17 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.kafka.admin.auto-create=false",
         "spring.jpa.hibernate.ddl-auto=validate",
         "spring.jpa.open-in-view=false",
+        "nexus.security.jwt.issuer=user-service",
+        "nexus.security.jwt.audience=nexus-services",
+        // These tests only call public auth endpoints and the test-only refresh endpoint;
+        // no bearer token is decoded, so the JWKS URL is never contacted.
+        "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/.well-known/jwks.json",
+        "nexus.security.public-endpoints[0].method=POST",
+        "nexus.security.public-endpoints[0].path=/api/v1/auth/register",
+        "nexus.security.public-endpoints[1].method=POST",
+        "nexus.security.public-endpoints[1].path=/api/v1/auth/login",
+        "nexus.security.public-endpoints[2].method=POST",
+        "nexus.security.public-endpoints[2].path=/actuator/refresh",
         "management.endpoints.web.exposure.include=health,refresh",
         "management.tracing.enabled=false",
         "spring.jpa.properties.hibernate.session_factory.statement_inspector="

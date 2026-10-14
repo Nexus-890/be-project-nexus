@@ -21,7 +21,25 @@ class IamPropertiesTest {
             IamProperties properties = context.getBean(IamProperties.class);
             assertThat(properties.getMaxLoginAttempts()).isEqualTo(5);
             assertThat(properties.getLockDurationMinutes()).isEqualTo(15);
+            assertThat(properties.getDefaultUserRole()).isEqualTo("BUYER");
+            assertThat(properties.isAllowSelfRegistration()).isTrue();
         });
+    }
+
+    @Test
+    void registrationSettingsBindFromConfigWithoutChangingTheLockoutDefaults() {
+        contextRunner
+                .withPropertyValues(
+                        "nexus.iam.default-user-role=SELLER",
+                        "nexus.iam.allow-self-registration=false")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    IamProperties properties = context.getBean(IamProperties.class);
+                    assertThat(properties.getDefaultUserRole()).isEqualTo("SELLER");
+                    assertThat(properties.isAllowSelfRegistration()).isFalse();
+                    assertThat(properties.getMaxLoginAttempts()).isEqualTo(5);
+                    assertThat(properties.getLockDurationMinutes()).isEqualTo(15);
+                });
     }
 
     @Test

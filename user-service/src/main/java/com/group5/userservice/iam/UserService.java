@@ -2,6 +2,7 @@ package com.group5.userservice.iam;
 
 import com.group5.common_core.exception.DomainException;
 import com.group5.userservice.iam.dto.RegisterRequest;
+import com.group5.userservice.iam.dto.UpdateProfileRequest;
 import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.entity.Role;
 import com.group5.userservice.iam.entity.User;
@@ -15,6 +16,8 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDate;
+import java.sql.SQLException;
+import java.util.UUID;
 
 @Service
 public class UserService {
@@ -48,6 +51,68 @@ public class UserService {
             }
             throw exception;
         }
+    }
+
+    public UserResponse getOwnProfile(UUID userId) {
+        return transaction.execute(status -> {
+            User user = userRepository.findByIdAndDeletedAtIsNull(userId)
+                    .orElseThrow(() -> new DomainException(404, "User not found"));
+            return UserResponse.from(user);
+        });
+    }
+
+    public UserResponse updateOwnProfile(UUID userId, UpdateProfileRequest request) {
+        try {
+            return transaction.execute(status -> updateProfileInTransaction(userId, request));
+        } catch (RuntimeException exception) {
+            // The transaction has already rolled back before translating a database conflict.
+            String field = duplicateField(exception);
+            if (field != null) {
+                throw duplicate(field);
+            }
+            if (isProfileUniqueViolation(exception)) {
+                throw new DomainException(409, "Email or phone is already used");
+            }
+            throw exception;
+        }
+    }
+
+    private UserResponse updateProfileInTransaction(UUID userId, UpdateProfileRequest request) {
+        User user = userRepository.findForProfileUpdate(userId)
+                .orElseThrow(() -> new DomainException(404, "User not found"));
+
+        if (request.email() != null
+                && userRepository.existsByEmailAndIdNot(request.email(), userId)) {
+            throw duplicate("email");
+        }
+
+        if (request.fullName() != null) {
+            user.setFullName(request.fullName());
+        }
+        if (request.dateOfBirth() != null) {
+            user.setDateOfBirth(request.dateOfBirth());
+        }
+        if (request.gender() != null) {
+            user.setGender(request.gender());
+        }
+        if (request.address() != null) {
+            user.setAddress(request.address());
+        }
+        if (request.email() != null) {
+            user.setEmail(request.email());
+        }
+
+        return UserResponse.from(userRepository.saveAndFlush(user));
+    }
+
+    private static boolean isProfileUniqueViolation(Throwable exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SQLException sqlException
+                    && "23505".equals(sqlException.getSQLState())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private UserResponse createUser(RegisterRequest request, String roleCode) {
