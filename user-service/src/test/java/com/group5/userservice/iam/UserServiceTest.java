@@ -6,13 +6,13 @@ import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.entity.Role;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.UserStatus;
+import com.group5.userservice.shared.config.IamProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.mock.env.MockEnvironment;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -49,31 +49,30 @@ class UserServiceTest {
     private TransactionStatus transactionStatus;
 
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
-    private final MockEnvironment environment = new MockEnvironment()
-            .withProperty("nexus.iam.default-user-role", "BUYER")
-            .withProperty("nexus.iam.allow-self-registration", "true");
+    private final IamProperties iamProperties = new IamProperties();
 
     private UserService userService;
 
     @BeforeEach
     void setUp() {
         lenient().when(transactionManager.getTransaction(any(TransactionDefinition.class))).thenReturn(transactionStatus);
-        userService = new UserService(userRepository, passwordEncoder, environment, transactionManager);
+        userService = new UserService(userRepository, passwordEncoder, iamProperties, transactionManager);
     }
 
     @Test
     void registerReturnsTheConfiguredDefaultRole() {
-        givenRegistrationCanSave();
+        iamProperties.setDefaultUserRole("SELLER");
+        givenRegistrationCanSave("SELLER");
 
         UserResponse response = userService.register(validRequest());
 
-        assertThat(response.roles()).containsExactly("BUYER");
+        assertThat(response.roles()).containsExactly("SELLER");
     }
 
     @Test
     void registerDefaultsToBuyerAndAllowSelfRegistrationWhenPropertiesAreAbsent() {
         UserService serviceWithAbsentProperties =
-                new UserService(userRepository, passwordEncoder, new MockEnvironment(), transactionManager);
+                new UserService(userRepository, passwordEncoder, new IamProperties(), transactionManager);
         givenRegistrationCanSave();
 
         UserResponse response = serviceWithAbsentProperties.register(validRequest());
@@ -148,7 +147,7 @@ class UserServiceTest {
 
     @Test
     void selfRegistrationDisabledReturns403BeforeOpeningATransaction() {
-        environment.setProperty("nexus.iam.allow-self-registration", "false");
+        iamProperties.setAllowSelfRegistration(false);
 
         DomainException rejected = catchThrowableOfType(DomainException.class,
                 () -> userService.register(validRequest()));
@@ -162,7 +161,7 @@ class UserServiceTest {
     void selfRegistrationFlagIsReadAgainOnTheNextCall() {
         givenRegistrationCanSave();
         userService.register(validRequest());
-        environment.setProperty("nexus.iam.allow-self-registration", "false");
+        iamProperties.setAllowSelfRegistration(false);
 
         DomainException rejected = catchThrowableOfType(DomainException.class,
                 () -> userService.register(validRequestWithEmail("second@nexus.local")));
@@ -272,8 +271,14 @@ class UserServiceTest {
     }
 
     private void givenRegistrationCanSave() {
+        givenRegistrationCanSave("BUYER");
+    }
+
+    private void givenRegistrationCanSave(String roleCode) {
         givenNoDuplicates();
-        when(userRepository.findRegistrationRole("BUYER")).thenReturn(Optional.of(buyerRole()));
+        Role role = buyerRole();
+        role.setCode(roleCode);
+        when(userRepository.findRegistrationRole(roleCode)).thenReturn(Optional.of(role));
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> {
             User user = invocation.getArgument(0);
             user.setId(UUID.fromString("7c47f673-6a1f-4b7b-bfb6-90e5b674eb81"));

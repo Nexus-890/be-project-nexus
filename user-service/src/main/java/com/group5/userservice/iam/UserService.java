@@ -6,8 +6,8 @@ import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.entity.Role;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.Gender;
+import com.group5.userservice.shared.config.IamProperties;
 import org.hibernate.exception.ConstraintViolationException;
-import org.springframework.core.env.Environment;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -20,25 +20,24 @@ import java.time.LocalDate;
 public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final Environment environment;
+    private final IamProperties iamProperties;
     private final TransactionTemplate transaction;
 
     public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder,
-                       Environment environment, PlatformTransactionManager transactionManager) {
+                       IamProperties iamProperties, PlatformTransactionManager transactionManager) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
-        this.environment = environment;
+        this.iamProperties = iamProperties;
         this.transaction = new TransactionTemplate(transactionManager);
         this.transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
 
     public UserResponse register(RegisterRequest request) {
-        // Read the refreshed Environment on every request, not a startup snapshot.
-        if (!environment.getProperty("nexus.iam.allow-self-registration", Boolean.class, true)) {
+        if (!iamProperties.isAllowSelfRegistration()) {
             throw new DomainException(403, "Self-registration is disabled");
         }
-        String roleCode = environment.getProperty("nexus.iam.default-user-role", "BUYER");
+        String roleCode = iamProperties.getDefaultUserRole();
         try {
             return transaction.execute(status -> createUser(request, roleCode));
         } catch (RuntimeException exception) {

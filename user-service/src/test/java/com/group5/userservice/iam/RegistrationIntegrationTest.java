@@ -1,5 +1,6 @@
 package com.group5.userservice.iam;
 
+import com.group5.userservice.shared.config.IamProperties;
 import com.nimbusds.jwt.SignedJWT;
 import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.AfterAll;
@@ -69,6 +70,7 @@ class RegistrationIntegrationTest {
 
     @Autowired private JdbcTemplate jdbc;
     @Autowired private Environment environment;
+    @Autowired private IamProperties iamProperties;
     @Autowired private PasswordEncoder encoder;
     @Autowired private ApplicationContext context;
     private boolean configChanged;
@@ -240,6 +242,7 @@ class RegistrationIntegrationTest {
         configChanged = true;
         writeConfig("SELLER", true);
         assertThat(post("/actuator/refresh", Map.of()).statusCode()).isEqualTo(200);
+        assertThat(iamProperties.getDefaultUserRole()).isEqualTo("SELLER");
         HttpResponse<String> response = post(REGISTER, request("seller@nexus.test", "0901234567", "001234"));
         assertThat(response.statusCode()).isEqualTo(201);
         assertThat(JSON.readTree(response.body()).get("roles").get(0).asString()).isEqualTo("SELLER");
@@ -255,6 +258,7 @@ class RegistrationIntegrationTest {
         configChanged = true;
         writeConfig("BUYER", false);
         assertThat(post("/actuator/refresh", Map.of()).statusCode()).isEqualTo(200);
+        assertThat(iamProperties.isAllowSelfRegistration()).isFalse();
         assertThat(post(REGISTER, request("buyer@nexus.test", "0901234567", "001234"))
                 .statusCode()).isEqualTo(403);
         assertThat(count("users")).isZero();
@@ -265,6 +269,7 @@ class RegistrationIntegrationTest {
 
         writeConfig("BUYER", true);
         assertThat(post("/actuator/refresh", Map.of()).statusCode()).isEqualTo(200);
+        assertThat(iamProperties.isAllowSelfRegistration()).isTrue();
         assertThat(post(REGISTER, request("buyer@nexus.test", "0901234567", "001234"))
                 .statusCode()).isEqualTo(201);
     }
