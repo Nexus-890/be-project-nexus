@@ -40,6 +40,10 @@ independently, as required by ADR-006.
 | `/api/v1/skus/{id}` | PUT | PRODUCT.UPDATE | #86 — SKU create, update and read |
 | Any other path | Any other method/path pair | Token required; add the SRS privilege before exposing a new endpoint | Gateway JWT filter and permit list; future owning issue |
 
+`GET /api/v1/users/{id}` (#76) has no row on purpose: a caller may read their own
+record without `USER.VIEW`, which the gateway cannot decide. Any valid token passes
+the gateway and user-service allows the caller's own id or `USER.VIEW`.
+
 ## Matching and JWT contract
 
 - Exactly nine method/path pairs are public. No public `/**`, method-less rule,

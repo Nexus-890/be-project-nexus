@@ -54,6 +54,10 @@ public class UserService {
     }
 
     public UserResponse getOwnProfile(UUID userId) {
+        return getUser(userId);
+    }
+
+    public UserResponse getUser(UUID userId) {
         return transaction.execute(status -> {
             User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                     .orElseThrow(() -> new DomainException(404, "User not found"));
