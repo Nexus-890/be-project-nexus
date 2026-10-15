@@ -1,23 +1,12 @@
 # API shapes draft #88 — examples are synthetic; caller policy is documented below.
 openapi: 3.0.3
 info:
-  title: Project Nexus — Notification Sprint 2 API
+  title: Project Nexus — Notification API shapes (#88)
   version: 0.1.0-draft
-  description: 'Draft for frontend mocks, not an implementation or proof of gateway enforcement. SRS privileges
-    are authoritative when defined: x-required-privileges is the service ALL-of requirement; x-gateway-privilege
-    is the single privilege to register in the existing gateway policy. x-actor-roles is descriptive SRS actor metadata,
-    not an additional role gate. Only the privilege-less order-status operation uses x-required-roles (ADMIN). ADMIN
-    has no implicit privilege bypass. Ownership is independently enforced by the owning service using validated
-    JWT sub; do not accept a caller userId in a request. UUIDs and UTC ISO-8601 timestamps are used. Lists are newest
-    first unless specified. Scope: NTF-01..04, owning issues #108 and #109. Sprint 2 is in-app only; no preferences,
-    push subscriptions, event-log management or email delivery endpoints. NTF-03 and NTF-04 return catalogue 204
-    No Content, including no-op retries. Refetch the list and unread count to refresh UI state. The original issue
-    #88 nonempty-body criterion needs an explicit exception for catalogue 204 operations. Repeated mark-read calls
-    are idempotent: preserve an existing readAt; mark-all changes unread records only. Mock calls are stateless
-    and do not persist those changes. Errors mirror lib/common-core ErrorCode/DomainException, lib/common-web GlobalExceptionHandler,
-    lib/common-security SecurityProblemAdvice and api-gateway SecurityConfig. No top-level symbolic code; optional
-    service traceId; validation errors contain field/message only. 409/503 details are draft business messages supported
-    by DomainException(int, String), not new ErrorCode enum entries.'
+  description: |
+    Draft for frontend mocks, not an implementation or proof of gateway enforcement. SRS privileges are authoritative when defined: x-required-privileges is the service ALL-of requirement; x-gateway-privilege is the single privilege to register in the existing gateway policy. x-actor-roles is descriptive SRS actor metadata, not an additional role gate. Only the privilege-less order-status operation uses x-required-roles (ADMIN). ADMIN has no implicit privilege bypass. Ownership is independently enforced by the owning service using validated JWT sub; do not accept a caller userId in a request. UUIDs and UTC ISO-8601 timestamps are used. Lists are newest first unless specified. Scope: NTF-01..04, owning issues #108 and #109. This scope is in-app only; no preferences, push subscriptions, event-log management or email delivery endpoints. NTF-03 and NTF-04 return catalogue 204 No Content, including no-op retries. Refetch the list and unread count to refresh UI state. The original issue #88 nonempty-body criterion needs an explicit exception for catalogue 204 operations. Repeated mark-read calls are idempotent: preserve an existing readAt; mark-all changes unread records only. Mock calls are stateless and do not persist those changes. Errors mirror lib/common-core ErrorCode/DomainException, lib/common-web GlobalExceptionHandler, lib/common-security SecurityProblemAdvice and api-gateway SecurityConfig. No top-level symbolic code; optional service traceId; validation errors contain field/message only. 409/503 details are draft business messages supported by DomainException(int, String), not new ErrorCode enum entries.
+
+    Frontend quick start, branch checkout commands and both mock URLs are documented in commerce-service.yaml → info.description → Frontend quick start. Run this notification mock on http://localhost:4011. For 204 success responses, do not parse JSON; refetch the list and unread count.
   contact:
     name: Project Nexus Backend Team
 servers:
@@ -89,7 +78,7 @@ paths:
                     status: 401
                     detail: A valid bearer token is required
                     instance: /api/v1/notifications
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:unauthorized
@@ -117,7 +106,7 @@ paths:
                     status: 403
                     detail: The required privilege is missing
                     instance: /api/v1/notifications
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:forbidden
@@ -210,7 +199,7 @@ paths:
                     status: 401
                     detail: A valid bearer token is required
                     instance: /api/v1/notifications/unread-count
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:unauthorized
@@ -238,7 +227,7 @@ paths:
                     status: 403
                     detail: The required privilege is missing
                     instance: /api/v1/notifications/unread-count
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:forbidden
@@ -301,7 +290,7 @@ paths:
                     status: 401
                     detail: A valid bearer token is required
                     instance: /api/v1/notifications/00000007-1111-4111-8111-111111111111/read
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:unauthorized
@@ -329,7 +318,7 @@ paths:
                     status: 403
                     detail: The required privilege is missing
                     instance: /api/v1/notifications/00000007-1111-4111-8111-111111111111/read
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:forbidden
@@ -434,7 +423,7 @@ paths:
                     status: 401
                     detail: A valid bearer token is required
                     instance: /api/v1/notifications/read-all
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:unauthorized
@@ -462,7 +451,7 @@ paths:
                     status: 403
                     detail: The required privilege is missing
                     instance: /api/v1/notifications/read-all
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:forbidden

@@ -1,6 +1,6 @@
 # Gateway permissions
 
-This document contains the active gateway policy table and the frozen Sprint 2
+This document contains the active gateway policy table and the #88 API-shape
 draft contracts below. A draft contract does not expose a runtime endpoint. Every
 issue enabling or changing a runtime endpoint must update this document and the endpoint policy
 in `config-service/src/main/resources/config/api-gateway.yml` in the same merge
@@ -99,7 +99,7 @@ References: [ADR-006](../adr/ADR-006-service-authentication-RS256.md),
 [Spring Security reactive JWT](https://docs.spring.io/spring-security/reference/reactive/oauth2/resource-server/jwt.html).
 
 
-## Sprint 2 draft — commerce and notifications
+## API shapes draft (#88) — commerce and notifications
 
 These **14 method/path contracts are fixed for callers**, while DTO field names
 remain drafts (`0.1.0-draft`). This section is the permission handoff for the
@@ -168,11 +168,12 @@ Prism cannot prove any of these runtime security properties.
 
 - Source: [SRS 3.2 and 3.4](https://docs.google.com/document/d/1nw7_WwZoWhjgA1WiZJzu37ps_MisI5Ls/edit)
   and [endpoint catalogue](https://docs.google.com/spreadsheets/d/1KIJsr87F-6TWieBbie9CVzgCBTPsM4Zk/edit),
-  filtered to **R1 · Sprint 2** and the two requested services. Catalogue IDs:
+  selected by #88 scope and the two requested services, not obsolete sprint labels.
+  Catalogue IDs:
   CRT-01..04, ORD-01/03..06, PAY-01 and NTF-01..04.
 - Not included: standalone pricing/validation/checkout preview, guest carts,
   buyer cancellation/refunds, notification preferences or push subscriptions.
-  The Sepay webhook is Sprint 4, not a new public Sprint 2 path. Cart expiry,
+  The Sepay webhook is outside #88, not a new public path in this draft. Cart expiry,
   outbox relay and notification consumers are jobs/consumers, not HTTP endpoints.
 - **Catalogue status codes:** CRT-04, NTF-03 and NTF-04 return **204 No Content**,
   including idempotent mark-read retries. No response schema, example or body is
@@ -186,7 +187,7 @@ Prism cannot prove any of these runtime security properties.
 - **Money:** all 11 commerce/payment monetary fields use JSON **strings**, with
   pattern `^\d+\.\d{2}$`, for example `"150000.50"` or `"0.00"`. This follows
   #92's decimal-safe convention confirmed by review !40 and the frontend's
-  string-valued price formatter. SQL `numeric(19,2)` describes storage, not a JSON
+  [string-valued price formatter](../../../fe-project-nexus/lib/format-price.ts). SQL `numeric(19,2)` describes storage, not a JSON
   number requirement. Preserve both fractional digits on the wire; never convert
   these values to JavaScript `Number` for authoritative money calculations.
   Shipping, tax, discounts and totals are server supplied.
@@ -195,9 +196,10 @@ Prism cannot prove any of these runtime security properties.
   payload with the same key is 409. A key belonging to another caller returns
   400 and never discloses that caller's order. Payment initiation repeats the same
   201 instructions; marking an already-read notification preserves `readAt`.
-- **Pagination:** zero-based `page`, `size` defaults to 10 (1..100), matching product lists; list envelopes
-  use `{content, page, size, totalElements, totalPages}`. Sprint 2 order filtering
-  supports `status`, not the later-sprint `from`/`to` filters.
+- **Pagination:** zero-based `page`, `size` defaults to 10 (1..100), matching
+  [product lists](../../catalog-service/src/main/java/com/group5/catalogservice/product/controller/ProductController.java).
+  List envelopes use `{content, page, size, totalElements, totalPages}`. Order
+  filtering supports `status`, not out-of-scope `from`/`to` filters.
 
 ### Shared error contract (no new error-code system)
 
@@ -251,164 +253,13 @@ Localhost server and absent-license lint warnings are intentional: these are
 local mock contracts and no project license is being invented. Schema and example
 validation must have no errors or invalid-example warnings.
 
-#### Frontend quick start — hướng dẫn bàn giao
+### Frontend handoff
 
-**1. Cập nhật nhánh**
-
-Chạy từ thư mục gốc repository, trước khi mở hai terminal chạy mock:
-
-```bash
-git fetch origin
-git switch fsa_ANNT_25/feature/sprint-2-api-shapes
-git pull --ff-only
-```
-
-Các lệnh trên dành cho working tree sạch. Nếu Git báo thay đổi local hoặc nhánh
-bị phân kỳ, giữ nguyên thay đổi của bạn và xử lý trước khi tiếp tục; không dùng
-`reset --hard` chỉ để chuyển sang nhánh mock.
-
-**2. Chạy mock server**
-
-Mở **hai terminal riêng**, đều bắt đầu tại thư mục gốc repository. Giữ cả hai
-terminal chạy trong lúc phát triển frontend.
-
-Terminal 1 — Commerce (cart, order, payment):
-
-```bash
-cd be-project-nexus
-npx --yes @stoplight/prism-cli@5.14.2 mock docs/api/commerce-service.yaml -p 4010
-```
-
-Terminal 2 — Notification (list, unread count, mark-read):
-
-```bash
-cd be-project-nexus
-npx --yes @stoplight/prism-cli@5.14.2 mock docs/api/notification-service.yaml -p 4011
-```
-
-Đợi mỗi terminal báo `Prism is listening` trước khi gọi API. Nếu terminal đã ở
-`be-project-nexus`, bỏ qua lệnh `cd`. Dùng cùng phiên bản Prism để tái lập fixtures.
-`@stoplight/prism-cli` là package CLI; không dùng `@stoplight/prism` trong lệnh
-của issue. Không thêm `--dynamic`: FE cần các example cố định đã commit.
-Prism bật CORS mặc định; khi sửa YAML, khởi động lại mock để nạp contract mới.
-
-**3. Thông tin kết nối API**
-
-| Service | Mock base URL | API kiểm tra nhanh |
-|---|---|---|
-| Commerce | `http://localhost:4010` | `GET /api/v1/carts/me` |
-| Notification | `http://localhost:4011` | `GET /api/v1/notifications` |
-
-`localhost` / `127.0.0.1` là máy **đang chạy Prism**, không phải server dùng chung.
-FE chạy hai mock trên máy mình rồi cấu hình API client trỏ đến hai base URL tương
-ứng. Base URL chưa chứa `/api/v1`, nên thêm prefix này đúng một lần khi gọi API.
-Nếu nhóm dùng host phát triển chung, cần gửi URL thực sự truy cập được; thay đổi
-này không tạo host chung hoặc public tunnel.
-
-**4. Header và request body**
-
-Mọi operation trong hai contract đều cần các header sau khi gọi success fixture:
-
-```text
-Authorization: Bearer mock-token
-Accept: application/json
-```
-
-`mock-token` chỉ dùng cho Prism. Mock không kiểm tra chữ ký JWT, role, privilege
-hay ownership như runtime gateway/service.
-
-**Chỉ gửi JSON body và `Content-Type: application/json` khi operation khai báo
-`requestBody`**, không dựa riêng vào việc method là POST/PUT/PATCH:
-
-| Operation có JSON body | Dữ liệu cần gửi |
-|---|---|
-| `POST /api/v1/carts/me/items` | `skuId`, `quantity` |
-| `PUT /api/v1/carts/me/items/{id}` | `quantity` |
-| `POST /api/v1/orders` | `shippingAddress`, `paymentMethod`; xem example đầy đủ trong YAML |
-| `PATCH /api/v1/orders/{id}/status` | `status`, `reason` |
-
-Riêng `POST /api/v1/orders`, gửi thêm:
-
-```text
-Idempotency-Key: 70000000-1111-4111-8111-111111111111
-```
-
-`POST /api/v1/orders/{id}/payment`, `PATCH /api/v1/notifications/{id}/read` và
-`PATCH /api/v1/notifications/read-all` **không có request body**. Không tự động gửi
-`{}` hoặc gắn `Content-Type` cho các request này. Các GET/DELETE cũng không có body.
-Lấy UUID, payload và response example trực tiếp từ hai YAML; không gửi `{}` thay
-cho body bắt buộc. Khi gặp 400, kiểm tra field bắt buộc, kiểu dữ liệu và header;
-khi gặp 415, kiểm tra body và media type có được operation khai báo hay không.
-Chỉ nhận 400/415 không chứng minh success contract đã được kiểm tra đúng.
-
-Ví dụ gọi từ frontend, dùng trong môi trường hỗ trợ `fetch` và top-level `await`:
-
-```javascript
-// Thêm một SKU: operation có requestBody.
-const addItemResponse = await fetch("http://localhost:4010/api/v1/carts/me/items", {
-  method: "POST",
-  headers: {
-    Authorization: "Bearer mock-token",
-    Accept: "application/json",
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    skuId: "00000003-1111-4111-8111-111111111111",
-    quantity: 2,
-  }),
-});
-if (!addItemResponse.ok) throw new Error(await addItemResponse.text());
-const cart = await addItemResponse.json();
-
-// Đánh dấu tất cả đã đọc: không gửi body hoặc Content-Type.
-const markAllResponse = await fetch("http://localhost:4011/api/v1/notifications/read-all", {
-  method: "PATCH",
-  headers: {
-    Authorization: "Bearer mock-token",
-    Accept: "application/json",
-  },
-});
-if (!markAllResponse.ok) throw new Error(await markAllResponse.text());
-if (markAllResponse.status !== 204) throw new Error("Expected 204 No Content");
-// Không gọi .json() trên 204; refetch để cập nhật UI.
-const countResponse = await fetch("http://localhost:4011/api/v1/notifications/unread-count", {
-  headers: { Authorization: "Bearer mock-token", Accept: "application/json" },
-});
-if (!countResponse.ok) throw new Error(await countResponse.text());
-const unreadCount = await countResponse.json();
-```
-
-**5. Chọn fixtures cho màn hình**
-
-Gửi header `Prefer` để chọn fixture phù hợp; nếu không gửi, Prism chọn success
-response mặc định. Riêng tạo order, chọn rõ 201 hoặc 200 cho màn hình cần kiểm tra.
-
-| Trường hợp | Operation áp dụng | Header `Prefer` |
-|---|---|---|
-| Tạo order mới | `POST /api/v1/orders` | `code=201` |
-| Retry cùng order | `POST /api/v1/orders` | `code=200` |
-| Cart/list rỗng | GET cart, danh sách order hoặc notification | `example=empty` |
-| Trạng thái order | `GET /api/v1/orders/{id}` | `example=pending`, `example=paid` hoặc `example=canceled` |
-| Giá thay đổi | `POST /api/v1/orders` | `code=409, example=priceChanged` |
-| Thiếu tồn kho | `POST /api/v1/orders` | `code=409, example=insufficientStock` |
-| Không có unread | GET unread-count | `example=none` |
-| Lỗi xác thực từ service | Mọi operation | `code=401, example=service` |
-| Lỗi quyền từ gateway | Mọi operation | `code=403, example=gateway` |
-| Lỗi field validation | Bốn operation có JSON body | `code=400, example=validation` |
-| Body không hợp lệ | Bốn operation có JSON body | `code=400, example=malformedBody` |
-
-Khi chọn error fixture, đổi `Accept` thành `application/problem+json`.
-`code=...` trong `Prefer` là HTTP status selector của **Prism**, không phải field
-`code` nghiệp vụ trong response và không phải header cần dùng khi gọi backend thật.
-Các fixture ép chọn không chứng minh Prism đang chạy Java handler hoặc kiểm tra
-quyền thực tế.
-
-Mock **không lưu trạng thái**: thêm/xóa cart, mark-read, retry hay polling payment
-không làm dữ liệu tự thay đổi. Chọn example tương ứng trong FE mock adapter; dùng
-cặp order/payment examples có cùng order UUID, số tiền, memo và deadline cho màn
-hình checkout. Success JSON đều có example không rỗng; ba operation trả 204 không có body.
-UUID, tiền, timestamp, QR và tài khoản ngân hàng chỉ là dữ liệu mẫu; không dùng
-chúng làm thông tin thanh toán thực tế.
+The runnable FE guide, both mock URLs, request/header examples and MR comment
+template are in [commerce-service.yaml](commerce-service.yaml), under
+`info.description` → **Frontend quick start**. Notification uses the same guide.
+This keeps the gateway document focused on access policy without adding a fourth
+output file. The guide uses branch `fsa_ANNT_25/feature/api-shapes`.
 
 ### Verification scope
 
@@ -419,38 +270,35 @@ The active gateway permission test proves the existing policy table is preserved
 not that draft service/gateway authorization is implemented. Temporary tooling
 stays outside the repository; only these three documents are delivered.
 
-### Frontend handoff and acceptance
+Validation recorded after review !40 fixes:
 
-Gửi link mục **Frontend quick start** ở trên, hai mock base URL và kết quả
-validation/smoke vào MR hoặc kênh nhóm có frontend developer. Ghi rõ FE cần chạy
-Prism local nếu chưa có host dùng chung. Commit/push tài liệu chưa đồng nghĩa đã
-bàn giao trực tiếp hoặc frontend đã xác nhận.
+- Swagger Parser 12.1.0 accepts both OpenAPI documents. Redocly 2.63.0 recommended
+  lint has no errors or invalid-example warnings; the four advisory warnings are
+  missing license metadata and localhost server URLs, two per file.
+- Prism 5.14.2: 153 fixture/invalid requests plus 14 default successes without
+  `Prefer` (167 requests), with 322 schema/example checks. Each declared JSON body
+  matches its example and schema; all three 204 successes have zero body bytes.
+- All 14 permission rows match the YAML actor/service/gateway metadata uniquely.
+  The 11 monetary schemas and 36 example amounts pass decimal-string checks;
+  numbers and malformed decimal strings are rejected. Page-size defaults are 10.
+- The executable FE examples pass five additional live requests, including
+  bodyless mark-all returning 204 and the subsequent GET unread count.
+- Shared error schemas are unchanged. Both accept 30 serialized shared-handler
+  fixtures and reject invented symbolic codes / SKU-shaped validation errors
+  (64 compatibility checks). No new `ErrorCode` enum or runtime handler is added.
+- Java 21 `./mvnw -Dtest=GatewayPermissionsTest test` in `api-gateway` passes:
+  four tests, zero failures/errors. The active permission table is unchanged.
 
-Mẫu nhắn frontend trong MR (thay `@TEN_FRONTEND_DEV` bằng người nhận thật):
+### Acceptance evidence (issue #88 / MR !40)
 
-> Chào @TEN_FRONTEND_DEV, draft API Sprint 2 đã có trên nhánh
-> `fsa_ANNT_25/feature/sprint-2-api-shapes`. Bạn xem mục **Frontend quick start**
-> trong `docs/api/gateway-permissions.md` để chạy hai mock local.
-> Commerce: `http://localhost:4010`; Notification: `http://localhost:4011`.
-> Request/response examples và quyền gọi từng API nằm trong hai YAML và bảng
-> permissions của MR. Bạn thử các màn hình cần xây dựng; nếu thiếu field hoặc
-> fixture, nhờ bạn comment rõ operation và dữ liệu cần thêm. Khi đủ để phát triển,
-> nhờ bạn xác nhận trực tiếp trong MR: **“Confirmed, mock data đã đủ để FE phát triển.”**
+Issue #88 and the actual FE comment in MR !40 are the source of truth for handoff
+and confirmation. Do not copy checked/unchecked progress into this document or
+infer confirmation from committed instructions. If those boxes were checked
+without evidence, clear them on the issue until the guide has actually been sent
+and the FE developer has commented. Updating these documents does not itself
+update the issue or post an MR comment.
 
-Before marking this issue done:
-
-- [x] Both OpenAPI files pass validation and all examples conform to schemas.
-- [ ] Revalidate all 14 method/path operations: declared JSON examples where present;
-      status 204 with no body for CRT-04, NTF-03 and NTF-04.
-- [x] Validate new-order/retry, empty lists, price/stock conflict and illegal-status
-      fixtures; no real JWT or payment credentials are used in mocks.
-- [x] The 14 operations match the draft table one-to-one with required role(s).
-- [ ] Issue #88 records the catalogue 204 exceptions to its nonempty-body criterion.
-- [ ] Owning backend MRs carry the fixed caller policy into gateway and service
-      checks before exposure; the current draft must not be treated as deployment.
-- [ ] Mock URLs and the quick-start link have been sent to the frontend developer.
-- [ ] **Frontend developer comments in the MR that the mocks are enough to build on.**
-
-Frontend confirmation and cross-issue agreement are external review steps; this
-file does not claim they have occurred. Technical checks alone do not close the
-issue.
+Retain the catalogue 204 responses and record an exception to #88's original
+nonempty-body criterion. Implementation MRs still need to register the gateway
+privilege and enforce the full downstream policy before deployment; these drafts
+and Prism cannot demonstrate runtime authorization.

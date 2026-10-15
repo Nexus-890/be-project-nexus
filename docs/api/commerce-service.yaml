@@ -1,23 +1,192 @@
 # API shapes draft #88 — examples are synthetic; caller policy is documented below.
 openapi: 3.0.3
 info:
-  title: Project Nexus — Commerce Sprint 2 API
+  title: Project Nexus — Commerce API shapes (#88)
   version: 0.1.0-draft
-  description: 'Draft for frontend mocks, not an implementation or proof of gateway enforcement. SRS privileges
-    are authoritative when defined: x-required-privileges is the service ALL-of requirement; x-gateway-privilege
-    is the single privilege to register in the existing gateway policy. x-actor-roles is descriptive SRS actor metadata,
-    not an additional role gate. Only the privilege-less order-status operation uses x-required-roles (ADMIN). ADMIN
-    has no implicit privilege bypass. Ownership is independently enforced by the owning service using validated
-    JWT sub; do not accept a caller userId in a request. UUIDs and UTC ISO-8601 timestamps are used. Lists are newest
-    first unless specified. Scope: CRT-01..04, ORD-01/03..06, PAY-01 in the endpoint catalogue. Cart validation
-    occurs inside order creation; no standalone checkout, refund or Sepay webhook in Sprint 2. CRT-04 returns catalogue
-    204 No Content; refetch the cart to refresh UI state. The original issue #88 nonempty-body criterion needs an
-    explicit exception for catalogue 204 operations. Money is serialized as decimal-safe JSON strings with exactly
-    two fractional digits, matching the #92 convention confirmed in review !40; storage remains numeric(19,2). This
-    file does not create backend controllers. Errors mirror lib/common-core ErrorCode/DomainException, lib/common-web
-    GlobalExceptionHandler, lib/common-security SecurityProblemAdvice and api-gateway SecurityConfig. No top-level
-    symbolic code; optional service traceId; validation errors contain field/message only. 409/503 details are draft
-    business messages supported by DomainException(int, String), not new ErrorCode enum entries.'
+  description: |+
+    Draft for frontend mocks, not an implementation or proof of gateway enforcement. SRS privileges are authoritative when defined: x-required-privileges is the service ALL-of requirement; x-gateway-privilege is the single privilege to register in the existing gateway policy. x-actor-roles is descriptive SRS actor metadata, not an additional role gate. Only the privilege-less order-status operation uses x-required-roles (ADMIN). ADMIN has no implicit privilege bypass. Ownership is independently enforced by the owning service using validated JWT sub; do not accept a caller userId in a request. UUIDs and UTC ISO-8601 timestamps are used. Lists are newest first unless specified. Scope: CRT-01..04, ORD-01/03..06, PAY-01 in the endpoint catalogue. Cart validation occurs inside order creation; no standalone checkout, refund or Sepay webhook in this draft. CRT-04 returns catalogue 204 No Content; refetch the cart to refresh UI state. The original issue #88 nonempty-body criterion needs an explicit exception for catalogue 204 operations. Money is serialized as decimal-safe JSON strings with exactly two fractional digits, matching the #92 convention confirmed in review !40; storage remains numeric(19,2). This file does not create backend controllers. Errors mirror lib/common-core ErrorCode/DomainException, lib/common-web GlobalExceptionHandler, lib/common-security SecurityProblemAdvice and api-gateway SecurityConfig. No top-level symbolic code; optional service traceId; validation errors contain field/message only. 409/503 details are draft business messages supported by DomainException(int, String), not new ErrorCode enum entries.
+
+    ## Frontend quick start — hướng dẫn bàn giao
+
+    **1. Cập nhật nhánh**
+
+    Chạy từ thư mục gốc repository, trước khi mở hai terminal chạy mock:
+
+    ```bash
+    git fetch origin
+    git switch fsa_ANNT_25/feature/api-shapes
+    git pull --ff-only
+    ```
+
+    Các lệnh trên dành cho working tree sạch. Nếu Git báo thay đổi local hoặc nhánh
+    bị phân kỳ, giữ nguyên thay đổi của bạn và xử lý trước khi tiếp tục; không dùng
+    `reset --hard` chỉ để chuyển sang nhánh mock.
+
+    **2. Chạy mock server**
+
+    Mở **hai terminal riêng**, đều bắt đầu tại thư mục gốc repository. Giữ cả hai
+    terminal chạy trong lúc phát triển frontend.
+
+    Terminal 1 — Commerce (cart, order, payment):
+
+    ```bash
+    cd be-project-nexus
+    npx --yes @stoplight/prism-cli@5.14.2 mock docs/api/commerce-service.yaml -p 4010
+    ```
+
+    Terminal 2 — Notification (list, unread count, mark-read):
+
+    ```bash
+    cd be-project-nexus
+    npx --yes @stoplight/prism-cli@5.14.2 mock docs/api/notification-service.yaml -p 4011
+    ```
+
+    Đợi mỗi terminal báo `Prism is listening` trước khi gọi API. Nếu terminal đã ở
+    `be-project-nexus`, bỏ qua lệnh `cd`. Dùng cùng phiên bản Prism để tái lập fixtures.
+    `@stoplight/prism-cli` là package CLI; không dùng `@stoplight/prism` trong lệnh
+    của issue. Không thêm `--dynamic`: FE cần các example cố định đã commit.
+    Prism bật CORS mặc định; khi sửa YAML, khởi động lại mock để nạp contract mới.
+
+    **3. Thông tin kết nối API**
+
+    | Service | Mock base URL | API kiểm tra nhanh |
+    |---|---|---|
+    | Commerce | `http://localhost:4010` | `GET /api/v1/carts/me` |
+    | Notification | `http://localhost:4011` | `GET /api/v1/notifications` |
+
+    `localhost` / `127.0.0.1` là máy **đang chạy Prism**, không phải server dùng chung.
+    FE chạy hai mock trên máy mình rồi cấu hình API client trỏ đến hai base URL tương
+    ứng. Base URL chưa chứa `/api/v1`, nên thêm prefix này đúng một lần khi gọi API.
+    Nếu nhóm dùng host phát triển chung, cần gửi URL thực sự truy cập được; thay đổi
+    này không tạo host chung hoặc public tunnel.
+
+    **4. Header và request body**
+
+    Mọi operation trong hai contract đều cần các header sau khi gọi success fixture:
+
+    ```text
+    Authorization: Bearer mock-token
+    Accept: application/json
+    ```
+
+    `mock-token` chỉ dùng cho Prism. Mock không kiểm tra chữ ký JWT, role, privilege
+    hay ownership như runtime gateway/service.
+
+    **Chỉ gửi JSON body và `Content-Type: application/json` khi operation khai báo
+    `requestBody`**, không dựa riêng vào việc method là POST/PUT/PATCH:
+
+    | Operation có JSON body | Dữ liệu cần gửi |
+    |---|---|
+    | `POST /api/v1/carts/me/items` | `skuId`, `quantity` |
+    | `PUT /api/v1/carts/me/items/{id}` | `quantity` |
+    | `POST /api/v1/orders` | `shippingAddress`, `paymentMethod`; xem example đầy đủ trong YAML |
+    | `PATCH /api/v1/orders/{id}/status` | `status`, `reason` |
+
+    Riêng `POST /api/v1/orders`, gửi thêm:
+
+    ```text
+    Idempotency-Key: 70000000-1111-4111-8111-111111111111
+    ```
+
+    `POST /api/v1/orders/{id}/payment`, `PATCH /api/v1/notifications/{id}/read` và
+    `PATCH /api/v1/notifications/read-all` **không có request body**. Không tự động gửi
+    `{}` hoặc gắn `Content-Type` cho các request này. Các GET/DELETE cũng không có body.
+    Lấy UUID, payload và response example trực tiếp từ hai YAML; không gửi `{}` thay
+    cho body bắt buộc. Khi gặp 400, kiểm tra field bắt buộc, kiểu dữ liệu và header;
+    khi gặp 415, kiểm tra body và media type có được operation khai báo hay không.
+    Chỉ nhận 400/415 không chứng minh success contract đã được kiểm tra đúng.
+
+    Ví dụ gọi từ frontend, dùng trong môi trường hỗ trợ `fetch` và top-level `await`:
+
+    ```javascript
+    // Thêm một SKU: operation có requestBody.
+    const addItemResponse = await fetch("http://localhost:4010/api/v1/carts/me/items", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer mock-token",
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        skuId: "00000003-1111-4111-8111-111111111111",
+        quantity: 2,
+      }),
+    });
+    if (!addItemResponse.ok) throw new Error(await addItemResponse.text());
+    const cart = await addItemResponse.json();
+
+    // Đánh dấu tất cả đã đọc: không gửi body hoặc Content-Type.
+    const markAllResponse = await fetch("http://localhost:4011/api/v1/notifications/read-all", {
+      method: "PATCH",
+      headers: {
+        Authorization: "Bearer mock-token",
+        Accept: "application/json",
+      },
+    });
+    if (!markAllResponse.ok) throw new Error(await markAllResponse.text());
+    if (markAllResponse.status !== 204) throw new Error("Expected 204 No Content");
+    // Không gọi .json() trên 204; refetch để cập nhật UI.
+    const countResponse = await fetch("http://localhost:4011/api/v1/notifications/unread-count", {
+      headers: { Authorization: "Bearer mock-token", Accept: "application/json" },
+    });
+    if (!countResponse.ok) throw new Error(await countResponse.text());
+    const unreadCount = await countResponse.json();
+    ```
+
+    **5. Chọn fixtures cho màn hình**
+
+    Gửi header `Prefer` để chọn fixture phù hợp; nếu không gửi, Prism chọn success
+    response mặc định. Riêng tạo order, chọn rõ 201 hoặc 200 cho màn hình cần kiểm tra.
+
+    | Trường hợp | Operation áp dụng | Header `Prefer` |
+    |---|---|---|
+    | Tạo order mới | `POST /api/v1/orders` | `code=201` |
+    | Retry cùng order | `POST /api/v1/orders` | `code=200` |
+    | Cart/list rỗng | GET cart, danh sách order hoặc notification | `example=empty` |
+    | Trạng thái order | `GET /api/v1/orders/{id}` | `example=pending`, `example=paid` hoặc `example=canceled` |
+    | Giá thay đổi | `POST /api/v1/orders` | `code=409, example=priceChanged` |
+    | Thiếu tồn kho | `POST /api/v1/orders` | `code=409, example=insufficientStock` |
+    | Không có unread | GET unread-count | `example=none` |
+    | Lỗi xác thực từ service | Mọi operation | `code=401, example=service` |
+    | Lỗi quyền từ gateway | Mọi operation | `code=403, example=gateway` |
+    | Lỗi field validation | Bốn operation có JSON body | `code=400, example=validation` |
+    | Body không hợp lệ | Bốn operation có JSON body | `code=400, example=malformedBody` |
+
+    Khi chọn error fixture, đổi `Accept` thành `application/problem+json`.
+    `code=...` trong `Prefer` là HTTP status selector của **Prism**, không phải field
+    `code` nghiệp vụ trong response và không phải header cần dùng khi gọi backend thật.
+    Các fixture ép chọn không chứng minh Prism đang chạy Java handler hoặc kiểm tra
+    quyền thực tế.
+
+    Mock **không lưu trạng thái**: thêm/xóa cart, mark-read, retry hay polling payment
+    không làm dữ liệu tự thay đổi. Chọn example tương ứng trong FE mock adapter; dùng
+    cặp order/payment examples có cùng order UUID, số tiền, memo và deadline cho màn
+    hình checkout. Success JSON đều có example không rỗng; ba operation trả 204 không có body.
+    UUID, tiền, timestamp, QR và tài khoản ngân hàng chỉ là dữ liệu mẫu; không dùng
+    chúng làm thông tin thanh toán thực tế.
+
+    ## Bàn giao trong merge request !40
+
+    Gửi hai URL mock và link phần **Frontend quick start** trong `info.description`
+    của contract này cho FE. `localhost` yêu cầu FE tự chạy Prism; đây không phải
+    URL server dùng chung. Mẫu comment (thay người nhận bằng tên thật):
+
+    > Chào @TEN_FRONTEND_DEV, draft API #88 trên nhánh
+    > `fsa_ANNT_25/feature/api-shapes` đã có hướng dẫn chạy mock trong
+    > `docs/api/commerce-service.yaml` → `info.description` → **Frontend quick start**.
+    > Commerce: `http://localhost:4010`; Notification: `http://localhost:4011`.
+    > Các mutation CRT-04/NTF-03/NTF-04 trả 204, không có body; các giá tiền là chuỗi.
+    > Bạn kiểm tra mock cho các màn hình cần làm, comment operation/field còn thiếu.
+    > Khi đủ, nhờ bạn xác nhận trực tiếp trong MR:
+    > **“Confirmed, mock data đã đủ để FE phát triển.”**
+
+    Trạng thái bàn giao được quản lý trên issue #88 và bằng comment thực tế trong MR,
+    không bằng một checklist sao chép vào tài liệu. Chỉ tick mục bàn giao sau khi
+    thực sự gửi cho FE; chỉ tick xác nhận khi có comment của FE. Nếu đã tick mà chưa
+    có bằng chứng, bỏ tick trên issue. Commit/push hướng dẫn không phải xác nhận của FE.
+    Issue #88 cần ghi ngoại lệ 204 cho tiêu chí “mọi path có body”; không coi test 204
+    là bằng chứng đã sửa nội dung issue.
+
   contact:
     name: Project Nexus Backend Team
 servers:
@@ -72,7 +241,7 @@ paths:
                     status: 401
                     detail: A valid bearer token is required
                     instance: /api/v1/carts/me
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:unauthorized
@@ -100,7 +269,7 @@ paths:
                     status: 403
                     detail: The required privilege is missing
                     instance: /api/v1/carts/me
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:forbidden
@@ -205,7 +374,7 @@ paths:
                     status: 401
                     detail: A valid bearer token is required
                     instance: /api/v1/carts/me/items
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:unauthorized
@@ -233,7 +402,7 @@ paths:
                     status: 403
                     detail: The required privilege is missing
                     instance: /api/v1/carts/me/items
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:forbidden
@@ -365,7 +534,7 @@ paths:
                     status: 401
                     detail: A valid bearer token is required
                     instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:unauthorized
@@ -393,7 +562,7 @@ paths:
                     status: 403
                     detail: The required privilege is missing
                     instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:forbidden
@@ -480,7 +649,7 @@ paths:
                     status: 401
                     detail: A valid bearer token is required
                     instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:unauthorized
@@ -508,7 +677,7 @@ paths:
                     status: 403
                     detail: The required privilege is missing
                     instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:forbidden
@@ -586,7 +755,7 @@ paths:
       - Order
       operationId: createOrderFromMyCart
       summary: Create an order from my active cart
-      description: The checkout entry point; there is no separate checkout resource in Sprint 2. Revalidate availability
+      description: The checkout entry point; there is no separate checkout resource in this draft. Revalidate availability
         and prices, snapshot items and server-computed totals, then create PENDING and check out the cart atomically.
         Return 201 for a new order and 200 on an identical idempotent retry. Reject an empty cart or missing/malformed
         Idempotency-Key with 400. A key owned by another caller returns 400 without disclosing an order; same key
@@ -670,7 +839,7 @@ paths:
                     status: 401
                     detail: A valid bearer token is required
                     instance: /api/v1/orders
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:unauthorized
@@ -698,7 +867,7 @@ paths:
                     status: 403
                     detail: The required privilege is missing
                     instance: /api/v1/orders
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:forbidden
@@ -801,7 +970,7 @@ paths:
       operationId: listMyOrders
       summary: List my own orders
       description: Always filter by validated JWT sub, including for ADMIN, SELLER and SUPPORT_STAFF; this is not
-        a list-all administration endpoint. Newest first. Sprint 2 supports status filtering and pagination only.
+        a list-all administration endpoint. Newest first. This draft supports status filtering and pagination only.
         Return an empty page object when no orders match.
       security:
       - bearerAuth: []
@@ -854,7 +1023,7 @@ paths:
                     status: 401
                     detail: A valid bearer token is required
                     instance: /api/v1/orders
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:unauthorized
@@ -882,7 +1051,7 @@ paths:
                     status: 403
                     detail: The required privilege is missing
                     instance: /api/v1/orders
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:forbidden
@@ -985,7 +1154,7 @@ paths:
                     status: 401
                     detail: A valid bearer token is required
                     instance: /api/v1/orders/00000005-1111-4111-8111-111111111111
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:unauthorized
@@ -1013,7 +1182,7 @@ paths:
                     status: 403
                     detail: The required privilege is missing
                     instance: /api/v1/orders/00000005-1111-4111-8111-111111111111
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:forbidden
@@ -1123,7 +1292,7 @@ paths:
                     status: 401
                     detail: A valid bearer token is required
                     instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/history
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:unauthorized
@@ -1151,7 +1320,7 @@ paths:
                     status: 403
                     detail: The required privilege is missing
                     instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/history
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:forbidden
@@ -1233,9 +1402,9 @@ paths:
       operationId: changeOrderStatus
       summary: Change order status as an administrator
       description: ADMIN only; SRS defines no dedicated privilege for this path, so do not invent ORDER.UPDATE.
-        Sprint 2 allows PENDING -> PAID or PENDING -> CANCELED only. Record actor, reason and status history. Other
-        transitions return 409 with a domain-error ProblemDetail. This is the manual payment-reconciliation demo
-        fallback, not a buyer-controlled payment confirmation. System transitions are internal service/consumer
+        This draft allows PENDING -> PAID or PENDING -> CANCELED only. Record actor, reason and status history.
+        Other transitions return 409 with a domain-error ProblemDetail. This is the manual payment-reconciliation
+        demo fallback, not a buyer-controlled payment confirmation. System transitions are internal service/consumer
         actions and do not grant a public system-user role.
       security:
       - bearerAuth: []
@@ -1302,7 +1471,7 @@ paths:
                     status: 401
                     detail: A valid bearer token is required
                     instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/status
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:unauthorized
@@ -1330,7 +1499,7 @@ paths:
                     status: 403
                     detail: The required privilege is missing
                     instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/status
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:forbidden
@@ -1409,10 +1578,10 @@ paths:
       - Payment
       operationId: initiateOrderPayment
       summary: Get VietQR payment instructions
-      description: Owner only and order must be PENDING. Return the same instructions and the same 201 status on
+      description: 'Owner only and order must be PENDING. Return the same instructions and the same 201 status on
         repeat requests; no duplicate payment attempt or new memo is created. No request body, card data or client-supplied
         amount. Instructions are synthetic mock data, not a usable bank destination or provider-generated QR. Payment
-        confirmation webhook is Sprint 4, not this contract.
+        confirmation webhook is outside #88, not this contract.'
       security:
       - bearerAuth: []
       x-required-privileges:
@@ -1441,7 +1610,7 @@ paths:
                     status: 401
                     detail: A valid bearer token is required
                     instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/payment
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:unauthorized
@@ -1469,7 +1638,7 @@ paths:
                     status: 403
                     detail: The required privilege is missing
                     instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/payment
-                    traceId: sprint2-mock-trace-001
+                    traceId: api-shapes-mock-trace-001
                 service:
                   value:
                     type: urn:problem:forbidden
@@ -1815,7 +1984,7 @@ components:
       - PENDING
       - PAID
       - CANCELED
-      description: Sprint 2 exposed lifecycle only. Other database statuses belong to later sprint contracts.
+      description: 'Exposed lifecycle for #88 only. Other database statuses are outside this contract.'
     Order:
       type: object
       additionalProperties: false
@@ -1850,8 +2019,8 @@ components:
           enum:
           - STANDARD
           - AUCTION
-          description: Sprint 2 HTTP order creation creates STANDARD only. AUCTION creation comes from later internal
-            settlement.
+          description: HTTP order creation in this draft creates STANDARD only. AUCTION creation comes from later
+            internal settlement.
         status:
           $ref: '#/components/schemas/OrderStatus'
         items:
