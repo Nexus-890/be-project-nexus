@@ -1,10 +1,12 @@
 package com.group5.catalogservice.product.controller;
 
+
+import com.group5.catalogservice.product.dto.response.ProductResponse;
 import com.group5.common_security.CurrentUser;
+import com.group5.catalogservice.product.dto.response.PageResponse;
 import org.springframework.security.access.prepost.PreAuthorize;
-import com.group5.catalogservice.product.dto.ProductRequest;
-import com.group5.catalogservice.product.dto.ProductResponse;
-import com.group5.catalogservice.product.dto.ProductDetailResponse;
+import com.group5.catalogservice.product.dto.request.ProductRequest;
+import com.group5.catalogservice.product.dto.response.ProductDetailResponse;
 import jakarta.validation.groups.Default;
 import org.springframework.validation.annotation.Validated;
 import com.group5.catalogservice.product.service.ProductService;
@@ -44,5 +46,24 @@ public class ProductController {
     @GetMapping("/{id}")
     public ProductDetailResponse getById(@PathVariable UUID id) {
         return productService.getById(id);
+    }
+
+    @GetMapping
+    public PageResponse<ProductResponse> getProductsByCategory(
+            @RequestParam(required = false) UUID categoryId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        return PageResponse.from(productService.getProductsByCategory(categoryId, page, size));
+    }
+
+    @GetMapping("/mine")
+    @PreAuthorize("hasRole('SELLER') and hasAuthority('PRODUCT.LIST')")
+    public PageResponse<ProductResponse> getMyProducts(
+            CurrentUser currentUser,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        return PageResponse.from(productService.getMyProducts(currentUser, page, size));
     }
 }

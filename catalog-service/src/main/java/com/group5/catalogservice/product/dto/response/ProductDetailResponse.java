@@ -1,5 +1,6 @@
-package com.group5.catalogservice.product.dto;
+package com.group5.catalogservice.product.dto.response;
 
+import com.group5.catalogservice.product.dto.response.ProductResponse;
 import lombok.Getter;
 import java.math.BigDecimal;
 import java.util.List;

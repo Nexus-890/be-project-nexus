@@ -29,6 +29,7 @@ independently, as required by ADR-006.
 | `/api/v1/skus/{id}` | GET | Public | #86 / #100 — SKU reads and product visibility |
 | `/api/v1/users/me` | GET | PROFILE.VIEW | #75 — Own profile: read and update |
 | `/api/v1/users/me` | PUT | PROFILE.UPDATE | #75 — Own profile: read and update |
+| `/api/v1/users` | GET | USER.LIST | #76 — Admin user list and user by id |
 | `/api/v1/products` | POST | PRODUCT.CREATE | #83 — Product create, update and read |
 | `/api/v1/products/mine` | GET | PRODUCT.LIST | #99 — Product lists |
 | `/api/v1/products/{id}` | PUT | PRODUCT.UPDATE | #83 — Product create, update and read |
@@ -40,6 +41,10 @@ independently, as required by ADR-006.
 | `/api/v1/products/{id}/skus` | POST | PRODUCT.UPDATE | #86 — SKU create, update and read |
 | `/api/v1/skus/{id}` | PUT | PRODUCT.UPDATE | #86 — SKU create, update and read |
 | Any other path | Any other method/path pair | Token required; add the SRS privilege before exposing a new endpoint | Gateway JWT filter and permit list; future owning issue |
+
+`GET /api/v1/users/{id}` (#76) has no row on purpose: a caller may read their own
+record without `USER.VIEW`, which the gateway cannot decide. Any valid token passes
+the gateway and user-service allows the caller's own id or `USER.VIEW`.
 
 ## Matching and JWT contract
 

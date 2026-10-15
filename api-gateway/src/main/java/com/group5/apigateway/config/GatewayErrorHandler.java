@@ -86,7 +86,7 @@ public class GatewayErrorHandler implements WebExceptionHandler {
     }
 
     private HttpStatus resolveStatus(Throwable ex) {
-        //NOT HAVE ROUTE SPRINT THROW ERROR CODE          404
+        //NOT HAVE ROUTE SPRING THROW ERROR CODE          404
         //EUREKA NOT HAVE INSTANCE -> GATEWAY THROW       503
         //SERVICE DOWN | EUREKA CHƯA KỊP UPDATE           503
 

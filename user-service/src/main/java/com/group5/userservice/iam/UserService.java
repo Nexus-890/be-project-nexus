@@ -1,14 +1,17 @@
 package com.group5.userservice.iam;
 
 import com.group5.common_core.exception.DomainException;
+import com.group5.userservice.iam.dto.PageResponse;
 import com.group5.userservice.iam.dto.RegisterRequest;
 import com.group5.userservice.iam.dto.UpdateProfileRequest;
+import com.group5.userservice.iam.dto.UserListRequest;
 import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.entity.Role;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.Gender;
 import com.group5.userservice.shared.config.IamProperties;
 import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -54,11 +57,24 @@ public class UserService {
     }
 
     public UserResponse getOwnProfile(UUID userId) {
+        return getUser(userId);
+    }
+
+    public UserResponse getUser(UUID userId) {
         return transaction.execute(status -> {
             User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                     .orElseThrow(() -> new DomainException(404, "User not found"));
             return UserResponse.from(user);
         });
+    }
+
+    public PageResponse<UserResponse> listUsers(UserListRequest request) {
+        Specification<User> filter = UserSpecifications.notDeleted()
+                .and(UserSpecifications.matches(request.q()))
+                .and(UserSpecifications.hasStatus(request.status()))
+                .and(UserSpecifications.hasRole(request.role()));
+        return transaction.execute(status -> PageResponse.from(
+                userRepository.findAll(filter, request.pageable()).map(UserResponse::from)));
     }
 
     public UserResponse updateOwnProfile(UUID userId, UpdateProfileRequest request) {
@@ -130,7 +146,7 @@ public class UserService {
                 .orElseThrow(() -> new DomainException(503, "Default registration role is unavailable"));
 
         User user = new User();
-        user.setEmail(request.email());
+        user.setEmail(request.email().toLowerCase());
         user.setPhone(request.phone());
         user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setFullName(request.fullName());
