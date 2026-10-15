@@ -14,6 +14,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Clock;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -35,6 +38,8 @@ class AuthServiceTest {
     private static final String EMAIL = "seller@nexus.local";
     private static final String PASSWORD = "correct-password";
     private static final UUID USER_ID = UUID.fromString("64fba061-3a91-4a35-a853-221798344510");
+    private static final OffsetDateTime NOW =
+            OffsetDateTime.parse("2026-10-13T08:00:00Z");
 
     @Mock
     private UserRepository userRepository;
@@ -50,7 +55,8 @@ class AuthServiceTest {
 
     @BeforeEach
     void setUp() {
-        authService = new AuthService(userRepository, passwordEncoder, jwtIssuer, iamProperties);
+        authService = new AuthService(userRepository, passwordEncoder, jwtIssuer, iamProperties,
+                Clock.fixed(NOW.toInstant(), ZoneOffset.UTC));
 
         user = new User();
         user.setId(USER_ID);
@@ -118,7 +124,7 @@ class AuthServiceTest {
 
     @Test
     void aUserWhoIsNotActiveIsRejectedEvenWithTheRightPassword() {
-        user.setStatus(UserStatus.LOCKED);
+        user.setStatus(UserStatus.DELETED);
         when(userRepository.findByEmailAndDeletedAtIsNull(EMAIL)).thenReturn(Optional.of(user));
 
         DomainException rejected = catchThrowableOfType(DomainException.class,
@@ -153,6 +159,161 @@ class AuthServiceTest {
     void theRequestNeverPrintsThePassword() {
         assertThat(new LoginRequest(EMAIL, PASSWORD).toString()).doesNotContain(PASSWORD);
     }
+
+    @Test
+    void fifthWrongPasswordLocksAndNextLoginReturns423() {
+        when(userRepository.findByEmailAndDeletedAtIsNull(EMAIL))
+                .thenReturn(Optional.of(user));
+
+        for (int attempt = 1; attempt <= 5; attempt++) {
+            DomainException failure = rejectedLogin("wrong-password");
+
+            assertThat(failure.getCode()).isEqualTo(401);
+            assertThat(user.getFailedLoginCount()).isEqualTo((short) attempt);
+            assertThat(user.getStatus()).isEqualTo(
+                    attempt < 5 ? UserStatus.ACTIVE : UserStatus.LOCKED
+            );
+        }
+
+        assertThat(user.getLockedUntil()).isEqualTo(NOW.plusMinutes(15));
+        assertThat(rejectedLogin(PASSWORD).getCode()).isEqualTo(423);
+        assertThat(user.getFailedLoginCount()).isEqualTo((short) 5);
+
+        verify(userRepository, never()).findRoleGrants(any());
+        verify(jwtIssuer, never()).issueAccessToken(any(), any(), any());
+    }
+
+    @Test
+    void successfulLoginBeforeTheLimitResetsFailedAttempts() {
+        user.setFailedLoginCount((short) 4);
+        stubSuccessfulLogin();
+
+        LoginResponse response =
+                authService.login(new LoginRequest(EMAIL, PASSWORD));
+
+        assertThat(response.accessToken()).isEqualTo("signed-token");
+        assertThat(user.getFailedLoginCount()).isZero();
+        assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(user.getLockedUntil()).isNull();
+        assertThat(user.getLastLoginAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void lockedAccountRejectsCorrectAndWrongPasswordsWithoutIncreasingCount() {
+        user.setStatus(UserStatus.LOCKED);
+        user.setFailedLoginCount((short) 5);
+        user.setLockedUntil(NOW.plusMinutes(15));
+
+        when(userRepository.findByEmailAndDeletedAtIsNull(EMAIL))
+                .thenReturn(Optional.of(user));
+
+        assertThat(rejectedLogin(PASSWORD).getCode()).isEqualTo(423);
+        assertThat(rejectedLogin("wrong-password").getCode()).isEqualTo(423);
+        assertThat(user.getFailedLoginCount()).isEqualTo((short) 5);
+        assertThat(user.getLockedUntil()).isEqualTo(NOW.plusMinutes(15));
+
+        verify(userRepository, never()).findRoleGrants(any());
+        verify(jwtIssuer, never()).issueAccessToken(any(), any(), any());
+    }
+
+    @Test
+    void accountIsStillLockedImmediatelyBeforeExpiry() {
+        user.setStatus(UserStatus.LOCKED);
+        user.setFailedLoginCount((short) 5);
+        user.setLockedUntil(NOW.plusNanos(1));
+
+        when(userRepository.findByEmailAndDeletedAtIsNull(EMAIL))
+                .thenReturn(Optional.of(user));
+
+        assertThat(rejectedLogin(PASSWORD).getCode()).isEqualTo(423);
+        assertThat(user.getStatus()).isEqualTo(UserStatus.LOCKED);
+        assertThat(user.getFailedLoginCount()).isEqualTo((short) 5);
+    }
+
+    @Test
+    void accountUnlocksExactlyAtExpiryAndCorrectPasswordSucceeds() {
+        user.setStatus(UserStatus.LOCKED);
+        user.setFailedLoginCount((short) 5);
+        user.setLockedUntil(NOW);
+        stubSuccessfulLogin();
+
+        LoginResponse response =
+                authService.login(new LoginRequest(EMAIL, PASSWORD));
+
+        assertThat(response.accessToken()).isEqualTo("signed-token");
+        assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(user.getFailedLoginCount()).isZero();
+        assertThat(user.getLockedUntil()).isNull();
+        assertThat(user.getLastLoginAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void wrongPasswordAfterExpiryStartsANewFailureSequence() {
+        user.setStatus(UserStatus.LOCKED);
+        user.setFailedLoginCount((short) 5);
+        user.setLockedUntil(NOW.minusSeconds(1));
+
+        when(userRepository.findByEmailAndDeletedAtIsNull(EMAIL))
+                .thenReturn(Optional.of(user));
+
+        assertThat(rejectedLogin("wrong-password").getCode()).isEqualTo(401);
+        assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(user.getFailedLoginCount()).isEqualTo((short) 1);
+        assertThat(user.getLockedUntil()).isNull();
+
+        verify(jwtIssuer, never()).issueAccessToken(any(), any(), any());
+    }
+
+    @Test
+    void thresholdAndLockDurationFollowConfiguration() {
+        iamProperties.setMaxLoginAttempts(3);
+        iamProperties.setLockDurationMinutes(7);
+
+        when(userRepository.findByEmailAndDeletedAtIsNull(EMAIL))
+                .thenReturn(Optional.of(user));
+
+        assertThat(rejectedLogin("wrong-password").getCode()).isEqualTo(401);
+        assertThat(rejectedLogin("wrong-password").getCode()).isEqualTo(401);
+        assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
+
+        assertThat(rejectedLogin("wrong-password").getCode()).isEqualTo(401);
+        assertThat(user.getFailedLoginCount()).isEqualTo((short) 3);
+        assertThat(user.getStatus()).isEqualTo(UserStatus.LOCKED);
+        assertThat(user.getLockedUntil()).isEqualTo(NOW.plusMinutes(7));
+        assertThat(rejectedLogin(PASSWORD).getCode()).isEqualTo(423);
+    }
+
+    @Test
+    void lockWithoutExpiryNeverAutomaticallyUnlocks() {
+        user.setStatus(UserStatus.LOCKED);
+        user.setFailedLoginCount((short) 5);
+        user.setLockedUntil(null);
+
+        when(userRepository.findByEmailAndDeletedAtIsNull(EMAIL))
+                .thenReturn(Optional.of(user));
+
+        assertThat(rejectedLogin(PASSWORD).getCode()).isEqualTo(423);
+        assertThat(user.getStatus()).isEqualTo(UserStatus.LOCKED);
+        assertThat(user.getFailedLoginCount()).isEqualTo((short) 5);
+    }
+
+    private DomainException rejectedLogin(String password) {
+        DomainException exception = catchThrowableOfType(
+                DomainException.class,
+                () -> authService.login(new LoginRequest(EMAIL, password))
+        );
+        assertThat(exception).isNotNull();
+        return exception;
+    }
+
+    private void stubSuccessfulLogin() {
+        when(userRepository.findByEmailAndDeletedAtIsNull(EMAIL))
+                .thenReturn(Optional.of(user));
+        when(userRepository.findRoleGrants(USER_ID)).thenReturn(List.of());
+        when(jwtIssuer.issueAccessToken(USER_ID, Set.of(), Set.of()))
+                .thenReturn("signed-token");
+    }
+
 
     private record Grant(String role, String permission) implements UserRepository.RoleGrant {
 
