@@ -222,52 +222,158 @@ Localhost server and absent-license lint warnings are intentional: these are
 local mock contracts and no project license is being invented. Schema and example
 validation must have no errors or invalid-example warnings.
 
-Start each mock in its own terminal:
+#### Frontend quick start — hướng dẫn bàn giao
+
+**1. Cập nhật nhánh**
+
+Chạy từ thư mục gốc repository, trước khi mở hai terminal chạy mock:
 
 ```bash
+git fetch origin
+git switch fsa_ANNT_25/feature/sprint-2-api-shapes
+git pull --ff-only
+```
+
+Các lệnh trên dành cho working tree sạch. Nếu Git báo thay đổi local hoặc nhánh
+bị phân kỳ, giữ nguyên thay đổi của bạn và xử lý trước khi tiếp tục; không dùng
+`reset --hard` chỉ để chuyển sang nhánh mock.
+
+**2. Chạy mock server**
+
+Mở **hai terminal riêng**, đều bắt đầu tại thư mục gốc repository. Giữ cả hai
+terminal chạy trong lúc phát triển frontend.
+
+Terminal 1 — Commerce (cart, order, payment):
+
+```bash
+cd be-project-nexus
 npx --yes @stoplight/prism-cli@5.14.2 mock docs/api/commerce-service.yaml -p 4010
+```
+
+Terminal 2 — Notification (list, unread count, mark-read):
+
+```bash
+cd be-project-nexus
 npx --yes @stoplight/prism-cli@5.14.2 mock docs/api/notification-service.yaml -p 4011
 ```
 
-`@stoplight/prism-cli` is the executable CLI package; `@stoplight/prism` in the
-issue is not the executable package name. Do not use `--dynamic`: the committed
-examples are the stable FE fixtures. Prism enables CORS by default.
+Đợi mỗi terminal báo `Prism is listening` trước khi gọi API. Nếu terminal đã ở
+`be-project-nexus`, bỏ qua lệnh `cd`. Dùng cùng phiên bản Prism để tái lập fixtures.
+`@stoplight/prism-cli` là package CLI; không dùng `@stoplight/prism` trong lệnh
+của issue. Không thêm `--dynamic`: FE cần các example cố định đã commit.
+Prism bật CORS mặc định; khi sửa YAML, khởi động lại mock để nạp contract mới.
 
-| Service | Local mock base URL |
+**3. Thông tin kết nối API**
+
+| Service | Mock base URL | API kiểm tra nhanh |
+|---|---|---|
+| Commerce | `http://localhost:4010` | `GET /api/v1/carts/me` |
+| Notification | `http://localhost:4011` | `GET /api/v1/notifications` |
+
+`localhost` / `127.0.0.1` là máy **đang chạy Prism**, không phải server dùng chung.
+FE chạy hai mock trên máy mình rồi cấu hình API client trỏ đến hai base URL tương
+ứng. Base URL chưa chứa `/api/v1`, nên thêm prefix này đúng một lần khi gọi API.
+Nếu nhóm dùng host phát triển chung, cần gửi URL thực sự truy cập được; thay đổi
+này không tạo host chung hoặc public tunnel.
+
+**4. Header và request body**
+
+Mọi operation trong hai contract đều cần các header sau khi gọi success fixture:
+
+```text
+Authorization: Bearer mock-token
+Accept: application/json
+```
+
+`mock-token` chỉ dùng cho Prism. Mock không kiểm tra chữ ký JWT, role, privilege
+hay ownership như runtime gateway/service.
+
+**Chỉ gửi JSON body và `Content-Type: application/json` khi operation khai báo
+`requestBody`**, không dựa riêng vào việc method là POST/PUT/PATCH:
+
+| Operation có JSON body | Dữ liệu cần gửi |
 |---|---|
-| Commerce | `http://127.0.0.1:4010` |
-| Notification | `http://127.0.0.1:4011` |
+| `POST /api/v1/carts/me/items` | `skuId`, `quantity` |
+| `PUT /api/v1/carts/me/items/{id}` | `quantity` |
+| `POST /api/v1/orders` | `shippingAddress`, `paymentMethod`; xem example đầy đủ trong YAML |
+| `PATCH /api/v1/orders/{id}/status` | `status`, `reason` |
 
-Requests need `Authorization: Bearer mock-token` and `Accept: application/json`.
-For POST/PUT/PATCH bodies also send `Content-Type: application/json` and the request
-example from the relevant operation (only operations declaring a request body).
-Order creation additionally requires
-`Idempotency-Key: 70000000-1111-4111-8111-111111111111`.
-Prism validates the declared bearer header shape, **not** the JWT signature,
-roles, privileges or ownership. `mock-token` is not a valid runtime JWT.
+Riêng `POST /api/v1/orders`, gửi thêm:
 
-Use `Prefer: code=201` for initial order creation, `Prefer: code=200` for the
-idempotent retry fixture, `Prefer: example=empty` for an empty list/cart, and
-`Prefer: code=409, example=priceChanged` or
-`Prefer: code=409, example=insufficientStock` for checkout conflict fixtures.
-For order-detail polling UI states use `Prefer: example=pending`,
-`Prefer: example=paid` or `Prefer: example=canceled`. Unread count and mark-all
-also expose `Prefer: example=none` for a zero-count / no-change response.
-Every operation has at least one explicit success example with a JSON body.
-Errors use `application/problem+json`; request that media type when testing an
-error fixture. Use `Prefer: code=401, example=service` or
-`Prefer: code=403, example=gateway` to select the emitting layer. On body-taking
-operations, `Prefer: code=400, example=validation` selects field errors and
-`Prefer: code=400, example=malformedBody` selects malformed JSON handling.
-These forced fixtures are not proof that Prism invokes the Java handlers.
-Example IDs, amounts and timestamps are static and synthetic.
-Payment images/bank details are mock placeholders, not real payment instructions.
+```text
+Idempotency-Key: 70000000-1111-4111-8111-111111111111
+```
 
-Mocks are stateless: add/remove, mark-read, idempotency and payment polling do not
-persist or progress through a real workflow. Select the corresponding response
-fixtures in the FE mock adapter; runtime behavior is owned by implementation
-issues. To exercise a full checkout screen, use the matching order/payment
-examples (same order UUID, amount, memo and payment deadline).
+`POST /api/v1/orders/{id}/payment`, `PATCH /api/v1/notifications/{id}/read` và
+`PATCH /api/v1/notifications/read-all` **không có request body**. Không tự động gửi
+`{}` hoặc gắn `Content-Type` cho các request này. Các GET/DELETE cũng không có body.
+Lấy UUID, payload và response example trực tiếp từ hai YAML; không gửi `{}` thay
+cho body bắt buộc. Khi gặp 400, kiểm tra field bắt buộc, kiểu dữ liệu và header;
+khi gặp 415, kiểm tra body và media type có được operation khai báo hay không.
+Chỉ nhận 400/415 không chứng minh success contract đã được kiểm tra đúng.
+
+Ví dụ gọi từ frontend, dùng trong môi trường hỗ trợ `fetch` và top-level `await`:
+
+```javascript
+// Thêm một SKU: operation có requestBody.
+const addItemResponse = await fetch("http://localhost:4010/api/v1/carts/me/items", {
+  method: "POST",
+  headers: {
+    Authorization: "Bearer mock-token",
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    skuId: "00000003-1111-4111-8111-111111111111",
+    quantity: 2,
+  }),
+});
+if (!addItemResponse.ok) throw new Error(await addItemResponse.text());
+const cart = await addItemResponse.json();
+
+// Đánh dấu tất cả đã đọc: không gửi body hoặc Content-Type.
+const markAllResponse = await fetch("http://localhost:4011/api/v1/notifications/read-all", {
+  method: "PATCH",
+  headers: {
+    Authorization: "Bearer mock-token",
+    Accept: "application/json",
+  },
+});
+if (!markAllResponse.ok) throw new Error(await markAllResponse.text());
+const markAllResult = await markAllResponse.json();
+```
+
+**5. Chọn fixtures cho màn hình**
+
+Gửi header `Prefer` để chọn fixture phù hợp; nếu không gửi, Prism chọn success
+response mặc định. Riêng tạo order, chọn rõ 201 hoặc 200 cho màn hình cần kiểm tra.
+
+| Trường hợp | Operation áp dụng | Header `Prefer` |
+|---|---|---|
+| Tạo order mới | `POST /api/v1/orders` | `code=201` |
+| Retry cùng order | `POST /api/v1/orders` | `code=200` |
+| Cart/list rỗng | GET cart, danh sách order hoặc notification | `example=empty` |
+| Trạng thái order | `GET /api/v1/orders/{id}` | `example=pending`, `example=paid` hoặc `example=canceled` |
+| Giá thay đổi | `POST /api/v1/orders` | `code=409, example=priceChanged` |
+| Thiếu tồn kho | `POST /api/v1/orders` | `code=409, example=insufficientStock` |
+| Không có unread / không có thay đổi | GET unread-count hoặc PATCH read-all | `example=none` |
+| Lỗi xác thực từ service | Mọi operation | `code=401, example=service` |
+| Lỗi quyền từ gateway | Mọi operation | `code=403, example=gateway` |
+| Lỗi field validation | Bốn operation có JSON body | `code=400, example=validation` |
+| Body không hợp lệ | Bốn operation có JSON body | `code=400, example=malformedBody` |
+
+Khi chọn error fixture, đổi `Accept` thành `application/problem+json`.
+`code=...` trong `Prefer` là HTTP status selector của **Prism**, không phải field
+`code` nghiệp vụ trong response và không phải header cần dùng khi gọi backend thật.
+Các fixture ép chọn không chứng minh Prism đang chạy Java handler hoặc kiểm tra
+quyền thực tế.
+
+Mock **không lưu trạng thái**: thêm/xóa cart, mark-read, retry hay polling payment
+không làm dữ liệu tự thay đổi. Chọn example tương ứng trong FE mock adapter; dùng
+cặp order/payment examples có cùng order UUID, số tiền, memo và deadline cho màn
+hình checkout. Mỗi operation đều có success example với JSON body không rỗng.
+UUID, tiền, timestamp, QR và tài khoản ngân hàng chỉ là dữ liệu mẫu; không dùng
+chúng làm thông tin thanh toán thực tế.
 
 ### Verification recorded for this draft
 
@@ -298,11 +404,21 @@ examples (same order UUID, amount, memo and payment deadline).
 
 ### Frontend handoff and acceptance
 
-Paste the two reachable mock base URLs, startup commands, this permission matrix
-and validation/smoke results into the merge request. Loopback URLs are local to
-the machine running Prism; an FE developer on another machine can run the same
-commands locally or use an agreed shared development host. There is no shared
-host or public tunnel provisioned by this documentation change.
+Gửi link mục **Frontend quick start** ở trên, hai mock base URL và kết quả
+validation/smoke vào MR hoặc kênh nhóm có frontend developer. Ghi rõ FE cần chạy
+Prism local nếu chưa có host dùng chung. Commit/push tài liệu chưa đồng nghĩa đã
+bàn giao trực tiếp hoặc frontend đã xác nhận.
+
+Mẫu nhắn frontend trong MR (thay `@TEN_FRONTEND_DEV` bằng người nhận thật):
+
+> Chào @TEN_FRONTEND_DEV, draft API Sprint 2 đã có trên nhánh
+> `fsa_ANNT_25/feature/sprint-2-api-shapes`. Bạn xem mục **Frontend quick start**
+> trong `docs/api/gateway-permissions.md` để chạy hai mock local.
+> Commerce: `http://localhost:4010`; Notification: `http://localhost:4011`.
+> Request/response examples và quyền gọi từng API nằm trong hai YAML và bảng
+> permissions của MR. Bạn thử các màn hình cần xây dựng; nếu thiếu field hoặc
+> fixture, nhờ bạn comment rõ operation và dữ liệu cần thêm. Khi đủ để phát triển,
+> nhờ bạn xác nhận trực tiếp trong MR: **“Confirmed, mock data đã đủ để FE phát triển.”**
 
 Before marking this issue done:
 
@@ -315,6 +431,7 @@ Before marking this issue done:
 - [ ] #111/#109 owners acknowledge the draft 200-with-body change from 204.
 - [ ] Owning backend MRs carry the fixed caller policy into gateway and service
       checks before exposure; the current draft must not be treated as deployment.
+- [ ] Mock URLs and the quick-start link have been sent to the frontend developer.
 - [ ] **Frontend developer comments in the MR that the mocks are enough to build on.**
 
 Frontend confirmation and cross-issue agreement are external review steps; this
