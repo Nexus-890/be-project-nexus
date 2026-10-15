@@ -118,6 +118,12 @@
 			<artifactId>common-core</artifactId>
 			<version>${project.version}</version>
 		</dependency>
+		<!-- common-security-->
+		<dependency>
+			<groupId>com.group5</groupId>
+			<artifactId>common-security</artifactId>
+			<version>1.0.0</version>
+		</dependency>
 		<!--common-web-->
 		<dependency>
 			<groupId>com.group5</groupId>

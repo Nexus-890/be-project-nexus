@@ -122,6 +122,11 @@
 		</dependency>
 		<dependency>
 			<groupId>com.group5</groupId>
+			<artifactId>common-security</artifactId>
+			<version>1.0.0</version>
+		</dependency>
+		<dependency>
+			<groupId>com.group5</groupId>
 			<artifactId>common-web</artifactId>
 			<version>1.0.0</version>
 		</dependency>
