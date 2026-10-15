@@ -39,3 +39,4 @@ nexus:
     category-tree:
       sort-type: NAME_ASC
     allow-category-delete-with-product: false
+    allow-product-delete-with-order: false

@@ -71,6 +71,7 @@ public enum ErrorCode {
 
     //========PRODUCT
     PRODUCT_NOT_FOUND("Product not found, not ACTIVE or deleted", HttpStatus.NOT_FOUND),
+    PRODUCT_HAS_ORDERS("Cannot delete a product that has orders", HttpStatus.CONFLICT),
     INVALID_PRODUCT_STATUS_TRANSITION("Product status transition is not allowed",HttpStatus.BAD_REQUEST);
 
 

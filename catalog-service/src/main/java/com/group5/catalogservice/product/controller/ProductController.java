@@ -24,6 +24,13 @@ public class ProductController {
         this.productService = productService;
     }
 
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAnyRole('SELLER', 'ADMIN') and hasAuthority('PRODUCT.DELETE')")
+    public void deleteProduct(@PathVariable UUID id, CurrentUser currentUser) {
+        productService.deleteProduct(id, currentUser);
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAuthority('PRODUCT.CREATE')")
@@ -64,7 +71,9 @@ public class ProductController {
 
         return PageResponse.from(productService.getMyProducts(currentUser, page, size));
     }
-    @PreAuthorize("hasRole('SELLER')")
+    @PreAuthorize(
+            "hasAnyRole('SELLER', 'ADMIN') and hasAuthority('PRODUCT.UPDATE')"
+    )
     @PatchMapping("/{id}/status")
     public ProductResponse changeStatusProduct(
             @PathVariable UUID id,

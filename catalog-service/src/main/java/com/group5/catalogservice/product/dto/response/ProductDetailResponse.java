@@ -1,7 +1,6 @@
 package com.group5.catalogservice.product.dto.response;
 import com.group5.catalogservice.product.enums.ProductStatus;
 import lombok.Getter;
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 

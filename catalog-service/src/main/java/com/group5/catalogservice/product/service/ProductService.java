@@ -9,6 +9,9 @@ import com.group5.catalogservice.product.dto.response.SkuResponse;
 import com.group5.catalogservice.product.entity.ProductImage;
 import com.group5.catalogservice.product.entity.Skus;
 import java.util.Comparator;
+import java.time.OffsetDateTime;
+import com.group5.catalogservice.product.OrderReferenceChecker;
+import com.group5.catalogservice.shared.config.CatalogProperties;
 import com.group5.catalogservice.product.entity.Product;
 import com.group5.catalogservice.product.enums.ProductStatus;
 import com.group5.catalogservice.product.repository.ProductRepository;
@@ -33,6 +36,30 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final ProductSlugGenerator productSlugGenerator;
+    private final OrderReferenceChecker orderReferenceChecker;
+    private final CatalogProperties catalogProperties;
+
+    @Transactional
+    public void deleteProduct(UUID id, CurrentUser currentUser) {
+        requirePrivilege(currentUser, "PRODUCT.DELETE");
+        if (!currentUser.hasRole("SELLER") && !currentUser.hasRole("ADMIN")) {
+            throw new DomainException(ErrorCode.UNAUTHORIZED);
+        }
+
+        Product product = productRepository.findByIdAndDeletedAtIsNull(id)
+                .orElseThrow(() -> new DomainException(ErrorCode.PRODUCT_NOT_FOUND));
+        if (!product.getSellerId().equals(currentUser.id())) {
+            throw new DomainException(ErrorCode.UNAUTHORIZED);
+        }
+        if (!catalogProperties.isAllowProductDeleteWithOrder()
+                && orderReferenceChecker.hasOrderReferences(id)) {
+            throw new DomainException(ErrorCode.PRODUCT_HAS_ORDERS);
+        }
+
+        product.setDeletedAt(OffsetDateTime.now());
+        productRepository.save(product);
+        log.info("Soft deleted product: id={}, actorId={}", id, currentUser.id());
+    }
 
 
     @Transactional
@@ -157,41 +184,12 @@ public class ProductService {
     @Transactional
     public ProductResponse changeStatusProduct(UUID productId, ChangeStatusRequest request, CurrentUser currentUser) {
         //tránh guest
-        if (currentUser == null) {
-            throw new DomainException(ErrorCode.UNAUTHENTICATED);
-        }
-
-        UUID actorId = currentUser.id();
-        ProductStatus targetStatus = request.status();
-
-        log.debug(
-                "Changing product status: productId={}, actorId={}, targetStatus={}",
-                productId, actorId, targetStatus
-        );
-
-        //tìm sản phẩm
-        Product product = productRepository
-                .findByIdAndDeletedAtIsNull(productId)
-                .orElseThrow(() ->
-                        new DomainException(ErrorCode.PRODUCT_NOT_FOUND));
-
-        //kiểm tra có đúng seller không
-        if (!product.getSellerId().equals(actorId)) {
-            log.warn(
-                    "Product status change denied: productId={}, actorId={}, reason=not_owner",
-                    productId, actorId
-            );
-            throw new DomainException(ErrorCode.UNAUTHORIZED);
-        }
+        Product product = findEditableProduct(productId, currentUser);
 
         ProductStatus previousStatus = product.getStatus();
+        ProductStatus targetStatus = request.status();
 
-        //kiêểm tra theo bảng quy tắc và tiến hành thay đổi
         if (!previousStatus.canTransitionTo(targetStatus)) {
-            log.warn(
-                    "Product status transition rejected: productId={}, actorId={}, from={}, to={}",
-                    productId, actorId, previousStatus, targetStatus
-            );
             throw new DomainException(
                     ErrorCode.INVALID_PRODUCT_STATUS_TRANSITION
             );
@@ -202,7 +200,7 @@ public class ProductService {
 
         log.info(
                 "Product status change prepared: productId={}, actorId={}, from={}, to={}",
-                productId, actorId, previousStatus, targetStatus
+                productId, currentUser.id(), previousStatus, targetStatus
         );
 
         return toResponse(saved);
