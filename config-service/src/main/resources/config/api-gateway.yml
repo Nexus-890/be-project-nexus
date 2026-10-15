@@ -74,6 +74,9 @@ nexus:
       - method: GET
         path: /api/v1/users/me
         privilege: PROFILE.VIEW
+      - method: GET
+        path: /api/v1/users
+        privilege: USER.LIST
       - method: PUT
         path: /api/v1/users/me
         privilege: PROFILE.UPDATE
