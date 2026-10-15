@@ -24,6 +24,8 @@ servers:
 tags:
 - name: Cart
   description: The authenticated buyer's active shopping cart.
+- name: Order
+  description: Checkout, own orders and administrative status transitions.
 security:
 - bearerAuth: []
 paths:
@@ -578,6 +580,823 @@ paths:
           type: string
           format: uuid
         example: 00000002-1111-4111-8111-111111111111
+  /api/v1/orders:
+    post:
+      tags:
+      - Order
+      operationId: createOrderFromMyCart
+      summary: Create an order from my active cart
+      description: The checkout entry point; there is no separate checkout resource in Sprint 2. Revalidate availability
+        and prices, snapshot items and server-computed totals, then create PENDING and check out the cart atomically.
+        Return 201 for a new order and 200 on an identical idempotent retry. Reject an empty cart or missing/malformed
+        Idempotency-Key with 400. A key owned by another caller returns 400 without disclosing an order; same key
+        with changed payload returns 409. Changed prices require the buyer to refetch GET /api/v1/carts/me and reconfirm;
+        the shared handler does not emit structured SKU/price fields in errors. Stock reservation integration is
+        staged by its owning issue; no order is created when a required reservation service is unavailable. Client
+        cannot set owner, status, amount or memo.
+      security:
+      - bearerAuth: []
+      x-required-roles:
+      - BUYER
+      x-required-privileges:
+      - CHECKOUT.START
+      - ORDER.CREATE
+      responses:
+        '201':
+          description: A newly created order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+              examples:
+                default:
+                  $ref: '#/components/examples/OrderDefault'
+        '200':
+          description: The existing order for an identical idempotent retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+              examples:
+                default:
+                  $ref: '#/components/examples/OrderDefault'
+        '400':
+          description: Invalid data
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                invalidData:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Invalid data
+                    instance: /api/v1/orders
+                malformedBody:
+                  value:
+                    type: urn:problem:invalid-request-body
+                    title: Invalid Request Body
+                    status: 400
+                    detail: The request body is invalid or malformed
+                    instance: /api/v1/orders
+                validation:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Validation Failed
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/orders
+                    errors:
+                    - field: shippingAddress.city
+                      message: cannot be blank!
+                invalidParameter:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Invalid Parameter
+                    status: 400
+                    detail: Value 'abc' is not a valid UUID for parameter 'Idempotency-Key'
+                    instance: /api/v1/orders
+        '401':
+          description: A valid bearer token is required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/orders
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/orders
+          headers:
+            WWW-Authenticate:
+              description: Bearer authentication challenge from gateway or service security advice
+              schema:
+                type: string
+              example: Bearer
+        '403':
+          description: The required privilege is missing
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/orders
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/orders
+                domain:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission!
+                    instance: /api/v1/orders
+        '409':
+          description: The operation conflicts with the current resource state
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                priceChanged:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: Prices changed; review updated prices before retrying.
+                    instance: /api/v1/orders
+                insufficientStock:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: Not enough stock for a requested SKU.
+                    instance: /api/v1/orders
+                idempotencyConflict:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: Idempotency key was already used with a different request.
+                    instance: /api/v1/orders
+        '503':
+          description: A required downstream service is unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Service Unavailable
+                status: 503
+                detail: A required downstream service is unavailable
+                instance: /api/v1/orders
+        '500':
+          description: An unexpected error occurred
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:internal-server-error
+                title: Internal Server Error
+                status: 500
+                detail: An unexpected error occurred
+                instance: /api/v1/orders
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        description: 'Required client-generated UUID. Scope to caller and request payload: a retry returns the same
+          order; a different payload with an already-used key conflicts. A key belonging to another caller must
+          never disclose that caller''s order.'
+        schema:
+          type: string
+          format: uuid
+        example: 70000000-1111-4111-8111-111111111111
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrder'
+            example:
+              shippingAddress:
+                recipientName: Nguyen Van A
+                phoneNumber: '+84900000000'
+                addressLine: 123 Nguyen Hue
+                ward: Ben Nghe
+                district: District 1
+                city: Ho Chi Minh City
+                countryCode: VN
+              paymentMethod: SEPAY
+    get:
+      tags:
+      - Order
+      operationId: listMyOrders
+      summary: List my own orders
+      description: Always filter by validated JWT sub, including for ADMIN, SELLER and SUPPORT_STAFF; this is not
+        a list-all administration endpoint. Newest first. Sprint 2 supports status filtering and pagination only.
+        Return an empty page object when no orders match.
+      security:
+      - bearerAuth: []
+      x-required-roles:
+      - ADMIN
+      - SELLER
+      - BUYER
+      - SUPPORT_STAFF
+      x-required-privileges:
+      - ORDER.LIST
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderPage'
+              examples:
+                populated:
+                  $ref: '#/components/examples/OrderPagePopulated'
+                empty:
+                  $ref: '#/components/examples/OrderPageEmpty'
+        '400':
+          description: Invalid data
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                invalidData:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Invalid data
+                    instance: /api/v1/orders
+                invalidParameter:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Invalid Parameter
+                    status: 400
+                    detail: Value 'abc' is invalid for parameter 'status'
+                    instance: /api/v1/orders
+        '401':
+          description: A valid bearer token is required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/orders
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/orders
+          headers:
+            WWW-Authenticate:
+              description: Bearer authentication challenge from gateway or service security advice
+              schema:
+                type: string
+              example: Bearer
+        '403':
+          description: The required privilege is missing
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/orders
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/orders
+                domain:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission!
+                    instance: /api/v1/orders
+        '500':
+          description: An unexpected error occurred
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:internal-server-error
+                title: Internal Server Error
+                status: 500
+                detail: An unexpected error occurred
+                instance: /api/v1/orders
+      parameters:
+      - name: status
+        in: query
+        required: false
+        description: Optional exact order status filter.
+        schema:
+          $ref: '#/components/schemas/OrderStatus'
+        example: PENDING
+      - name: page
+        in: query
+        required: false
+        description: Zero-based page number.
+        schema:
+          type: integer
+          format: int32
+          minimum: 0
+          default: 0
+        example: 0
+      - name: size
+        in: query
+        required: false
+        description: Number of records per page, capped at 100.
+        schema:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100
+          default: 20
+        example: 20
+  /api/v1/orders/{id}:
+    get:
+      tags:
+      - Order
+      operationId: getOrder
+      summary: Get an order and its payment state
+      description: Owner or ADMIN only; the service checks ownership after gateway authorization. Other roles cannot
+        read someone else's order. An inaccessible existing order returns 403; a nonexistent order returns 404.
+        The payment screen may poll every 3 seconds; this mock is static and does not simulate payment settlement.
+      security:
+      - bearerAuth: []
+      x-required-roles:
+      - ADMIN
+      - SELLER
+      - BUYER
+      - SUPPORT_STAFF
+      x-required-privileges:
+      - ORDER.VIEW
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+              examples:
+                pending:
+                  $ref: '#/components/examples/OrderDefault'
+                paid:
+                  $ref: '#/components/examples/OrderPaid'
+                canceled:
+                  $ref: '#/components/examples/OrderCanceled'
+        '401':
+          description: A valid bearer token is required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111
+          headers:
+            WWW-Authenticate:
+              description: Bearer authentication challenge from gateway or service security advice
+              schema:
+                type: string
+              example: Bearer
+        '403':
+          description: The required privilege is missing
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111
+                domain:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission!
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111
+        '404':
+          description: Not found!
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Not Found
+                status: 404
+                detail: Not found!
+                instance: /api/v1/orders/00000005-1111-4111-8111-111111111111
+        '400':
+          description: Invalid data
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                invalidData:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Invalid data
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111
+                invalidParameter:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Invalid Parameter
+                    status: 400
+                    detail: Value 'abc' is not a valid UUID for parameter 'id'
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111
+        '500':
+          description: An unexpected error occurred
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:internal-server-error
+                title: Internal Server Error
+                status: 500
+                detail: An unexpected error occurred
+                instance: /api/v1/orders/00000005-1111-4111-8111-111111111111
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Order UUID; subject to caller ownership checks.
+        schema:
+          type: string
+          format: uuid
+        example: 00000005-1111-4111-8111-111111111111
+  /api/v1/orders/{id}/history:
+    get:
+      tags:
+      - Order
+      operationId: getOrderStatusHistory
+      summary: Get an order status history
+      description: Owner or ADMIN only. Return status transitions oldest first. Ownership rules match getOrder.
+      security:
+      - bearerAuth: []
+      x-required-roles:
+      - ADMIN
+      - SELLER
+      - BUYER
+      - SUPPORT_STAFF
+      x-required-privileges:
+      - ORDER.VIEW
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderStatusHistory'
+              examples:
+                default:
+                  $ref: '#/components/examples/OrderStatusHistoryDefault'
+        '401':
+          description: A valid bearer token is required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/history
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/history
+          headers:
+            WWW-Authenticate:
+              description: Bearer authentication challenge from gateway or service security advice
+              schema:
+                type: string
+              example: Bearer
+        '403':
+          description: The required privilege is missing
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/history
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/history
+                domain:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission!
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/history
+        '404':
+          description: Not found!
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Not Found
+                status: 404
+                detail: Not found!
+                instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/history
+        '400':
+          description: Invalid data
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                invalidData:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Invalid data
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/history
+                invalidParameter:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Invalid Parameter
+                    status: 400
+                    detail: Value 'abc' is not a valid UUID for parameter 'id'
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/history
+        '500':
+          description: An unexpected error occurred
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:internal-server-error
+                title: Internal Server Error
+                status: 500
+                detail: An unexpected error occurred
+                instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/history
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Order UUID; subject to caller ownership checks.
+        schema:
+          type: string
+          format: uuid
+        example: 00000005-1111-4111-8111-111111111111
+  /api/v1/orders/{id}/status:
+    patch:
+      tags:
+      - Order
+      operationId: changeOrderStatus
+      summary: Change order status as an administrator
+      description: ADMIN only; SRS defines no dedicated privilege for this path, so do not invent ORDER.UPDATE.
+        Sprint 2 allows PENDING -> PAID or PENDING -> CANCELED only. Record actor, reason and status history. Other
+        transitions return 409 with a domain-error ProblemDetail. This is the manual payment-reconciliation demo
+        fallback, not a buyer-controlled payment confirmation. System transitions are internal service/consumer
+        actions and do not grant a public system-user role.
+      security:
+      - bearerAuth: []
+      x-required-roles:
+      - ADMIN
+      x-required-privileges: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+              examples:
+                default:
+                  $ref: '#/components/examples/OrderPaid'
+        '400':
+          description: Invalid data
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                invalidData:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Invalid data
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/status
+                malformedBody:
+                  value:
+                    type: urn:problem:invalid-request-body
+                    title: Invalid Request Body
+                    status: 400
+                    detail: The request body is invalid or malformed
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/status
+                validation:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Validation Failed
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/status
+                    errors:
+                    - field: status
+                      message: Invalid status
+                invalidParameter:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Invalid Parameter
+                    status: 400
+                    detail: Value 'abc' is not a valid UUID for parameter 'id'
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/status
+        '401':
+          description: A valid bearer token is required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/status
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/status
+          headers:
+            WWW-Authenticate:
+              description: Bearer authentication challenge from gateway or service security advice
+              schema:
+                type: string
+              example: Bearer
+        '403':
+          description: The required privilege is missing
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/status
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/status
+                domain:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission!
+                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/status
+        '404':
+          description: Not found!
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Not Found
+                status: 404
+                detail: Not found!
+                instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/status
+        '409':
+          description: The requested order status transition is not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Conflict
+                status: 409
+                detail: The requested order status transition is not allowed.
+                instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/status
+        '500':
+          description: An unexpected error occurred
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:internal-server-error
+                title: Internal Server Error
+                status: 500
+                detail: An unexpected error occurred
+                instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/status
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Order UUID; subject to caller ownership checks.
+        schema:
+          type: string
+          format: uuid
+        example: 00000005-1111-4111-8111-111111111111
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderStatusChange'
+            example:
+              status: PAID
+              reason: Bank transfer verified by administrator
 components:
   securitySchemes:
     bearerAuth:
@@ -734,6 +1553,299 @@ components:
           type: integer
           format: int32
           minimum: 1
+    ShippingAddress:
+      type: object
+      additionalProperties: false
+      required:
+      - recipientName
+      - phoneNumber
+      - addressLine
+      - ward
+      - district
+      - city
+      - countryCode
+      properties:
+        recipientName:
+          type: string
+          minLength: 1
+          maxLength: 150
+        phoneNumber:
+          type: string
+          minLength: 8
+          maxLength: 20
+        addressLine:
+          type: string
+          minLength: 1
+          maxLength: 500
+        ward:
+          type: string
+          minLength: 1
+          maxLength: 100
+        district:
+          type: string
+          minLength: 1
+          maxLength: 100
+        city:
+          type: string
+          minLength: 1
+          maxLength: 100
+        countryCode:
+          type: string
+          enum:
+          - VN
+    CreateOrder:
+      type: object
+      additionalProperties: false
+      required:
+      - shippingAddress
+      - paymentMethod
+      properties:
+        shippingAddress:
+          $ref: '#/components/schemas/ShippingAddress'
+        paymentMethod:
+          type: string
+          enum:
+          - SEPAY
+    OrderItem:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - productId
+      - skuId
+      - productName
+      - skuCode
+      - imageUrl
+      - quantity
+      - unitPrice
+      - totalPrice
+      properties:
+        id:
+          type: string
+          format: uuid
+        productId:
+          type: string
+          format: uuid
+        skuId:
+          type: string
+          format: uuid
+        productName:
+          type: string
+        skuCode:
+          type: string
+        imageUrl:
+          type: string
+          format: uri
+          nullable: true
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+        unitPrice:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
+            totals on the server using decimal arithmetic, not client floats.
+        totalPrice:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
+            totals on the server using decimal arithmetic, not client floats.
+    OrderStatus:
+      type: string
+      enum:
+      - PENDING
+      - PAID
+      - CANCELED
+      description: Sprint 2 exposed lifecycle only. Other database statuses belong to later sprint contracts.
+    Order:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - orderNumber
+      - orderType
+      - status
+      - items
+      - shippingAddress
+      - paymentMethod
+      - subtotal
+      - discountAmount
+      - taxAmount
+      - shippingFee
+      - totalAmount
+      - currency
+      - memoCode
+      - paymentNote
+      - paymentDueAt
+      - paidAt
+      - createdAt
+      - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderNumber:
+          type: string
+        orderType:
+          type: string
+          enum:
+          - STANDARD
+          - AUCTION
+          description: Sprint 2 HTTP order creation creates STANDARD only. AUCTION creation comes from later internal
+            settlement.
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+        shippingAddress:
+          $ref: '#/components/schemas/ShippingAddress'
+        paymentMethod:
+          type: string
+          enum:
+          - SEPAY
+        subtotal:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
+            totals on the server using decimal arithmetic, not client floats.
+        discountAmount:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
+            totals on the server using decimal arithmetic, not client floats.
+        taxAmount:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
+            totals on the server using decimal arithmetic, not client floats.
+        shippingFee:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
+            totals on the server using decimal arithmetic, not client floats.
+        totalAmount:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
+            totals on the server using decimal arithmetic, not client floats.
+        currency:
+          type: string
+          enum:
+          - VND
+        memoCode:
+          type: string
+        paymentNote:
+          type: string
+          description: Human-readable transfer guidance; memoCode is the exact transfer memo.
+        paymentDueAt:
+          type: string
+          format: date-time
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    OrderPage:
+      type: object
+      additionalProperties: false
+      required:
+      - content
+      - page
+      - size
+      - totalElements
+      - totalPages
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+        page:
+          type: integer
+          format: int32
+          minimum: 0
+        size:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100
+        totalElements:
+          type: integer
+          format: int64
+          minimum: 0
+        totalPages:
+          type: integer
+          format: int32
+          minimum: 0
+    OrderStatusChange:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - reason
+      properties:
+        status:
+          type: string
+          enum:
+          - PAID
+          - CANCELED
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+    OrderStatusHistoryEntry:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - previousStatus
+      - newStatus
+      - reason
+      - changedBy
+      - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        previousStatus:
+          type: string
+          enum:
+          - PENDING
+          - PAID
+          - CANCELED
+          - null
+          nullable: true
+        newStatus:
+          $ref: '#/components/schemas/OrderStatus'
+        reason:
+          type: string
+          nullable: true
+        changedBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: Actor UUID, or null for a system transition.
+        createdAt:
+          type: string
+          format: date-time
+    OrderStatusHistory:
+      type: array
+      items:
+        $ref: '#/components/schemas/OrderStatusHistoryEntry'
   examples:
     CartPopulated:
       value:
@@ -773,3 +1885,171 @@ components:
         subtotal: 500000
         currency: VND
         updatedAt: '2026-10-15T08:00:00Z'
+    OrderDefault:
+      value:
+        id: 00000005-1111-4111-8111-111111111111
+        orderNumber: NX-20261015-0001
+        orderType: STANDARD
+        status: PENDING
+        items:
+        - id: 00000002-1111-4111-8111-111111111111
+          productId: 00000004-1111-4111-8111-111111111111
+          skuId: 00000003-1111-4111-8111-111111111111
+          productName: Nexus Mechanical Keyboard
+          skuCode: KB-001
+          imageUrl: https://example.com/keyboard.png
+          quantity: 2
+          unitPrice: 500000
+          totalPrice: 1000000
+        shippingAddress:
+          recipientName: Nguyen Van A
+          phoneNumber: '+84900000000'
+          addressLine: 123 Nguyen Hue
+          ward: Ben Nghe
+          district: District 1
+          city: Ho Chi Minh City
+          countryCode: VN
+        paymentMethod: SEPAY
+        subtotal: 1000000
+        discountAmount: 0
+        taxAmount: 0
+        shippingFee: 30000
+        totalAmount: 1030000
+        currency: VND
+        memoCode: NX202610150001
+        paymentNote: Transfer the exact amount with memo NX202610150001.
+        paymentDueAt: '2026-10-15T08:15:00Z'
+        paidAt: null
+        createdAt: '2026-10-15T08:00:00Z'
+        updatedAt: '2026-10-15T08:00:00Z'
+    OrderPagePopulated:
+      value:
+        content:
+        - id: 00000005-1111-4111-8111-111111111111
+          orderNumber: NX-20261015-0001
+          orderType: STANDARD
+          status: PENDING
+          items:
+          - id: 00000002-1111-4111-8111-111111111111
+            productId: 00000004-1111-4111-8111-111111111111
+            skuId: 00000003-1111-4111-8111-111111111111
+            productName: Nexus Mechanical Keyboard
+            skuCode: KB-001
+            imageUrl: https://example.com/keyboard.png
+            quantity: 2
+            unitPrice: 500000
+            totalPrice: 1000000
+          shippingAddress:
+            recipientName: Nguyen Van A
+            phoneNumber: '+84900000000'
+            addressLine: 123 Nguyen Hue
+            ward: Ben Nghe
+            district: District 1
+            city: Ho Chi Minh City
+            countryCode: VN
+          paymentMethod: SEPAY
+          subtotal: 1000000
+          discountAmount: 0
+          taxAmount: 0
+          shippingFee: 30000
+          totalAmount: 1030000
+          currency: VND
+          memoCode: NX202610150001
+          paymentNote: Transfer the exact amount with memo NX202610150001.
+          paymentDueAt: '2026-10-15T08:15:00Z'
+          paidAt: null
+          createdAt: '2026-10-15T08:00:00Z'
+          updatedAt: '2026-10-15T08:00:00Z'
+        page: 0
+        size: 20
+        totalElements: 1
+        totalPages: 1
+    OrderPageEmpty:
+      value:
+        content: []
+        page: 0
+        size: 20
+        totalElements: 0
+        totalPages: 0
+    OrderPaid:
+      value:
+        id: 00000005-1111-4111-8111-111111111111
+        orderNumber: NX-20261015-0001
+        orderType: STANDARD
+        status: PAID
+        items:
+        - id: 00000002-1111-4111-8111-111111111111
+          productId: 00000004-1111-4111-8111-111111111111
+          skuId: 00000003-1111-4111-8111-111111111111
+          productName: Nexus Mechanical Keyboard
+          skuCode: KB-001
+          imageUrl: https://example.com/keyboard.png
+          quantity: 2
+          unitPrice: 500000
+          totalPrice: 1000000
+        shippingAddress:
+          recipientName: Nguyen Van A
+          phoneNumber: '+84900000000'
+          addressLine: 123 Nguyen Hue
+          ward: Ben Nghe
+          district: District 1
+          city: Ho Chi Minh City
+          countryCode: VN
+        paymentMethod: SEPAY
+        subtotal: 1000000
+        discountAmount: 0
+        taxAmount: 0
+        shippingFee: 30000
+        totalAmount: 1030000
+        currency: VND
+        memoCode: NX202610150001
+        paymentNote: Transfer the exact amount with memo NX202610150001.
+        paymentDueAt: '2026-10-15T08:15:00Z'
+        paidAt: '2026-10-15T08:05:00Z'
+        createdAt: '2026-10-15T08:00:00Z'
+        updatedAt: '2026-10-15T08:05:00Z'
+    OrderCanceled:
+      value:
+        id: 00000005-1111-4111-8111-111111111111
+        orderNumber: NX-20261015-0001
+        orderType: STANDARD
+        status: CANCELED
+        items:
+        - id: 00000002-1111-4111-8111-111111111111
+          productId: 00000004-1111-4111-8111-111111111111
+          skuId: 00000003-1111-4111-8111-111111111111
+          productName: Nexus Mechanical Keyboard
+          skuCode: KB-001
+          imageUrl: https://example.com/keyboard.png
+          quantity: 2
+          unitPrice: 500000
+          totalPrice: 1000000
+        shippingAddress:
+          recipientName: Nguyen Van A
+          phoneNumber: '+84900000000'
+          addressLine: 123 Nguyen Hue
+          ward: Ben Nghe
+          district: District 1
+          city: Ho Chi Minh City
+          countryCode: VN
+        paymentMethod: SEPAY
+        subtotal: 1000000
+        discountAmount: 0
+        taxAmount: 0
+        shippingFee: 30000
+        totalAmount: 1030000
+        currency: VND
+        memoCode: NX202610150001
+        paymentNote: Transfer the exact amount with memo NX202610150001.
+        paymentDueAt: '2026-10-15T08:15:00Z'
+        paidAt: null
+        createdAt: '2026-10-15T08:00:00Z'
+        updatedAt: '2026-10-15T08:16:00Z'
+    OrderStatusHistoryDefault:
+      value:
+      - id: 00000006-1111-4111-8111-111111111111
+        previousStatus: null
+        newStatus: PENDING
+        reason: Order created from cart
+        changedBy: 80000000-1111-4111-8111-111111111111
+        createdAt: '2026-10-15T08:00:00Z'
