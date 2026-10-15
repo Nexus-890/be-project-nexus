@@ -8,10 +8,10 @@ import java.util.UUID;
 @Value
 public class CategoryResponse {
 
-    UUID id;
-    UUID parentId;
-    String name;
-    String slug;
-    Short level;
-    String path;
+    private UUID id;
+    private UUID parentId;
+    private String name;
+    private String slug;
+    private Short level;
+    private String path;
 }

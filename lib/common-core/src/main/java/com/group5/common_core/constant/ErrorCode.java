@@ -69,9 +69,12 @@ public enum ErrorCode {
     CATEGORY_HAS_PRODUCTS("Cannot delete a category that has products", HttpStatus.CONFLICT),
     CATEGORY_HAS_CHILDREN("Cannot delete a category that has child categories", HttpStatus.CONFLICT),
 
-    //========PRODUCT
-    PRODUCT_NOT_FOUND("Product not found, not ACTIVE or deleted", HttpStatus.NOT_FOUND);
+    //========PRODUCT========
+    PRODUCT_NOT_FOUND("Product not found, not ACTIVE or deleted", HttpStatus.NOT_FOUND),
 
+    //========SKU========
+    SKU_DUPLICATE ("Duplicate SKU code or variant", HttpStatus.CONFLICT),
+    SKU_NOT_FOUND("SKU not found", HttpStatus.NOT_FOUND);
 
 
     final String message;

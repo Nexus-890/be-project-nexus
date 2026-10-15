@@ -10,8 +10,5 @@ import java.util.UUID;
 
 @Repository
 public interface SkuRepository extends JpaRepository<Skus, UUID> {
-
-    List<Skus> findByProduct_IdAndStatus(UUID productId, String status);
-
-    Optional<Skus> findByIdAndStatus(UUID id, String status);
+    Optional<Skus> findByIdAndProduct_Id(UUID id, UUID productId);
 }

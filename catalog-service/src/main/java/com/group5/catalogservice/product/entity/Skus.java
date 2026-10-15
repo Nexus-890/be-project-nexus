@@ -76,6 +76,4 @@ public class Skus {
     @ColumnDefault("now()")
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
-
-
 }
