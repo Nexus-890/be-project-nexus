@@ -1,4 +1,4 @@
-package com.group5.catalogservice.product.dto;
+package com.group5.catalogservice.product.dto.response;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
