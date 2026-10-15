@@ -130,7 +130,7 @@ public class UserService {
                 .orElseThrow(() -> new DomainException(503, "Default registration role is unavailable"));
 
         User user = new User();
-        user.setEmail(request.email());
+        user.setEmail(request.email().toLowerCase());
         user.setPhone(request.phone());
         user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setFullName(request.fullName());
