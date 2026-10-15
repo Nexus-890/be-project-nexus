@@ -1,5 +1,6 @@
 package com.group5.catalogservice.product.dto.response;
 
+import com.group5.catalogservice.product.enums.ProductStatus;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -16,7 +17,7 @@ public class ProductResponse {
     private UUID id;
     private String name;
     private String slug;
-    private String status;
+    private ProductStatus status;
     private UUID categoryId;
     private UUID sellerId;
 }

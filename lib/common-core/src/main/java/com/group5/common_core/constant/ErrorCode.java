@@ -70,8 +70,8 @@ public enum ErrorCode {
     CATEGORY_HAS_CHILDREN("Cannot delete a category that has child categories", HttpStatus.CONFLICT),
 
     //========PRODUCT
-    PRODUCT_NOT_FOUND("Product not found, not ACTIVE or deleted", HttpStatus.NOT_FOUND);
-
+    PRODUCT_NOT_FOUND("Product not found, not ACTIVE or deleted", HttpStatus.NOT_FOUND),
+    INVALID_PRODUCT_STATUS_TRANSITION("Product status transition is not allowed",HttpStatus.BAD_REQUEST);
 
 
     final String message;

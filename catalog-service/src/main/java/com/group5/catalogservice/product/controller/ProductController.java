@@ -1,11 +1,9 @@
 package com.group5.catalogservice.product.controller;
 
-
-import com.group5.catalogservice.product.dto.response.ProductResponse;
 import com.group5.common_security.CurrentUser;
-import com.group5.catalogservice.product.dto.response.PageResponse;
 import org.springframework.security.access.prepost.PreAuthorize;
 import com.group5.catalogservice.product.dto.request.ProductRequest;
+import com.group5.catalogservice.product.dto.response.ProductResponse;
 import com.group5.catalogservice.product.dto.response.ProductDetailResponse;
 import jakarta.validation.groups.Default;
 import org.springframework.validation.annotation.Validated;
@@ -13,7 +11,8 @@ import com.group5.catalogservice.product.service.ProductService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-
+import com.group5.catalogservice.product.dto.request.ChangeStatusRequest;
+import com.group5.catalogservice.product.dto.response.PageResponse;
 import java.util.UUID;
 
 @RestController
@@ -47,7 +46,6 @@ public class ProductController {
     public ProductDetailResponse getById(@PathVariable UUID id) {
         return productService.getById(id);
     }
-
     @GetMapping
     public PageResponse<ProductResponse> getProductsByCategory(
             @RequestParam(required = false) UUID categoryId,
@@ -65,5 +63,14 @@ public class ProductController {
             @RequestParam(defaultValue = "10") int size) {
 
         return PageResponse.from(productService.getMyProducts(currentUser, page, size));
+    }
+    @PreAuthorize("hasRole('SELLER')")
+    @PatchMapping("/{id}/status")
+    public ProductResponse changeStatusProduct(
+            @PathVariable UUID id,
+            @Valid @RequestBody ChangeStatusRequest request,
+            CurrentUser currentUser
+    ) {
+        return productService.changeStatusProduct(id, request, currentUser);
     }
 }

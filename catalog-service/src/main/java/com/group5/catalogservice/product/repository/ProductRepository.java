@@ -6,23 +6,25 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.stereotype.Repository;
-
+import com.group5.catalogservice.product.enums.ProductStatus;
 import java.util.UUID;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 @Repository
 public interface ProductRepository extends JpaRepository<Product, UUID> {
     Optional<Product> findByIdAndDeletedAtIsNull(UUID id);
 
     @EntityGraph(attributePaths = {"category", "skuses", "productImages"})
-    Optional<Product> findByIdAndStatusAndDeletedAtIsNull(UUID id, String status);
+    Optional<Product> findByIdAndStatusAndDeletedAtIsNull(UUID id, ProductStatus status);
     Page<Product> findByCategory_IdAndStatusAndDeletedAtIsNull(
             UUID categoryId,
-            String status,
+            ProductStatus status,
             Pageable pageable);
 
     Page<Product> findByStatusAndDeletedAtIsNull(
-            String status,
+            ProductStatus status,
             Pageable pageable);
 
     Page<Product> findBySellerIdAndDeletedAtIsNull(
