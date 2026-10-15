@@ -32,11 +32,6 @@ nexus:
         path: /v3/api-docs/**
       - method: GET
         path: /swagger-ui/**
-    catalog:
-      category-max-level: 3
-      category-tree:
-        sort-type: NAME_ASC
-      allow-category-delete-with-product: false
   catalog:
     category-max-level: 3
     category-tree:
