@@ -1,20 +1,23 @@
-# Sprint 2 draft — examples are synthetic; role/privilege rules are contractual.
+# API shapes draft #88 — examples are synthetic; caller policy is documented below.
 openapi: 3.0.3
 info:
   title: Project Nexus — Notification Sprint 2 API
   version: 0.1.0-draft
-  description: 'Draft for frontend mocks, not an implementation or proof of gateway enforcement. Required roles
-    are ANY-of x-required-roles; required privileges are ALL-of x-required-privileges. Both conditions apply, including
-    for ADMIN (no implicit privilege bypass). Ownership is independently enforced by the owning service using validated
+  description: 'Draft for frontend mocks, not an implementation or proof of gateway enforcement. SRS privileges
+    are authoritative when defined: x-required-privileges is the service ALL-of requirement; x-gateway-privilege
+    is the single privilege to register in the existing gateway policy. x-actor-roles is descriptive SRS actor metadata,
+    not an additional role gate. Only the privilege-less order-status operation uses x-required-roles (ADMIN). ADMIN
+    has no implicit privilege bypass. Ownership is independently enforced by the owning service using validated
     JWT sub; do not accept a caller userId in a request. UUIDs and UTC ISO-8601 timestamps are used. Lists are newest
     first unless specified. Scope: NTF-01..04, owning issues #108 and #109. Sprint 2 is in-app only; no preferences,
-    push subscriptions, event-log management or email delivery endpoints. Draft decision: mark-one and mark-all
-    return 200 JSON rather than catalogue 204 to satisfy nonempty mock bodies. Owning issue #109 and frontend sign-off
-    remain pending. Repeated mark-read calls are idempotent: preserve an existing readAt; mark-all changes unread
-    records only. Mock calls are stateless and do not persist those changes. Errors mirror lib/common-core ErrorCode/DomainException,
-    lib/common-web GlobalExceptionHandler, lib/common-security SecurityProblemAdvice and api-gateway SecurityConfig.
-    No top-level symbolic code; optional service traceId; validation errors contain field/message only. 409/503
-    details are draft business messages supported by DomainException(int, String), not new ErrorCode enum entries.'
+    push subscriptions, event-log management or email delivery endpoints. NTF-03 and NTF-04 return catalogue 204
+    No Content, including no-op retries. Refetch the list and unread count to refresh UI state. The original issue
+    #88 nonempty-body criterion needs an explicit exception for catalogue 204 operations. Repeated mark-read calls
+    are idempotent: preserve an existing readAt; mark-all changes unread records only. Mock calls are stateless
+    and do not persist those changes. Errors mirror lib/common-core ErrorCode/DomainException, lib/common-web GlobalExceptionHandler,
+    lib/common-security SecurityProblemAdvice and api-gateway SecurityConfig. No top-level symbolic code; optional
+    service traceId; validation errors contain field/message only. 409/503 details are draft business messages supported
+    by DomainException(int, String), not new ErrorCode enum entries.'
   contact:
     name: Project Nexus Backend Team
 servers:
@@ -37,11 +40,6 @@ paths:
         a JSON page object.
       security:
       - bearerAuth: []
-      x-required-roles:
-      - ADMIN
-      - SELLER
-      - BUYER
-      - SUPPORT_STAFF
       x-required-privileges:
       - NOTIFICATION.VIEW
       responses:
@@ -166,8 +164,14 @@ paths:
           format: int32
           minimum: 1
           maximum: 100
-          default: 20
-        example: 20
+          default: 10
+        example: 10
+      x-actor-roles:
+      - ADMIN
+      - SELLER
+      - BUYER
+      - SUPPORT_STAFF
+      x-gateway-privilege: NOTIFICATION.VIEW
   /api/v1/notifications/unread-count:
     get:
       tags:
@@ -178,11 +182,6 @@ paths:
         body.'
       security:
       - bearerAuth: []
-      x-required-roles:
-      - ADMIN
-      - SELLER
-      - BUYER
-      - SUPPORT_STAFF
       x-required-privileges:
       - NOTIFICATION.VIEW
       responses:
@@ -266,6 +265,12 @@ paths:
                 status: 500
                 detail: An unexpected error occurred
                 instance: /api/v1/notifications/unread-count
+      x-actor-roles:
+      - ADMIN
+      - SELLER
+      - BUYER
+      - SUPPORT_STAFF
+      x-gateway-privilege: NOTIFICATION.VIEW
   /api/v1/notifications/{id}/read:
     patch:
       tags:
@@ -273,27 +278,15 @@ paths:
       operationId: markMyNotificationRead
       summary: Mark one of my notifications as read
       description: Mark only the caller's notification. An existing notification owned by someone else returns 403;
-        a nonexistent notification returns 404. Repeated calls preserve the original readAt and return the notification
-        unchanged. Draft returns 200 JSON instead of catalogue 204.
+        a nonexistent notification returns 404. Repeated calls preserve the original readAt. Return 204 No Content
+        even if already read; refetch the list and unread count.
       security:
       - bearerAuth: []
-      x-required-roles:
-      - ADMIN
-      - SELLER
-      - BUYER
-      - SUPPORT_STAFF
       x-required-privileges:
       - NOTIFICATION.VIEW
       responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Notification'
-              examples:
-                default:
-                  $ref: '#/components/examples/NotificationDefault'
+        '204':
+          description: Read state applied, including already-read/no-change cases. No response body.
         '401':
           description: A valid bearer token is required
           content:
@@ -405,36 +398,28 @@ paths:
           type: string
           format: uuid
         example: 00000007-1111-4111-8111-111111111111
+      x-actor-roles:
+      - ADMIN
+      - SELLER
+      - BUYER
+      - SUPPORT_STAFF
+      x-gateway-privilege: NOTIFICATION.VIEW
   /api/v1/notifications/read-all:
     patch:
       tags:
       - Notification
       operationId: markAllMyNotificationsRead
       summary: Mark all my unread notifications as read
-      description: Update only unread notifications for JWT sub. Already-read timestamps are preserved; updatedCount
-        is zero if nothing changed. readAt is the timestamp used for this operation, not a replacement timestamp
-        on already-read records. Draft returns 200 JSON instead of catalogue 204.
+      description: Update only unread notifications for validated JWT sub; preserve already-read timestamps. Return
+        204 No Content, including when nothing changed. Refetch the list and unread count; do not parse a JSON response
+        body.
       security:
       - bearerAuth: []
-      x-required-roles:
-      - ADMIN
-      - SELLER
-      - BUYER
-      - SUPPORT_STAFF
       x-required-privileges:
       - NOTIFICATION.VIEW
       responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MarkAllReadResult'
-              examples:
-                updated:
-                  $ref: '#/components/examples/MarkAllReadResultUpdated'
-                none:
-                  $ref: '#/components/examples/MarkAllReadResultNone'
+        '204':
+          description: Read state applied, including already-read/no-change cases. No response body.
         '401':
           description: A valid bearer token is required
           content:
@@ -504,6 +489,12 @@ paths:
                 status: 500
                 detail: An unexpected error occurred
                 instance: /api/v1/notifications/read-all
+      x-actor-roles:
+      - ADMIN
+      - SELLER
+      - BUYER
+      - SUPPORT_STAFF
+      x-gateway-privilege: NOTIFICATION.VIEW
 components:
   securitySchemes:
     bearerAuth:
@@ -631,20 +622,6 @@ components:
           type: integer
           format: int64
           minimum: 0
-    MarkAllReadResult:
-      type: object
-      additionalProperties: false
-      required:
-      - updatedCount
-      - readAt
-      properties:
-        updatedCount:
-          type: integer
-          format: int64
-          minimum: 0
-        readAt:
-          type: string
-          format: date-time
   examples:
     NotificationPagePopulated:
       value:
@@ -656,14 +633,14 @@ components:
           readAt: null
           createdAt: '2026-10-15T08:00:00Z'
         page: 0
-        size: 20
+        size: 10
         totalElements: 1
         totalPages: 1
     NotificationPageEmpty:
       value:
         content: []
         page: 0
-        size: 20
+        size: 10
         totalElements: 0
         totalPages: 0
     UnreadCountUnread:
@@ -672,19 +649,3 @@ components:
     UnreadCountNone:
       value:
         count: 0
-    NotificationDefault:
-      value:
-        id: 00000007-1111-4111-8111-111111111111
-        type: ORDER_CREATED
-        title: Order created
-        content: Order NX-20261015-0001 is awaiting payment.
-        readAt: '2026-10-15T08:05:00Z'
-        createdAt: '2026-10-15T08:00:00Z'
-    MarkAllReadResultUpdated:
-      value:
-        updatedCount: 1
-        readAt: '2026-10-15T08:05:00Z'
-    MarkAllReadResultNone:
-      value:
-        updatedCount: 0
-        readAt: '2026-10-15T08:05:00Z'

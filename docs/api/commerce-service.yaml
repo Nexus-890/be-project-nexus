@@ -1,21 +1,23 @@
-# Sprint 2 draft — examples are synthetic; role/privilege rules are contractual.
+# API shapes draft #88 — examples are synthetic; caller policy is documented below.
 openapi: 3.0.3
 info:
   title: Project Nexus — Commerce Sprint 2 API
   version: 0.1.0-draft
-  description: 'Draft for frontend mocks, not an implementation or proof of gateway enforcement. Required roles
-    are ANY-of x-required-roles; required privileges are ALL-of x-required-privileges. Both conditions apply, including
-    for ADMIN (no implicit privilege bypass). Ownership is independently enforced by the owning service using validated
+  description: 'Draft for frontend mocks, not an implementation or proof of gateway enforcement. SRS privileges
+    are authoritative when defined: x-required-privileges is the service ALL-of requirement; x-gateway-privilege
+    is the single privilege to register in the existing gateway policy. x-actor-roles is descriptive SRS actor metadata,
+    not an additional role gate. Only the privilege-less order-status operation uses x-required-roles (ADMIN). ADMIN
+    has no implicit privilege bypass. Ownership is independently enforced by the owning service using validated
     JWT sub; do not accept a caller userId in a request. UUIDs and UTC ISO-8601 timestamps are used. Lists are newest
     first unless specified. Scope: CRT-01..04, ORD-01/03..06, PAY-01 in the endpoint catalogue. Cart validation
-    occurs inside order creation; no standalone checkout, refund or Sepay webhook in Sprint 2. Draft decision: DELETE
-    cart item returns 200 with the updated cart rather than catalogue 204 to satisfy the issue requirement for nonempty
-    mock bodies; owning issue #111 and frontend sign-off remain pending. Monetary representation is a draft JSON
-    number with two decimal places, aligned with the current SQL numeric(19,2), pending reconciliation with later
-    sprint long-VND notes. This file does not create backend controllers. Errors mirror lib/common-core ErrorCode/DomainException,
-    lib/common-web GlobalExceptionHandler, lib/common-security SecurityProblemAdvice and api-gateway SecurityConfig.
-    No top-level symbolic code; optional service traceId; validation errors contain field/message only. 409/503
-    details are draft business messages supported by DomainException(int, String), not new ErrorCode enum entries.'
+    occurs inside order creation; no standalone checkout, refund or Sepay webhook in Sprint 2. CRT-04 returns catalogue
+    204 No Content; refetch the cart to refresh UI state. The original issue #88 nonempty-body criterion needs an
+    explicit exception for catalogue 204 operations. Money is serialized as decimal-safe JSON strings with exactly
+    two fractional digits, matching the #92 convention confirmed in review !40; storage remains numeric(19,2). This
+    file does not create backend controllers. Errors mirror lib/common-core ErrorCode/DomainException, lib/common-web
+    GlobalExceptionHandler, lib/common-security SecurityProblemAdvice and api-gateway SecurityConfig. No top-level
+    symbolic code; optional service traceId; validation errors contain field/message only. 409/503 details are draft
+    business messages supported by DomainException(int, String), not new ErrorCode enum entries.'
   contact:
     name: Project Nexus Backend Team
 servers:
@@ -41,8 +43,6 @@ paths:
         CART.VIEW and CART.CREATE are required because this read can create a cart.
       security:
       - bearerAuth: []
-      x-required-roles:
-      - BUYER
       x-required-privileges:
       - CART.VIEW
       - CART.CREATE
@@ -127,6 +127,9 @@ paths:
                 status: 500
                 detail: An unexpected error occurred
                 instance: /api/v1/carts/me
+      x-actor-roles:
+      - BUYER
+      x-gateway-privilege: CART.VIEW
   /api/v1/carts/me/items:
     post:
       tags:
@@ -138,8 +141,6 @@ paths:
         Prices are server-derived snapshots, never client-supplied.
       security:
       - bearerAuth: []
-      x-required-roles:
-      - BUYER
       x-required-privileges:
       - CART.UPDATE
       responses:
@@ -280,6 +281,9 @@ paths:
             example:
               skuId: 00000003-1111-4111-8111-111111111111
               quantity: 2
+      x-actor-roles:
+      - BUYER
+      x-gateway-privilege: CART.UPDATE
   /api/v1/carts/me/items/{id}:
     put:
       tags:
@@ -290,8 +294,6 @@ paths:
         the caller's cart returns 404 to avoid exposing another buyer's item.
       security:
       - bearerAuth: []
-      x-required-roles:
-      - BUYER
       x-required-privileges:
       - CART.UPDATE
       responses:
@@ -447,30 +449,23 @@ paths:
               $ref: '#/components/schemas/UpdateCartItem'
             example:
               quantity: 1
+      x-actor-roles:
+      - BUYER
+      x-gateway-privilege: CART.UPDATE
     delete:
       tags:
       - Cart
       operationId: removeMyCartItem
       summary: Remove an item from my cart
-      description: 'Remove only from the caller''s active cart; an inaccessible or nonexistent line returns 404.
-        Draft returns 200 with the resulting cart, including items: [] when the last line was removed, instead of
-        the catalogue 204.'
+      description: Remove only from the caller's active cart; an inaccessible or nonexistent line returns 404. Return
+        204 No Content; refetch GET /api/v1/carts/me to refresh the cart.
       security:
       - bearerAuth: []
-      x-required-roles:
-      - BUYER
       x-required-privileges:
       - CART.REMOVE_ITEM
       responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Cart'
-              examples:
-                default:
-                  $ref: '#/components/examples/CartEmpty'
+        '204':
+          description: Cart item removed. No response body; refetch the cart.
         '401':
           description: A valid bearer token is required
           content:
@@ -582,6 +577,9 @@ paths:
           type: string
           format: uuid
         example: 00000002-1111-4111-8111-111111111111
+      x-actor-roles:
+      - BUYER
+      x-gateway-privilege: CART.REMOVE_ITEM
   /api/v1/orders:
     post:
       tags:
@@ -598,8 +596,6 @@ paths:
         cannot set owner, status, amount or memo.
       security:
       - bearerAuth: []
-      x-required-roles:
-      - BUYER
       x-required-privileges:
       - CHECKOUT.START
       - ORDER.CREATE
@@ -796,6 +792,9 @@ paths:
                 city: Ho Chi Minh City
                 countryCode: VN
               paymentMethod: SEPAY
+      x-actor-roles:
+      - BUYER
+      x-gateway-privilege: ORDER.CREATE
     get:
       tags:
       - Order
@@ -806,11 +805,6 @@ paths:
         Return an empty page object when no orders match.
       security:
       - bearerAuth: []
-      x-required-roles:
-      - ADMIN
-      - SELLER
-      - BUYER
-      - SUPPORT_STAFF
       x-required-privileges:
       - ORDER.LIST
       responses:
@@ -942,8 +936,14 @@ paths:
           format: int32
           minimum: 1
           maximum: 100
-          default: 20
-        example: 20
+          default: 10
+        example: 10
+      x-actor-roles:
+      - ADMIN
+      - SELLER
+      - BUYER
+      - SUPPORT_STAFF
+      x-gateway-privilege: ORDER.LIST
   /api/v1/orders/{id}:
     get:
       tags:
@@ -955,11 +955,6 @@ paths:
         The payment screen may poll every 3 seconds; this mock is static and does not simulate payment settlement.
       security:
       - bearerAuth: []
-      x-required-roles:
-      - ADMIN
-      - SELLER
-      - BUYER
-      - SUPPORT_STAFF
       x-required-privileges:
       - ORDER.VIEW
       responses:
@@ -1087,6 +1082,12 @@ paths:
           type: string
           format: uuid
         example: 00000005-1111-4111-8111-111111111111
+      x-actor-roles:
+      - ADMIN
+      - SELLER
+      - BUYER
+      - SUPPORT_STAFF
+      x-gateway-privilege: ORDER.VIEW
   /api/v1/orders/{id}/history:
     get:
       tags:
@@ -1096,11 +1097,6 @@ paths:
       description: Owner or ADMIN only. Return status transitions oldest first. Ownership rules match getOrder.
       security:
       - bearerAuth: []
-      x-required-roles:
-      - ADMIN
-      - SELLER
-      - BUYER
-      - SUPPORT_STAFF
       x-required-privileges:
       - ORDER.VIEW
       responses:
@@ -1224,6 +1220,12 @@ paths:
           type: string
           format: uuid
         example: 00000005-1111-4111-8111-111111111111
+      x-actor-roles:
+      - ADMIN
+      - SELLER
+      - BUYER
+      - SUPPORT_STAFF
+      x-gateway-privilege: ORDER.VIEW
   /api/v1/orders/{id}/status:
     patch:
       tags:
@@ -1237,8 +1239,6 @@ paths:
         actions and do not grant a public system-user role.
       security:
       - bearerAuth: []
-      x-required-roles:
-      - ADMIN
       x-required-privileges: []
       responses:
         '200':
@@ -1399,6 +1399,10 @@ paths:
             example:
               status: PAID
               reason: Bank transfer verified by administrator
+      x-actor-roles:
+      - ADMIN
+      x-required-roles:
+      - ADMIN
   /api/v1/orders/{id}/payment:
     post:
       tags:
@@ -1411,8 +1415,6 @@ paths:
         confirmation webhook is Sprint 4, not this contract.
       security:
       - bearerAuth: []
-      x-required-roles:
-      - BUYER
       x-required-privileges:
       - CHECKOUT.START
       responses:
@@ -1548,6 +1550,9 @@ paths:
           type: string
           format: uuid
         example: 00000005-1111-4111-8111-111111111111
+      x-actor-roles:
+      - BUYER
+      x-gateway-privilege: CHECKOUT.START
 components:
   securitySchemes:
     bearerAuth:
@@ -1634,17 +1639,17 @@ components:
           format: int32
           minimum: 1
         unitPrice:
-          type: number
-          minimum: 0
-          multipleOf: 0.01
-          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
-            totals on the server using decimal arithmetic, not client floats.
+          type: string
+          pattern: ^\d+\.\d{2}$
+          example: '150000.50'
+          description: Nonnegative VND decimal amount with exactly two fractional digits. Preserve as a string on
+            the wire; use decimal arithmetic on the server and do not convert to a JavaScript Number for money calculations.
         lineTotal:
-          type: number
-          minimum: 0
-          multipleOf: 0.01
-          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
-            totals on the server using decimal arithmetic, not client floats.
+          type: string
+          pattern: ^\d+\.\d{2}$
+          example: '150000.50'
+          description: Nonnegative VND decimal amount with exactly two fractional digits. Preserve as a string on
+            the wire; use decimal arithmetic on the server and do not convert to a JavaScript Number for money calculations.
     Cart:
       type: object
       additionalProperties: false
@@ -1668,11 +1673,11 @@ components:
           items:
             $ref: '#/components/schemas/CartItem'
         subtotal:
-          type: number
-          minimum: 0
-          multipleOf: 0.01
-          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
-            totals on the server using decimal arithmetic, not client floats.
+          type: string
+          pattern: ^\d+\.\d{2}$
+          example: '150000.50'
+          description: Nonnegative VND decimal amount with exactly two fractional digits. Preserve as a string on
+            the wire; use decimal arithmetic on the server and do not convert to a JavaScript Number for money calculations.
         currency:
           type: string
           enum:
@@ -1793,17 +1798,17 @@ components:
           format: int32
           minimum: 1
         unitPrice:
-          type: number
-          minimum: 0
-          multipleOf: 0.01
-          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
-            totals on the server using decimal arithmetic, not client floats.
+          type: string
+          pattern: ^\d+\.\d{2}$
+          example: '150000.50'
+          description: Nonnegative VND decimal amount with exactly two fractional digits. Preserve as a string on
+            the wire; use decimal arithmetic on the server and do not convert to a JavaScript Number for money calculations.
         totalPrice:
-          type: number
-          minimum: 0
-          multipleOf: 0.01
-          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
-            totals on the server using decimal arithmetic, not client floats.
+          type: string
+          pattern: ^\d+\.\d{2}$
+          example: '150000.50'
+          description: Nonnegative VND decimal amount with exactly two fractional digits. Preserve as a string on
+            the wire; use decimal arithmetic on the server and do not convert to a JavaScript Number for money calculations.
     OrderStatus:
       type: string
       enum:
@@ -1860,35 +1865,35 @@ components:
           enum:
           - SEPAY
         subtotal:
-          type: number
-          minimum: 0
-          multipleOf: 0.01
-          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
-            totals on the server using decimal arithmetic, not client floats.
+          type: string
+          pattern: ^\d+\.\d{2}$
+          example: '150000.50'
+          description: Nonnegative VND decimal amount with exactly two fractional digits. Preserve as a string on
+            the wire; use decimal arithmetic on the server and do not convert to a JavaScript Number for money calculations.
         discountAmount:
-          type: number
-          minimum: 0
-          multipleOf: 0.01
-          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
-            totals on the server using decimal arithmetic, not client floats.
+          type: string
+          pattern: ^\d+\.\d{2}$
+          example: '150000.50'
+          description: Nonnegative VND decimal amount with exactly two fractional digits. Preserve as a string on
+            the wire; use decimal arithmetic on the server and do not convert to a JavaScript Number for money calculations.
         taxAmount:
-          type: number
-          minimum: 0
-          multipleOf: 0.01
-          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
-            totals on the server using decimal arithmetic, not client floats.
+          type: string
+          pattern: ^\d+\.\d{2}$
+          example: '150000.50'
+          description: Nonnegative VND decimal amount with exactly two fractional digits. Preserve as a string on
+            the wire; use decimal arithmetic on the server and do not convert to a JavaScript Number for money calculations.
         shippingFee:
-          type: number
-          minimum: 0
-          multipleOf: 0.01
-          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
-            totals on the server using decimal arithmetic, not client floats.
+          type: string
+          pattern: ^\d+\.\d{2}$
+          example: '150000.50'
+          description: Nonnegative VND decimal amount with exactly two fractional digits. Preserve as a string on
+            the wire; use decimal arithmetic on the server and do not convert to a JavaScript Number for money calculations.
         totalAmount:
-          type: number
-          minimum: 0
-          multipleOf: 0.01
-          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
-            totals on the server using decimal arithmetic, not client floats.
+          type: string
+          pattern: ^\d+\.\d{2}$
+          example: '150000.50'
+          description: Nonnegative VND decimal amount with exactly two fractional digits. Preserve as a string on
+            the wire; use decimal arithmetic on the server and do not convert to a JavaScript Number for money calculations.
         currency:
           type: string
           enum:
@@ -2035,11 +2040,11 @@ components:
             accountName:
               type: string
         amount:
-          type: number
-          minimum: 0
-          multipleOf: 0.01
-          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
-            totals on the server using decimal arithmetic, not client floats.
+          type: string
+          pattern: ^\d+\.\d{2}$
+          example: '150000.50'
+          description: Nonnegative VND decimal amount with exactly two fractional digits. Preserve as a string on
+            the wire; use decimal arithmetic on the server and do not convert to a JavaScript Number for money calculations.
         currency:
           type: string
           enum:
@@ -2060,9 +2065,9 @@ components:
           productId: 00000004-1111-4111-8111-111111111111
           productName: Nexus Mechanical Keyboard
           quantity: 2
-          unitPrice: 500000
-          lineTotal: 1000000
-        subtotal: 1000000
+          unitPrice: '500000.00'
+          lineTotal: '1000000.00'
+        subtotal: '1000000.00'
         currency: VND
         updatedAt: '2026-10-15T08:00:00Z'
     CartEmpty:
@@ -2070,7 +2075,7 @@ components:
         id: 00000001-1111-4111-8111-111111111111
         status: ACTIVE
         items: []
-        subtotal: 0
+        subtotal: '0.00'
         currency: VND
         updatedAt: '2026-10-15T08:00:00Z'
     CartDefault:
@@ -2083,9 +2088,9 @@ components:
           productId: 00000004-1111-4111-8111-111111111111
           productName: Nexus Mechanical Keyboard
           quantity: 1
-          unitPrice: 500000
-          lineTotal: 500000
-        subtotal: 500000
+          unitPrice: '500000.00'
+          lineTotal: '500000.00'
+        subtotal: '500000.00'
         currency: VND
         updatedAt: '2026-10-15T08:00:00Z'
     OrderDefault:
@@ -2102,8 +2107,8 @@ components:
           skuCode: KB-001
           imageUrl: https://example.com/keyboard.png
           quantity: 2
-          unitPrice: 500000
-          totalPrice: 1000000
+          unitPrice: '500000.00'
+          totalPrice: '1000000.00'
         shippingAddress:
           recipientName: Nguyen Van A
           phoneNumber: '+84900000000'
@@ -2113,11 +2118,11 @@ components:
           city: Ho Chi Minh City
           countryCode: VN
         paymentMethod: SEPAY
-        subtotal: 1000000
-        discountAmount: 0
-        taxAmount: 0
-        shippingFee: 30000
-        totalAmount: 1030000
+        subtotal: '1000000.00'
+        discountAmount: '0.00'
+        taxAmount: '0.00'
+        shippingFee: '30000.00'
+        totalAmount: '1030000.00'
         currency: VND
         memoCode: NX202610150001
         paymentNote: Transfer the exact amount with memo NX202610150001.
@@ -2140,8 +2145,8 @@ components:
             skuCode: KB-001
             imageUrl: https://example.com/keyboard.png
             quantity: 2
-            unitPrice: 500000
-            totalPrice: 1000000
+            unitPrice: '500000.00'
+            totalPrice: '1000000.00'
           shippingAddress:
             recipientName: Nguyen Van A
             phoneNumber: '+84900000000'
@@ -2151,11 +2156,11 @@ components:
             city: Ho Chi Minh City
             countryCode: VN
           paymentMethod: SEPAY
-          subtotal: 1000000
-          discountAmount: 0
-          taxAmount: 0
-          shippingFee: 30000
-          totalAmount: 1030000
+          subtotal: '1000000.00'
+          discountAmount: '0.00'
+          taxAmount: '0.00'
+          shippingFee: '30000.00'
+          totalAmount: '1030000.00'
           currency: VND
           memoCode: NX202610150001
           paymentNote: Transfer the exact amount with memo NX202610150001.
@@ -2164,14 +2169,14 @@ components:
           createdAt: '2026-10-15T08:00:00Z'
           updatedAt: '2026-10-15T08:00:00Z'
         page: 0
-        size: 20
+        size: 10
         totalElements: 1
         totalPages: 1
     OrderPageEmpty:
       value:
         content: []
         page: 0
-        size: 20
+        size: 10
         totalElements: 0
         totalPages: 0
     OrderPaid:
@@ -2188,8 +2193,8 @@ components:
           skuCode: KB-001
           imageUrl: https://example.com/keyboard.png
           quantity: 2
-          unitPrice: 500000
-          totalPrice: 1000000
+          unitPrice: '500000.00'
+          totalPrice: '1000000.00'
         shippingAddress:
           recipientName: Nguyen Van A
           phoneNumber: '+84900000000'
@@ -2199,11 +2204,11 @@ components:
           city: Ho Chi Minh City
           countryCode: VN
         paymentMethod: SEPAY
-        subtotal: 1000000
-        discountAmount: 0
-        taxAmount: 0
-        shippingFee: 30000
-        totalAmount: 1030000
+        subtotal: '1000000.00'
+        discountAmount: '0.00'
+        taxAmount: '0.00'
+        shippingFee: '30000.00'
+        totalAmount: '1030000.00'
         currency: VND
         memoCode: NX202610150001
         paymentNote: Transfer the exact amount with memo NX202610150001.
@@ -2225,8 +2230,8 @@ components:
           skuCode: KB-001
           imageUrl: https://example.com/keyboard.png
           quantity: 2
-          unitPrice: 500000
-          totalPrice: 1000000
+          unitPrice: '500000.00'
+          totalPrice: '1000000.00'
         shippingAddress:
           recipientName: Nguyen Van A
           phoneNumber: '+84900000000'
@@ -2236,11 +2241,11 @@ components:
           city: Ho Chi Minh City
           countryCode: VN
         paymentMethod: SEPAY
-        subtotal: 1000000
-        discountAmount: 0
-        taxAmount: 0
-        shippingFee: 30000
-        totalAmount: 1030000
+        subtotal: '1000000.00'
+        discountAmount: '0.00'
+        taxAmount: '0.00'
+        shippingFee: '30000.00'
+        totalAmount: '1030000.00'
         currency: VND
         memoCode: NX202610150001
         paymentNote: Transfer the exact amount with memo NX202610150001.
@@ -2265,7 +2270,7 @@ components:
           bankCode: MOCK_BANK
           accountNumber: '0000000000'
           accountName: NEXUS MOCK - DO NOT TRANSFER
-        amount: 1030000
+        amount: '1030000.00'
         currency: VND
         memoCode: NX202610150001
         expiresAt: '2026-10-15T08:15:00Z'

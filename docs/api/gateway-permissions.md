@@ -110,41 +110,59 @@ Each method/path appears exactly once in the draft table; none is public.
 
 The gateway dependency is present in the branch history: merge commit `f67e7a3`
 merged `gateway-jwt-permit-list` into `develop`. Its current configuration supports
-one privilege per policy and falls back to authentication for unlisted routes.
-**A token alone is not sufficient under these Sprint 2 contracts.** Endpoint-owning
-implementation MRs must register and enforce these rules before exposing the APIs:
-all listed privileges **AND** at least one listed role. `ADMIN` does not bypass
-privileges. Preserve the existing nine public method/path pairs.
+**one privilege per policy** (`SecurityConfig` calls `hasAuthority` for one string)
+and falls back to authentication for unlisted routes. The columns below separate
+the proposed gateway registration from the complete downstream requirement.
+Endpoint-owning implementation MRs must register the gateway column in
+`config-service/src/main/resources/config/api-gateway.yml` and enforce **all**
+service privileges and ownership checks before exposing these APIs. This draft
+changes neither that configuration nor runtime authorization.
 
-Roles are canonical JWT `roles` codes from ADR-006; the gateway maps them to
-`ROLE_<code>`. Privileges are exact JWT `privileges` strings without prefixes.
-`none (role-only)` below means the ADMIN role is required, not public access.
-The status endpoint has no dedicated SRS privilege; do not invent `ORDER.UPDATE`.
-Ownership constraints are mandatory downstream checks against validated JWT `sub`.
-Do not accept a caller-controlled `userId` to select another account's resources.
+**Privilege-first:** when SRS defines a privilege, check privileges, not an extra
+hard-coded role allowlist. Actor roles below are SRS reference metadata, not a
+second access gate; roles can be assigned privileges dynamically. `ADMIN` does not
+bypass a required privilege. Only ORD-06 has no SRS privilege: its service requires
+`ADMIN` (role-only); the current gateway can only require a valid token for it.
+Do not invent `ORDER.UPDATE` or use authentication alone as the service policy.
 
-| Method | Path | Required role (any one) | Required privileges (all) | Ownership / business restriction | Owning issue |
-|---|---|---|---|---|---|
-| GET | `/api/v1/carts/me` | BUYER | CART.VIEW AND CART.CREATE | Own cart; get-or-create can create a resource | #110 |
-| POST | `/api/v1/carts/me/items` | BUYER | CART.UPDATE | Own active cart | #110 |
-| PUT | `/api/v1/carts/me/items/{id}` | BUYER | CART.UPDATE | Own cart item; inaccessible item returns 404 | #111 |
-| DELETE | `/api/v1/carts/me/items/{id}` | BUYER | CART.REMOVE_ITEM | Own cart item; inaccessible item returns 404 | #111 |
-| POST | `/api/v1/orders` | BUYER | CHECKOUT.START AND ORDER.CREATE | Own cart; caller-scoped idempotency key | #113, #114, #115 |
-| GET | `/api/v1/orders` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.LIST | Own orders only, including for ADMIN; not a global admin list | #117 |
-| GET | `/api/v1/orders/{id}` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #117 |
-| GET | `/api/v1/orders/{id}/history` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #116 |
-| PATCH | `/api/v1/orders/{id}/status` | ADMIN | none (role-only) | Only PENDING to PAID or CANCELED in Sprint 2; audit actor and reason | #116 |
-| POST | `/api/v1/orders/{id}/payment` | BUYER | CHECKOUT.START | Own PENDING order only; repeated call returns the same instructions | #120, #121 |
-| GET | `/api/v1/notifications` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | Own notifications only, including for ADMIN | #108 |
-| GET | `/api/v1/notifications/unread-count` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | Count own unread notifications only | #108 |
-| PATCH | `/api/v1/notifications/{id}/read` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | Own notification only; other caller returns 403 | #109 |
-| PATCH | `/api/v1/notifications/read-all` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | Update own unread notifications only | #109 |
+In the YAMLs, `x-actor-roles` records reference actors, `x-required-privileges`
+records the service ALL-of requirement, and `x-gateway-privilege` records one
+primary privilege for gateway registration. `x-required-roles` appears only on
+the role-only status endpoint. These documentation extensions do not configure
+Spring Security or make Prism enforce authorization. CRT-01 uses `CART.VIEW` at
+the gateway and also requires `CART.CREATE` downstream; ORD-01 uses `ORDER.CREATE`
+at the gateway and also requires `CHECKOUT.START` downstream. Neither privilege
+from the catalogue is dropped, combined into a new string, or treated as OR.
+
+Roles are canonical JWT `roles` codes mapped to `ROLE_<code>`; privileges are
+exact JWT `privileges` strings without prefixes. Ownership checks use validated
+JWT `sub`; do not accept a caller-controlled `userId` for another account.
+Preserve the nine public method/path pairs above; none of these 14 paths is public.
+
+| Method | Path | Actor roles (reference; ADMIN gate only for ORD-06) | Gateway privilege | Required service privileges (all) | Ownership / business restriction | Owning issue |
+|---|---|---|---|---|---|---|
+| GET | `/api/v1/carts/me` | BUYER | CART.VIEW | CART.VIEW AND CART.CREATE | Own cart; get-or-create can create a resource | #110 |
+| POST | `/api/v1/carts/me/items` | BUYER | CART.UPDATE | CART.UPDATE | Own active cart | #110 |
+| PUT | `/api/v1/carts/me/items/{id}` | BUYER | CART.UPDATE | CART.UPDATE | Own cart item; inaccessible item returns 404 | #111 |
+| DELETE | `/api/v1/carts/me/items/{id}` | BUYER | CART.REMOVE_ITEM | CART.REMOVE_ITEM | Own cart item; inaccessible item returns 404 | #111 |
+| POST | `/api/v1/orders` | BUYER | ORDER.CREATE | CHECKOUT.START AND ORDER.CREATE | Own cart; caller-scoped idempotency key | #113, #114, #115 |
+| GET | `/api/v1/orders` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.LIST | ORDER.LIST | Own orders only, including for ADMIN; not a global admin list | #117 |
+| GET | `/api/v1/orders/{id}` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #117 |
+| GET | `/api/v1/orders/{id}/history` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #116 |
+| PATCH | `/api/v1/orders/{id}/status` | ADMIN | token only | none (role-only) | Service requires ADMIN; only PENDING to PAID or CANCELED; audit actor and reason | #116 |
+| POST | `/api/v1/orders/{id}/payment` | BUYER | CHECKOUT.START | CHECKOUT.START | Own PENDING order only; repeated call returns the same instructions | #120, #121 |
+| GET | `/api/v1/notifications` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notifications only, including for ADMIN | #108 |
+| GET | `/api/v1/notifications/unread-count` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Count own unread notifications only | #108 |
+| PATCH | `/api/v1/notifications/{id}/read` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notification only; other caller returns 403 | #109 |
+| PATCH | `/api/v1/notifications/read-all` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Update own unread notifications only | #109 |
 
 System-generated status transitions run through internal service or consumer
-boundaries. They are not permission to send a buyer JWT to the ADMIN HTTP endpoint.
-Gateway fixtures must cover missing token (401), missing role or any required
-privilege (403), and successful authorization; services must additionally test
-ownership. Prism cannot prove any of these runtime security properties.
+boundaries. They do not grant a buyer JWT access to the ADMIN HTTP endpoint.
+Owning MRs must test gateway token/primary-privilege failures (401/403), service
+rejection when either required privilege is missing on CRT-01/ORD-01, and ownership.
+For ORD-06, test missing ADMIN at the service (403). Do not reject a caller solely
+for a different role when its effective privileges satisfy a privilege-backed path.
+Prism cannot prove any of these runtime security properties.
 
 ### Scope and draft decisions
 
@@ -156,22 +174,28 @@ ownership. Prism cannot prove any of these runtime security properties.
   buyer cancellation/refunds, notification preferences or push subscriptions.
   The Sepay webhook is Sprint 4, not a new public Sprint 2 path. Cart expiry,
   outbox relay and notification consumers are jobs/consumers, not HTTP endpoints.
-- **Nonempty mutation responses:** this draft deliberately replaces catalogue
-  204 with 200 JSON for cart item removal and both mark-read operations. Removal
-  returns the updated cart; mark-one returns the notification; mark-all returns
-  `{updatedCount, readAt}`. Empty collections/counts still have nonempty JSON
-  envelopes. This is a proposed contract for #111/#109, not a claim that those
-  implementation issues or the frontend have approved the change.
-- **Money:** draft JSON numbers with at most two decimal places and `currency: VND`
-  follow current `numeric(19,2)` migrations. Later-sprint long-VND notes still need
-  alignment before DTOs are finalized. Clients must not calculate authoritative
-  prices. Shipping, tax, discounts and totals are server supplied.
+- **Catalogue status codes:** CRT-04, NTF-03 and NTF-04 return **204 No Content**,
+  including idempotent mark-read retries. No response schema, example or body is
+  declared for 204. FE must not call `response.json()` on these responses; refetch
+  the cart or notifications/unread count instead. Other success responses retain
+  explicit nonempty JSON examples, including empty-list/count envelopes. This
+  restores the catalogue rather than introducing an unapproved 200 contract.
+  Issue #88's original "every path, no empty body" criterion is incompatible with
+  these 204 operations and needs an explicit exception; validation here does not
+  imply that the issue acceptance text has already been updated.
+- **Money:** all 11 commerce/payment monetary fields use JSON **strings**, with
+  pattern `^\d+\.\d{2}$`, for example `"150000.50"` or `"0.00"`. This follows
+  #92's decimal-safe convention confirmed by review !40 and the frontend's
+  string-valued price formatter. SQL `numeric(19,2)` describes storage, not a JSON
+  number requirement. Preserve both fractional digits on the wire; never convert
+  these values to JavaScript `Number` for authoritative money calculations.
+  Shipping, tax, discounts and totals are server supplied.
 - **Idempotency:** order creation requires UUID `Idempotency-Key`; a new order is
   201, an identical caller/payload retry is 200 with the same order, and a changed
   payload with the same key is 409. A key belonging to another caller returns
   400 and never discloses that caller's order. Payment initiation repeats the same
   201 instructions; marking an already-read notification preserves `readAt`.
-- **Pagination:** zero-based `page`, `size` defaults to 20 (1..100); list envelopes
+- **Pagination:** zero-based `page`, `size` defaults to 10 (1..100), matching product lists; list envelopes
   use `{content, page, size, totalElements, totalPages}`. Sprint 2 order filtering
   supports `status`, not the later-sprint `from`/`to` filters.
 
@@ -345,7 +369,13 @@ const markAllResponse = await fetch("http://localhost:4011/api/v1/notifications/
   },
 });
 if (!markAllResponse.ok) throw new Error(await markAllResponse.text());
-const markAllResult = await markAllResponse.json();
+if (markAllResponse.status !== 204) throw new Error("Expected 204 No Content");
+// Không gọi .json() trên 204; refetch để cập nhật UI.
+const countResponse = await fetch("http://localhost:4011/api/v1/notifications/unread-count", {
+  headers: { Authorization: "Bearer mock-token", Accept: "application/json" },
+});
+if (!countResponse.ok) throw new Error(await countResponse.text());
+const unreadCount = await countResponse.json();
 ```
 
 **5. Chọn fixtures cho màn hình**
@@ -361,7 +391,7 @@ response mặc định. Riêng tạo order, chọn rõ 201 hoặc 200 cho màn h
 | Trạng thái order | `GET /api/v1/orders/{id}` | `example=pending`, `example=paid` hoặc `example=canceled` |
 | Giá thay đổi | `POST /api/v1/orders` | `code=409, example=priceChanged` |
 | Thiếu tồn kho | `POST /api/v1/orders` | `code=409, example=insufficientStock` |
-| Không có unread / không có thay đổi | GET unread-count hoặc PATCH read-all | `example=none` |
+| Không có unread | GET unread-count | `example=none` |
 | Lỗi xác thực từ service | Mọi operation | `code=401, example=service` |
 | Lỗi quyền từ gateway | Mọi operation | `code=403, example=gateway` |
 | Lỗi field validation | Bốn operation có JSON body | `code=400, example=validation` |
@@ -376,36 +406,18 @@ quyền thực tế.
 Mock **không lưu trạng thái**: thêm/xóa cart, mark-read, retry hay polling payment
 không làm dữ liệu tự thay đổi. Chọn example tương ứng trong FE mock adapter; dùng
 cặp order/payment examples có cùng order UUID, số tiền, memo và deadline cho màn
-hình checkout. Mỗi operation đều có success example với JSON body không rỗng.
+hình checkout. Success JSON đều có example không rỗng; ba operation trả 204 không có body.
 UUID, tiền, timestamp, QR và tài khoản ngân hàng chỉ là dữ liệu mẫu; không dùng
 chúng làm thông tin thanh toán thực tế.
 
-### Verification recorded for this draft
+### Verification scope
 
-- Both files pass Swagger Parser 12.1.0 validation and Redocly CLI 2.63.0
-  recommended lint. The default lint reports only four advisory warnings in
-  total: local mock server URLs and missing license metadata (two per file).
-  Skipping only `info-license` and `no-server-example.com` yields a clean lint;
-  no schema/example rule is disabled.
-- Live Prism 5.14.2 checks cover all 14 operations and 154 HTTP fixture/invalid
-  request cases, plus 14 default-success requests without a `Prefer` header
-  (168 HTTP requests total). Selected success and forced-error bodies match their
-  declared examples and schemas, including 200 mutations and all polling variants.
-- 319 schema/example checks cover request examples, parameter examples, declared
-  response examples and live response bodies. The role/privilege extensions match
-  the 14 permission rows one-to-one, with no duplicate method/path pair.
-- Shared-handler compatibility: 30 JSON responses serialized through Spring
-  MockMvc from the real `GlobalExceptionHandler` / `SecurityProblemAdvice` validate
-  against each spec, with and without an active span. Four negative checks reject
-  invented symbolic `code` and SKU-shaped validation `errors` (64 checks total).
-  The previous schema rejected real untraced responses; this is now corrected.
-- The common-core/common-web/common-security reactor passes Java 21 `verify`,
-  including 14 common-security tests (0 failures/errors).
-- Existing `GatewayPermissionsTest` passes on Java 21: 4 tests, 0 failures/errors.
-  This proves the active permission table is preserved, not that the new draft
-  rules have been deployed. No Java or gateway configuration is changed here.
-- Tools and temporary smoke scripts stay outside the repository. Only the two
-  contracts and this permission/handoff document are delivered.
+Validate both schemas, each declared JSON example and live Prism response. For
+CRT-04/NTF-03/NTF-04, assert status 204 and an empty body; do not invent a body to
+meet the old #88 wording. Also test all 14 default successes without `Prefer`.
+The active gateway permission test proves the existing policy table is preserved,
+not that draft service/gateway authorization is implemented. Temporary tooling
+stays outside the repository; only these three documents are delivered.
 
 ### Frontend handoff and acceptance
 
@@ -428,12 +440,12 @@ Mẫu nhắn frontend trong MR (thay `@TEN_FRONTEND_DEV` bằng người nhận 
 Before marking this issue done:
 
 - [x] Both OpenAPI files pass validation and all examples conform to schemas.
-- [x] A live Prism request to each of the 14 method/path operations returns the
-      declared example/status and a nonempty JSON body (including DELETE/PATCH).
+- [ ] Revalidate all 14 method/path operations: declared JSON examples where present;
+      status 204 with no body for CRT-04, NTF-03 and NTF-04.
 - [x] Validate new-order/retry, empty lists, price/stock conflict and illegal-status
       fixtures; no real JWT or payment credentials are used in mocks.
 - [x] The 14 operations match the draft table one-to-one with required role(s).
-- [ ] #111/#109 owners acknowledge the draft 200-with-body change from 204.
+- [ ] Issue #88 records the catalogue 204 exceptions to its nonempty-body criterion.
 - [ ] Owning backend MRs carry the fixed caller policy into gateway and service
       checks before exposure; the current draft must not be treated as deployment.
 - [ ] Mock URLs and the quick-start link have been sent to the frontend developer.
