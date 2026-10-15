@@ -13,7 +13,7 @@ import java.math.BigDecimal;
 public class SkuRequest {
 
     @NotBlank(message = "SKU code cannot be empty")
-    @Size(max = 100, message = "SKU code cannot exceed 100 characters")
+    @Size(max = 60, message = "SKU code cannot exceed 60 characters")
     private String skuCode;
 
     @NotBlank(message = "Color cannot be empty")

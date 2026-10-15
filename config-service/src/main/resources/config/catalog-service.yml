@@ -31,6 +31,8 @@ nexus:
       - method: GET
         path: /api/v1/categories/**
       - method: GET
+        path: /api/v1/skus/**
+      - method: GET
         path: /v3/api-docs/**
       - method: GET
         path: /swagger-ui/**

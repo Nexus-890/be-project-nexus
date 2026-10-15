@@ -5,10 +5,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
-import org.hibernate.annotations.ColumnDefault;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.annotations.OnDelete;
-import org.hibernate.annotations.OnDeleteAction;
+import org.hibernate.annotations.*;
 import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
@@ -59,20 +56,23 @@ public class Skus {
     @ColumnDefault("'VND'")
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "currency", nullable = false, length = 3)
-    private String currency;
+    private String currency = "VND";
 
     @Size(max = 20)
     @NotNull
     @ColumnDefault("'ACTIVE'")
     @Column(name = "status", nullable = false, length = 20)
-    private String status;
+    private String status = "ACTIVE";
 
     @NotNull
+    @NotNull
+    @CreationTimestamp
     @ColumnDefault("now()")
-    @Column(name = "created_at", nullable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
     @NotNull
+    @UpdateTimestamp
     @ColumnDefault("now()")
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
