@@ -1,11 +1,16 @@
 package com.group5.catalogservice.product.dto.response;
 
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
 import java.util.UUID;
 
-import lombok.*;
-
-
-@Value
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 public class ProductResponse {
 
     private UUID id;
@@ -14,5 +19,4 @@ public class ProductResponse {
     private String status;
     private UUID categoryId;
     private UUID sellerId;
-
 }

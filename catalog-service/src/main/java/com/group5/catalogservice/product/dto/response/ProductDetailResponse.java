@@ -1,12 +1,13 @@
 package com.group5.catalogservice.product.dto.response;
 
+import com.group5.catalogservice.product.dto.response.ProductResponse;
 import lombok.Getter;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
 @Getter
-public class ProductDetailResponse extends ProductResponse.ProductResponse {
+public class ProductDetailResponse extends ProductResponse {
     private final String description;
     private final Boolean auctionEnable;
     private final List<SkuResponse> skus;

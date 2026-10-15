@@ -1,5 +1,6 @@
 package com.group5.catalogservice.product.service;
 
+
 import com.group5.catalogservice.product.dto.request.ProductRequest;
 import com.group5.catalogservice.product.dto.response.ProductDetailResponse;
 import com.group5.catalogservice.product.dto.response.ProductResponse;

@@ -2,6 +2,8 @@
 
 | Method | Endpoint | Required privilege |
 | --- | --- | --- |
+| GET | /api/v1/products | Public |
+| GET | /api/v1/products/mine | PRODUCT.LIST |
 | POST | /api/v1/products | PRODUCT.CREATE |
 | PUT | /api/v1/products/{id} | PRODUCT.UPDATE |
 | GET | /api/v1/products/{id} | Public |

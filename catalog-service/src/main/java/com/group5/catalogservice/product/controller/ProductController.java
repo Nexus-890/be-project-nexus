@@ -1,5 +1,6 @@
 package com.group5.catalogservice.product.controller;
 
+
 import com.group5.catalogservice.product.dto.response.ProductResponse;
 import com.group5.common_security.CurrentUser;
 import com.group5.catalogservice.product.dto.response.PageResponse;
