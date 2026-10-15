@@ -1,0 +1,775 @@
+# Sprint 2 draft — examples are synthetic; role/privilege rules are contractual.
+openapi: 3.0.3
+info:
+  title: Project Nexus — Commerce Sprint 2 API
+  version: 0.1.0-draft
+  description: 'Draft for frontend mocks, not an implementation or proof of gateway enforcement. Required roles
+    are ANY-of x-required-roles; required privileges are ALL-of x-required-privileges. Both conditions apply, including
+    for ADMIN (no implicit privilege bypass). Ownership is independently enforced by the owning service using validated
+    JWT sub; do not accept a caller userId in a request. UUIDs and UTC ISO-8601 timestamps are used. Lists are newest
+    first unless specified. Scope: CRT-01..04, ORD-01/03..06, PAY-01 in the endpoint catalogue. Cart validation
+    occurs inside order creation; no standalone checkout, refund or Sepay webhook in Sprint 2. Draft decision: DELETE
+    cart item returns 200 with the updated cart rather than catalogue 204 to satisfy the issue requirement for nonempty
+    mock bodies; owning issue #111 and frontend sign-off remain pending. Monetary representation is a draft JSON
+    number with two decimal places, aligned with the current SQL numeric(19,2), pending reconciliation with later
+    sprint long-VND notes. This file does not create backend controllers. Errors mirror lib/common-core ErrorCode/DomainException,
+    lib/common-web GlobalExceptionHandler, lib/common-security SecurityProblemAdvice and api-gateway SecurityConfig.
+    No top-level symbolic code; optional service traceId; validation errors contain field/message only. 409/503
+    details are draft business messages supported by DomainException(int, String), not new ErrorCode enum entries.'
+  contact:
+    name: Project Nexus Backend Team
+servers:
+- url: http://localhost:4010
+  description: Local Prism mock (not the authenticated production gateway)
+tags:
+- name: Cart
+  description: The authenticated buyer's active shopping cart.
+security:
+- bearerAuth: []
+paths:
+  /api/v1/carts/me:
+    get:
+      tags:
+      - Cart
+      operationId: getMyCart
+      summary: Get or create my active cart
+      description: At most one ACTIVE cart per caller. Automatically create an empty cart when none exists. Both
+        CART.VIEW and CART.CREATE are required because this read can create a cart.
+      security:
+      - bearerAuth: []
+      x-required-roles:
+      - BUYER
+      x-required-privileges:
+      - CART.VIEW
+      - CART.CREATE
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+              examples:
+                populated:
+                  $ref: '#/components/examples/CartPopulated'
+                empty:
+                  $ref: '#/components/examples/CartEmpty'
+        '401':
+          description: A valid bearer token is required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/carts/me
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/carts/me
+          headers:
+            WWW-Authenticate:
+              description: Bearer authentication challenge from gateway or service security advice
+              schema:
+                type: string
+              example: Bearer
+        '403':
+          description: The required privilege is missing
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/carts/me
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/carts/me
+                domain:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission!
+                    instance: /api/v1/carts/me
+        '500':
+          description: An unexpected error occurred
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:internal-server-error
+                title: Internal Server Error
+                status: 500
+                detail: An unexpected error occurred
+                instance: /api/v1/carts/me
+  /api/v1/carts/me/items:
+    post:
+      tags:
+      - Cart
+      operationId: addMyCartItem
+      summary: Add a SKU to my cart
+      description: Resolve the caller from JWT sub. Add to the active cart, creating it when needed. Adding the
+        same SKU increases its quantity rather than creating a second line. SKU must exist and product must be ACTIVE.
+        Prices are server-derived snapshots, never client-supplied.
+      security:
+      - bearerAuth: []
+      x-required-roles:
+      - BUYER
+      x-required-privileges:
+      - CART.UPDATE
+      responses:
+        '201':
+          description: Cart after adding the SKU
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+              examples:
+                default:
+                  $ref: '#/components/examples/CartPopulated'
+        '400':
+          description: Invalid data
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                invalidData:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Invalid data
+                    instance: /api/v1/carts/me/items
+                malformedBody:
+                  value:
+                    type: urn:problem:invalid-request-body
+                    title: Invalid Request Body
+                    status: 400
+                    detail: The request body is invalid or malformed
+                    instance: /api/v1/carts/me/items
+                validation:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Validation Failed
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/carts/me/items
+                    errors:
+                    - field: quantity
+                      message: Quantity is invalid
+                invalidQuantity:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Quantity is invalid
+                    instance: /api/v1/carts/me/items
+        '401':
+          description: A valid bearer token is required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/carts/me/items
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/carts/me/items
+          headers:
+            WWW-Authenticate:
+              description: Bearer authentication challenge from gateway or service security advice
+              schema:
+                type: string
+              example: Bearer
+        '403':
+          description: The required privilege is missing
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/carts/me/items
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/carts/me/items
+                domain:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission!
+                    instance: /api/v1/carts/me/items
+        '404':
+          description: Not found!
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Not Found
+                status: 404
+                detail: Not found!
+                instance: /api/v1/carts/me/items
+        '500':
+          description: An unexpected error occurred
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:internal-server-error
+                title: Internal Server Error
+                status: 500
+                detail: An unexpected error occurred
+                instance: /api/v1/carts/me/items
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCartItem'
+            example:
+              skuId: 00000003-1111-4111-8111-111111111111
+              quantity: 2
+  /api/v1/carts/me/items/{id}:
+    put:
+      tags:
+      - Cart
+      operationId: updateMyCartItem
+      summary: Set a cart item quantity
+      description: Set the absolute quantity, not an increment. Quantity must be greater than zero. A line outside
+        the caller's cart returns 404 to avoid exposing another buyer's item.
+      security:
+      - bearerAuth: []
+      x-required-roles:
+      - BUYER
+      x-required-privileges:
+      - CART.UPDATE
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+              examples:
+                default:
+                  $ref: '#/components/examples/CartDefault'
+        '400':
+          description: Invalid data
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                invalidData:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Invalid data
+                    instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+                malformedBody:
+                  value:
+                    type: urn:problem:invalid-request-body
+                    title: Invalid Request Body
+                    status: 400
+                    detail: The request body is invalid or malformed
+                    instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+                validation:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Validation Failed
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+                    errors:
+                    - field: quantity
+                      message: Quantity is invalid
+                invalidQuantity:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Quantity is invalid
+                    instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+                invalidParameter:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Invalid Parameter
+                    status: 400
+                    detail: Value 'abc' is not a valid UUID for parameter 'id'
+                    instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+        '401':
+          description: A valid bearer token is required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+          headers:
+            WWW-Authenticate:
+              description: Bearer authentication challenge from gateway or service security advice
+              schema:
+                type: string
+              example: Bearer
+        '403':
+          description: The required privilege is missing
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+                domain:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission!
+                    instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+        '404':
+          description: Not found!
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Not Found
+                status: 404
+                detail: Not found!
+                instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+        '500':
+          description: An unexpected error occurred
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:internal-server-error
+                title: Internal Server Error
+                status: 500
+                detail: An unexpected error occurred
+                instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Item UUID; subject to caller ownership checks.
+        schema:
+          type: string
+          format: uuid
+        example: 00000002-1111-4111-8111-111111111111
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCartItem'
+            example:
+              quantity: 1
+    delete:
+      tags:
+      - Cart
+      operationId: removeMyCartItem
+      summary: Remove an item from my cart
+      description: 'Remove only from the caller''s active cart; an inaccessible or nonexistent line returns 404.
+        Draft returns 200 with the resulting cart, including items: [] when the last line was removed, instead of
+        the catalogue 204.'
+      security:
+      - bearerAuth: []
+      x-required-roles:
+      - BUYER
+      x-required-privileges:
+      - CART.REMOVE_ITEM
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+              examples:
+                default:
+                  $ref: '#/components/examples/CartEmpty'
+        '401':
+          description: A valid bearer token is required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+          headers:
+            WWW-Authenticate:
+              description: Bearer authentication challenge from gateway or service security advice
+              schema:
+                type: string
+              example: Bearer
+        '403':
+          description: The required privilege is missing
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+                domain:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission!
+                    instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+        '404':
+          description: Not found!
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Not Found
+                status: 404
+                detail: Not found!
+                instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+        '400':
+          description: Invalid data
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                invalidData:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Invalid data
+                    instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+                invalidParameter:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Invalid Parameter
+                    status: 400
+                    detail: Value 'abc' is not a valid UUID for parameter 'id'
+                    instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+        '500':
+          description: An unexpected error occurred
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:internal-server-error
+                title: Internal Server Error
+                status: 500
+                detail: An unexpected error occurred
+                instance: /api/v1/carts/me/items/00000002-1111-4111-8111-111111111111
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Item UUID; subject to caller ownership checks.
+        schema:
+          type: string
+          format: uuid
+        example: 00000002-1111-4111-8111-111111111111
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: RS256 JWT issued by user-service. JWT sub supplies the caller ID; roles and privileges follow
+        ADR-006. Prism checks header presence/shape only, not signatures, roles or ownership.
+  schemas:
+    Problem:
+      type: object
+      additionalProperties: false
+      required:
+      - type
+      - title
+      - status
+      - detail
+      - instance
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+        traceId:
+          type: string
+          minLength: 1
+          description: 'Optional in shared service handlers: present only with an active tracing span. Gateway rejection
+            responses always include a correlation ID.'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationError'
+      description: Wire shape of common-web GlobalExceptionHandler and common-security SecurityProblemAdvice, also
+        accepting gateway SecurityConfig ProblemDetail responses. ErrorCode.getCode() is the numeric HTTP status;
+        no symbolic code is emitted. errors is only the field/message list produced by bean validation, never SKU
+        conflict metadata.
+    ValidationError:
+      type: object
+      additionalProperties: false
+      required:
+      - field
+      - message
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+    CartItem:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - skuId
+      - productId
+      - productName
+      - quantity
+      - unitPrice
+      - lineTotal
+      properties:
+        id:
+          type: string
+          format: uuid
+        skuId:
+          type: string
+          format: uuid
+        productId:
+          type: string
+          format: uuid
+        productName:
+          type: string
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+        unitPrice:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
+            totals on the server using decimal arithmetic, not client floats.
+        lineTotal:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
+            totals on the server using decimal arithmetic, not client floats.
+    Cart:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - status
+      - items
+      - subtotal
+      - currency
+      - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - ACTIVE
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartItem'
+        subtotal:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+          description: VND amount, at most two decimal places; draft JSON number aligned with numeric(19,2). Calculate
+            totals on the server using decimal arithmetic, not client floats.
+        currency:
+          type: string
+          enum:
+          - VND
+        updatedAt:
+          type: string
+          format: date-time
+    AddCartItem:
+      type: object
+      additionalProperties: false
+      required:
+      - skuId
+      - quantity
+      properties:
+        skuId:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+    UpdateCartItem:
+      type: object
+      additionalProperties: false
+      required:
+      - quantity
+      properties:
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+  examples:
+    CartPopulated:
+      value:
+        id: 00000001-1111-4111-8111-111111111111
+        status: ACTIVE
+        items:
+        - id: 00000002-1111-4111-8111-111111111111
+          skuId: 00000003-1111-4111-8111-111111111111
+          productId: 00000004-1111-4111-8111-111111111111
+          productName: Nexus Mechanical Keyboard
+          quantity: 2
+          unitPrice: 500000
+          lineTotal: 1000000
+        subtotal: 1000000
+        currency: VND
+        updatedAt: '2026-10-15T08:00:00Z'
+    CartEmpty:
+      value:
+        id: 00000001-1111-4111-8111-111111111111
+        status: ACTIVE
+        items: []
+        subtotal: 0
+        currency: VND
+        updatedAt: '2026-10-15T08:00:00Z'
+    CartDefault:
+      value:
+        id: 00000001-1111-4111-8111-111111111111
+        status: ACTIVE
+        items:
+        - id: 00000002-1111-4111-8111-111111111111
+          skuId: 00000003-1111-4111-8111-111111111111
+          productId: 00000004-1111-4111-8111-111111111111
+          productName: Nexus Mechanical Keyboard
+          quantity: 1
+          unitPrice: 500000
+          lineTotal: 500000
+        subtotal: 500000
+        currency: VND
+        updatedAt: '2026-10-15T08:00:00Z'
