@@ -1,0 +1,690 @@
+# Sprint 2 draft — examples are synthetic; role/privilege rules are contractual.
+openapi: 3.0.3
+info:
+  title: Project Nexus — Notification Sprint 2 API
+  version: 0.1.0-draft
+  description: 'Draft for frontend mocks, not an implementation or proof of gateway enforcement. Required roles
+    are ANY-of x-required-roles; required privileges are ALL-of x-required-privileges. Both conditions apply, including
+    for ADMIN (no implicit privilege bypass). Ownership is independently enforced by the owning service using validated
+    JWT sub; do not accept a caller userId in a request. UUIDs and UTC ISO-8601 timestamps are used. Lists are newest
+    first unless specified. Scope: NTF-01..04, owning issues #108 and #109. Sprint 2 is in-app only; no preferences,
+    push subscriptions, event-log management or email delivery endpoints. Draft decision: mark-one and mark-all
+    return 200 JSON rather than catalogue 204 to satisfy nonempty mock bodies. Owning issue #109 and frontend sign-off
+    remain pending. Repeated mark-read calls are idempotent: preserve an existing readAt; mark-all changes unread
+    records only. Mock calls are stateless and do not persist those changes. Errors mirror lib/common-core ErrorCode/DomainException,
+    lib/common-web GlobalExceptionHandler, lib/common-security SecurityProblemAdvice and api-gateway SecurityConfig.
+    No top-level symbolic code; optional service traceId; validation errors contain field/message only. 409/503
+    details are draft business messages supported by DomainException(int, String), not new ErrorCode enum entries.'
+  contact:
+    name: Project Nexus Backend Team
+servers:
+- url: http://localhost:4011
+  description: Local Prism mock (not the authenticated production gateway)
+tags:
+- name: Notification
+  description: The authenticated caller's in-app notification history.
+security:
+- bearerAuth: []
+paths:
+  /api/v1/notifications:
+    get:
+      tags:
+      - Notification
+      operationId: listMyNotifications
+      summary: List my notifications
+      description: Read only notifications for validated JWT sub, including for ADMIN; no userId parameter or global
+        inbox. Sort by createdAt descending, then id descending for stable ties. A zero-result page still returns
+        a JSON page object.
+      security:
+      - bearerAuth: []
+      x-required-roles:
+      - ADMIN
+      - SELLER
+      - BUYER
+      - SUPPORT_STAFF
+      x-required-privileges:
+      - NOTIFICATION.VIEW
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPage'
+              examples:
+                populated:
+                  $ref: '#/components/examples/NotificationPagePopulated'
+                empty:
+                  $ref: '#/components/examples/NotificationPageEmpty'
+        '400':
+          description: Invalid data
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                invalidData:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Invalid data
+                    instance: /api/v1/notifications
+                invalidParameter:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Invalid Parameter
+                    status: 400
+                    detail: Value 'abc' is invalid for parameter 'page'
+                    instance: /api/v1/notifications
+        '401':
+          description: A valid bearer token is required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/notifications
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/notifications
+          headers:
+            WWW-Authenticate:
+              description: Bearer authentication challenge from gateway or service security advice
+              schema:
+                type: string
+              example: Bearer
+        '403':
+          description: The required privilege is missing
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/notifications
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/notifications
+                domain:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission!
+                    instance: /api/v1/notifications
+        '500':
+          description: An unexpected error occurred
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:internal-server-error
+                title: Internal Server Error
+                status: 500
+                detail: An unexpected error occurred
+                instance: /api/v1/notifications
+      parameters:
+      - name: page
+        in: query
+        required: false
+        description: Zero-based page number.
+        schema:
+          type: integer
+          format: int32
+          minimum: 0
+          default: 0
+        example: 0
+      - name: size
+        in: query
+        required: false
+        description: Number of records per page, capped at 100.
+        schema:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100
+          default: 20
+        example: 20
+  /api/v1/notifications/unread-count:
+    get:
+      tags:
+      - Notification
+      operationId: getMyUnreadNotificationCount
+      summary: Count my unread notifications
+      description: 'Count only unread notifications belonging to JWT sub. Zero unread is {count: 0}, never an empty
+        body.'
+      security:
+      - bearerAuth: []
+      x-required-roles:
+      - ADMIN
+      - SELLER
+      - BUYER
+      - SUPPORT_STAFF
+      x-required-privileges:
+      - NOTIFICATION.VIEW
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnreadCount'
+              examples:
+                unread:
+                  $ref: '#/components/examples/UnreadCountUnread'
+                none:
+                  $ref: '#/components/examples/UnreadCountNone'
+        '401':
+          description: A valid bearer token is required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/notifications/unread-count
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/notifications/unread-count
+          headers:
+            WWW-Authenticate:
+              description: Bearer authentication challenge from gateway or service security advice
+              schema:
+                type: string
+              example: Bearer
+        '403':
+          description: The required privilege is missing
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/notifications/unread-count
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/notifications/unread-count
+                domain:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission!
+                    instance: /api/v1/notifications/unread-count
+        '500':
+          description: An unexpected error occurred
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:internal-server-error
+                title: Internal Server Error
+                status: 500
+                detail: An unexpected error occurred
+                instance: /api/v1/notifications/unread-count
+  /api/v1/notifications/{id}/read:
+    patch:
+      tags:
+      - Notification
+      operationId: markMyNotificationRead
+      summary: Mark one of my notifications as read
+      description: Mark only the caller's notification. An existing notification owned by someone else returns 403;
+        a nonexistent notification returns 404. Repeated calls preserve the original readAt and return the notification
+        unchanged. Draft returns 200 JSON instead of catalogue 204.
+      security:
+      - bearerAuth: []
+      x-required-roles:
+      - ADMIN
+      - SELLER
+      - BUYER
+      - SUPPORT_STAFF
+      x-required-privileges:
+      - NOTIFICATION.VIEW
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+              examples:
+                default:
+                  $ref: '#/components/examples/NotificationDefault'
+        '401':
+          description: A valid bearer token is required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/notifications/00000007-1111-4111-8111-111111111111/read
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/notifications/00000007-1111-4111-8111-111111111111/read
+          headers:
+            WWW-Authenticate:
+              description: Bearer authentication challenge from gateway or service security advice
+              schema:
+                type: string
+              example: Bearer
+        '403':
+          description: The required privilege is missing
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/notifications/00000007-1111-4111-8111-111111111111/read
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/notifications/00000007-1111-4111-8111-111111111111/read
+                domain:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission!
+                    instance: /api/v1/notifications/00000007-1111-4111-8111-111111111111/read
+        '404':
+          description: Not found!
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Not Found
+                status: 404
+                detail: Not found!
+                instance: /api/v1/notifications/00000007-1111-4111-8111-111111111111/read
+        '400':
+          description: Invalid data
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                invalidData:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Invalid data
+                    instance: /api/v1/notifications/00000007-1111-4111-8111-111111111111/read
+                invalidParameter:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Invalid Parameter
+                    status: 400
+                    detail: Value 'abc' is not a valid UUID for parameter 'id'
+                    instance: /api/v1/notifications/00000007-1111-4111-8111-111111111111/read
+        '500':
+          description: An unexpected error occurred
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:internal-server-error
+                title: Internal Server Error
+                status: 500
+                detail: An unexpected error occurred
+                instance: /api/v1/notifications/00000007-1111-4111-8111-111111111111/read
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Notification UUID; subject to caller ownership checks.
+        schema:
+          type: string
+          format: uuid
+        example: 00000007-1111-4111-8111-111111111111
+  /api/v1/notifications/read-all:
+    patch:
+      tags:
+      - Notification
+      operationId: markAllMyNotificationsRead
+      summary: Mark all my unread notifications as read
+      description: Update only unread notifications for JWT sub. Already-read timestamps are preserved; updatedCount
+        is zero if nothing changed. readAt is the timestamp used for this operation, not a replacement timestamp
+        on already-read records. Draft returns 200 JSON instead of catalogue 204.
+      security:
+      - bearerAuth: []
+      x-required-roles:
+      - ADMIN
+      - SELLER
+      - BUYER
+      - SUPPORT_STAFF
+      x-required-privileges:
+      - NOTIFICATION.VIEW
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarkAllReadResult'
+              examples:
+                updated:
+                  $ref: '#/components/examples/MarkAllReadResultUpdated'
+                none:
+                  $ref: '#/components/examples/MarkAllReadResultNone'
+        '401':
+          description: A valid bearer token is required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/notifications/read-all
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/notifications/read-all
+          headers:
+            WWW-Authenticate:
+              description: Bearer authentication challenge from gateway or service security advice
+              schema:
+                type: string
+              example: Bearer
+        '403':
+          description: The required privilege is missing
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gateway:
+                  value:
+                    type: https://nexus/errors/forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/notifications/read-all
+                    traceId: sprint2-mock-trace-001
+                service:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/notifications/read-all
+                domain:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission!
+                    instance: /api/v1/notifications/read-all
+        '500':
+          description: An unexpected error occurred
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:internal-server-error
+                title: Internal Server Error
+                status: 500
+                detail: An unexpected error occurred
+                instance: /api/v1/notifications/read-all
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: RS256 JWT issued by user-service. JWT sub supplies the caller ID; roles and privileges follow
+        ADR-006. Prism checks header presence/shape only, not signatures, roles or ownership.
+  schemas:
+    Problem:
+      type: object
+      additionalProperties: false
+      required:
+      - type
+      - title
+      - status
+      - detail
+      - instance
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+        traceId:
+          type: string
+          minLength: 1
+          description: 'Optional in shared service handlers: present only with an active tracing span. Gateway rejection
+            responses always include a correlation ID.'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationError'
+      description: Wire shape of common-web GlobalExceptionHandler and common-security SecurityProblemAdvice, also
+        accepting gateway SecurityConfig ProblemDetail responses. ErrorCode.getCode() is the numeric HTTP status;
+        no symbolic code is emitted. errors is only the field/message list produced by bean validation, never SKU
+        conflict metadata.
+    ValidationError:
+      type: object
+      additionalProperties: false
+      required:
+      - field
+      - message
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+    Notification:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - type
+      - title
+      - content
+      - readAt
+      - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          description: Event/template code, not a closed enum; future event types do not break clients.
+        title:
+          type: string
+        content:
+          type: string
+        readAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    NotificationPage:
+      type: object
+      additionalProperties: false
+      required:
+      - content
+      - page
+      - size
+      - totalElements
+      - totalPages
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+        page:
+          type: integer
+          format: int32
+          minimum: 0
+        size:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100
+        totalElements:
+          type: integer
+          format: int64
+          minimum: 0
+        totalPages:
+          type: integer
+          format: int32
+          minimum: 0
+    UnreadCount:
+      type: object
+      additionalProperties: false
+      required:
+      - count
+      properties:
+        count:
+          type: integer
+          format: int64
+          minimum: 0
+    MarkAllReadResult:
+      type: object
+      additionalProperties: false
+      required:
+      - updatedCount
+      - readAt
+      properties:
+        updatedCount:
+          type: integer
+          format: int64
+          minimum: 0
+        readAt:
+          type: string
+          format: date-time
+  examples:
+    NotificationPagePopulated:
+      value:
+        content:
+        - id: 00000007-1111-4111-8111-111111111111
+          type: ORDER_CREATED
+          title: Order created
+          content: Order NX-20261015-0001 is awaiting payment.
+          readAt: null
+          createdAt: '2026-10-15T08:00:00Z'
+        page: 0
+        size: 20
+        totalElements: 1
+        totalPages: 1
+    NotificationPageEmpty:
+      value:
+        content: []
+        page: 0
+        size: 20
+        totalElements: 0
+        totalPages: 0
+    UnreadCountUnread:
+      value:
+        count: 1
+    UnreadCountNone:
+      value:
+        count: 0
+    NotificationDefault:
+      value:
+        id: 00000007-1111-4111-8111-111111111111
+        type: ORDER_CREATED
+        title: Order created
+        content: Order NX-20261015-0001 is awaiting payment.
+        readAt: '2026-10-15T08:05:00Z'
+        createdAt: '2026-10-15T08:00:00Z'
+    MarkAllReadResultUpdated:
+      value:
+        updatedCount: 1
+        readAt: '2026-10-15T08:05:00Z'
+    MarkAllReadResultNone:
+      value:
+        updatedCount: 0
+        readAt: '2026-10-15T08:05:00Z'
