@@ -31,18 +31,23 @@ public class SkuService {
         this.productRepository = productRepository;
     }
 
+    // Tạo SKU sau khi kiểm tra quyền sở hữu sản phẩm và giá cả.
     @Transactional
     public SkuResponse create(
             UUID productId,
             SkuRequest request,
             CurrentUser currentUser) {
 
+        // Đảm bảo người dùng có quyền cập nhật sản phẩm.
         requirePrivilege(currentUser);
 
+        // Đảm bảo sản phẩm tồn tại và người dùng được quyền quản lý.
         Product product = findEditableProduct(productId, currentUser);
 
+        //Chaeck giá tiền hợp lệ
         validatePrice(request.getPrice());
 
+        //Map dữ liệu qua SKU mới
         Skus sku = new Skus();
         sku.setProduct(product);
         sku.setSkuCode(request.getSkuCode().trim());
@@ -53,6 +58,7 @@ public class SkuService {
         return toResponse(saveSku(sku));
     }
 
+    // Cập nhật một SKU sau khi xác thực quyền truy cập và dữ liệu đầu vào.
     @Transactional
     public SkuResponse update(
             UUID id,
@@ -64,9 +70,11 @@ public class SkuService {
         Skus sku = skuRepository.findById(id)
                 .orElseThrow(() -> new DomainException(ErrorCode.SKU_NOT_FOUND));
 
+        // Ngăn người bán sửa đổi SKU của người bán khác
         checkProductOwner(sku.getProduct(), currentUser);
         validatePrice(request.getPrice());
 
+        //Áp dụng update cho Sku có tồn tại
         sku.setSkuCode(request.getSkuCode().trim());
         sku.setColor(request.getColor().trim());
         sku.setSize(request.getSize().trim());
@@ -75,6 +83,7 @@ public class SkuService {
         return toResponse(saveSku(sku));
     }
 
+    // Chỉ đọc vì thao tác này không làm thay đổi dữ liệu.
     @Transactional(readOnly = true)
     public SkuResponse getById(UUID id) {
         Skus sku = skuRepository.findById(id)

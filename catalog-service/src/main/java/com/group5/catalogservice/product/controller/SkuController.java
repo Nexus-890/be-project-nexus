@@ -23,6 +23,7 @@ public class SkuController {
         this.skuService = skuService;
     }
 
+    // Yêu cầu quyền PRODUCT.UPDATE và trả về mã 201 Created.
     @PostMapping("/products/{productId}/skus")
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAuthority('PRODUCT.UPDATE')")
@@ -34,6 +35,7 @@ public class SkuController {
         return skuService.create(productId, request, currentUser);
     }
 
+    // Yêu cầu quyền PRODUCT.UPDATE và trả về mã 200 OK.
     @PutMapping("/skus/{id}")
     @PreAuthorize("hasAuthority('PRODUCT.UPDATE')")
     public SkuResponse update(
@@ -44,6 +46,7 @@ public class SkuController {
         return skuService.update(id, request, currentUser);
     }
 
+    // Điểm cuối công khai khi được cấu hình bảo mật cho phép
     @GetMapping("/skus/{id}")
     public SkuResponse getById(@PathVariable UUID id) {
         return skuService.getById(id);

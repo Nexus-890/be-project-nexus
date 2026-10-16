@@ -22,6 +22,7 @@ import java.util.UUID;
         @Index(name = "idx_skus_product",
                 columnList = "product_id")}, uniqueConstraints = {@UniqueConstraint(name = "skus_sku_code_key",
         columnNames = {"sku_code"})})
+
 public class Skus {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -64,7 +65,6 @@ public class Skus {
     @Column(name = "status", nullable = false, length = 20)
     private String status = "ACTIVE";
 
-    @NotNull
     @NotNull
     @CreationTimestamp
     @ColumnDefault("now()")
