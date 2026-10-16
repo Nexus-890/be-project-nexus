@@ -61,20 +61,23 @@ public enum ErrorCode {
     //===============Catalog service=====================
     SLUG_DUPLICATED("Slug duplicated", HttpStatus.CONFLICT),
     CATEGORY_NOT_FOUND("Category not found", HttpStatus.NOT_FOUND),
-    CATEGORY_LEVEL_MAX("Category max level",HttpStatus.BAD_REQUEST),
-    INVALID_PARENT("Category cannot be its own parent",HttpStatus.BAD_REQUEST),
-    INVALID_CHANGE_PARENT("Cannot change parent of a category that has children",HttpStatus.BAD_REQUEST),
-    RELATIONSHIP_ERROR ("Circular category relationship detected",HttpStatus.CONFLICT),
-    INVALID_SORT("Unable to sort categories",HttpStatus.BAD_REQUEST),
+    CATEGORY_LEVEL_MAX("Category max level", HttpStatus.BAD_REQUEST),
+    INVALID_PARENT("Category cannot be its own parent", HttpStatus.BAD_REQUEST),
+    INVALID_CHANGE_PARENT("Cannot change parent of a category that has children", HttpStatus.BAD_REQUEST),
+    RELATIONSHIP_ERROR("Circular category relationship detected", HttpStatus.CONFLICT),
+    INVALID_SORT("Unable to sort categories", HttpStatus.BAD_REQUEST),
     CATEGORY_HAS_PRODUCTS("Cannot delete a category that has products", HttpStatus.CONFLICT),
     CATEGORY_HAS_CHILDREN("Cannot delete a category that has child categories", HttpStatus.CONFLICT),
 
-    //========PRODUCT========
+    //========PRODUCT
     PRODUCT_NOT_FOUND("Product not found, not ACTIVE or deleted", HttpStatus.NOT_FOUND),
+    PRODUCT_HAS_ORDERS("Cannot delete a product that has orders",HttpStatus.CONFLICT),
+    INVALID_PRODUCT_STATUS_TRANSITION("Product status transition is not allowed",HttpStatus.BAD_REQUEST),
 
-    //========SKU========
+    //========SKU
     SKU_DUPLICATE ("Duplicate SKU code or variant", HttpStatus.CONFLICT),
     SKU_NOT_FOUND("SKU not found", HttpStatus.NOT_FOUND);
+
 
 
     final String message;
