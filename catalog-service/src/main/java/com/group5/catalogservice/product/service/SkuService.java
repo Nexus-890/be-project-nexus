@@ -39,7 +39,7 @@ public class SkuService {
             CurrentUser currentUser) {
 
         // Đảm bảo người dùng có quyền cập nhật sản phẩm.
-        requirePrivilege(currentUser);
+        requirePrivilege(currentUser, "PRODUCT.UPDATE");
 
         // Đảm bảo sản phẩm tồn tại và người dùng được quyền quản lý.
         Product product = findEditableProduct(productId, currentUser);
@@ -65,7 +65,7 @@ public class SkuService {
             SkuRequest request,
             CurrentUser currentUser) {
 
-        requirePrivilege(currentUser);
+        requirePrivilege(currentUser, "PRODUCT.UPDATE");
 
         Skus sku = skuRepository.findById(id)
                 .orElseThrow(() -> new DomainException(ErrorCode.SKU_NOT_FOUND));
@@ -105,12 +105,12 @@ public class SkuService {
         return product;
     }
 
-    private void requirePrivilege(CurrentUser currentUser) {
+    private void requirePrivilege(CurrentUser currentUser, String privilege) {
         if (currentUser == null) {
             throw new DomainException(ErrorCode.UNAUTHENTICATED);
         }
 
-        if (!currentUser.hasPrivilege("PRODUCT.UPDATE")) {
+        if (!currentUser.hasPrivilege(privilege)) {
             throw new DomainException(ErrorCode.UNAUTHORIZED);
         }
     }

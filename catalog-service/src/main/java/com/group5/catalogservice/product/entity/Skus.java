@@ -65,13 +65,11 @@ public class Skus {
     @Column(name = "status", nullable = false, length = 20)
     private String status = "ACTIVE";
 
-    @NotNull
     @CreationTimestamp
     @ColumnDefault("now()")
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
-    @NotNull
     @UpdateTimestamp
     @ColumnDefault("now()")
     @Column(name = "updated_at", nullable = false)
