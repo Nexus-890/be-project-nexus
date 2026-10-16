@@ -25,5 +25,6 @@ public class CatalogProperties {
     }
 
     private boolean allowCategoryDeleteWithProduct = false;
+    private boolean allowProductDeleteWithOrder = false;
 }
 

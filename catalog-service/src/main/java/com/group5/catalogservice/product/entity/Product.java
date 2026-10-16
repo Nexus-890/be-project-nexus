@@ -1,6 +1,7 @@
 package com.group5.catalogservice.product.entity;
 
 import com.group5.catalogservice.category.Category;
+import com.group5.catalogservice.product.enums.ProductStatus;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -54,11 +55,11 @@ public class Product {
     @Column(name = "description", length = Integer.MAX_VALUE)
     private String description;
 
-    @Size(max = 20)
     @NotNull
+    @Enumerated(EnumType.STRING)
     @ColumnDefault("'DRAFT'")
     @Column(name = "status", nullable = false, length = 20)
-    private String status;
+    private ProductStatus status = ProductStatus.DRAFT;
 
     @NotNull
     @ColumnDefault("false")

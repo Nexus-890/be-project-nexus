@@ -1,15 +1,19 @@
 package com.group5.catalogservice.product.service;
 
-
+import com.group5.catalogservice.product.dto.request.ChangeStatusRequest;
 import com.group5.catalogservice.product.dto.request.ProductRequest;
-import com.group5.catalogservice.product.dto.response.ProductDetailResponse;
+import com.group5.catalogservice.product.dto.response.ImageResponse;
 import com.group5.catalogservice.product.dto.response.ProductResponse;
+import com.group5.catalogservice.product.dto.response.ProductDetailResponse;
+import com.group5.catalogservice.product.dto.response.SkuResponse;
 import com.group5.catalogservice.product.entity.ProductImage;
 import com.group5.catalogservice.product.entity.Skus;
-
 import java.util.Comparator;
-
+import java.time.OffsetDateTime;
+import com.group5.catalogservice.product.OrderReferenceChecker;
+import com.group5.catalogservice.shared.config.CatalogProperties;
 import com.group5.catalogservice.product.entity.Product;
+import com.group5.catalogservice.product.enums.ProductStatus;
 import com.group5.catalogservice.product.repository.ProductRepository;
 import com.group5.catalogservice.category.Category;
 import com.group5.catalogservice.category.CategoryRepository;
@@ -17,17 +21,14 @@ import com.group5.catalogservice.shared.util.ProductSlugGenerator;
 import com.group5.common_core.constant.ErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
-
 import java.util.UUID;
-
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
-
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 @Service
 @Slf4j
 @RequiredArgsConstructor
@@ -35,6 +36,30 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final ProductSlugGenerator productSlugGenerator;
+    private final OrderReferenceChecker orderReferenceChecker;
+    private final CatalogProperties catalogProperties;
+
+    @Transactional
+    public void deleteProduct(UUID id, CurrentUser currentUser) {
+        requirePrivilege(currentUser, "PRODUCT.DELETE");
+        if (!currentUser.hasRole("SELLER") && !currentUser.hasRole("ADMIN")) {
+            throw new DomainException(ErrorCode.UNAUTHORIZED);
+        }
+
+        Product product = productRepository.findByIdAndDeletedAtIsNull(id)
+                .orElseThrow(() -> new DomainException(ErrorCode.PRODUCT_NOT_FOUND));
+        if (!product.getSellerId().equals(currentUser.id())) {
+            throw new DomainException(ErrorCode.UNAUTHORIZED);
+        }
+        if (!catalogProperties.isAllowProductDeleteWithOrder()
+                && orderReferenceChecker.hasOrderReferences(id)) {
+            throw new DomainException(ErrorCode.PRODUCT_HAS_ORDERS);
+        }
+
+        product.setDeletedAt(OffsetDateTime.now());
+        productRepository.save(product);
+        log.info("Soft deleted product: id={}, actorId={}", id, currentUser.id());
+    }
 
 
     @Transactional
@@ -56,7 +81,7 @@ public class ProductService {
         product.setName(name);
         product.setSlug(productSlugGenerator.generate(name, product.getId()));//Slug = name + id
         product.setDescription(request.getDescription());
-        product.setStatus("DRAFT");
+        product.setStatus(ProductStatus.DRAFT);
         product.setAuctionEnable(Boolean.TRUE.equals(request.getAuctionEnable()));
         //Boolean.TRUE tiện cho việc xử lí lỗi NullPointerException
         //cho sản phẩm chưa có đơn hàng, tiện cho việc xóa mềm
@@ -68,6 +93,8 @@ public class ProductService {
         log.info("Created product: id={}, sellerId={}", saved.getId(), saved.getSellerId());
         return toResponse(saved);
     }
+
+
 
     @Transactional
     public ProductResponse update(UUID product_id, ProductRequest request, CurrentUser currentUser) {
@@ -91,8 +118,9 @@ public class ProductService {
     @Transactional(readOnly = true)
     public ProductDetailResponse getById(UUID id) {
         Product product = productRepository
-                .findByIdAndStatusAndDeletedAtIsNull(id, "ACTIVE")
-                .orElseThrow(() -> new DomainException(ErrorCode.PRODUCT_NOT_FOUND));
+                .findByIdAndStatusAndDeletedAtIsNull(id, ProductStatus.ACTIVE)
+                .orElseThrow(() ->
+                        new DomainException(ErrorCode.PRODUCT_NOT_FOUND));
 
         return toDetailResponse(product);
     }
@@ -107,10 +135,10 @@ public class ProductService {
         Page<Product> products;
 
         if (categoryId == null) {
-            products = productRepository.findByStatusAndDeletedAtIsNull("ACTIVE", pageable);
+            products = productRepository.findByStatusAndDeletedAtIsNull(ProductStatus.ACTIVE, pageable);
         } else {
             products = productRepository.findByCategory_IdAndStatusAndDeletedAtIsNull(categoryId,
-                    "ACTIVE", pageable);
+                    ProductStatus.ACTIVE, pageable);
         }
 
         return products.map(this::toResponse);
@@ -143,8 +171,7 @@ public class ProductService {
             throw new DomainException(ErrorCode.DATA_INVALID);
         }
     }
-
-    //method này để check xem đúng owner product khum
+    //method này để check xem đún owner product khum
     private Product findEditableProduct(UUID product_id, CurrentUser currentUser) {
         requirePrivilege(currentUser, "PRODUCT.UPDATE");
         Product product = productRepository.findByIdAndDeletedAtIsNull(product_id)
@@ -154,8 +181,32 @@ public class ProductService {
         }
         return product;
     }
+    @Transactional
+    public ProductResponse changeStatusProduct(UUID productId, ChangeStatusRequest request, CurrentUser currentUser) {
+        //tránh guest
+        Product product = findEditableProduct(productId, currentUser);
 
-    //method check authen author
+        ProductStatus previousStatus = product.getStatus();
+        ProductStatus targetStatus = request.status();
+
+        if (!previousStatus.canTransitionTo(targetStatus)) {
+            throw new DomainException(
+                    ErrorCode.INVALID_PRODUCT_STATUS_TRANSITION
+            );
+        }
+
+        product.setStatus(targetStatus);
+        Product saved = productRepository.save(product);
+
+        log.info(
+                "Product status change prepared: productId={}, actorId={}, from={}, to={}",
+                productId, currentUser.id(), previousStatus, targetStatus
+        );
+
+        return toResponse(saved);
+    }
+
+    //method check authen autho
     private void requirePrivilege(CurrentUser currentUser, String privilege) {
         if (currentUser == null) {
             throw new DomainException(ErrorCode.UNAUTHENTICATED);
@@ -165,24 +216,22 @@ public class ProductService {
             throw new DomainException(ErrorCode.UNAUTHORIZED);
         }
     }
-
     //product thường
     private ProductResponse toResponse(Product product) {
         return new ProductResponse(
-                product.getId(),
-                product.getName(),
-                product.getSlug(),
-                product.getStatus(),
-                product.getCategory().getId(),
-                product.getSellerId()
+            product.getId(),
+            product.getName(),
+            product.getSlug(),
+            product.getStatus(),
+            product.getCategory().getId(),
+            product.getSellerId()
         );
     }
-
     //detail ( cái này lúc click vô từng món xem kĩ ) -sẽ có 1 list lấy ra full product của issue khác
     private ProductDetailResponse toDetailResponse(Product product) {
         var skus = product.getSkuses().stream()
                 .sorted(Comparator.comparing(Skus::getId))
-                .map(sku -> new ProductDetailResponse.SkuResponse(
+                .map(sku -> new SkuResponse(
                         sku.getId(),
                         product.getId(),
                         sku.getSkuCode(),
@@ -196,7 +245,7 @@ public class ProductService {
         var images = product.getProductImages().stream()
                 .sorted(Comparator.comparing(ProductImage::getSortOrder)
                         .thenComparing(ProductImage::getId))
-                .map(image -> new ProductDetailResponse.ImageResponse(
+                .map(image -> new ImageResponse(
                         image.getId(),
                         image.getImageUrl(),
                         image.getSortOrder()
@@ -216,4 +265,5 @@ public class ProductService {
                 images
         );
     }
+
 }

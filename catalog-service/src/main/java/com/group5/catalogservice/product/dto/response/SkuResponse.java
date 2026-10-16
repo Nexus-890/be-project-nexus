@@ -21,4 +21,5 @@ public class SkuResponse {
     private String size;
     private BigDecimal price;
     private String status;
+
 }
