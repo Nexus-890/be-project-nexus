@@ -90,7 +90,7 @@ public class SkuService {
         Skus sku = skuRepository.findById(id)
                 .orElseThrow(() -> new DomainException(ErrorCode.SKU_NOT_FOUND));
 
-        requireVisibleProduct(sku.getProduct());
+        requireVisibleProduct(sku.getProduct(), ErrorCode.SKU_NOT_FOUND);
 
         return toResponse(sku);
     }
@@ -100,16 +100,16 @@ public class SkuService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new DomainException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        requireVisibleProduct(product);
-        //Product_id -> Dô Product lấy id
+        requireVisibleProduct(product, ErrorCode.PRODUCT_NOT_FOUND);
         return skuRepository.findAllByProduct_Id(productId).stream()
                 .map(this::toResponse)
                 .toList();
     }
 
-    private void requireVisibleProduct(Product product) {
-        if (product.getStatus() != ProductStatus.ACTIVE || product.getDeletedAt() != null) {
-            throw new DomainException(ErrorCode.PRODUCT_NOT_FOUND);
+    private void requireVisibleProduct(Product product, ErrorCode errorCode) {
+        if (product.getStatus() != ProductStatus.ACTIVE
+                || product.getDeletedAt() != null) {
+            throw new DomainException(errorCode);
         }
     }
 
