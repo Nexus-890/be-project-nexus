@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -50,5 +51,10 @@ public class SkuController {
     @GetMapping("/skus/{id}")
     public SkuResponse getById(@PathVariable UUID id) {
         return skuService.getById(id);
+    }
+
+    @GetMapping("/products/{productId}/skus")
+    public List<SkuResponse> getByProductId(@PathVariable UUID productId) {
+        return skuService.getByProductId(productId);
     }
 }

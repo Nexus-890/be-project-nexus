@@ -4,6 +4,7 @@ import com.group5.catalogservice.product.dto.request.SkuRequest;
 import com.group5.catalogservice.product.dto.response.SkuResponse;
 import com.group5.catalogservice.product.entity.Product;
 import com.group5.catalogservice.product.entity.Skus;
+import com.group5.catalogservice.product.enums.ProductStatus;
 import com.group5.catalogservice.product.repository.ProductRepository;
 import com.group5.catalogservice.product.repository.SkuRepository;
 import com.group5.common_security.CurrentUser;
@@ -16,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -70,8 +72,7 @@ public class SkuService {
         Skus sku = skuRepository.findById(id)
                 .orElseThrow(() -> new DomainException(ErrorCode.SKU_NOT_FOUND));
 
-        // Ngăn người bán sửa đổi SKU của người bán khác
-        checkProductOwner(sku.getProduct(), currentUser);
+        findEditableProduct(sku.getProduct().getId(), currentUser);
         validatePrice(request.getPrice());
 
         //Áp dụng update cho Sku có tồn tại
@@ -89,7 +90,27 @@ public class SkuService {
         Skus sku = skuRepository.findById(id)
                 .orElseThrow(() -> new DomainException(ErrorCode.SKU_NOT_FOUND));
 
+        requireVisibleProduct(sku.getProduct());
+
         return toResponse(sku);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SkuResponse> getByProductId(UUID productId) {
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new DomainException(ErrorCode.PRODUCT_NOT_FOUND));
+
+        requireVisibleProduct(product);
+        //Product_id -> Dô Product lấy id
+        return skuRepository.findAllByProduct_Id(productId).stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    private void requireVisibleProduct(Product product) {
+        if (product.getStatus() != ProductStatus.ACTIVE || product.getDeletedAt() != null) {
+            throw new DomainException(ErrorCode.PRODUCT_NOT_FOUND);
+        }
     }
 
     private Product findEditableProduct(

@@ -29,6 +29,8 @@ nexus:
       - method: GET
         path: /api/v1/products/{id}
       - method: GET
+        path: /api/v1/products/{id}/skus
+      - method: GET
         path: /api/v1/categories/**
       - method: GET
         path: /api/v1/skus/**
