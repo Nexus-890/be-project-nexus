@@ -140,3 +140,19 @@ FROM roles r
 WHERE r.code = 'SUPPORT_STAFF'
 ON CONFLICT DO NOTHING;
 
+INSERT INTO users (id, email, phone, password_hash, full_name) VALUES
+                   ('68000000-0000-4000-8000-000000000001', 'admin@nexus.local', '0901000001', '$2a$12$oDN8hodYJ623e3Sxtn5ETu7N56a9apye2ftJgNw3Y1zoVHv7sCl5K', 'Nexus Admin'),
+                   ('68000000-0000-4000-8000-000000000002', 'seller@nexus.local', '0901000002', '$2a$12$53kXGdSfln.pTzXru.1Dm.w79Hh2aGS/ORQXUVMe2b7PadqjoFD5i', 'Nexus Seller'),
+                   ('68000000-0000-4000-8000-000000000003', 'buyer@nexus.local', '0901000003', '$2a$12$KlUfMshqogOKyL2OWyFuD.qro8w8D8CS68Qm7SU0wNI5o94JLihlK', 'Nexus Buyer')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO user_roles (user_id, role_id)
+SELECT u.id, r.id
+FROM (VALUES
+          ('admin@nexus.local', 'ADMIN'),
+          ('seller@nexus.local', 'SELLER'),
+          ('buyer@nexus.local', 'BUYER')
+     ) AS account (email, role_code)
+         JOIN users u ON u.email = account.email
+         JOIN roles r ON r.code = account.role_code
+ON CONFLICT DO NOTHING;
