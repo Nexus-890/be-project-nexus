@@ -1,8 +1,8 @@
 # ADR-007: Payment Provider — SePay
 
-**Status:** Proposed; operational acceptance and captured-delivery verification are blocked.
+**Status:** Proposed; verifier implemented, Live capture and operational evidence pending.
 
-**Date:** 2026-10-17
+**Date:** 2026-10-17; updated 2026-10-18
 
 **Scope:** SePay integration spike; not payment initiation or the Sprint 4 webhook endpoint.
 **Reviewers:** @fsa_VinhDP, @fsa_Chung
@@ -26,7 +26,7 @@ Neither a reviewer mention nor a task assignment proves account ownership.
 
 | Required fact | Confirmed value / evidence |
 |---|---|
-| SePay account / credential holder | **Pending: not supplied** |
+| SePay account / credential holder | Nguyễn Trường An reports registering a free account on 2026-10-18; credential custody confirmation is still pending |
 | Credential storage and authorized readers | **Pending**; never put credentials in Git or this ADR |
 | Receiving bank and account reference | **Pending: not supplied** |
 | Bank-account owner | **Pending: not supplied** |
@@ -38,8 +38,11 @@ Neither a reviewer mention nor a task assignment proves account ownership.
 On 2026-10-17, opening `https://my.sepay.vn` in the available browser redirected
 to `/login` and returned HTTP 403 with a security-verification page. No account
 was registered, bank linked, payment made or webhook configured by this spike
-session. Account registration, bank consent/OTP and the transfer agreement remain
-prerequisites, not completed subtasks.
+session. On 2026-10-18, Nguyễn Trường An confirmed account registration and reported
+preparing the receiving bank connection. The current capture path is Live Mode;
+bank consent/OTP, dashboard evidence and the transfer agreement remain pending.
+Registration is reported complete, but the combined registration/custodian subtask
+below stays unchecked until credential custody is confirmed.
 
 ## Signature contract
 
@@ -74,10 +77,11 @@ webhooks, API tokens and simulated transactions are separate from Live.
 also supports HMAC. Availability for the team's account is not dashboard-verified.
 
 Use a temporary HTTPS tunnel to a local receiver because STAGING is not available
-until Sprint 4. Point a Test Mode webhook at that URL, select JSON and HMAC, then
-trigger a transaction in SePay. A simulated transaction actually delivered by
-SePay is a **provider-sent Test Mode delivery**, not a real bank transfer. A Live
-bank-connection smoke test remains a separate operational check using the agreed
+until Sprint 4. Point a Live Mode webhook at that URL, select JSON and HMAC, then
+make the agreed test transfer after bank connection is confirmed. Alternatively,
+a Test Mode webhook can trigger a simulated transaction. A simulated transaction
+actually delivered by SePay is a **provider-sent Test Mode delivery**, not a real
+bank transfer. A Live bank-connection smoke test remains an operational check using the agreed
 payer and amount above. If reviewers require the fixture to originate from a
 Live transfer, collect that only after the bank/transfer agreement is confirmed.
 
@@ -102,21 +106,117 @@ When a real delivery is available:
 3. Preserve fixture bytes through Git checkout (a path-specific `-text` attribute
    if needed). If privacy requires changing bytes, collect a suitable Test Mode
    delivery instead; editing a signed body invalidates its original signature.
-4. Add a unit test using that file, its actual headers, a fixed `Clock`, and the
-   matching secret loaded outside Git. Assert success, then flip one body byte
-   and assert failure with the same headers. Missing acceptance-test inputs must
-   not be reported as a passing captured-delivery test.
+4. Run `WebhookCapturedDeliveryTest` using that file, its actual headers, a fixed
+   `Clock`, and the matching secret loaded outside Git (commands below). It checks
+   success, then flips one body byte and checks failure with the same headers.
+   Missing acceptance-test inputs must not be reported as a passing capture test.
 5. Close the temporary tunnel/receiver and disable its webhook after capture.
 
-No production callback, tunnel script, SDK, new dependency, fixture metadata file,
-provider abstraction or config change is introduced while capture is blocked.
+No production callback, committed tunnel script, SDK, new dependency, fixture
+metadata file, provider abstraction or config change is introduced. The following
+temporary receiver exists only for this spike; it does not update orders or money.
+
+### Local capture procedure
+
+Run from `commerce-service` with Java 21. Keep the receiver source and captured
+headers outside Git. Enter the same HMAC secret locally and in SePay's webhook
+configuration; do not put it in a command argument or commit it.
+
+```bash
+./mvnw -DskipTests compile
+export SEPAY_CAPTURE_DIR="$(mktemp -d /tmp/sepay-capture.XXXXXX)"
+read -rsp 'SePay webhook HMAC secret: ' SEPAY_WEBHOOK_SECRET; printf '\n'
+export SEPAY_WEBHOOK_SECRET
+printf 'Capture directory: %s\n' "$SEPAY_CAPTURE_DIR"
+cat > "$SEPAY_CAPTURE_DIR/WebhookCapture.java" <<'JAVA'
+import com.group5.commerceservice.payment.WebhookSignatureVerifier;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.time.Instant;
+
+class WebhookCapture {
+    public static void main(String[] args) throws Exception {
+        var verifier = new WebhookSignatureVerifier(System.getenv("SEPAY_WEBHOOK_SECRET"));
+        Path directory = Path.of(System.getenv("SEPAY_CAPTURE_DIR"));
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 8787), 0);
+        server.createContext("/sepay-spike", exchange -> {
+            try (exchange) {
+                if (!exchange.getRequestURI().getPath().equals("/sepay-spike")) {
+                    reply(exchange, 404); return;
+                }
+                if (!exchange.getRequestMethod().equals("POST")) {
+                    reply(exchange, 405); return;
+                }
+                byte[] body = exchange.getRequestBody().readNBytes(1_048_577);
+                if (body.length > 1_048_576) { reply(exchange, 413); return; }
+                String signature = exchange.getRequestHeaders().getFirst("X-SePay-Signature");
+                String timestamp = exchange.getRequestHeaders().getFirst("X-SePay-Timestamp");
+                if (!verifier.verify(body, signature, timestamp)) { reply(exchange, 401); return; }
+                if (Files.exists(directory.resolve("body.json"))) { reply(exchange, 409); return; }
+                Files.write(directory.resolve("body.json"), body, StandardOpenOption.CREATE_NEW);
+                Files.writeString(directory.resolve("headers.txt"),
+                        "X-SePay-Signature: " + signature + "\nX-SePay-Timestamp: " + timestamp + "\n",
+                        StandardOpenOption.CREATE_NEW);
+                Files.writeString(directory.resolve("received-at.txt"), Instant.now().toString(),
+                        StandardOpenOption.CREATE_NEW);
+                reply(exchange, 200);
+                System.out.println("Verified delivery captured; stop the tunnel and disable its webhook.");
+            }
+        });
+        server.start();
+        System.out.println("Spike receiver: http://127.0.0.1:8787/sepay-spike");
+    }
+
+    private static void reply(HttpExchange exchange, int status) throws java.io.IOException {
+        byte[] response = (status == 200 ? "{\"success\":true}" : "{\"success\":false}")
+                .getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json");
+        exchange.sendResponseHeaders(status, response.length);
+        exchange.getResponseBody().write(response);
+    }
+}
+JAVA
+java --class-path target/classes "$SEPAY_CAPTURE_DIR/WebhookCapture.java"
+```
+
+In another terminal, run `cloudflared tunnel --url http://127.0.0.1:8787`.
+Configure SePay with `<HTTPS tunnel URL>/sepay-spike`, incoming transfers, the
+receiving bank account, JSON and HMAC-SHA256. Only trigger the Live transfer after
+bank connection and the named payer/amount are agreed. The receiver saves the
+first correctly signed delivery without rewriting its bytes; it rejects further
+captures with 409 rather than overwriting evidence. Stop it with Ctrl+C and disable
+the temporary webhook after capture. Its acknowledgement proves receipt/signature
+verification, **not** an order update, wallet credit or transaction insertion.
+
+After a genuine SePay delivery, run in another terminal from `commerce-service`
+with the same local capture-directory and secret environment values:
+
+```bash
+mkdir -p ../docs/api
+cp -- "$SEPAY_CAPTURE_DIR/body.json" ../docs/api/sepay-webhook-sample.json
+export SEPAY_CAPTURE_SIGNATURE="$(sed -n 's/^X-SePay-Signature: //p' "$SEPAY_CAPTURE_DIR/headers.txt")"
+export SEPAY_CAPTURE_TIMESTAMP="$(sed -n 's/^X-SePay-Timestamp: //p' "$SEPAY_CAPTURE_DIR/headers.txt")"
+SEPAY_CAPTURE_TEST=true ./mvnw -Dtest=WebhookCapturedDeliveryTest test
+sha256sum ../docs/api/sepay-webhook-sample.json
+```
+
+Record the actual headers, hash, received-at time, environment and delivery-history
+evidence in this ADR before committing the raw body. Do not redact a signed body;
+if publishing it is unsuitable, obtain a suitable provider-sent Test Mode delivery
+instead. Preserve its exact bytes through Git as described above.
 
 ## Payment issue re-estimation
 
 These are **provisional engineering estimates from this spike's documented
 protocol and scope review**, not completed provider-validation estimates. Revisit
 after actual capture and bank onboarding; account/OTP waiting time is excluded.
-No GitLab issue estimate or checklist has been changed: its URL/access is missing.
+No GitLab issue estimate or checklist has been changed: authenticated tracker
+access and the specific issue URL are still unavailable.
 
 | Issue | Previous individual estimate | Revised estimate (dev-day) | Breakdown and dependency |
 |---|---|---:|---|
@@ -150,6 +250,13 @@ Run using the project's Java 21 toolchain, from `commerce-service`:
 ./mvnw verify
 ```
 
+`WebhookCapturedDeliveryTest` is opt-in via `SEPAY_CAPTURE_TEST=true`. The two tests
+are **skipped**, not passed, in ordinary builds without that flag. Once enabled,
+missing sample/headers/secret fail the build instead of silently skipping. The
+tests read the original file bytes and never generate or re-sign a fixture. A
+fixed clock at the original signing time preserves timestamp validation for a
+historical capture. The tampering test also requires a valid original baseline.
+
 The deterministic test vector was signed independently with Python's standard
 `hmac`/`hashlib`, not with the Java verifier under test. Tests cover exact UTF-8
 bytes, single-byte mutations, wrong key/headers, body reserialization, missing or
@@ -167,8 +274,25 @@ Observed locally on 2026-10-17, using Java 21:
   this local smoke check; `GET /actuator/info` returned HTTP 200. No schema or
   application configuration was changed.
 
-The user confirmed that the requested access/capture information is not available.
-Consequently, no provider delivery or GitLab checkbox screenshot can be claimed.
+Observed locally on 2026-10-18, using Java 21:
+
+- Targeted suites: **40 passed, 2 capture tests skipped**; no failures/errors.
+- Commerce `./mvnw verify`: **50 passed, 2 capture tests skipped; BUILD SUCCESS**.
+- Enabled capture tests fail when the secret or fixture is missing. Their wiring
+  was also checked with an isolated temporary synthetic fixture: both assertions
+  pass for its valid signature and fail after mutation of that fixture. This is
+  not provider-capture acceptance; no synthetic fixture was written into the repo.
+- The receiver snippet above compiled with `javac -Xlint:all -Werror` and ran on
+  Java 21. Local synthetic HTTP checks covered valid HMAC/200 acknowledgement,
+  original-byte/header preservation, invalid signature, changed body, expired
+  timestamp, method/path, oversized body and refusal to overwrite a capture.
+- All three Bash command blocks passed `bash -n`; `git diff --check` passed.
+- No production source, dependency, database, application configuration or deployed
+  endpoint changed; no tunnel was left running by these local checks.
+
+As of 2026-10-18 the account is registered according to the user, but bank
+configuration and provider capture are still pending. No provider delivery,
+passing captured-delivery test or GitLab checkbox screenshot can be claimed.
 
 ### Subtasks
 
