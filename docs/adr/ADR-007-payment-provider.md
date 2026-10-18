@@ -1,137 +1,118 @@
 # ADR-007: Payment Provider — SePay
 
-**Status:** Proposed; verifier implemented, provider capture and operational evidence pending.
+**Status:** Proposed — SePay Test Mode webhook captured; operational confirmations and reviewer approval pending.
 
-**Date:** 2026-10-17; updated 2026-10-18
+**Date:** 2026-10-17; updated 2026-10-18.
 
-**Scope:** SePay integration spike; not payment initiation or the Sprint 4 webhook endpoint.
-**Reviewers:** @fsa_VinhDP, @fsa_Chung
+**Scope:** SePay integration spike and evidence only. This ADR does not implement payment initiation, a production webhook endpoint, order transitions, wallet credit, or escrow.
+
+**Reviewers:** @fsa_VinhDP, @fsa_Chung.
 
 ## Context and decision
 
-Use **SEPAY** for VietQR bank-transfer payments. This intentionally deviates from
-SRS 2.6 and BR-110, whose `PAYMENT_PROVIDER` default is **STRIPE**. The current
-endpoint catalogue already specifies SEPAY for PAY-01/PAY-02. This ADR records
-that deviation; it does not change runtime provider selection, which belongs
-to #120, or implement VietQR initiation (#121).
+Use **SePay (SEPAY)** for VietQR bank-transfer payment integration. This intentionally differs from SRS 2.6 and BR-110, where the default `PAYMENT_PROVIDER` is **STRIPE**. The current endpoint catalogue already identifies SEPAY for PAY-01/PAY-02. This ADR records the provider decision and the spike findings; it does **not** modify the runtime provider choice (#120) or implement VietQR initiation (#121).
 
-Choose HMAC rather than API-key-only authentication so that changing the request
-body invalidates its signature. Do not substitute the separate payment-gateway
-IPN protocol for the bank-transfer webhook protocol.
+For bank-transfer webhooks, use **HMAC-SHA256 over the original request bytes** instead of relying on an API key alone. The integration must reject a changed body even if all other request fields are unchanged. Do not confuse the bank-transfer webhook contract with the separate payment-gateway IPN protocol.
 
-## Account, bank and test-transfer ownership
+**Scope boundary:** `WebhookSignatureVerifier` is a reusable verification utility, not a full Commerce webhook workflow. Signature verification alone does not implement replay/delivery deduplication, memo matching, order settlement, database writes, or business idempotency. These belong to later payment issues (#155–#157).
 
-These entries require the named person's agreement and dashboard evidence.
-Neither a reviewer mention nor a task assignment proves account ownership.
+## Account, bank, and test-transfer ownership
 
-| Required fact | Confirmed value / evidence |
-|---|---|
-| SePay account / credential holder | Nguyễn Trường An reports registering a free account on 2026-10-18; credential custody confirmation is still pending |
-| Credential storage and authorized readers | **Pending**; never put credentials in Git or this ADR |
-| Receiving bank and account reference | **Pending: not supplied** |
-| Bank-account owner | **Pending: not supplied** |
-| People permitted to read its statement | **Pending: not supplied** |
-| Dashboard shows receiving bank configured | **Not verified**; no authenticated dashboard session available |
-| Person paying for test transfers | **Pending: not supplied** |
-| Agreed amount per transfer (VND) | **Pending: not agreed**; do not infer from example transactions |
+A Test Mode account is **not** evidence of an actual bank connection or an agreed real-money test transfer. Credential access and bank ownership must be confirmed by the appropriate team members, not inferred from dashboard labels, issue assignments, or screenshots.
 
-On 2026-10-17, opening `https://my.sepay.vn` in the available browser redirected
-to `/login` and returned HTTP 403 with a security-verification page. No account
-was registered, bank linked, payment made or webhook configured by this spike
-session. On 2026-10-18, Nguyễn Trường An confirmed account registration and reported
-preparing the receiving bank connection. The user later reported creating a
-Test Mode bank account and configuring its webhook. The current capture path is
-Test Mode; dashboard evidence, Live bank connection and the transfer agreement
-remain pending.
-Registration is reported complete, but the combined registration/custodian subtask
-below stays unchecked until credential custody is confirmed.
+| Required fact | Confirmed value / evidence | Status |
+|---|---|---|
+| SePay registration | Nguyễn Trường An reported registering a free SePay account on 2026-10-18. | **Reported** |
+| Actual credential holder / person responsible for rotation | **Pending:** confirm who controls the SePay account, webhook HMAC secret, and recovery access. | **Pending** |
+| Credential storage and authorized readers | **Pending:** agree on approved secret storage and access. Never store credentials in Git or this ADR. | **Pending** |
+| Test Mode receiving bank | **ACB**, personal test account `0000000002`, label `Nexus SePay Spike test`. | **Confirmed in Test Mode UI** |
+| Test Mode bank display name | `DO VAN A` (simulated display name, **not** verified real-world account ownership). | **Confirmed in Test Mode UI** |
+| Live receiving bank, account reference, and legal owner | **Pending:** no Live bank connection was verified during this spike. | **Pending** |
+| Authorized people who may inspect the Live bank statement | **Pending.** | **Pending** |
+| Dashboard bank evidence | Screenshots of the configured **ACB Test Mode** bank were shown during the spike; retain an appropriately redacted screenshot with the GitLab issue. | **Observed; attachment pending** |
+| Person paying for agreed Live test transfers | **Pending:** no named payer agreement. | **Pending** |
+| Agreed amount for Live test transfer (VND) | **Pending:** 10,000 VND below was a simulated test value, not an agreed amount for a real transfer. | **Pending** |
+
+An initial simulated Vietcombank business account (`0000000001`) required a virtual account for the intended testing flow. It was **not** used for the successful capture. The completed simulation used the ACB personal **Test Mode** account `0000000002` instead. Neither test account should be described as a connected Live bank account.
+
+The Test Mode webhook was configured to receive **incoming transfers**, use **JSON**, require **HMAC-SHA256**, and apply to **all test accounts**. Its dashboard label was `Nexus SePay Spike test`. Account registration is reported, but the combined registration/custodian subtask remains open until ownership and approved credential storage are confirmed.
 
 ## Signature contract
 
-The [official bank-transfer webhook authentication documentation](https://developer.sepay.vn/vi/sepay-webhooks/xac-thuc)
-specifies:
+The [official SePay bank-transfer webhook authentication documentation](https://developer.sepay.vn/vi/sepay-webhooks/xac-thuc) specifies the following protocol, implemented by `WebhookSignatureVerifier`:
 
 | Item | Contract |
 |---|---|
 | Algorithm | HMAC-SHA256 with the configured webhook secret |
-| Signed input | ASCII timestamp, one `.` byte, then original request-body bytes |
+| Signed input | ASCII timestamp, followed by a single `.` byte, followed by the **original raw HTTP body bytes** |
 | Signature header | `X-SePay-Signature: sha256=<64 lowercase hexadecimal characters>` |
 | Timestamp header | `X-SePay-Timestamp: <Unix seconds>` |
-| Clock policy | Accept an absolute difference of at most 300 seconds, including the boundary |
-| Secret custody | Inject into the verifier; keep outside source control |
+| Freshness check | Accept absolute clock skew up to and including 300 seconds |
+| Comparison | Compare signature digest bytes in constant time |
+| Secret handling | Inject as `SEPAY_WEBHOOK_SECRET` at runtime; keep outside source control |
 
-`WebhookSignatureVerifier` verifies the raw bytes and compares digest bytes in
-constant time. It rejects invalid input before any business action. Keep JSON
-parsing, memo matching, order updates and delivery deduplication outside this
-utility. A valid signature alone does not prevent duplicate processing.
+The verifier rejects missing/malformed headers, invalid signatures, expired timestamps, and modified bodies before any downstream business action. Its inputs must be the original HTTP body bytes and original header values. **Never** trim, normalize CRLF, convert character encodings, reserialize JSON, or append a newline before signature verification.
 
-Do not trim/reformat the body, normalize CRLF, escape Unicode, or serialize a
-parsed JSON object before verification. A receiver must supply the two original
-header values. Historical capture tests must use a fixed `Clock` at the signing
-timestamp rather than disabling the timestamp check.
+For a historical captured request, `WebhookCapturedDeliveryTest` uses a fixed `Clock` at the original signature timestamp; it does **not** disable timestamp validation.
 
-## Sandbox and capture
+A valid signature does not itself prevent duplicate processing. Persisted event identity, reconciliation, and idempotent payment updates remain future-work concerns.
 
-SePay **has a Test Mode sandbox**, according to its
-[Test Mode documentation](https://docs.sepay.vn/test-mode.html). Test accounts,
-webhooks, API tokens and simulated transactions are separate from Live.
-[Test Mode webhook creation](https://developer.sepay.vn/vi/tien-ich-khac/test-mode/tao-webhook)
-also supports HMAC. Availability for the team's account is not dashboard-verified.
+## Sandbox decision and limits
 
-Use a temporary HTTPS tunnel to a local receiver because STAGING is not available
-until Sprint 4. Point a Test Mode webhook at that URL, select JSON and HMAC, then
-trigger a simulated transaction in SePay. Live Mode is a separate check using the
-agreed test transfer after bank connection is confirmed. A simulated transaction
-actually delivered by SePay is a **provider-sent Test Mode delivery**, not a real
-bank transfer. A Live bank-connection smoke test remains an operational check using the agreed
-payer and amount above. If reviewers require the fixture to originate from a
-Live transfer, collect that only after the bank/transfer agreement is confirmed.
+SePay provides **Test Mode**, per the [Test Mode documentation](https://docs.sepay.vn/test-mode.html). Test banks, webhooks, API credentials, and simulated transactions are separate from Live. [Creating a Test Mode webhook](https://developer.sepay.vn/vi/tien-ich-khac/test-mode/tao-webhook) supports HMAC.
 
-The [webhook integration guide](https://docs.sepay.vn/tich-hop-webhooks.html)
-requires HTTP 200/201 with `{"success":true}` within 30 seconds for successful
-acknowledgement. Confirm retry behavior from delivery history; provider transport
-retries are not the business setting `PAYMENT_RETRY_LIMIT`.
+**Decision:** Use SePay Test Mode to collect a *provider-sent* signed callback for this spike, without spending money or waiting for a Live bank connection. The provider actually sent an HTTP request to the temporary receiver; this is stronger than a locally generated synthetic JSON fixture. However, it is **not evidence of a Live bank transfer**, Live credentials, or production readiness.
 
-### Captured sample: not yet available
+A Live bank-connection smoke test remains **Pending** and must have an authorized owner, a named payer, and an agreed amount. If reviewers explicitly require the committed fixture to originate from Live rather than Test Mode, obtain that approval and separately capture a suitable Live delivery only after the operational agreement is in place.
 
-`docs/api/sepay-webhook-sample.json` is deliberately **absent**: no delivery from
-SePay has been received. The synthetic bytes in the unit test are explicitly not
-a captured sample and must not be copied to this path to satisfy acceptance.
+The [webhook integration guide](https://docs.sepay.vn/tich-hop-webhooks.html) describes an acknowledgement using HTTP 200/201 and `{"success":true}` within 30 seconds. Transport retries and duplicate callbacks must be checked separately from business-level `PAYMENT_RETRY_LIMIT`.
 
-When a real delivery is available:
+## Captured provider evidence — 2026-10-18
 
-1. Save the exact request-body bytes to that path (relative to `be-project-nexus`),
-   without wrapping headers into the JSON or appending a newline.
-2. Record its environment, received-at UTC, available delivery/transaction IDs,
-   `X-SePay-Signature`, `X-SePay-Timestamp`, SHA-256 body hash and dashboard delivery
-   history evidence here. Do not record the secret.
-3. Preserve fixture bytes through Git checkout (a path-specific `-text` attribute
-   if needed). If privacy requires changing bytes, collect a suitable Test Mode
-   delivery instead; editing a signed body invalidates its original signature.
-4. Run `WebhookCapturedDeliveryTest` using that file, its actual headers, a fixed
-   `Clock`, and the matching secret loaded outside Git (commands below). It checks
-   success, then flips one body byte and checks failure with the same headers.
-   Missing acceptance-test inputs must not be reported as a passing capture test.
-5. Close the temporary tunnel/receiver and disable its webhook after capture.
+The following is the **actual observed Test Mode spike**, not an illustrative transaction.
 
-No production callback, committed tunnel script, SDK, new dependency, fixture
-metadata file, provider abstraction or config change is introduced. The following
-temporary receiver exists only for this spike; it does not update orders or money.
+| Evidence | Observation |
+|---|---|
+| Provider environment | **SePay Test Mode**; not Live |
+| Simulated bank / account | ACB personal test account `0000000002` (`DO VAN A` is a test display name) |
+| Simulation | Incoming **10,000 VND**, description/memo **`NXTEST001`** |
+| Webhook | `Nexus SePay Spike test`; incoming transfers, all accounts, JSON, HMAC-SHA256 |
+| Temporary delivery path | HTTPS Cloudflare Quick Tunnel forwarding to local Windows Java receiver `127.0.0.1:8787/sepay-spike` |
+| Connectivity/security probe | Unsigned `POST {}` to the public webhook returned **HTTP 401** and `{"success":false}` |
+| Provider simulation result | SePay showed successful filtering and webhook delivery **`Thành công (1)`**, followed by successful acknowledgment and simulation completion |
+| Local receiver result | Receiver logged **`Verified delivery captured; stop the tunnel and disable its webhook.`** |
+| Capture artifacts | Local temporary `body.json`, `headers.txt`, `received-at.txt`; not committed as a group |
+| Committed sample path | `be-project-nexus/docs/api/sepay-webhook-sample.json` (copied locally; **commit still pending**) |
+| Original and copied body SHA-256 | **`35C18230746A13F5CA18F1178A3FB2A7F6A48AABAF6DDFD7C76EFDEC1D87D1F4`**; both hashes matched |
+| Captured `X-SePay-Signature` | **Pending documentation:** original value remains in local `headers.txt`; do not confuse this with the HMAC secret |
+| Captured `X-SePay-Timestamp` | **Pending documentation:** original value remains in local `headers.txt` |
+| UTC receipt time | **Pending documentation:** read original value from local `received-at.txt` |
+| Provider delivery/transaction ID | **Pending:** record if the SePay delivery history or raw sample exposes an identifier |
+| Dashboard screenshots | Test bank, configured webhook, successful simulation: **observed; issue attachments/links pending** |
 
-### Local capture procedure (Windows PowerShell)
+**Raw-byte integrity:** PowerShell `Copy-Item` copied the original `body.json` to the sample path. SHA-256 of both files was checked independently and matched. Do not edit, format, anonymize, or serialize the signed fixture; any byte-level change breaks verification. Before staging it, **inspect whether the Test Mode body contains information that may be committed**. If unsafe, capture a new suitable Test Mode event instead of altering the signed body.
 
-Use **Windows PowerShell 5.1 or PowerShell 7**, not Command Prompt, Bash or WSL.
-Run both receiver and tunnel on the same Windows machine. Install JDK 21 and
-[cloudflared for Windows](https://developers.cloudflare.com/tunnel/downloads/#windows),
-with `cloudflared.exe` available on `PATH`. No Config Service, database or running
-Commerce application is needed for this temporary receiver.
+**Git line endings:** The local `git check-attr text` initially returned `text: auto` for the sample. Add and verify the following path-specific rule in the repository-root `.gitattributes` before `git add`:
 
-#### 1. Start the receiver in the first PowerShell window
+```gitattributes
+/be-project-nexus/docs/api/sepay-webhook-sample.json -text
+```
 
-Enter your actual repository and installed JDK paths when prompted; no drive or
-installation directory is assumed. Port **8787** and path **`/sepay-spike`** come
-from the existing receiver below. Stop if the port is occupied; do not replace
-another process or silently use a different port.
+After adding the rule, `git check-attr text -- be-project-nexus/docs/api/sepay-webhook-sample.json` must report `text: unset`. This preserves the exact signed bytes through Git checkout, including Windows environments. **Attribute change and post-stage verification: Pending.**
+
+**Targeted captured-delivery tests:** The first Windows run failed solely because `SEPAY_WEBHOOK_SECRET` was missing in the Maven PowerShell process; `SEPAY_CAPTURE_SIGNATURE` and `SEPAY_CAPTURE_TIMESTAMP` were present. The correct existing secret was subsequently entered with a masked prompt, and the user reported that the rerun of `WebhookCapturedDeliveryTest` succeeded. The test class contains two opt-in assertions: the original provider-sent body/signature is accepted, and a **one-byte modification is rejected**. Preserve the final Maven result screenshot or Surefire report to substantiate the reported pass; **the final console output has not yet been copied into this ADR**.
+
+The earlier missing-secret `BUILD FAILURE` must not be represented as a product validation failure. Conversely, user-reported success should not be presented as an independently inspected build log until the output is attached.
+
+The first successful capture is intentionally immutable: later valid callbacks return HTTP 409 rather than overwrite the evidence. The receiver acknowledges a verified first delivery with HTTP 200 and `{"success":true}`. The spike receiver makes **no** Commerce order, payment, or wallet change.
+
+## Local capture and replay procedure (Windows PowerShell)
+
+Keep this repeatable procedure for maintainers. Use **Windows PowerShell 5.1 or PowerShell 7**, **JDK 21**, the project's Maven wrapper, and `cloudflared.exe` on the **same Windows machine**. No running Commerce application, Config Service, database, or staging endpoint is required for this temporary receiver.
+
+### 1. Start the receiver in the first PowerShell window
+
+Choose your actual repository checkout and JDK 21 installation. The receiver listens on port **8787** and path **`/sepay-spike`**. Do not take over the port if another process already owns it.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
@@ -158,10 +139,7 @@ New-Item -ItemType Directory -Path $env:SEPAY_CAPTURE_DIR | Out-Null
 Write-Host "Capture directory: $env:SEPAY_CAPTURE_DIR"
 ```
 
-Enter the **same HMAC secret** you configure in SePay. The masked prompt keeps it
-out of command history; it is passed through this process's environment, not
-written to a file or Git. These commands use
-[Read-Host -AsSecureString](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/read-host).
+Enter the **same HMAC secret** configured in SePay via a masked prompt. Do not type a secret into the command line itself, shell history, screenshots, commits, issue comments, or the ADR. See [Microsoft's `Read-Host -AsSecureString` documentation](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/read-host).
 
 ```powershell
 $secureSecret = Read-Host 'SePay webhook HMAC secret' -AsSecureString
@@ -231,56 +209,41 @@ $receiverSource = Join-Path $env:SEPAY_CAPTURE_DIR 'WebhookCapture.java'
 & $java --class-path 'target\classes' $receiverSource
 ```
 
-Keep this window running until capture. Its environment variables are not shared
-with a separate PowerShell window. The Java source is written as UTF-8 without a
-BOM using a literal here-string; the receiver itself is unchanged.
+Keep this first terminal open while the receiver runs. The environment variables are **per PowerShell process**, not automatically shared with other terminal tabs. The receiver source is temporary and is **not** a production endpoint or committed source file.
 
-#### 2. Start the tunnel in a second PowerShell window
+### 2. Start Cloudflare Quick Tunnel in a second PowerShell window
 
 ```powershell
 Get-Command cloudflared.exe -ErrorAction Stop
 cloudflared.exe tunnel --url http://127.0.0.1:8787 --no-autoupdate
 ```
 
-Wait for the HTTPS URL and a registered connection in the tunnel output. Use the
-URL printed by **this Windows process**, append `/sepay-spike`, and enter that
-complete URL in SePay. Do not reuse a URL from another session or the Linux agent
-machine. Restarting a Quick Tunnel may produce a different hostname.
+Wait for the generated HTTPS URL and a registered tunnel connection. Append `/sepay-spike` and use that full callback URL in the **SePay Test Mode** webhook configuration. Quick Tunnel hostnames are ephemeral; never assume an earlier hostname still works.
 
-In SePay **Test Mode**, select incoming transfers, your test bank account, JSON
-and HMAC-SHA256 with the same secret entered above. A provider-sent Test Mode
-transaction is not a real bank transfer. Live testing is optional and still
-requires confirmed bank connection and the named payer/amount agreement.
+In SePay select incoming transfers, JSON, HMAC-SHA256, and the same secret used by the receiver. For the 2026-10-18 capture, the webhook was configured for **all Test Mode accounts**; the simulated ACB test bank supplied the incoming transaction.
 
-#### 3. Check HTTP POST in a third PowerShell window
+### 3. Probe connectivity and capture a provider request
 
-Use `curl.exe` explicitly: `curl` may be a PowerShell alias. These **unsigned**
-POST checks must return **401** with `{"success":false}`; they check connectivity
-without consuming the first valid capture.
+In a **third** PowerShell window, use `curl.exe` rather than PowerShell's possible `curl` alias. An unsigned request should be rejected and should **not** consume the first verified capture.
 
 ```powershell
 curl.exe -i --request POST --header 'Content-Type: application/json' --data-binary '{}' 'http://127.0.0.1:8787/sepay-spike'
-$publicBaseUrl = Read-Host 'HTTPS base URL printed by your running cloudflared (without /sepay-spike)'
+$publicBaseUrl = Read-Host 'HTTPS base URL printed by the running cloudflared'
 $webhookUrl = $publicBaseUrl.TrimEnd('/') + '/sepay-spike'
-Write-Host "SePay webhook URL: $webhookUrl"
 curl.exe -i --request POST --header 'Content-Type: application/json' --data-binary '{}' $webhookUrl
 ```
 
-Now trigger a simulated transaction in SePay. The first correctly signed delivery
-returns **200** with `{"success":true}` and saves `body.json`, `headers.txt` and
-`received-at.txt` in the capture directory. Later valid requests return 409 rather
-than overwriting evidence. The acknowledgement proves receipt/signature
-verification, **not** an order update, wallet credit or transaction insertion.
-After capture, disable the temporary webhook and stop the receiver and tunnel
-with Ctrl+C in their respective windows. Keep the first PowerShell window open
-for the next step so its capture-directory and secret values remain available.
+Both unsigned probes should return **HTTP 401** and `{"success":false}`. Then trigger a simulated incoming transaction in SePay Test Mode. A correctly signed **first** provider request yields HTTP 200 with `{"success":true}` and creates exactly three files in the local capture directory:
 
-#### 4. Run captured-delivery tests in the first PowerShell window
+- `body.json` — exact original request bytes;
+- `headers.txt` — actual signature and timestamp headers (not the secret);
+- `received-at.txt` — receipt time in UTC.
 
-Run only after a genuine SePay delivery. Stay in `commerce-service` and reuse the
-same first PowerShell session after stopping its receiver. Copy bytes directly:
-do not use `Get-Content | Set-Content`, JSON reserialization or editor formatting
-for the captured body.
+A later valid request returns 409 to avoid overwriting evidence. Confirm the SePay delivery history and the local `Verified delivery captured` log. **After capture, disable the temporary SePay webhook, stop the tunnel and receiver with Ctrl+C, and retain the first PowerShell session until tests finish.**
+
+### 4. Copy unchanged bytes and run the captured-delivery tests
+
+Run in `be-project-nexus/commerce-service`, preferably in the **first** PowerShell session so its original `SEPAY_WEBHOOK_SECRET` and capture directory remain available. If another terminal is used, load the **same** secret again with a masked prompt; do not generate a new one.
 
 ```powershell
 New-Item -ItemType Directory -Path '..\docs\api' -Force | Out-Null
@@ -307,52 +270,45 @@ try {
 Get-FileHash -LiteralPath $sample -Algorithm SHA256
 ```
 
-Record the actual headers, hash, received-at time, **Test Mode** environment and
-delivery-history evidence in this ADR before committing the raw body. Do not
-redact a signed body; obtain a suitable provider-sent Test Mode delivery instead
-if publishing it is unsuitable. Preserve its exact bytes through Git as described
-above, including on Windows checkouts. After tests, clear credentials from this
-PowerShell session (keep the original in your approved local secret store):
+If the first test fails with `Set SEPAY_WEBHOOK_SECRET outside Git before enabling captured-delivery tests`, verify whether that variable is present **in the same terminal that invokes Maven**. Do not print its value. Re-enter the **matching** existing secret via `Read-Host -AsSecureString`, then rerun. A wrong/new secret cannot verify the captured signature.
+
+The two opt-in tests must both run (not skip): one accepts the original provider-sent body with the original signature/timestamp, and the other changes **one byte** and expects verification to fail. The test uses a fixed historical clock at the captured header timestamp.
+
+To remove the session's secret/header variables after validating (preserve a separate approved secret store):
 
 ```powershell
-Remove-Item Env:SEPAY_WEBHOOK_SECRET, Env:SEPAY_CAPTURE_SIGNATURE, Env:SEPAY_CAPTURE_TIMESTAMP -ErrorAction SilentlyContinue
+Remove-Item Env:SEPAY_WEBHOOK_SECRET, Env:SEPAY_CAPTURE_SIGNATURE, Env:SEPAY_CAPTURE_TIMESTAMP, Env:SEPAY_CAPTURE_TEST -ErrorAction SilentlyContinue
 ```
+
+### 5. Stage the fixture safely
+
+At the repository root, add the exact sample path to `.gitattributes` using `-text`; verify the resolved attribute before staging the fixture. Confirm the body is appropriate to commit, and keep the fixture content byte-identical to the captured provider request. Do **not** commit `headers.txt`, `received-at.txt`, the HMAC secret, a temporary `WebhookCapture.java`, or other local capture artifacts.
+
+Before committing, verify `git diff --check`, `git status --short`, the file's SHA-256, and final Maven test evidence. A screenshot of SePay's success state and a terminal showing the completed capture tests should be attached to the GitLab issue, with private values masked.
 
 ## Payment issue re-estimation
 
-These are **provisional engineering estimates from this spike's documented
-protocol and scope review**, not completed provider-validation estimates. Revisit
-after actual capture and bank onboarding; account/OTP waiting time is excluded.
-No GitLab issue estimate or checklist has been changed: authenticated tracker
-access and the specific issue URL are still unavailable.
+These remain **provisional engineering estimates** based on the protocol review plus the Test Mode capture. They are not team-approved GitLab estimates. Compare them to the **current** issue descriptions, existing estimates, and sprint capacity with the reviewers before editing the tracker.
 
-| Issue | Previous individual estimate | Revised estimate (dev-day) | Breakdown and dependency |
+| Issue | Previous individual estimate | Proposed revised estimate (dev-day) | Breakdown and dependency |
 |---|---|---:|---|
-| #120 — provider interface/config | Unavailable from supplied material | 1.0 | 0.5 provider/config selection + 0.5 tests; consume ADR, no verifier rewrite |
-| #121 — VietQR initiation | Unavailable from supplied material | 2.0 | 1.0 instructions/memo/deadline + 0.5 repeat/ownership handling + 0.5 tests; needs #120, order creation and bank details |
-| #155 — signature/memo matching | Unavailable from supplied material | 2.0 | 0.5 raw-body/verifier integration + 0.5 gateway/ACK handling + 0.5 memo matching + 0.5 tests; needs captured delivery and #121 |
-| #156 — idempotent PAID update | Unavailable from supplied material | 2.0 | 0.5 persistence/uniqueness + 0.5 atomic state/event update + 1.0 duplicate/concurrency/rollback tests; needs #155 and order/event contracts |
-| #157 — UNRECONCILED transactions | Unavailable from supplied material | 1.0 | 0.5 late/wrong-amount/unmatched handling + 0.5 tests; needs #155/#156 transaction handling |
+| #120 — provider interface/config | **Pending:** current issue value not verified | **1.0** | 0.5 provider/config selection + 0.5 tests; consume this ADR, do not rewrite verifier |
+| #121 — VietQR initiation | **Pending:** current issue value not verified | **2.0** | 1.0 memo/payment instructions/deadline + 0.5 ownership/retry handling + 0.5 tests; depends on #120, order creation, and Live bank details |
+| #155 — signature/memo matching | **Pending:** current issue value not verified | **2.0** | 0.5 raw-body verifier integration + 0.5 callback/ACK + 0.5 memo matching + 0.5 tests; depends on this capture and #121 |
+| #156 — idempotent PAID update | **Pending:** current issue value not verified | **2.0** | 0.5 persistence/uniqueness + 0.5 atomic state/event updates + 1.0 duplicate/concurrency/rollback tests; depends on #155 and order/event contracts |
+| #157 — UNRECONCILED transactions | **Pending:** current issue value not verified | **1.0** | 0.5 late/wrong-amount/unmatched handling + 0.5 tests; depends on #155/#156 |
 
-Confidence is **low until capture and operational prerequisites are verified**.
-These numbers must be reconciled with the current GitLab issue scope/estimates
-before committing sprint capacity; no claim is made that they are agreed estimates.
+**Estimate confidence:** medium for the signature/protocol mechanics after a Test Mode callback; **low** for production bank onboarding, downstream order/database integration, operational approvals, and delivery retry/idempotency behavior. Any approved Live-bank smoke test and human/OTP waiting time must be budgeted separately. These numbers are **Pending reviewer reconciliation and tracker updates**.
 
-The older backlog has F05.6 at 4 dev-day in S3 and F05.7 at 5 dev-day in S4.
-Those are aggregate legacy features, not the five issue estimates above. The newer
-endpoint catalogue places #120/#121 in **Sprint 2** and #155–157 in **Sprint 4**.
-Do not move current work to Sprint 3 based on the older sheet.
+The legacy backlog has F05.6 at 4 dev-days in S3 and F05.7 at 5 dev-days in S4; these are aggregate feature estimates, **not** the five individual issue estimates above. The newer endpoint catalogue places #120/#121 in **Sprint 2** and #155–157 in **Sprint 4**. Do not move this work to Sprint 3 solely because the older sheet differs.
 
-Sandbox support means routine Sprint 4 regression can use provider-sent test
-transactions rather than paid transfers. Keep a Live-bank smoke checkpoint and
-owner availability in that sprint's plan. If account-specific HMAC/Test Mode access
-differs from the docs, retain the blocker and revise estimates; API-key-only auth
-is not a replacement for the body-tampering acceptance criterion.
+SePay Test Mode permits repeatable future regression without real payments. Still plan a distinct authorized **Live bank smoke checkpoint**. Provider transport retries are not equivalent to business retries; later implementation must consider idempotency, stale callbacks, bad memos, wrong amounts, and reconciliation.
 
-## Validation and acceptance tracking
+## Validation and evidence tracking
 
-Run in Windows PowerShell using the project's Java 21 toolchain, from
-`commerce-service`, with `JAVA_HOME` configured as above:
+### Existing local and CI-style validation
+
+From `be-project-nexus/commerce-service`, using Java 21:
 
 ```powershell
 .\mvnw.cmd '-Dtest=WebhookSignatureVerifierTest' test
@@ -361,94 +317,65 @@ if ($LASTEXITCODE -ne 0) { throw 'Verifier unit tests failed' }
 if ($LASTEXITCODE -ne 0) { throw 'Commerce verification failed' }
 ```
 
-`WebhookCapturedDeliveryTest` is opt-in via `$env:SEPAY_CAPTURE_TEST = 'true'`. The two tests
-are **skipped**, not passed, in ordinary builds without that flag. Once enabled,
-missing sample/headers/secret fail the build instead of silently skipping. The
-tests read the original file bytes and never generate or re-sign a fixture. A
-fixed clock at the original signing time preserves timestamp validation for a
-historical capture. The tampering test also requires a valid original baseline.
+`WebhookCapturedDeliveryTest` is **opt-in** through `SEPAY_CAPTURE_TEST=true`. Its two tests are **skipped** in an ordinary build without this flag; that is not a successful real-capture test. When enabled, missing sample, signature, timestamp, or secret must **fail** rather than silently skip. Tests read original fixture bytes and must **never** regenerate or re-sign the fixture.
 
-The deterministic test vector was signed independently with Python's standard
-`hmac`/`hashlib`, not with the Java verifier under test. Tests cover exact UTF-8
-bytes, single-byte mutations, wrong key/headers, body reserialization, missing or
-malformed input, timestamp bounds and the inclusive five-minute window. This is
-protocol-level validation only, not proof of receiving a provider delivery.
+**Prior historical results (not to be confused with the new Test Mode capture):**
 
-Historical validation on Linux on 2026-10-17, using Java 21:
+- **2026-10-17, Linux, Java 21:** 40 targeted verifier tests passed; Commerce Maven `verify` reported 50 tests passed; `javac -Xlint:all -Werror` passed. Config Service health returned 200; Commerce's `/actuator/info` returned 200 against the previously configured PostgreSQL smoke environment. No payment schema or configuration was changed.
+- **2026-10-18, Linux, Java 21, before real capture:** 40 verifier tests passed; two new capture tests were skipped; Maven `verify` reported 50 passed plus two capture tests skipped. Temporary synthetic-fixture wiring passed in isolation, but **did not** qualify as a provider capture. The Java receiver was compiled and checked for signature rejection, exact-byte storage, request handling, and no overwrite. PowerShell scripts were parsed on PowerShell 7.5.4 on the Linux host; native Windows execution was then **not yet** verified.
 
-- Targeted verifier suite: **40 tests, 0 failures, 0 errors, 0 skipped**.
-- Commerce Maven `verify`: **50 tests, 0 failures, 0 errors, 0 skipped; BUILD SUCCESS**.
-- Verifier compilation with `javac -Xlint:all -Werror`: passed.
-- Config Service started and returned HTTP 200 for its health endpoint.
-- Commerce started against PostgreSQL with the existing `ddl-auto: validate`
-  configuration, using Config Service and with Eureka registration disabled for
-  this local smoke check; `GET /actuator/info` returned HTTP 200. No schema or
-  application configuration was changed.
+**Observed/reported Windows results — 2026-10-18:**
 
-Historical validation on Linux on 2026-10-18, using Java 21:
+- Native Windows receiver and Cloudflare Quick Tunnel ran and accepted an actual **SePay Test Mode-sent** webhook.
+- Unsigned probe was rejected with HTTP 401.
+- SePay simulator showed the webhook delivery as successful (`Thành công (1)`); the local receiver logged a **verified** delivery.
+- Local original and repository-sample SHA-256 hashes matched: `35C18230746A13F5CA18F1178A3FB2A7F6A48AABAF6DDFD7C76EFDEC1D87D1F4`.
+- The first targeted `WebhookCapturedDeliveryTest` run failed due to a missing **process environment variable**, not a signature mismatch. After securely reloading the original secret, the user **reported a successful rerun**. The final `Tests run: ... / BUILD SUCCESS` screenshot or Surefire report is **Pending attachment/inspection**.
+- A fresh full `mvnw.cmd verify` on Windows **after** adding the real sample is **Pending**, as is Git staged-blob hash verification.
+- No production webhook, payment initiation, order update, escrow, wallet, dependency, database migration, or service configuration was introduced for this capture.
 
-- Targeted suites: **40 passed, 2 capture tests skipped**; no failures/errors.
-- Commerce Maven `verify`: **50 passed, 2 capture tests skipped; BUILD SUCCESS**.
-- Enabled capture tests fail when the secret or fixture is missing. Their wiring
-  was also checked with an isolated temporary synthetic fixture: both assertions
-  pass for its valid signature and fail after mutation of that fixture. This is
-  not provider-capture acceptance; no synthetic fixture was written into the repo.
-- The receiver snippet above compiled with `javac -Xlint:all -Werror` and ran on
-  Java 21. Local synthetic HTTP checks covered valid HMAC/200 acknowledgement,
-  original-byte/header preservation, invalid signature, changed body, expired
-  timestamp, method/path, oversized body and refusal to overwrite a capture.
-- The previous Bash instructions passed `bash -n`; those instructions are now
-  replaced by the Windows PowerShell procedure above. `git diff --check` passed.
-- No production source, dependency, database, application configuration or deployed
-  endpoint changed; no tunnel was left running by these local checks.
+### Evidence to attach to the GitLab spike issue
 
-Windows instruction validation on 2026-10-18:
+Provide non-secret/redacted evidence for: (a) SePay Test Mode ACB bank/account configuration; (b) active Test Mode HMAC webhook and a successful simulated delivery; (c) terminal receipt/verification and the two targeted test results with `Skipped: 0`; (d) exact raw-body SHA-256 and Git path; (e) final commit and updated issue estimates. Record actual spent time, reference the commit, and request review from **@fsa_VinhDP** and **@fsa_Chung** after the evidence is in place.
 
-- All **7 PowerShell code blocks** parsed without errors in PowerShell 7.5.4 on
-  the Linux validation host. There are no remaining Bash capture command blocks.
-- The literal here-string and UTF-8 writer produced byte-identical Java receiver
-  source, which compiled under Java 21 with `javac -Xlint:all -Werror`.
-- PowerShell checks exercised the masked-input conversion with a synthetic
-  secret, byte-preserving copy of UTF-8/CRLF data, header extraction and SHA-256
-  comparison in an isolated temporary directory; no provider sample was created.
-- Native Windows execution of `mvnw.cmd`, `Get-NetTCPConnection` and
-  `cloudflared.exe`, and Windows PowerShell 5.1 execution, remain unverified on
-  this Linux host. These checks do not claim a Windows end-to-end capture.
+**Do not attach the HMAC secret** or expose it in screenshots. Any saved provider signature/timestamp is delivery metadata, not the signing secret; review what is safe to publish. Test bank display names must not be presented as evidence of Live ownership.
 
-As of 2026-10-18 the user reports a registered account and a configured Test Mode
-bank account, but provider capture is still pending. No provider delivery, passing
-captured-delivery test or GitLab checkbox screenshot can be claimed.
+### Subtasks (local documentation status; GitLab checkboxes are separate)
 
-### Subtasks
-
-- [ ] Register the SePay account and record its credential holder.
-- [ ] Name and configure the receiving bank account and its owner.
-- [ ] Point a webhook at a tunnel and capture an actual SePay delivery.
-- [ ] Commit that raw body as `docs/api/sepay-webhook-sample.json`.
-- [ ] Complete the verifier's unit test against the captured delivery (the verifier and synthetic tests are implemented; real-capture validation is not).
-- [ ] Finalize the five revised issue estimates against capture evidence and current GitLab values (provisional estimates are recorded above).
+- [ ] Confirm registration **and** named credential custodian / approved secret storage. Registration reported; custody **Pending**.
+- [ ] Confirm the Live receiving bank, legal owner, statement access, named payer, and agreed transfer amount. **Pending**; Test Mode bank evidence is already recorded.
+- [x] Configure the temporary Test Mode HMAC webhook and capture a provider-sent delivery. SePay and receiver evidence observed.
+- [ ] Commit the exact raw body as `docs/api/sepay-webhook-sample.json` with byte-preserving `.gitattributes`. Local copy/hash done; **commit Pending**.
+- [ ] Attach final `WebhookCapturedDeliveryTest` PASS evidence (original signature accepted; one-byte tampering rejected). User reported rerun success; artifact link **Pending**.
+- [ ] Reconcile and finalize #120/#121/#155/#156/#157 estimates against the current GitLab issues. **Pending**.
 
 ### Issue acceptance criteria
 
-- [ ] Dashboard shows receiving bank configured; ADR names the credential holder.
-- [ ] Sample JSON is a body SePay actually sent.
-- [ ] Verifier accepts that captured body with its actual signature headers.
-- [ ] That same captured body with one byte changed fails verification.
-- [ ] ADR names a person and an agreed amount for test transfers.
-- [ ] Payment estimates are finalized, citing this spike.
+- [ ] Dashboard shows receiving bank configured; ADR names the **confirmed credential holder**. Test Mode bank is shown, but holder confirmation remains **Pending**.
+- [ ] `docs/api/sepay-webhook-sample.json` is an actual SePay-sent raw body **committed to Git**. Locally captured and copied; commit **Pending**.
+- [ ] Captured body passes with actual signature headers; attach unskipped test proof. User reported PASS; screenshot/report **Pending**.
+- [ ] The same captured body with one byte changed fails verification; attach unskipped test proof. User reported PASS; screenshot/report **Pending**.
+- [ ] ADR names the agreed payer and amount for real test transfers. **Pending**; the 10,000 VND event was only simulated.
+- [ ] Payment issue estimates are finalized with tracker values and spike evidence. **Pending**.
 
-None of these end-to-end criteria is checked on the strength of synthetic tests.
-Only tick an item after the linked evidence exists, then take the GitLab screenshot.
+Keep GitLab checkboxes open until the corresponding evidence and/or approval is linked. **Test Mode delivery validates the spike's signed-webhook mechanism; it does not resolve the Live operational prerequisites.**
 
 ## References
 
-- [SRS v1.0](https://drive.google.com/file/d/1nw7_WwZoWhjgA1WiZJzu37ps_MisI5Ls/view): 2.6, 3.4.2, 5.3.
+- [SePay bank-transfer webhook authentication](https://developer.sepay.vn/vi/sepay-webhooks/xac-thuc)
+- [SePay Test Mode](https://docs.sepay.vn/test-mode.html)
+- [SePay Test Mode webhook creation](https://developer.sepay.vn/vi/tien-ich-khac/test-mode/tao-webhook)
+- [SePay webhook integration guide](https://docs.sepay.vn/tich-hop-webhooks.html)
+- [SRS v1.0](https://drive.google.com/file/d/1nw7_WwZoWhjgA1WiZJzu37ps_MisI5Ls/view): §§2.6, 3.4.2, 5.3.
 - [Business Rules](https://docs.google.com/spreadsheets/d/1x2ulrpa9n5Xmgb8G7b3zJ9sisHjYJG7wGycalQGHB-U/edit): BR-109–114, BR-118, BR-127–128.
-- [Endpoint catalogue](https://drive.google.com/file/d/1KIJsr87F-6TWieBbie9CVzgCBTPsM4Zk/view), modified 2026-10-16: PAY-01/PAY-02, #120/#121/#155–157.
+- [Endpoint catalogue](https://drive.google.com/file/d/1KIJsr87F-6TWieBbie9CVzgCBTPsM4Zk/view): PAY-01/PAY-02; #120/#121/#155–157; modified 2026-10-16.
 - [Legacy backlog](https://drive.google.com/file/d/1r-7RETPihuO3FolSjZxtcZOPmk4pc5NE/view): F05.6/F05.7.
-- [Group report](https://drive.google.com/file/d/1AS18TaHffK5QhxaVyX2q7S8U9pAm1OBJ/view): planning row `#119 Sepay`; confirm the spike issue's URL before linking/closing it.
+- [Group report](https://drive.google.com/file/d/1AS18TaHffK5QhxaVyX2q7S8U9pAm1OBJ/view): planning row `#119 Sepay`; confirm actual spike issue URL before linking/closing.
 
-**Consequences:** verification can be developed without Spring, DB or paid transfers;
-this spike remains incomplete until operational facts, a provider capture, its
-passing test and final estimates are supplied. #120/#121/#155–157 own subsequent
-production integration; this change does not implement them.
+## Consequences and open decisions
+
+The team can develop and test a correct raw-body HMAC verifier using a genuine **Test Mode provider-sent** fixture, without integrating a live bank, deploying a callback endpoint, or implementing money movement. The fixture must remain byte-identical after Git checkout; it is not enough that the parsed JSON looks equivalent.
+
+**Still Pending:** named credential custodian and secret access policy; Live bank owner/statement permissions; named payer and agreed Live transfer amount; optional Live smoke test and reviewer acceptance of Test Mode evidence; original header/timestamp/received-at metadata in ADR; test/evidence attachments; fixture privacy review; finalized GitLab issue estimates; reviewer approval.
+
+Future #120/#121/#155–#157 work owns production provider configuration, VietQR initiation, HMAC-protected callback integration, memo matching, idempotent order transitions, and unreconciled-transfer handling. None of those business behaviors is claimed to have been implemented by this spike.
