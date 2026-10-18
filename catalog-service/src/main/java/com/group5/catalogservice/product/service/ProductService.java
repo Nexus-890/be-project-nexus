@@ -125,23 +125,26 @@ public class ProductService {
         return toDetailResponse(product);
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public Page<ProductResponse> getProductsByCategory(UUID categoryId, int page, int size) {
 
         validatePagination(page, size);
 
         Pageable pageable = PageRequest.of(page, size);
 
-        Page<Product> products;
 
         if (categoryId == null) {
-            products = productRepository.findByStatusAndDeletedAtIsNull(ProductStatus.ACTIVE, pageable);
-        } else {
-            products = productRepository.findByCategory_IdAndStatusAndDeletedAtIsNull(categoryId,
-                    ProductStatus.ACTIVE, pageable);
+            return productRepository.findProductResponsesByStatus(
+                    ProductStatus.ACTIVE,
+                    pageable
+            );
         }
 
-        return products.map(this::toResponse);
+        return productRepository.findProductResponsesByCategory(
+                categoryId,
+                ProductStatus.ACTIVE,
+                pageable
+        );
     }
 
     @Transactional(readOnly = true)
@@ -157,9 +160,11 @@ public class ProductService {
 
         Pageable pageable = PageRequest.of(page, size);
 
-        Page<ProductResponse> responses = productRepository
-                .findBySellerIdAndDeletedAtIsNull(sellerId, pageable).map(this::toResponse);
-
+        Page<ProductResponse> responses =
+                productRepository.findProductResponsesBySeller(
+                        sellerId,
+                        pageable
+                );
         log.debug("Finished getting seller products: sellerId={}, totalElements={}",
                 sellerId, responses.getTotalElements());
 
