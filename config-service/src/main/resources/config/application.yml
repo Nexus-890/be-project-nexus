@@ -61,9 +61,8 @@ nexus:
     demo:
       topic: nexus.training.integration.v1
     topics:
-      user: nexus.user.events.v1
-      product: nexus.catalog.product.events.v1
-      order: nexus.commerce.order.events.v1
-      auction: nexus.auction.events.v1
-      reservation: nexus.fulfillment.reservation.events.v1
-      shipment: nexus.fulfillment.shipment.events.v1
+      user: nexus.user.events
+      catalog: nexus.catalog.events
+      commerce: nexus.commerce.events
+      auction: nexus.auction.events
+      fulfillment: nexus.fulfillment.events

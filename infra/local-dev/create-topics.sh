@@ -3,13 +3,13 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: init-topics.sh [--check-only]
+Usage: create-topics.sh [--check-only]
 
 Initializes Kafka topics from topics.conf using Kafka CLI tools already present in the Kafka image.
 Environment:
   KAFKA_BOOTSTRAP_SERVERS  default: kafka:9092
   KAFKA_BIN_DIR            default: /opt/kafka/bin
-  TOPICS_FILE              default: <script-dir>/topics.conf
+  TOPICS_FILE              default: <script-dir>/kafka/topics.conf
   KAFKA_READY_ATTEMPTS     default: 30
   KAFKA_READY_SLEEP        default: 2
   KAFKA_REQUEST_TIMEOUT_MS default: 5000
@@ -31,7 +31,7 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KAFKA_BOOTSTRAP_SERVERS="${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
 KAFKA_BIN_DIR="${KAFKA_BIN_DIR:-/opt/kafka/bin}"
-TOPICS_FILE="${TOPICS_FILE:-$SCRIPT_DIR/topics.conf}"
+TOPICS_FILE="${TOPICS_FILE:-$SCRIPT_DIR/kafka/topics.conf}"
 KAFKA_READY_ATTEMPTS="${KAFKA_READY_ATTEMPTS:-30}"
 KAFKA_READY_SLEEP="${KAFKA_READY_SLEEP:-2}"
 KAFKA_REQUEST_TIMEOUT_MS="${KAFKA_REQUEST_TIMEOUT_MS:-5000}"
