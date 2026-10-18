@@ -1,6 +1,6 @@
 # ADR-007: Payment Provider — SePay
 
-**Status:** Proposed — SePay Test Mode webhook captured; operational confirmations and reviewer approval pending.
+**Status:** Proposed — SePay account and API access are available; the Test Mode signature spike is complete, while the required Live receiving-bank evidence is blocked.
 
 **Date:** 2026-10-17; updated 2026-10-18.
 
@@ -10,7 +10,7 @@
 
 ## Context and decision
 
-Use **SePay (SEPAY)** for VietQR bank-transfer payment integration. This intentionally differs from SRS 2.6 and BR-110, where the default `PAYMENT_PROVIDER` is **STRIPE**. The current endpoint catalogue already identifies SEPAY for PAY-01/PAY-02. This ADR records the provider decision and the spike findings; it does **not** modify the runtime provider choice (#120) or implement VietQR initiation (#121).
+The team's operational target is **SePay Live** for VietQR bank-transfer payment integration. This intentionally differs from SRS 2.6 and BR-110, where the default `PAYMENT_PROVIDER` is **STRIPE**. The current endpoint catalogue already identifies SEPAY for PAY-01/PAY-02. This ADR records the provider decision and spike findings; it does **not** modify the runtime provider choice (#120) or implement VietQR initiation (#121).
 
 For bank-transfer webhooks, use **HMAC-SHA256 over the original request bytes** instead of relying on an API key alone. The integration must reject a changed body even if all other request fields are unchanged. Do not confuse the bank-transfer webhook contract with the separate payment-gateway IPN protocol.
 
@@ -22,18 +22,18 @@ A Test Mode account is **not** evidence of an actual bank connection or an agree
 
 | Required fact | Confirmed value / evidence | Status |
 |---|---|---|
-| SePay registration | Nguyễn Trường An reported registering a free SePay account on 2026-10-18. | **Reported** |
+| SePay account and API access | The team confirms that a SePay user account and API access exist. This is not a statement about a particular individual's custodianship. | **Confirmed** |
 | Actual credential holder / person responsible for rotation | **Pending:** confirm who controls the SePay account, webhook HMAC secret, and recovery access. | **Pending** |
 | Credential storage and authorized readers | **Pending:** agree on approved secret storage and access. Never store credentials in Git or this ADR. | **Pending** |
 | Test Mode receiving bank | **ACB**, personal test account `0000000002`, label `Nexus SePay Spike test`. | **Confirmed in Test Mode UI** |
 | Test Mode bank display name | `DO VAN A` (simulated display name, **not** verified real-world account ownership). | **Confirmed in Test Mode UI** |
-| Live receiving bank, account reference, and legal owner | **Pending:** no Live bank connection was verified during this spike. | **Pending** |
+| Live receiving bank, account reference, and legal owner | **Blocked:** no suitable Live receiving bank is connected. The Vietcombank connection flow currently does not support the personal account available to the team. The team is evaluating another bank. | **Blocked** |
 | Authorized people who may inspect the Live bank statement | **Pending.** | **Pending** |
 | Dashboard bank evidence | Screenshots of the configured **ACB Test Mode** bank were shown during the spike; retain an appropriately redacted screenshot with the GitLab issue. | **Observed; attachment pending** |
 | Person paying for agreed Live test transfers | **Pending:** no named payer agreement. | **Pending** |
 | Agreed amount for Live test transfer (VND) | **Pending:** 10,000 VND below was a simulated test value, not an agreed amount for a real transfer. | **Pending** |
 
-An initial simulated Vietcombank business account (`0000000001`) required a virtual account for the intended testing flow. It was **not** used for the successful capture. The completed simulation used the ACB personal **Test Mode** account `0000000002` instead. Neither test account should be described as a connected Live bank account.
+The unsuccessful Vietcombank Live attempt must not be described as a connected bank: its current connection flow does not support the team's personal account. Neither the historical Test Mode bank nor its display name is evidence of a Live account or of any person's ownership.
 
 The Test Mode webhook was configured to receive **incoming transfers**, use **JSON**, require **HMAC-SHA256**, and apply to **all test accounts**. Its dashboard label was `Nexus SePay Spike test`. Account registration is reported, but the combined registration/custodian subtask remains open until ownership and approved credential storage are confirmed.
 
@@ -57,13 +57,13 @@ For a historical captured request, `WebhookCapturedDeliveryTest` uses a fixed `C
 
 A valid signature does not itself prevent duplicate processing. Persisted event identity, reconciliation, and idempotent payment updates remain future-work concerns.
 
-## Sandbox decision and limits
+## Test Mode evidence and Live decision
 
 SePay provides **Test Mode**, per the [Test Mode documentation](https://docs.sepay.vn/test-mode.html). Test banks, webhooks, API credentials, and simulated transactions are separate from Live. [Creating a Test Mode webhook](https://developer.sepay.vn/vi/tien-ich-khac/test-mode/tao-webhook) supports HMAC.
 
-**Decision:** Use SePay Test Mode to collect a *provider-sent* signed callback for this spike, without spending money or waiting for a Live bank connection. The provider actually sent an HTTP request to the temporary receiver; this is stronger than a locally generated synthetic JSON fixture. However, it is **not evidence of a Live bank transfer**, Live credentials, or production readiness.
+**Decision:** SePay Live remains the required environment for operational acceptance. The existing Test Mode capture is retained solely as technical evidence: it is a provider-sent signed callback and supports raw-byte HMAC verification, but it cannot substitute for a Live bank connection, a Live transfer, or Live acceptance evidence.
 
-A Live bank-connection smoke test remains **Pending** and must have an authorized owner, a named payer, and an agreed amount. If reviewers explicitly require the committed fixture to originate from Live rather than Test Mode, obtain that approval and separately capture a suitable Live delivery only after the operational agreement is in place.
+A Live bank-connection smoke test is **Blocked** until a supported Live receiving bank is selected and connected. It must then have a confirmed credential custodian, authorized owner, statement-access permissions, named payer, and agreed amount. None of these facts may be inferred from the Test Mode dashboard or historical capture.
 
 The [webhook integration guide](https://docs.sepay.vn/tich-hop-webhooks.html) describes an acknowledgement using HTTP 200/201 and `{"success":true}` within 30 seconds. Transport retries and duplicate callbacks must be checked separately from business-level `PAYMENT_RETRY_LIMIT`.
 
@@ -98,9 +98,9 @@ The following is the **actual observed Test Mode spike**, not an illustrative tr
 /be-project-nexus/docs/api/sepay-webhook-sample.json -text
 ```
 
-After adding the rule, `git check-attr text -- be-project-nexus/docs/api/sepay-webhook-sample.json` must report `text: unset`. This preserves the exact signed bytes through Git checkout, including Windows environments. **Attribute change and post-stage verification: Pending.**
+After adding the rule, `git check-attr text -- be-project-nexus/docs/api/sepay-webhook-sample.json` must report `text: unset`. This preserves the exact signed bytes through Git checkout, including Windows environments. **Attribute change: Done locally; post-stage verification remains Pending because this spike must stop before staging/commit review.**
 
-**Targeted captured-delivery tests:** The first Windows run failed solely because `SEPAY_WEBHOOK_SECRET` was missing in the Maven PowerShell process; `SEPAY_CAPTURE_SIGNATURE` and `SEPAY_CAPTURE_TIMESTAMP` were present. The correct existing secret was subsequently entered with a masked prompt, and the user reported that the rerun of `WebhookCapturedDeliveryTest` succeeded. The test class contains two opt-in assertions: the original provider-sent body/signature is accepted, and a **one-byte modification is rejected**. Preserve the final Maven result screenshot or Surefire report to substantiate the reported pass; **the final console output has not yet been copied into this ADR**.
+**Targeted captured-delivery tests:** The historical Test Mode rerun was reported successful after the matching secret was restored to the Maven process, but its final console/Surefire evidence has not been inspected in this workspace. In the current session the matching secret and original signature/timestamp headers are not available, so the capture test must remain **Blocked** rather than be represented as a new PASS. The test class has two opt-in assertions: the original provider-sent body/signature is accepted, and a **one-byte modification is rejected**.
 
 The earlier missing-secret `BUILD FAILURE` must not be represented as a product validation failure. Conversely, user-reported success should not be presented as an independently inspected build log until the output is attached.
 
@@ -288,15 +288,15 @@ Before committing, verify `git diff --check`, `git status --short`, the file's S
 
 ## Payment issue re-estimation
 
-These remain **provisional engineering estimates** based on the protocol review plus the Test Mode capture. They are not team-approved GitLab estimates. Compare them to the **current** issue descriptions, existing estimates, and sprint capacity with the reviewers before editing the tracker.
+These remain **provisional engineering estimates** based on the protocol review plus the Test Mode capture. They are not team-approved GitLab estimates. Compare them to the **current** issue descriptions, existing estimates, and sprint capacity with the reviewers before editing the tracker. The Live receiving-bank blocker is excluded from each estimate: it is external waiting/coordination work, not implementation capacity.
 
 | Issue | Previous individual estimate | Proposed revised estimate (dev-day) | Breakdown and dependency |
 |---|---|---:|---|
-| #120 — provider interface/config | **Pending:** current issue value not verified | **1.0** | 0.5 provider/config selection + 0.5 tests; consume this ADR, do not rewrite verifier |
-| #121 — VietQR initiation | **Pending:** current issue value not verified | **2.0** | 1.0 memo/payment instructions/deadline + 0.5 ownership/retry handling + 0.5 tests; depends on #120, order creation, and Live bank details |
-| #155 — signature/memo matching | **Pending:** current issue value not verified | **2.0** | 0.5 raw-body verifier integration + 0.5 callback/ACK + 0.5 memo matching + 0.5 tests; depends on this capture and #121 |
-| #156 — idempotent PAID update | **Pending:** current issue value not verified | **2.0** | 0.5 persistence/uniqueness + 0.5 atomic state/event updates + 1.0 duplicate/concurrency/rollback tests; depends on #155 and order/event contracts |
-| #157 — UNRECONCILED transactions | **Pending:** current issue value not verified | **1.0** | 0.5 late/wrong-amount/unmatched handling + 0.5 tests; depends on #155/#156 |
+| #120 — provider interface/config | **Pending:** current issue value not verified | **1.0** | 0.5 provider/config selection + 0.5 tests; consume this ADR, do not rewrite verifier. **PARTIAL:** account/API access exists; Live bank configuration is blocked. |
+| #121 — VietQR initiation | **Pending:** current issue value not verified | **2.0** | 1.0 memo/payment instructions/deadline + 0.5 ownership/retry handling + 0.5 tests; depends on #120, order creation, and a supported Live receiving bank. **BLOCKED** operationally; no initiation is implemented here. |
+| #155 — signature/memo matching | **Pending:** current issue value not verified | **2.0** | 0.5 raw-body verifier integration + 0.5 callback/ACK + 0.5 memo matching + 0.5 tests; depends on this capture and #121. **PARTIAL:** reusable verifier and immutable Test Mode fixture exist; Live proof and integration do not. |
+| #156 — idempotent PAID update | **Pending:** current issue value not verified | **2.0** | 0.5 persistence/uniqueness + 0.5 atomic state/event updates + 1.0 duplicate/concurrency/rollback tests; depends on #155 and order/event contracts. **PENDING.** |
+| #157 — UNRECONCILED transactions | **Pending:** current issue value not verified | **1.0** | 0.5 late/wrong-amount/unmatched handling + 0.5 tests; depends on #155/#156. **PENDING.** |
 
 **Estimate confidence:** medium for the signature/protocol mechanics after a Test Mode callback; **low** for production bank onboarding, downstream order/database integration, operational approvals, and delivery retry/idempotency behavior. Any approved Live-bank smoke test and human/OTP waiting time must be budgeted separately. These numbers are **Pending reviewer reconciliation and tracker updates**.
 
@@ -324,14 +324,15 @@ if ($LASTEXITCODE -ne 0) { throw 'Commerce verification failed' }
 - **2026-10-17, Linux, Java 21:** 40 targeted verifier tests passed; Commerce Maven `verify` reported 50 tests passed; `javac -Xlint:all -Werror` passed. Config Service health returned 200; Commerce's `/actuator/info` returned 200 against the previously configured PostgreSQL smoke environment. No payment schema or configuration was changed.
 - **2026-10-18, Linux, Java 21, before real capture:** 40 verifier tests passed; two new capture tests were skipped; Maven `verify` reported 50 passed plus two capture tests skipped. Temporary synthetic-fixture wiring passed in isolation, but **did not** qualify as a provider capture. The Java receiver was compiled and checked for signature rejection, exact-byte storage, request handling, and no overwrite. PowerShell scripts were parsed on PowerShell 7.5.4 on the Linux host; native Windows execution was then **not yet** verified.
 
-**Observed/reported Windows results — 2026-10-18:**
+**Observed/reported Test Mode evidence — 2026-10-18:**
 
 - Native Windows receiver and Cloudflare Quick Tunnel ran and accepted an actual **SePay Test Mode-sent** webhook.
 - Unsigned probe was rejected with HTTP 401.
 - SePay simulator showed the webhook delivery as successful (`Thành công (1)`); the local receiver logged a **verified** delivery.
 - Local original and repository-sample SHA-256 hashes matched: `35C18230746A13F5CA18F1178A3FB2A7F6A48AABAF6DDFD7C76EFDEC1D87D1F4`.
-- The first targeted `WebhookCapturedDeliveryTest` run failed due to a missing **process environment variable**, not a signature mismatch. After securely reloading the original secret, the user **reported a successful rerun**. The final `Tests run: ... / BUILD SUCCESS` screenshot or Surefire report is **Pending attachment/inspection**.
-- A fresh full `mvnw.cmd verify` on Windows **after** adding the real sample is **Pending**, as is Git staged-blob hash verification.
+- The first targeted `WebhookCapturedDeliveryTest` run failed due to a missing **process environment variable**, not a signature mismatch. After securely reloading the original secret, the user **reported a successful rerun**. The final `Tests run: ... / BUILD SUCCESS` screenshot or Surefire report remains **Pending attachment/inspection**.
+- **Current local validation, 2026-10-18, Windows, JDK 21:** `WebhookSignatureVerifierTest` passed **40/40** (no failures, errors, or skips). `mvn verify` passed **52 tests** with **2 skipped**, which are the opt-in `WebhookCapturedDeliveryTest` tests. The current session did not have the matching capture secret and original signature/timestamp headers, so those two tests were intentionally not enabled.
+- Git now resolves `be-project-nexus/docs/api/sepay-webhook-sample.json` to `text: unset`; staged-blob hash verification remains **Pending review** because no staging was performed.
 - No production webhook, payment initiation, order update, escrow, wallet, dependency, database migration, or service configuration was introduced for this capture.
 
 ### Evidence to attach to the GitLab spike issue
@@ -342,21 +343,23 @@ Provide non-secret/redacted evidence for: (a) SePay Test Mode ACB bank/account c
 
 ### Subtasks (local documentation status; GitLab checkboxes are separate)
 
-- [ ] Confirm registration **and** named credential custodian / approved secret storage. Registration reported; custody **Pending**.
-- [ ] Confirm the Live receiving bank, legal owner, statement access, named payer, and agreed transfer amount. **Pending**; Test Mode bank evidence is already recorded.
-- [x] Configure the temporary Test Mode HMAC webhook and capture a provider-sent delivery. SePay and receiver evidence observed.
-- [ ] Commit the exact raw body as `docs/api/sepay-webhook-sample.json` with byte-preserving `.gitattributes`. Local copy/hash done; **commit Pending**.
-- [ ] Attach final `WebhookCapturedDeliveryTest` PASS evidence (original signature accepted; one-byte tampering rejected). User reported rerun success; artifact link **Pending**.
-- [ ] Reconcile and finalize #120/#121/#155/#156/#157 estimates against the current GitLab issues. **Pending**.
+| Subtask | Status | Evidence / blocker |
+|---|---|---|
+| Register SePay account and record credential holder | **PARTIAL** | Account/API access is confirmed; credential custodian and approved secret storage are still **Pending**. |
+| Name receiving bank account and owner | **BLOCKED** | The current Vietcombank flow does not support the team's personal account; no suitable Live bank is connected. Owner, statement access, payer, and agreed amount are unknown. |
+| Point webhook at tunnel and capture real delivery | **DONE — Test Mode only** | A provider-sent Test Mode HMAC delivery was captured. This does not complete the required Live transfer evidence. |
+| Commit raw body | **PENDING review** | Fixture SHA-256 is recorded and `.gitattributes` now prevents normalization; no staging or commit is performed without approval. |
+| Verify captured delivery and tamper rejection | **PARTIAL** | Unit verifier tests cover exact-byte and one-byte mutations. Re-running the provider-capture test is **Blocked** until the matching secret and original headers are supplied to the Maven process. |
+| Re-estimate SePay/payment webhook work | **PARTIAL** | Provisional estimates are above; tracker reconciliation needs the current GitLab issue values and reviewer approval. |
 
 ### Issue acceptance criteria
 
-- [ ] Dashboard shows receiving bank configured; ADR names the **confirmed credential holder**. Test Mode bank is shown, but holder confirmation remains **Pending**.
-- [ ] `docs/api/sepay-webhook-sample.json` is an actual SePay-sent raw body **committed to Git**. Locally captured and copied; commit **Pending**.
-- [ ] Captured body passes with actual signature headers; attach unskipped test proof. User reported PASS; screenshot/report **Pending**.
-- [ ] The same captured body with one byte changed fails verification; attach unskipped test proof. User reported PASS; screenshot/report **Pending**.
-- [ ] ADR names the agreed payer and amount for real test transfers. **Pending**; the 10,000 VND event was only simulated.
-- [ ] Payment issue estimates are finalized with tracker values and spike evidence. **Pending**.
+- **BLOCKED:** Dashboard shows a supported Live receiving bank and ADR names the confirmed credential holder. Account/API access alone is insufficient; Live bank and holder confirmation are missing.
+- **PENDING review:** `docs/api/sepay-webhook-sample.json` is a provider-sent Test Mode raw body, but has not been staged or committed.
+- **BLOCKED in this session:** The captured body passes with its actual signature headers. The original secret and headers are unavailable to re-run this test; a previously reported PASS is not new inspected evidence.
+- **PARTIAL:** One-byte tampering is rejected by unit tests. The provider-capture version remains blocked with the same missing inputs.
+- **BLOCKED:** ADR names the agreed payer and amount for a real Live transfer; neither has been confirmed.
+- **PENDING:** Payment issue estimates must be reconciled with current tracker values and reviewer approval.
 
 Keep GitLab checkboxes open until the corresponding evidence and/or approval is linked. **Test Mode delivery validates the spike's signed-webhook mechanism; it does not resolve the Live operational prerequisites.**
 
@@ -374,8 +377,8 @@ Keep GitLab checkboxes open until the corresponding evidence and/or approval is 
 
 ## Consequences and open decisions
 
-The team can develop and test a correct raw-body HMAC verifier using a genuine **Test Mode provider-sent** fixture, without integrating a live bank, deploying a callback endpoint, or implementing money movement. The fixture must remain byte-identical after Git checkout; it is not enough that the parsed JSON looks equivalent.
+The team can develop and test a correct raw-body HMAC verifier using a genuine **Test Mode provider-sent** fixture, without integrating a live bank, deploying a callback endpoint, or implementing money movement. The fixture must remain byte-identical after Git checkout; it is not enough that the parsed JSON looks equivalent. This is only a technical spike result: SePay **Live** remains the operational target.
 
-**Still Pending:** named credential custodian and secret access policy; Live bank owner/statement permissions; named payer and agreed Live transfer amount; optional Live smoke test and reviewer acceptance of Test Mode evidence; original header/timestamp/received-at metadata in ADR; test/evidence attachments; fixture privacy review; finalized GitLab issue estimates; reviewer approval.
+**Still Pending or Blocked:** named credential custodian and secret access policy; a supported Live receiving bank plus owner/statement permissions; named payer and agreed Live transfer amount; an authorized Live smoke test; original header/timestamp/received-at metadata and matching test inputs; test/evidence attachments; fixture privacy review before staging; finalized GitLab issue estimates; reviewer approval.
 
 Future #120/#121/#155–#157 work owns production provider configuration, VietQR initiation, HMAC-protected callback integration, memo matching, idempotent order transitions, and unreconciled-transfer handling. None of those business behaviors is claimed to have been implemented by this spike.
