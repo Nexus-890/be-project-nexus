@@ -1,6 +1,6 @@
 # ADR-007: Payment Provider — SePay
 
-**Status:** Proposed; verifier implemented, Live capture and operational evidence pending.
+**Status:** Proposed; verifier implemented, provider capture and operational evidence pending.
 
 **Date:** 2026-10-17; updated 2026-10-18
 
@@ -39,8 +39,10 @@ On 2026-10-17, opening `https://my.sepay.vn` in the available browser redirected
 to `/login` and returned HTTP 403 with a security-verification page. No account
 was registered, bank linked, payment made or webhook configured by this spike
 session. On 2026-10-18, Nguyễn Trường An confirmed account registration and reported
-preparing the receiving bank connection. The current capture path is Live Mode;
-bank consent/OTP, dashboard evidence and the transfer agreement remain pending.
+preparing the receiving bank connection. The user later reported creating a
+Test Mode bank account and configuring its webhook. The current capture path is
+Test Mode; dashboard evidence, Live bank connection and the transfer agreement
+remain pending.
 Registration is reported complete, but the combined registration/custodian subtask
 below stays unchecked until credential custody is confirmed.
 
@@ -77,9 +79,9 @@ webhooks, API tokens and simulated transactions are separate from Live.
 also supports HMAC. Availability for the team's account is not dashboard-verified.
 
 Use a temporary HTTPS tunnel to a local receiver because STAGING is not available
-until Sprint 4. Point a Live Mode webhook at that URL, select JSON and HMAC, then
-make the agreed test transfer after bank connection is confirmed. Alternatively,
-a Test Mode webhook can trigger a simulated transaction. A simulated transaction
+until Sprint 4. Point a Test Mode webhook at that URL, select JSON and HMAC, then
+trigger a simulated transaction in SePay. Live Mode is a separate check using the
+agreed test transfer after bank connection is confirmed. A simulated transaction
 actually delivered by SePay is a **provider-sent Test Mode delivery**, not a real
 bank transfer. A Live bank-connection smoke test remains an operational check using the agreed
 payer and amount above. If reviewers require the fixture to originate from a
@@ -116,19 +118,62 @@ No production callback, committed tunnel script, SDK, new dependency, fixture
 metadata file, provider abstraction or config change is introduced. The following
 temporary receiver exists only for this spike; it does not update orders or money.
 
-### Local capture procedure
+### Local capture procedure (Windows PowerShell)
 
-Run from `commerce-service` with Java 21. Keep the receiver source and captured
-headers outside Git. Enter the same HMAC secret locally and in SePay's webhook
-configuration; do not put it in a command argument or commit it.
+Use **Windows PowerShell 5.1 or PowerShell 7**, not Command Prompt, Bash or WSL.
+Run both receiver and tunnel on the same Windows machine. Install JDK 21 and
+[cloudflared for Windows](https://developers.cloudflare.com/tunnel/downloads/#windows),
+with `cloudflared.exe` available on `PATH`. No Config Service, database or running
+Commerce application is needed for this temporary receiver.
 
-```bash
-./mvnw -DskipTests compile
-export SEPAY_CAPTURE_DIR="$(mktemp -d /tmp/sepay-capture.XXXXXX)"
-read -rsp 'SePay webhook HMAC secret: ' SEPAY_WEBHOOK_SECRET; printf '\n'
-export SEPAY_WEBHOOK_SECRET
-printf 'Capture directory: %s\n' "$SEPAY_CAPTURE_DIR"
-cat > "$SEPAY_CAPTURE_DIR/WebhookCapture.java" <<'JAVA'
+#### 1. Start the receiver in the first PowerShell window
+
+Enter your actual repository and installed JDK paths when prompted; no drive or
+installation directory is assumed. Port **8787** and path **`/sepay-spike`** come
+from the existing receiver below. Stop if the port is occupied; do not replace
+another process or silently use a different port.
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$repo = Read-Host 'Absolute path to your repository checkout'
+Set-Location (Join-Path $repo 'be-project-nexus\commerce-service')
+$env:JAVA_HOME = Read-Host 'Absolute path to your installed JDK 21'
+$java = Join-Path $env:JAVA_HOME 'bin\java.exe'
+$javac = Join-Path $env:JAVA_HOME 'bin\javac.exe'
+if (!(Test-Path -LiteralPath $java) -or !(Test-Path -LiteralPath $javac)) {
+    throw 'JAVA_HOME must point to a JDK containing bin\java.exe and bin\javac.exe'
+}
+$version = & $java --version
+if ($LASTEXITCODE -ne 0 -or ($version -join "`n") -notmatch '(?m)^(openjdk|java) 21(?:[.\s]|$)') {
+    throw 'Select JDK 21 before continuing'
+}
+$version
+if (Get-NetTCPConnection -State Listen -LocalPort 8787 -ErrorAction SilentlyContinue) {
+    throw 'Port 8787 is already occupied; inspect the existing listener first'
+}
+.\mvnw.cmd '-DskipTests' compile
+if ($LASTEXITCODE -ne 0) { throw 'Maven compilation failed' }
+$env:SEPAY_CAPTURE_DIR = Join-Path $env:TEMP ('sepay-capture-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $env:SEPAY_CAPTURE_DIR | Out-Null
+Write-Host "Capture directory: $env:SEPAY_CAPTURE_DIR"
+```
+
+Enter the **same HMAC secret** you configure in SePay. The masked prompt keeps it
+out of command history; it is passed through this process's environment, not
+written to a file or Git. These commands use
+[Read-Host -AsSecureString](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/read-host).
+
+```powershell
+$secureSecret = Read-Host 'SePay webhook HMAC secret' -AsSecureString
+$pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureSecret)
+try {
+    $env:SEPAY_WEBHOOK_SECRET = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+} finally {
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+    $secureSecret.Dispose()
+}
+if ([string]::IsNullOrWhiteSpace($env:SEPAY_WEBHOOK_SECRET)) { throw 'HMAC secret is required' }
+$source = @'
 import com.group5.commerceservice.payment.WebhookSignatureVerifier;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -180,35 +225,98 @@ class WebhookCapture {
         exchange.getResponseBody().write(response);
     }
 }
-JAVA
-java --class-path target/classes "$SEPAY_CAPTURE_DIR/WebhookCapture.java"
+'@
+$receiverSource = Join-Path $env:SEPAY_CAPTURE_DIR 'WebhookCapture.java'
+[System.IO.File]::WriteAllText($receiverSource, $source, [System.Text.UTF8Encoding]::new($false))
+& $java --class-path 'target\classes' $receiverSource
 ```
 
-In another terminal, run `cloudflared tunnel --url http://127.0.0.1:8787`.
-Configure SePay with `<HTTPS tunnel URL>/sepay-spike`, incoming transfers, the
-receiving bank account, JSON and HMAC-SHA256. Only trigger the Live transfer after
-bank connection and the named payer/amount are agreed. The receiver saves the
-first correctly signed delivery without rewriting its bytes; it rejects further
-captures with 409 rather than overwriting evidence. Stop it with Ctrl+C and disable
-the temporary webhook after capture. Its acknowledgement proves receipt/signature
+Keep this window running until capture. Its environment variables are not shared
+with a separate PowerShell window. The Java source is written as UTF-8 without a
+BOM using a literal here-string; the receiver itself is unchanged.
+
+#### 2. Start the tunnel in a second PowerShell window
+
+```powershell
+Get-Command cloudflared.exe -ErrorAction Stop
+cloudflared.exe tunnel --url http://127.0.0.1:8787 --no-autoupdate
+```
+
+Wait for the HTTPS URL and a registered connection in the tunnel output. Use the
+URL printed by **this Windows process**, append `/sepay-spike`, and enter that
+complete URL in SePay. Do not reuse a URL from another session or the Linux agent
+machine. Restarting a Quick Tunnel may produce a different hostname.
+
+In SePay **Test Mode**, select incoming transfers, your test bank account, JSON
+and HMAC-SHA256 with the same secret entered above. A provider-sent Test Mode
+transaction is not a real bank transfer. Live testing is optional and still
+requires confirmed bank connection and the named payer/amount agreement.
+
+#### 3. Check HTTP POST in a third PowerShell window
+
+Use `curl.exe` explicitly: `curl` may be a PowerShell alias. These **unsigned**
+POST checks must return **401** with `{"success":false}`; they check connectivity
+without consuming the first valid capture.
+
+```powershell
+curl.exe -i --request POST --header 'Content-Type: application/json' --data-binary '{}' 'http://127.0.0.1:8787/sepay-spike'
+$publicBaseUrl = Read-Host 'HTTPS base URL printed by your running cloudflared (without /sepay-spike)'
+$webhookUrl = $publicBaseUrl.TrimEnd('/') + '/sepay-spike'
+Write-Host "SePay webhook URL: $webhookUrl"
+curl.exe -i --request POST --header 'Content-Type: application/json' --data-binary '{}' $webhookUrl
+```
+
+Now trigger a simulated transaction in SePay. The first correctly signed delivery
+returns **200** with `{"success":true}` and saves `body.json`, `headers.txt` and
+`received-at.txt` in the capture directory. Later valid requests return 409 rather
+than overwriting evidence. The acknowledgement proves receipt/signature
 verification, **not** an order update, wallet credit or transaction insertion.
+After capture, disable the temporary webhook and stop the receiver and tunnel
+with Ctrl+C in their respective windows. Keep the first PowerShell window open
+for the next step so its capture-directory and secret values remain available.
 
-After a genuine SePay delivery, run in another terminal from `commerce-service`
-with the same local capture-directory and secret environment values:
+#### 4. Run captured-delivery tests in the first PowerShell window
 
-```bash
-mkdir -p ../docs/api
-cp -- "$SEPAY_CAPTURE_DIR/body.json" ../docs/api/sepay-webhook-sample.json
-export SEPAY_CAPTURE_SIGNATURE="$(sed -n 's/^X-SePay-Signature: //p' "$SEPAY_CAPTURE_DIR/headers.txt")"
-export SEPAY_CAPTURE_TIMESTAMP="$(sed -n 's/^X-SePay-Timestamp: //p' "$SEPAY_CAPTURE_DIR/headers.txt")"
-SEPAY_CAPTURE_TEST=true ./mvnw -Dtest=WebhookCapturedDeliveryTest test
-sha256sum ../docs/api/sepay-webhook-sample.json
+Run only after a genuine SePay delivery. Stay in `commerce-service` and reuse the
+same first PowerShell session after stopping its receiver. Copy bytes directly:
+do not use `Get-Content | Set-Content`, JSON reserialization or editor formatting
+for the captured body.
+
+```powershell
+New-Item -ItemType Directory -Path '..\docs\api' -Force | Out-Null
+$capturedBody = Join-Path $env:SEPAY_CAPTURE_DIR 'body.json'
+$sample = Join-Path (Get-Location).Path '..\docs\api\sepay-webhook-sample.json'
+Copy-Item -LiteralPath $capturedBody -Destination $sample
+$headers = @{}
+foreach ($line in (Get-Content -LiteralPath (Join-Path $env:SEPAY_CAPTURE_DIR 'headers.txt'))) {
+    $parts = $line -split ': ', 2
+    if ($parts.Length -eq 2) { $headers[$parts[0]] = $parts[1] }
+}
+$env:SEPAY_CAPTURE_SIGNATURE = $headers['X-SePay-Signature']
+$env:SEPAY_CAPTURE_TIMESTAMP = $headers['X-SePay-Timestamp']
+$originalHash = (Get-FileHash -LiteralPath $capturedBody -Algorithm SHA256).Hash
+$sampleHash = (Get-FileHash -LiteralPath $sample -Algorithm SHA256).Hash
+if ($originalHash -ne $sampleHash) { throw 'Copied fixture bytes do not match the original delivery' }
+$env:SEPAY_CAPTURE_TEST = 'true'
+try {
+    .\mvnw.cmd '-Dtest=WebhookCapturedDeliveryTest' test
+    if ($LASTEXITCODE -ne 0) { throw 'Captured-delivery verification failed' }
+} finally {
+    Remove-Item Env:SEPAY_CAPTURE_TEST -ErrorAction SilentlyContinue
+}
+Get-FileHash -LiteralPath $sample -Algorithm SHA256
 ```
 
-Record the actual headers, hash, received-at time, environment and delivery-history
-evidence in this ADR before committing the raw body. Do not redact a signed body;
-if publishing it is unsuitable, obtain a suitable provider-sent Test Mode delivery
-instead. Preserve its exact bytes through Git as described above.
+Record the actual headers, hash, received-at time, **Test Mode** environment and
+delivery-history evidence in this ADR before committing the raw body. Do not
+redact a signed body; obtain a suitable provider-sent Test Mode delivery instead
+if publishing it is unsuitable. Preserve its exact bytes through Git as described
+above, including on Windows checkouts. After tests, clear credentials from this
+PowerShell session (keep the original in your approved local secret store):
+
+```powershell
+Remove-Item Env:SEPAY_WEBHOOK_SECRET, Env:SEPAY_CAPTURE_SIGNATURE, Env:SEPAY_CAPTURE_TIMESTAMP -ErrorAction SilentlyContinue
+```
 
 ## Payment issue re-estimation
 
@@ -243,14 +351,17 @@ is not a replacement for the body-tampering acceptance criterion.
 
 ## Validation and acceptance tracking
 
-Run using the project's Java 21 toolchain, from `commerce-service`:
+Run in Windows PowerShell using the project's Java 21 toolchain, from
+`commerce-service`, with `JAVA_HOME` configured as above:
 
-```bash
-./mvnw -Dtest=WebhookSignatureVerifierTest test
-./mvnw verify
+```powershell
+.\mvnw.cmd '-Dtest=WebhookSignatureVerifierTest' test
+if ($LASTEXITCODE -ne 0) { throw 'Verifier unit tests failed' }
+.\mvnw.cmd verify
+if ($LASTEXITCODE -ne 0) { throw 'Commerce verification failed' }
 ```
 
-`WebhookCapturedDeliveryTest` is opt-in via `SEPAY_CAPTURE_TEST=true`. The two tests
+`WebhookCapturedDeliveryTest` is opt-in via `$env:SEPAY_CAPTURE_TEST = 'true'`. The two tests
 are **skipped**, not passed, in ordinary builds without that flag. Once enabled,
 missing sample/headers/secret fail the build instead of silently skipping. The
 tests read the original file bytes and never generate or re-sign a fixture. A
@@ -263,10 +374,10 @@ bytes, single-byte mutations, wrong key/headers, body reserialization, missing o
 malformed input, timestamp bounds and the inclusive five-minute window. This is
 protocol-level validation only, not proof of receiving a provider delivery.
 
-Observed locally on 2026-10-17, using Java 21:
+Historical validation on Linux on 2026-10-17, using Java 21:
 
 - Targeted verifier suite: **40 tests, 0 failures, 0 errors, 0 skipped**.
-- Commerce `./mvnw verify`: **50 tests, 0 failures, 0 errors, 0 skipped; BUILD SUCCESS**.
+- Commerce Maven `verify`: **50 tests, 0 failures, 0 errors, 0 skipped; BUILD SUCCESS**.
 - Verifier compilation with `javac -Xlint:all -Werror`: passed.
 - Config Service started and returned HTTP 200 for its health endpoint.
 - Commerce started against PostgreSQL with the existing `ddl-auto: validate`
@@ -274,10 +385,10 @@ Observed locally on 2026-10-17, using Java 21:
   this local smoke check; `GET /actuator/info` returned HTTP 200. No schema or
   application configuration was changed.
 
-Observed locally on 2026-10-18, using Java 21:
+Historical validation on Linux on 2026-10-18, using Java 21:
 
 - Targeted suites: **40 passed, 2 capture tests skipped**; no failures/errors.
-- Commerce `./mvnw verify`: **50 passed, 2 capture tests skipped; BUILD SUCCESS**.
+- Commerce Maven `verify`: **50 passed, 2 capture tests skipped; BUILD SUCCESS**.
 - Enabled capture tests fail when the secret or fixture is missing. Their wiring
   was also checked with an isolated temporary synthetic fixture: both assertions
   pass for its valid signature and fail after mutation of that fixture. This is
@@ -286,13 +397,27 @@ Observed locally on 2026-10-18, using Java 21:
   Java 21. Local synthetic HTTP checks covered valid HMAC/200 acknowledgement,
   original-byte/header preservation, invalid signature, changed body, expired
   timestamp, method/path, oversized body and refusal to overwrite a capture.
-- All three Bash command blocks passed `bash -n`; `git diff --check` passed.
+- The previous Bash instructions passed `bash -n`; those instructions are now
+  replaced by the Windows PowerShell procedure above. `git diff --check` passed.
 - No production source, dependency, database, application configuration or deployed
   endpoint changed; no tunnel was left running by these local checks.
 
-As of 2026-10-18 the account is registered according to the user, but bank
-configuration and provider capture are still pending. No provider delivery,
-passing captured-delivery test or GitLab checkbox screenshot can be claimed.
+Windows instruction validation on 2026-10-18:
+
+- All **7 PowerShell code blocks** parsed without errors in PowerShell 7.5.4 on
+  the Linux validation host. There are no remaining Bash capture command blocks.
+- The literal here-string and UTF-8 writer produced byte-identical Java receiver
+  source, which compiled under Java 21 with `javac -Xlint:all -Werror`.
+- PowerShell checks exercised the masked-input conversion with a synthetic
+  secret, byte-preserving copy of UTF-8/CRLF data, header extraction and SHA-256
+  comparison in an isolated temporary directory; no provider sample was created.
+- Native Windows execution of `mvnw.cmd`, `Get-NetTCPConnection` and
+  `cloudflared.exe`, and Windows PowerShell 5.1 execution, remain unverified on
+  this Linux host. These checks do not claim a Windows end-to-end capture.
+
+As of 2026-10-18 the user reports a registered account and a configured Test Mode
+bank account, but provider capture is still pending. No provider delivery, passing
+captured-delivery test or GitLab checkbox screenshot can be claimed.
 
 ### Subtasks
 
