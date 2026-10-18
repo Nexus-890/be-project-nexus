@@ -7,6 +7,8 @@
 | POST | /api/v1/products | PRODUCT.CREATE |
 | PUT | /api/v1/products/{id} | PRODUCT.UPDATE |
 | GET | /api/v1/products/{id} | Public |
+| GET | /api/v1/carts/me | Authenticated |
+| POST | /api/v1/carts/me/items | Authenticated |
 
 The gateway must forward Authorization to catalog-service. The service validates
 the JWT using common-security and checks PRODUCT.CREATE. sellerId comes from the

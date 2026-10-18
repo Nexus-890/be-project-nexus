@@ -35,16 +35,27 @@ public class RouteConfig {
                         .path(
                                 "/api/v1/categories/**",
                                 "/api/v1/products/**",
-                                "/api/v1/skus/**")
+                                "/api/v1/skus/**"
+                        )
                         .filters(filters -> filters.requestRateLimiter(config ->
                                 config.setRateLimiter(limiter)
                                         .setKeyResolver(resolver)
                                         .setThrowOnLimit(true)))
                         .uri("lb://catalog-service"))
 
-                //SAU NÀY TỰ THÊM NHA HIHI
-                .build();
+                .route("commerce-service", route -> route
+                        .path(
+                                "/api/v1/carts/**",
+                                "/api/v1/orders/**",
+                                "/api/v1/checkout/**"
+                        )
+                        .filters(filters -> filters.requestRateLimiter(config ->
+                                config.setRateLimiter(limiter)
+                                        .setKeyResolver(resolver)
+                                        .setThrowOnLimit(true)))
+                        .uri("lb://commerce-service"))
 
+                .build();
     }
 
 }
