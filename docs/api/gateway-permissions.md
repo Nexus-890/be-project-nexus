@@ -16,32 +16,32 @@ still rejected. Listed SRS 2.7 privileges must appear verbatim in the JWT
 Downstream services validate JWTs again and enforce ownership/business rules
 independently, as required by ADR-006.
 
-| Path | Method | Public or required privilege | Owning issue |
-|---|---|---|---|
-| `/api/v1/auth/register` | POST | Public | #74 — User registration with a default role |
-| `/api/v1/auth/login` | POST | Public | #71 — Login endpoint |
-| `/.well-known/jwks.json` | GET | Public | #72 — JWKS endpoint |
-| `/api/v1/products` | GET | Public | #99 — Product lists |
-| `/api/v1/products/{id}` | GET | Public | #83 — Product create, update and read |
-| `/api/v1/categories/{id}` | GET | Public | #80 — Category create, update and read |
-| `/api/v1/categories/tree` | GET | Public | #81 — Category tree endpoint |
-| `/api/v1/products/{id}/skus` | GET | Public | #100 — SKU public reads and product visibility |
-| `/api/v1/skus/{id}` | GET | Public | #86 / #100 — SKU reads and product visibility |
-| `/api/v1/users/me` | GET | PROFILE.VIEW | #75 — Own profile: read and update |
-| `/api/v1/users/me` | PUT | PROFILE.UPDATE | #75 — Own profile: read and update |
-| `/api/v1/users` | GET | USER.LIST | #76 — Admin user list and user by id |
-| `/api/v1/products` | POST | PRODUCT.CREATE | #83 — Product create, update and read |
-| `/api/v1/products/mine` | GET | PRODUCT.LIST | #99 — Product lists |
-| `/api/v1/products/{id}` | PUT | PRODUCT.UPDATE | #83 — Product create, update and read |
-| `/api/v1/products/{id}/status` | PATCH | PRODUCT.UPDATE | #84 — Product status workflow |
-| `/api/v1/products/{id}` | DELETE | PRODUCT.DELETE | #85 — Product soft delete |
-| `/api/v1/categories` | POST | CATEGORY.CREATE | #80 — Category create, update and read |
-| `/api/v1/categories/{id}` | PATCH | CATEGORY.UPDATE | #80 — Category create, update and read |
-| `/api/v1/categories/{id}` | DELETE | CATEGORY.DELETE | #82 — Category delete guard |
-| `/api/v1/products/{id}/skus` | POST | PRODUCT.UPDATE | #86 — SKU create, update and read |
-| `/api/v1/skus/{id}` | PUT | PRODUCT.UPDATE | #86 — SKU create, update and read |
-| `/api/v1/carts/me` | GET | Authenticated | #88 — Cart: get-or-create and add item |
-| `/api/v1/carts/me/items` | POST | Authenticated | #88 — Cart: get-or-create and add item |
+| Path | Method | Public or required privilege | Owning issue                                            |
+|---|---|---|---------------------------------------------------------|
+| `/api/v1/auth/register` | POST | Public | #74 — User registration with a default role             |
+| `/api/v1/auth/login` | POST | Public | #71 — Login endpoint                                    |
+| `/.well-known/jwks.json` | GET | Public | #72 — JWKS endpoint                                     |
+| `/api/v1/products` | GET | Public | #99 — Product lists                                     |
+| `/api/v1/products/{id}` | GET | Public | #83 — Product create, update and read                   |
+| `/api/v1/categories/{id}` | GET | Public | #80 — Category create, update and read                  |
+| `/api/v1/categories/tree` | GET | Public | #81 — Category tree endpoint                            |
+| `/api/v1/products/{id}/skus` | GET | Public | #100 — SKU public reads and product visibility          |
+| `/api/v1/skus/{id}` | GET | Public | #86 / #100 — SKU reads and product visibility           |
+| `/api/v1/users/me` | GET | PROFILE.VIEW | #75 — Own profile: read and update                      |
+| `/api/v1/users/me` | PUT | PROFILE.UPDATE | #75 — Own profile: read and update                      |
+| `/api/v1/users` | GET | USER.LIST | #76 — Admin user list and user by id                    |
+| `/api/v1/products` | POST | PRODUCT.CREATE | #83 — Product create, update and read                   |
+| `/api/v1/products/mine` | GET | PRODUCT.LIST | #99 — Product lists                                     |
+| `/api/v1/products/{id}` | PUT | PRODUCT.UPDATE | #83 — Product create, update and read                   |
+| `/api/v1/products/{id}/status` | PATCH | PRODUCT.UPDATE | #84 — Product status workflow                           |
+| `/api/v1/products/{id}` | DELETE | PRODUCT.DELETE | #85 — Product soft delete                               |
+| `/api/v1/categories` | POST | CATEGORY.CREATE | #80 — Category create, update and read                  |
+| `/api/v1/categories/{id}` | PATCH | CATEGORY.UPDATE | #80 — Category create, update and read                  |
+| `/api/v1/categories/{id}` | DELETE | CATEGORY.DELETE | #82 — Category delete guard                             |
+| `/api/v1/products/{id}/skus` | POST | PRODUCT.UPDATE | #86 — SKU create, update and read                       |
+| `/api/v1/skus/{id}` | PUT | PRODUCT.UPDATE | #86 — SKU create, update and read                       |
+| `/api/v1/carts/me` | GET | Authenticated | #110 — Cart: get-or-create and add item                 |
+| `/api/v1/carts/me/items` | POST | Authenticated | #110 — Cart: get-or-create and add item                 |
 | Any other path | Any other method/path pair | Token required; add the SRS privilege before exposing a new endpoint | Gateway JWT filter and permit list; future owning issue |
 
 `GET /api/v1/users/{id}` (#76) has no row on purpose: a caller may read their own
