@@ -1,6 +1,6 @@
 # ADR-007: Payment Provider — SePay
 
-**Status:** Proposed — SePay account/API access and a Live receiving bank are available; the Test Mode signature spike is complete. An authorized Live transfer still needs a named payer and agreed amount.
+**Status:** Proposed — SePay account/API access and a Live receiving bank are available; the Test Mode signature spike is complete. A named payer and fixed amount are agreed for the authorized Live smoke test.
 
 **Date:** 2026-10-17; updated 2026-10-19.
 
@@ -30,8 +30,8 @@ A Test Mode account is **not** evidence of an actual bank connection or an agree
 | Live receiving bank, account reference, and legal owner | **VietinBank**, account reference ending `4041`; owner **Trần Quốc Chung**. The full account number is deliberately excluded from GitLab and Git. | **Confirmed** |
 | Authorized people who may inspect the Live bank statement | The owner, **Trần Quốc Chung**, has dashboard access evidenced by the connected Live account. Any additional authorized readers still need team confirmation. | **Partial** |
 | Dashboard bank evidence | A Live SePay dashboard screenshot shows the connected VietinBank account and account-owner label. Attach only a redacted copy to the GitLab issue. | **Confirmed; redacted attachment required** |
-| Person paying for agreed Live test transfers | **Pending:** no named payer agreement. | **Pending** |
-| Agreed amount for Live test transfer (VND) | **Pending:** 10,000 VND below was a simulated test value, not an agreed amount for a real transfer. | **Pending** |
+| Person paying for agreed Live test transfers | **Nguyễn Trường An** — designated payer for the authorized Live smoke test. | **Confirmed** |
+| Agreed amount for Live test transfer (VND) | **10,000 VND per transfer** — fixed amount agreed for the authorized Live smoke test. | **Confirmed** |
 
 The unsuccessful Vietcombank Live attempt must not be described as the connected bank: its current connection flow did not support the available personal account. The configured Live receiving bank is now VietinBank. Neither the historical Test Mode bank nor its display name is evidence of a Live account or of any person's ownership.
 
@@ -63,7 +63,7 @@ SePay provides **Test Mode**, per the [Test Mode documentation](https://docs.sep
 
 **Decision:** SePay Live remains the required environment for operational acceptance. The existing Test Mode capture is retained solely as technical evidence: it is a provider-sent signed callback and supports raw-byte HMAC verification, but it cannot substitute for a Live bank connection, a Live transfer, or Live acceptance evidence.
 
-A Live bank-connection smoke test can be prepared now that a supported Live receiving bank and its owner are documented. Before it is executed, the team must explicitly confirm the payer, the agreed amount, and any additional people authorized to inspect the bank statement. None of these facts may be inferred from the Test Mode dashboard or historical capture.
+A Live bank-connection smoke test can be prepared now that a supported Live receiving bank and its owner are documented. The agreed payer is Nguyễn Trường An and the agreed amount is 10,000 VND per transfer. Before execution, confirm any additional people authorized to inspect the bank statement. This is a planned, authorized smoke test; it must not be described as completed until SePay reports a successful Live delivery and the evidence is retained.
 
 The [webhook integration guide](https://docs.sepay.vn/tich-hop-webhooks.html) describes an acknowledgement using HTTP 200/201 and `{"success":true}` within 30 seconds. Transport retries and duplicate callbacks must be checked separately from business-level `PAYMENT_RETRY_LIMIT`.
 
@@ -358,7 +358,7 @@ Provide non-secret/redacted evidence for: (a) SePay Test Mode ACB bank/account c
 - **DONE — Test Mode evidence:** `docs/api/sepay-webhook-sample.json` is the committed 305-byte provider-sent Test Mode raw body; its local-capture and fixture SHA-256 values match.
 - **DONE — Test Mode evidence:** The captured body passes with its actual local signature headers: `WebhookCapturedDeliveryTest` passed 2/2 with no skips.
 - **DONE — Test Mode evidence:** The same captured body with one byte changed fails verification in the second unskipped captured-delivery test.
-- **BLOCKED:** ADR names the agreed payer and amount for a real Live transfer; neither has been confirmed.
+- **DONE — planned Live smoke test:** ADR names Nguyễn Trường An as the agreed payer and 10,000 VND as the agreed amount per transfer. This is not evidence that a Live transfer has already occurred.
 - **PENDING:** Payment issue estimates must be reconciled with current tracker values and reviewer approval.
 
 Keep GitLab checkboxes open until the corresponding evidence and/or approval is linked. **Test Mode delivery validates the spike's signed-webhook mechanism; it does not resolve the Live operational prerequisites.**
@@ -379,6 +379,6 @@ Keep GitLab checkboxes open until the corresponding evidence and/or approval is 
 
 The team can develop and test a correct raw-body HMAC verifier using a genuine **Test Mode provider-sent** fixture, without integrating a live bank, deploying a callback endpoint, or implementing money movement. The fixture must remain byte-identical after Git checkout; it is not enough that the parsed JSON looks equivalent. This is only a technical spike result: SePay **Live** remains the operational target.
 
-**Still Pending or Blocked:** shared secret-storage/access policy; confirmation of any Live statement readers beyond the owner; named payer and agreed Live transfer amount; an authorized Live smoke test; fixture privacy review before staging; finalized GitLab issue estimates; reviewer approval.
+**Still Pending or Blocked:** shared secret-storage/access policy; confirmation of any Live statement readers beyond the owner; execution and evidence retention for the authorized Live smoke test; fixture privacy review before staging; finalized GitLab issue estimates; reviewer approval.
 
 Future #120/#121/#155–#157 work owns production provider configuration, VietQR initiation, HMAC-protected callback integration, memo matching, idempotent order transitions, and unreconciled-transfer handling. None of those business behaviors is claimed to have been implemented by this spike.
