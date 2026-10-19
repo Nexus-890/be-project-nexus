@@ -14,5 +14,5 @@ public class CartItemResponse {
     private UUID productId;
     private UUID skuId;
     private Integer quantity;
-    private BigDecimal price;
+    private BigDecimal unitPrice;
 }

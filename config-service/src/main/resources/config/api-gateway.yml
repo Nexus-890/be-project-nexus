@@ -110,6 +110,12 @@ nexus:
       - method: PUT
         path: /api/v1/skus/{id}
         privilege: PRODUCT.UPDATE
+      - method: GET
+        path: /api/v1/carts/me
+        privilege: CART.VIEW
+      - method: POST
+        path: /api/v1/carts/me/items
+        privilege: CART.UPDATE
   gateway:
     rate-limit:
       # Có thể đổi qua Config Server và /actuator/refresh; đủ cho polling 2 giây.

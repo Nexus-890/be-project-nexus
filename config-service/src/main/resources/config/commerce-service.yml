@@ -22,7 +22,7 @@ nexus:
     jwt:
       issuer: user-service
       audience: nexus-services
-      jwk-set-uri: http://localhost:8081/.well-known/jwks.json
+      jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:8081/.well-known/jwks.json}
   cart:
     max-active-per-user: 1
     allow-guest-cart: false
