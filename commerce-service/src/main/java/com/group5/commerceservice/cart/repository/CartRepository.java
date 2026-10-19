@@ -13,6 +13,10 @@ public interface CartRepository extends JpaRepository<Cart, UUID> {
 
     Optional<Cart> findByUserIdAndStatus(UUID userId, String status);
 
+    // ON CONFLICT dựa trên partial unique index idx_carts_one_active
+    // (user_id WHERE status='ACTIVE' AND user_id IS NOT NULL).
+    // Nếu cart ACTIVE đã tồn tại → DO NOTHING; nếu chưa → INSERT.
+    // Cách này an toàn với nhiều request đồng thời: chỉ đúng một row được tạo.
     @Modifying
     @Query(
             value = """
@@ -28,19 +32,8 @@ public interface CartRepository extends JpaRepository<Cart, UUID> {
             @Param("userId") UUID userId
     );
 
-    @Modifying
-    @Query(value = """
-    UPDATE carts
-       SET status = 'EXPIRED',
-           updated_at = CURRENT_TIMESTAMP
-     WHERE status = 'ACTIVE'
-       AND updated_at < CURRENT_TIMESTAMP
-           - (:expirationDays * INTERVAL '1 day')
-    """, nativeQuery = true)
-    int expireStaleActiveCarts(
-            @Param("expirationDays") int expirationDays
-    );
-
+    // Cập nhật updated_at để "đánh dấu" cart còn hoạt động,
+    // trả về số row bị ảnh hưởng (0 nếu cart đã không còn ACTIVE).
     @Modifying
     @Query(value = """
     UPDATE carts
@@ -49,4 +42,19 @@ public interface CartRepository extends JpaRepository<Cart, UUID> {
        AND status = 'ACTIVE'
     """, nativeQuery = true)
     int touchActiveCart(@Param("cartId") UUID cartId);
+
+    // Expire các cart ACTIVE không có hoạt động trong expirationDays ngày.
+    @Modifying
+    @Query(value = """
+    UPDATE carts
+       SET status     = 'EXPIRED',
+           updated_at = CURRENT_TIMESTAMP
+     WHERE status = 'ACTIVE'
+       AND updated_at < (
+           CURRENT_TIMESTAMP - (:expirationDays * INTERVAL '1 day')
+       )
+    """, nativeQuery = true)
+    int expireInactiveActiveCarts(
+            @Param("expirationDays") int expirationDays
+    );
 }

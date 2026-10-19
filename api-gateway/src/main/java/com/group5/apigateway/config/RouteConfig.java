@@ -45,10 +45,6 @@ public class RouteConfig {
 
                 .route("commerce-service", route -> route
                         .path(
-                                "/api/v1/users/**",
-                                "/api/v1/products/**",
-                                "/api/v1/categories/**",
-                                "/api/v1/skus/**",
                                 "/api/v1/carts/**"
                         )
                         .filters(filters -> filters.requestRateLimiter(config ->

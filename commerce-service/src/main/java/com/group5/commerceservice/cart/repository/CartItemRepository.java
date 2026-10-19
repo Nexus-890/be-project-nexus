@@ -15,10 +15,12 @@ public interface CartItemRepository
 
     List<CartItem> findByCart_Id(UUID cartId);
 
-    @Modifying
+    // clearAutomatically = true: buộc Hibernate xóa first-level cache sau khi
+    // native upsert chạy xong, để findByCart_Id trong cùng transaction đọc
+    // đúng quantity đã được cộng dồn thay vì trả về giá trị cũ từ cache.
+    @Modifying(clearAutomatically = true)
     @Query(value = """
-            
-                    INSERT INTO cart_items (
+            INSERT INTO cart_items (
                 id, cart_id, product_id, sku_id, quantity, price
             )
             VALUES (
@@ -27,7 +29,7 @@ public interface CartItemRepository
             ON CONFLICT (cart_id, sku_id)
             DO UPDATE SET
                 quantity = cart_items.quantity + EXCLUDED.quantity,
-                price = EXCLUDED.price
+                price    = EXCLUDED.price
             """, nativeQuery = true)
     void addOrIncreaseQuantity(
             @Param("id") UUID id,

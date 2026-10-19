@@ -15,29 +15,27 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/carts")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('BUYER')")
 public class CartController {
 
     private final CartService cartService;
 
-
+    // Gateway yêu cầu CART.VIEW (primary privilege).
+    // Service yêu cầu thêm CART.CREATE vì GET /me có thể tạo cart lần đầu.
+    // Ref: docs/api/gateway-permissions.md — CRT-01
     @GetMapping("/me")
-    @PreAuthorize("hasAuthority('CART.VIEW') and hasAuthority('CART.CREATE')"
-    )
+    @PreAuthorize("hasAuthority('CART.VIEW') and hasAuthority('CART.CREATE')")
     public ResponseEntity<CartResponse> getMyCart(
             @AuthenticationPrincipal CurrentUser currentUser) {
-
-        return ResponseEntity.ok(
-                cartService.getMyCart(currentUser)
-        );
+        return ResponseEntity.ok(cartService.getMyCart(currentUser));
     }
 
+    // Gateway yêu cầu CART.UPDATE (primary privilege).
+    // Ref: docs/api/gateway-permissions.md — CRT-02
     @PostMapping("/me/items")
     @PreAuthorize("hasAuthority('CART.UPDATE')")
     public ResponseEntity<CartResponse> addItem(
             @AuthenticationPrincipal CurrentUser currentUser,
             @Valid @RequestBody CartItemRequest request) {
-
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(cartService.addItem(currentUser, request));
