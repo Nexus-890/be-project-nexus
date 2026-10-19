@@ -49,6 +49,7 @@ Quy ước đặt topic:
 
 - Không tạo một topic cho mỗi table.
 - Mỗi service sở hữu domain có đúng một topic `nexus.<domain>.events`.
+- Code Java lấy tên topic từ hằng `Topics` trong `lib/common-events`, không gõ chuỗi tên topic.
 - Dùng key ổn định theo aggregate để Kafka giữ ordering trong cùng một partition.
 
 ## Service nào có Kafka client

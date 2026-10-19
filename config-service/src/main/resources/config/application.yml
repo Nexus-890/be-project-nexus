@@ -60,9 +60,3 @@ nexus:
   kafka:
     demo:
       topic: nexus.training.integration.v1
-    topics:
-      user: nexus.user.events
-      catalog: nexus.catalog.events
-      commerce: nexus.commerce.events
-      auction: nexus.auction.events
-      fulfillment: nexus.fulfillment.events
