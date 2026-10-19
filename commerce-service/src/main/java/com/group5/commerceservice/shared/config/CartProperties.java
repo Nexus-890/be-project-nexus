@@ -12,6 +12,30 @@ import org.springframework.stereotype.Component;
 public class CartProperties {
 
     private int maxActivePerUser = 1;
-
     private boolean allowGuestCart = false;
+    private int expirationDays = 7;
+
+    public int getMaxActivePerUser() {
+        return maxActivePerUser;
+    }
+
+    public void setMaxActivePerUser(int maxActivePerUser) {
+        this.maxActivePerUser = maxActivePerUser;
+    }
+
+    public boolean isAllowGuestCart() {
+        return allowGuestCart;
+    }
+
+    public void setAllowGuestCart(boolean allowGuestCart) {
+        this.allowGuestCart = allowGuestCart;
+    }
+
+    public int getExpirationDays() {
+        return expirationDays;
+    }
+
+    public void setExpirationDays(int expirationDays) {
+        this.expirationDays = expirationDays;
+    }
 }
