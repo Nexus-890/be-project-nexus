@@ -11,31 +11,12 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "nexus.cart")
 public class CartProperties {
 
+    // Số lượng cart ACTIVE tối đa cho mỗi user, giá trị mặc định là 1 theo SRS 2.6.
+    // DB partial unique index (idx_carts_one_active) enforce giới hạn này.
+    
     private int maxActivePerUser = 1;
+
+    //Không cho phép cart.
+
     private boolean allowGuestCart = false;
-    private int expirationDays = 7;
-
-    public int getMaxActivePerUser() {
-        return maxActivePerUser;
-    }
-
-    public void setMaxActivePerUser(int maxActivePerUser) {
-        this.maxActivePerUser = maxActivePerUser;
-    }
-
-    public boolean isAllowGuestCart() {
-        return allowGuestCart;
-    }
-
-    public void setAllowGuestCart(boolean allowGuestCart) {
-        this.allowGuestCart = allowGuestCart;
-    }
-
-    public int getExpirationDays() {
-        return expirationDays;
-    }
-
-    public void setExpirationDays(int expirationDays) {
-        this.expirationDays = expirationDays;
-    }
 }
