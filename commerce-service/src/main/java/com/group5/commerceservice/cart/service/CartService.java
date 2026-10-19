@@ -1,9 +1,9 @@
 package com.group5.commerceservice.cart.service;
 
+import com.group5.commerceservice.cart.dto.CatalogClient;
 import com.group5.common_core.constant.ErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
-import com.group5.commerceservice.cart.dto.CatalogClient;
 import com.group5.commerceservice.cart.dto.CatalogSkuResponse;
 import com.group5.commerceservice.cart.entity.Cart;
 import com.group5.commerceservice.cart.entity.CartItem;
@@ -33,6 +33,7 @@ public class CartService {
     @Transactional
     public CartResponse getMyCart(CurrentUser currentUser) {
         UUID userId = requireUserId(currentUser);
+
         Cart cart = getOrCreateActiveCart(userId);
 
         return toResponse(cart);
@@ -71,8 +72,7 @@ public class CartService {
         Cart cart = getOrCreateActiveCart(userId);
 
         if (cartRepository.touchActiveCart(cart.getId()) == 0) {
-            // Cart có thể vừa bị job chuyển sang EXPIRED.
-            // Lấy hoặc tạo lại cart ACTIVE.
+            // Cart có thể vừa bị chuyển sang EXPIRED.
             cart = getOrCreateActiveCart(userId);
 
             if (cartRepository.touchActiveCart(cart.getId()) == 0) {
@@ -101,15 +101,17 @@ public class CartService {
     }
 
     private Cart getOrCreateActiveCart(UUID userId) {
-        return cartRepository.findByUserIdAndStatus(userId, ACTIVE)
-                .orElseGet(() -> {
-                    cartRepository.createActiveCartIfAbsent(
-                            UUID.randomUUID(), userId);
+        // Unique index và ON CONFLICT xử lý trường hợp cart đã tồn tại
+        // hoặc nhiều request đồng thời cùng tạo cart.
+        cartRepository.createActiveCartIfAbsent(
+                UUID.randomUUID(),
+                userId
+        );
 
-                    return cartRepository.findByUserIdAndStatus(userId, ACTIVE)
-                            .orElseThrow(
-                                    () -> new DomainException(ErrorCode.DB_ERROR));
-                });
+        return cartRepository.findByUserIdAndStatus(userId, ACTIVE)
+                .orElseThrow(
+                        () -> new DomainException(ErrorCode.DB_ERROR)
+                );
     }
 
     private CartResponse toResponse(Cart cart) {
