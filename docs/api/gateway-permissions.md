@@ -40,8 +40,8 @@ independently, as required by ADR-006.
 | `/api/v1/categories/{id}` | DELETE | CATEGORY.DELETE | #82 — Category delete guard                             |
 | `/api/v1/products/{id}/skus` | POST | PRODUCT.UPDATE | #86 — SKU create, update and read                       |
 | `/api/v1/skus/{id}` | PUT | PRODUCT.UPDATE | #86 — SKU create, update and read                       |
-| `/api/v1/carts/me` | GET | Authenticated | #110 — Cart: get-or-create and add item                 |
-| `/api/v1/carts/me/items` | POST | Authenticated | #110 — Cart: get-or-create and add item                 |
+| `/api/v1/carts/me` | GET | CART.VIEW | #110 — Cart: get-or-create and add item                 |
+| `/api/v1/carts/me/items` | POST | CART.UPDATE | #110 — Cart: get-or-create and add item                 |
 | Any other path | Any other method/path pair | Token required; add the SRS privilege before exposing a new endpoint | Gateway JWT filter and permit list; future owning issue |
 
 `GET /api/v1/users/{id}` (#76) has no row on purpose: a caller may read their own
