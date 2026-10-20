@@ -14,6 +14,7 @@ import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +22,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class CartService {
 
@@ -75,6 +77,11 @@ public class CartService {
         if (cartRepository.touchActiveCart(cart.getId()) == 0) {
             cart = getOrCreateActiveCart(userId);
             if (cartRepository.touchActiveCart(cart.getId()) == 0) {
+                log.error(
+                        "Failed to update active cart after retry. userId={}, cartId={}",
+                        userId,
+                        cart.getId()
+                );
                 throw new DomainException(ErrorCode.DB_ERROR);
             }
         }
@@ -109,8 +116,13 @@ public class CartService {
     // kể cả khi nhiều request chạy đồng thời.
     private Cart getOrCreateActiveCart(UUID userId) {
         cartRepository.createActiveCartIfAbsent(UUID.randomUUID(), userId);
-        return cartRepository.findByUserIdAndStatus(userId, ACTIVE)
-                .orElseThrow(() -> new DomainException(ErrorCode.DB_ERROR));
+        return cartRepository.findByUserIdAndStatus(userId, ACTIVE).orElseThrow(() -> {
+                    log.error(
+                            "Active cart not found after create-or-get. userId={}",
+                            userId
+                    );
+                throw new  DomainException(ErrorCode.DB_ERROR);
+                });
     }
 
     private CartResponse toResponse(Cart cart) {

@@ -11,9 +11,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
 @ConfigurationPropertiesScan
-@EnableFeignClients(basePackages = "com.group5.commerceservice.cart.dto")
-@Import(GlobalExceptionHandler.class)
-@EnableScheduling
+@EnableFeignClients
 public class CommerceServiceApplication {
 
 	public static void main(String[] args) {
