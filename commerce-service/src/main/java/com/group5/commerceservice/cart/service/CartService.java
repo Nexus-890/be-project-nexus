@@ -118,9 +118,7 @@ public class CartService {
         cartRepository.createActiveCartIfAbsent(UUID.randomUUID(), userId);
         return cartRepository.findByUserIdAndStatus(userId, ACTIVE).orElseThrow(() -> {
                     log.error(
-                            "Active cart not found after create-or-get. userId={}",
-                            userId
-                    );
+                            "Active cart not found after create-or-get. userId={}", userId);
                 throw new  DomainException(ErrorCode.DB_ERROR);
                 });
     }

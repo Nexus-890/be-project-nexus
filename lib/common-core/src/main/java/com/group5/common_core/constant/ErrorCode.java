@@ -76,7 +76,10 @@ public enum ErrorCode {
 
     //========SKU
     SKU_DUPLICATE ("Duplicate SKU code or variant", HttpStatus.CONFLICT),
-    SKU_NOT_FOUND("SKU not found", HttpStatus.NOT_FOUND);
+    SKU_NOT_FOUND("SKU not found", HttpStatus.NOT_FOUND),
+
+    //=======Cart
+    INVALID_CONFIGURATION("Expiration-days must be greater or equal to 1",HttpStatus.INTERNAL_SERVER_ERROR);
 
 
 
