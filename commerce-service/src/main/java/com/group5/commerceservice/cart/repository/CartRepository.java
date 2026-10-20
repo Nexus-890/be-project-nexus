@@ -42,19 +42,4 @@ public interface CartRepository extends JpaRepository<Cart, UUID> {
        AND status = 'ACTIVE'
     """, nativeQuery = true)
     int touchActiveCart(@Param("cartId") UUID cartId);
-
-    // Expire các cart ACTIVE không có hoạt động trong expirationDays ngày.
-    @Modifying
-    @Query(value = """
-    UPDATE carts
-       SET status     = 'EXPIRED',
-           updated_at = CURRENT_TIMESTAMP
-     WHERE status = 'ACTIVE'
-       AND updated_at < (
-           CURRENT_TIMESTAMP - (:expirationDays * INTERVAL '1 day')
-       )
-    """, nativeQuery = true)
-    int expireInactiveActiveCarts(
-            @Param("expirationDays") int expirationDays
-    );
 }

@@ -17,7 +17,4 @@ public class CartProperties {
 
     //Không cho phép cart.
     private boolean allowGuestCart = false;
-
-    //Số ngày không hoạt động trước khi cart ACTIVE bị chuyển sang EXPIRED. Dùng giá trị >= 1.
-    private int expirationDays = 7;
 }
