@@ -135,15 +135,12 @@
 			<artifactId>common-web</artifactId>
 			<version>${project.version}</version>
 		</dependency>
-<<<<<<< HEAD
 
-=======
 		<dependency>
 			<groupId>com.group5</groupId>
 			<artifactId>common-events</artifactId>
 			<version>1.0.0</version>
 		</dependency>
->>>>>>> 37725bdbf1807d43527da67d0295834b5af42409
 	</dependencies>
 
 </project>
