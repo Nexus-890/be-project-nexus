@@ -20,11 +20,11 @@ public interface CartRepository extends JpaRepository<Cart, UUID> {
     @Modifying
     @Query(
             value = """
-            INSERT INTO carts (id, user_id, status, created_at, updated_at)
-            VALUES (:id, :userId, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            ON CONFLICT (user_id) WHERE status = 'ACTIVE' AND user_id IS NOT NULL
-            DO NOTHING
-            """,
+                    INSERT INTO carts (id, user_id, status, created_at, updated_at)
+                    VALUES (:id, :userId, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT (user_id) WHERE status = 'ACTIVE' AND user_id IS NOT NULL
+                    DO NOTHING
+                    """,
             nativeQuery = true
     )
     void createActiveCartIfAbsent(
@@ -36,10 +36,24 @@ public interface CartRepository extends JpaRepository<Cart, UUID> {
     // trả về số row bị ảnh hưởng (0 nếu cart đã không còn ACTIVE).
     @Modifying
     @Query(value = """
-    UPDATE carts
-       SET updated_at = CURRENT_TIMESTAMP
-     WHERE id = :cartId
-       AND status = 'ACTIVE'
-    """, nativeQuery = true)
+            UPDATE carts
+               SET updated_at = CURRENT_TIMESTAMP
+             WHERE id = :cartId
+               AND status = 'ACTIVE'
+            """, nativeQuery = true)
     int touchActiveCart(@Param("cartId") UUID cartId);
+
+    @Modifying
+    @Query(value = """
+            UPDATE carts
+               SET status     = 'EXPIRED',
+                   updated_at = CURRENT_TIMESTAMP
+             WHERE status = 'ACTIVE'
+               AND updated_at < (
+                   CURRENT_TIMESTAMP - (:expirationDays * INTERVAL '1 day')
+               )
+            """, nativeQuery = true)
+    int expireInactiveActiveCarts(
+            @Param("expirationDays") int expirationDays
+    );
 }
