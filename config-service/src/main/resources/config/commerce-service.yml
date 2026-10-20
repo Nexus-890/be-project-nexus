@@ -26,4 +26,3 @@ nexus:
   cart:
     max-active-per-user: 1
     allow-guest-cart: false
-    expiration-days: 7
