@@ -24,6 +24,7 @@
         <module>common-core</module>
         <module>common-web</module>
         <module>common-security</module>
+        <module>common-events</module>
     </modules>
 
     <name/>

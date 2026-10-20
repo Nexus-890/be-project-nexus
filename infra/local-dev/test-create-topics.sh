@@ -12,9 +12,9 @@ trap cleanup EXIT
 TEST_DIR="$TMP_ROOT/test-kafka"
 FAKE_BIN="$TMP_ROOT/bin"
 mkdir -p "$TEST_DIR" "$FAKE_BIN"
-cp "$SOURCE_DIR/init-topics.sh" "$TEST_DIR/init-topics.sh"
-cp "$SOURCE_DIR/topics.conf" "$TEST_DIR/topics.conf"
-chmod +x "$TEST_DIR/init-topics.sh"
+cp "$SOURCE_DIR/create-topics.sh" "$TEST_DIR/create-topics.sh"
+cp "$SOURCE_DIR/kafka/topics.conf" "$TEST_DIR/topics.conf"
+chmod +x "$TEST_DIR/create-topics.sh"
 
 cat > "$FAKE_BIN/timeout" <<'FAKE_TIMEOUT'
 #!/usr/bin/env bash
@@ -61,9 +61,9 @@ describe_topic() {
   line="$(state_line "$topic")" || return 1
   IFS='|' read -r _topic partitions rf configs <<< "$line"
   case "$scenario:$topic" in
-    mismatch-partition:nexus.user.events.v1) partitions=3 ;;
-    mismatch-rf:nexus.user.events.v1) rf=2 ;;
-    mismatch-config:nexus.user.events.v1) configs="cleanup.policy=compact,retention.ms=604800000" ;;
+    mismatch-partition:nexus.user.events) partitions=3 ;;
+    mismatch-rf:nexus.user.events) rf=2 ;;
+    mismatch-config:nexus.user.events) configs="cleanup.policy=compact,retention.ms=604800000" ;;
   esac
   printf 'Topic: %s\tTopicId: fake\tPartitionCount: %s\tReplicationFactor: %s\tConfigs: min.insync.replicas=1,%s\n' "$topic" "$partitions" "$rf" "$configs"
   printf '\tTopic: %s\tPartition: 0\tLeader: 1\tReplicas: 1\tIsr: 1\n' "$topic"
@@ -153,7 +153,7 @@ run_case() {
   set +e
   FAKE_KAFKA_STATE="$state" FAKE_KAFKA_LOG="$log" FAKE_KAFKA_TIMEOUT_LOG="$timeout_log" FAKE_KAFKA_SCENARIO="$scenario" \
   PATH="$FAKE_BIN:$PATH" KAFKA_BIN_DIR="$FAKE_BIN" KAFKA_READY_SLEEP=1 KAFKA_READY_ATTEMPTS=1 CLI_TIMEOUT_SECONDS="$cli_timeout" TOPICS_FILE="$manifest" \
-    "$TEST_DIR/init-topics.sh" $([ "$check" = check ] && printf '%s' '--check-only') > "$out" 2>&1
+    "$TEST_DIR/create-topics.sh" $([ "$check" = check ] && printf '%s' '--check-only') > "$out" 2>&1
   local code=$?
   set -e
   if [ "$code" -ne "$expected_code" ]; then
@@ -184,7 +184,7 @@ grep -q 'CREATE nexus.training.integration.v1' "$CASE_LOG"
 
 run_case mismatchpartition 1 mismatch-partition all run
 [ ! -s "$CASE_LOG" ] || { echo 'mismatchpartition should not create topics' >&2; exit 1; }
-grep -q 'partitions=3 expected=4' "$CASE_OUT"
+grep -q 'partitions=3 expected=1' "$CASE_OUT"
 
 run_case mismatchconfig 1 mismatch-config all run
 [ ! -s "$CASE_LOG" ] || { echo 'mismatchconfig should not create topics' >&2; exit 1; }
@@ -219,8 +219,8 @@ grep -q 'partitions must be a positive integer' "$CASE_OUT"
 for variant in extra_default duplicate_default duplicate_config duplicate_topic extra_topic invalid_name empty_topics; do
   cp "$TEST_DIR/topics.conf" "$invalid_manifest"
   case "$variant" in
-    extra_default) sed 's/default|partitions|4/default|partitions|4|/' "$TEST_DIR/topics.conf" > "$invalid_manifest" ;;
-    duplicate_default) printf 'default|partitions|4\n' >> "$invalid_manifest" ;;
+    extra_default) sed 's/default|partitions|1/default|partitions|1|/' "$TEST_DIR/topics.conf" > "$invalid_manifest" ;;
+    duplicate_default) printf 'default|partitions|1\n' >> "$invalid_manifest" ;;
     duplicate_config) printf 'config|cleanup.policy|delete\n' >> "$invalid_manifest" ;;
     duplicate_topic) grep '^topic|' "$TEST_DIR/topics.conf" | head -1 >> "$invalid_manifest" ;;
     extra_topic) printf 'topic|new.topic|owner|key|demo|description|extra\n' >> "$invalid_manifest" ;;
@@ -236,4 +236,4 @@ run_case invalidtimeout 1 ok empty run "$TEST_DIR/topics.conf" not-a-number
 [ ! -s "$CASE_LOG" ] && [ ! -s "$CASE_TIMEOUT_LOG" ] || { echo 'invalid timeout must fail before Kafka calls' >&2; exit 1; }
 grep -q 'CLI_TIMEOUT_SECONDS must be a positive integer' "$CASE_OUT"
 
-echo "init-topics.sh fake Kafka CLI regression tests passed"
+echo "create-topics.sh fake Kafka CLI regression tests passed"

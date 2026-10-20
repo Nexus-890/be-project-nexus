@@ -5,7 +5,7 @@ Tài liệu này dùng sau khi đã đọc `docs/kafka-kraft.md`. File KRaft gi�
 ## Chạy nhanh trên máy mỗi developer
 
 1. Điền `infra/local-dev/.env` một lần (xem ví dụ ở mục **Chuẩn bị local infra**).
-2. Trong `be-project-nexus\infra\local-dev`, chạy `docker compose --profile debug up -d`. Compose tự tạo 7 topic, mỗi topic 4 partition; **không cần chạy `.ps1`**.
+2. Trong `be-project-nexus\infra\local-dev`, chạy `docker compose --profile debug up -d`. Compose tự tạo 6 topic, mỗi topic 1 partition; **không cần chạy `.ps1`**.
 3. Chọn một trong hai đường demo: **normal + PostgreSQL** ở mục [Demo với DB](#demo-giữa-hai-service-chạy-bình-thường-với-postgresql), hoặc **`kafka-smoke`** ở mục [Smoke flow](#chạy-smoke-flow-trong-project) để kiểm tra Kafka nhanh mà không cần DB/Eureka.
 4. POST message từ Commerce rồi GET ở Notification theo endpoint của đường demo đã chọn.
 5. Mở `http://localhost:18090` → **Topics** → `nexus.training.integration.v1` → **Messages** để xem cùng `eventId`, partition, offset.
@@ -16,8 +16,8 @@ Tài liệu này dùng sau khi đã đọc `docs/kafka-kraft.md`. File KRaft gi�
 
 - Kafka chạy bằng `infra/local-dev/compose.yaml`, không có ZooKeeper.
 - Topic contract local nằm ở `infra/local-dev/kafka/topics.conf`.
-- Compose tự chạy one-shot service `kafka-init` để tạo/validate topic từ `topics.conf`; developer không cần chạy script hằng ngày.
-- Sáu business topic đang là scaffold để thống nhất tên topic và partition trước khi viết handler domain thật.
+- Compose tự chạy one-shot service `kafka-init`, service này chạy `infra/local-dev/create-topics.sh` để tạo/validate topic từ `topics.conf`; developer không cần chạy script hằng ngày.
+- Năm business topic, mỗi service sở hữu domain một topic; chưa có handler domain thật.
 - Hai flow demo độc lập cùng dùng topic `nexus.training.integration.v1`:
   - producer: `commerce-service`
   - consumer: `notification-service`
@@ -31,26 +31,25 @@ Tất cả topic trong manifest local dùng cùng default:
 
 | Setting | Giá trị local |
 |---|---|
-| Partitions | `4` |
+| Partitions | `1` |
 | Replication factor | `1` |
 | `cleanup.policy` | `delete` |
 | `retention.ms` | `604800000` / 7 ngày |
 
 | Topic | Owner | Key | Trạng thái | Mục đích |
 |---|---|---|---|---|
-| `nexus.user.events.v1` | `user-service` | `userId` | proposed | User domain events sau này |
-| `nexus.catalog.product.events.v1` | `catalog-service` | `productId` | proposed | Product domain events sau này |
-| `nexus.commerce.order.events.v1` | `commerce-service` | `orderId` | proposed | Order domain events sau này |
-| `nexus.auction.events.v1` | `auction-service` | `auctionId` | proposed | Auction domain events sau này |
-| `nexus.fulfillment.reservation.events.v1` | `fulfillment-service` | `orderId` | proposed | Reservation events sau này |
-| `nexus.fulfillment.shipment.events.v1` | `fulfillment-service` | `shipmentId` | proposed | Shipment events sau này |
+| `nexus.user.events` | `user-service` | `userId` | proposed | User domain events |
+| `nexus.catalog.events` | `catalog-service` | `productId` | proposed | Catalog domain events |
+| `nexus.commerce.events` | `commerce-service` | `orderId` | proposed | Commerce domain events |
+| `nexus.auction.events` | `auction-service` | `auctionId` | proposed | Auction domain events |
+| `nexus.fulfillment.events` | `fulfillment-service` | `orderId` | proposed | Fulfillment domain events |
 | `nexus.training.integration.v1` | `commerce-service -> notification-service` | request key / `aggregateId` | demo | Smoke topic đang dùng để trace producer -> consumer |
 
 Quy ước đặt topic:
 
 - Không tạo một topic cho mỗi table.
-- Đặt topic theo domain event stream và owner service.
-- Giữ suffix `.v1` để có đường migrate khi event contract thay đổi lớn.
+- Mỗi service sở hữu domain có đúng một topic `nexus.<domain>.events`.
+- Code Java lấy tên topic từ hằng `Topics` trong `lib/common-events`, không gõ chuỗi tên topic.
 - Dùng key ổn định theo aggregate để Kafka giữ ordering trong cùng một partition.
 
 ## Service nào có Kafka client
@@ -111,7 +110,7 @@ docker compose --profile debug up -d
 docker compose ps -a kafka kafka-init kafka-ui
 ```
 
-`kafka-init` là container one-shot dùng cùng image `apache/kafka:4.3.1`. Nó đợi broker healthy, đọc `kafka/topics.conf`, tạo topic còn thiếu, rồi validate partition/RF/config. Trạng thái `Exited (0)` là bình thường: init đã xong, không phải service bị crash.
+`kafka-init` là container one-shot dùng cùng image `apache/kafka:4.3.1`. Nó chạy `create-topics.sh`: đợi broker healthy, đọc `kafka/topics.conf`, tạo topic còn thiếu, rồi validate partition/RF/config. Trạng thái `Exited (0)` là bình thường: init đã xong, không phải service bị crash.
 
 Kafka UI:
 
@@ -126,6 +125,8 @@ Mỗi developer có Kafka local riêng vì Compose volume nằm trên máy của
 ## Topic init tự động
 
 `kafka-init` validate manifest trước khi mutate Kafka. Init sẽ fail nếu manifest sai format, topic bị duplicate, hoặc topic đang tồn tại nhưng lệch partition/config. Init không delete topic, không tự tăng partition, và không alter config để tránh phá dữ liệu local.
+
+Máy đã tạo topic từ manifest cũ (4 partition) sẽ thấy init báo lệch `partitions=4 expected=1`. Xoá Kafka local một lần rồi chạy lại: `docker compose rm -s -f kafka kafka-init`, `docker volume rm nexus-local_kafka-data`, `docker compose up -d`. Lệnh này chỉ xoá dữ liệu Kafka, không đụng PostgreSQL.
 
 Kiểm tra log init khi cần debug:
 
@@ -147,7 +148,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\kafka\provision-topics.ps1
 Manifest `topics.conf` giữ một danh sách topic duy nhất, ví dụ format:
 
 ```text
-default|partitions|4
+default|partitions|1
 default|replication.factor|1
 config|cleanup.policy|delete
 config|retention.ms|604800000
@@ -156,7 +157,7 @@ topic|nexus.training.integration.v1|commerce-service -> notification-service|req
 
 `kafka-init` validate:
 
-- partition count đúng `4`;
+- partition count đúng `1`;
 - replication factor đúng `1`;
 - `cleanup.policy=delete`;
 - `retention.ms=604800000`.
@@ -175,7 +176,7 @@ Describe smoke topic:
 docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic nexus.training.integration.v1
 ```
 
-Kết quả đúng phải có `PartitionCount: 4`, `ReplicationFactor: 1`, và 4 dòng partition `0..3`.
+Kết quả đúng phải có `PartitionCount: 1`, `ReplicationFactor: 1`, và 1 dòng partition `0`.
 
 Kiểm tra listener host `localhost:29092` từ máy host:
 
@@ -239,17 +240,17 @@ SELECT event_id, consumer FROM processed_events ORDER BY handled_at DESC LIMIT 5
 
 Mở `http://localhost:18090` (hoặc `KAFKA_UI_PORT` của máy bạn) → **Topics** → `nexus.training.integration.v1` → **Messages**, tìm `eventId` và đối chiếu key/partition/offset với POST/GET. Vào **Consumers** → `nexus.notification.kafka-demo.v1` để xem member và committed offset. Consumer ghi `event_logs` + `processed_events` trong một DB transaction; khi nhận lại cùng `eventId`, nó bỏ qua DB side effect đã làm nhưng Kafka vẫn có thể giao lại record.
 
-Giới hạn: producer hiện insert `outbox`, gửi Kafka đồng bộ và đánh dấu `published_at` trong request. Đây là **DB-backed integration demo**, chưa có outbox worker/retry bảo đảm eventual delivery hay atomicity giữa Postgres và Kafka; Kafka send thành công nhưng DB commit lỗi vẫn có thể lệch state. Sáu business topic khác chưa có handler nghiệp vụ thật.
+Giới hạn: producer hiện insert `outbox`, gửi Kafka đồng bộ và đánh dấu `published_at` trong request. Đây là **DB-backed integration demo**, chưa có outbox worker/retry bảo đảm eventual delivery hay atomicity giữa Postgres và Kafka; Kafka send thành công nhưng DB commit lỗi vẫn có thể lệch state. Năm business topic chưa có handler nghiệp vụ thật.
 
 ### 3. Xem group và redelivery trong normal mode (tùy chọn)
 
-Để xem hai instance chia 4 partitions, giữ Notification port `8086`, chạy thêm Notification trong IntelliJ với **cùng biến DB**, không active profile, thêm **Program arguments**:
+Để xem hai instance trong cùng group, giữ Notification port `8086`, chạy thêm Notification trong IntelliJ với **cùng biến DB**, không active profile, thêm **Program arguments**:
 
 ```text
 --server.port=8087 --nexus.kafka.demo.client-id=notification-demo-2
 ```
 
-Từ `infra/local-dev`, xem assignments; hai instance trong cùng `group-id` chia partitions, thường là 2/2. Dừng instance `8087`, chạy lại command và đợi `8086` nhận cả 4 partitions:
+Từ `infra/local-dev`, xem assignments. Topic demo chỉ có 1 partition nên chỉ một instance được giao partition `0`, instance kia đứng chờ. Dừng instance đang giữ partition, chạy lại command và đợi instance còn lại nhận partition `0`. Bài chia nhiều partition giữa hai consumer nằm ở [`kafka-kraft.md`](kafka-kraft.md#6-consumer-groups-and-partition-assignment):
 
 ```cmd
 docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:9092 --describe --group nexus.notification.kafka-demo.v1 --members --verbose
@@ -392,7 +393,7 @@ Xem end offsets của topic:
 docker compose exec kafka /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server kafka:9092 --topic nexus.training.integration.v1
 ```
 
-## Chạy 2 consumer cùng group để thấy chia partition
+## Chạy 2 consumer cùng group
 
 Giữ instance `notification-service` đầu tiên ở port `8086`. Start instance thứ hai ở port `8087`, cùng `group-id`, khác `client-id`:
 
@@ -407,9 +408,9 @@ Kiểm tra group membership:
 docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:9092 --describe --group nexus.notification.kafka-smoke.v1 --members --verbose
 ```
 
-Với topic 4 partitions và 2 instances cùng group, Kafka assign mỗi partition cho đúng 1 instance trong group. Phân bổ thường là 2/2, nhưng thứ tự partition thuộc instance nào do group coordinator quyết định.
+Topic demo có 1 partition, nên trong 2 instance cùng group chỉ một instance được giao partition `0`, instance kia đứng chờ. Muốn thấy partition chia cho cả hai instance, làm bài ở [`kafka-kraft.md`](kafka-kraft.md#6-consumer-groups-and-partition-assignment) với topic tập 4 partition.
 
-Produce nhiều key khác nhau để record đi qua nhiều partition:
+Produce vài key khác nhau; mọi record vào partition `0` và chỉ instance đang giữ partition nhận:
 
 ```cmd
 curl.exe -s -X POST http://localhost:8083/internal/kafka-smoke/messages -H "Content-Type: application/json" -d "{\"key\":\"demo-order-001\",\"message\":\"message-001\"}"
@@ -418,9 +419,8 @@ curl.exe -s -X POST http://localhost:8083/internal/kafka-smoke/messages -H "Cont
 curl.exe -s -X POST http://localhost:8083/internal/kafka-smoke/messages -H "Content-Type: application/json" -d "{\"key\":\"demo-order-004\",\"message\":\"message-004\"}"
 ```
 
-Không dùng một key duy nhất nếu mục tiêu là nhìn partition spread, vì cùng key sẽ giữ ordering và thường đi vào cùng partition.
 
-Dừng instance port `8087` bằng `Ctrl+C`. Đây là graceful stop nên dùng cho bài test rebalance, không dùng cho bài test redelivery. Chạy lại lệnh `--members --verbose`: partition của instance đã dừng sẽ move về instance còn lại sau rebalance.
+Dừng instance đang giữ partition `0` bằng `Ctrl+C`. Đây là graceful stop nên dùng cho bài test rebalance, không dùng cho bài test redelivery. Chạy lại lệnh `--members --verbose`: partition `0` chuyển sang instance còn lại sau rebalance.
 
 ## Redelivery khi consumer chết trước commit
 
@@ -528,7 +528,7 @@ Mỗi backend developer nên chạy ít nhất một lần:
 
 1. `docker compose --profile debug up -d`.
 2. Confirm `kafka-init` `Exited (0)` bằng `docker compose ps -a kafka-init` hoặc `docker compose logs kafka-init`.
-3. Confirm `nexus.training.integration.v1` có 4 partitions trên CLI hoặc Kafka UI.
+3. Confirm 6 topic trong manifest đều có 1 partition trên CLI hoặc Kafka UI.
 4. Chọn **normal + DB** (Config, Discovery, Commerce, Notification không `kafka-smoke`) hoặc **smoke** (Config, Commerce, Notification với `kafka-smoke`).
 5. POST một message vào `commerce-service` bằng endpoint tương ứng.
 6. GET message từ `notification-service`; với normal demo, kiểm tra thêm `outbox`, `event_logs`, `processed_events` trong PostgreSQL.
