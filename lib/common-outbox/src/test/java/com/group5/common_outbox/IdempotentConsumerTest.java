@@ -14,12 +14,14 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(classes = OutboxTestApplication.class, properties = {
         "spring.sql.init.mode=always",
@@ -67,6 +69,29 @@ class IdempotentConsumerTest {
         assertThat(processedRows(envelope.eventId())).isZero();
     }
 
+    @Test
+    void commitsTheHandlerWritesTogetherWithTheProcessedRow() {
+        EventEnvelope<String> envelope = newEnvelope();
+
+        idempotentConsumer.handle(CONSUMER, envelope, this::logEvent);
+
+        assertThat(eventLogRows(envelope.eventId())).isEqualTo(1);
+        assertThat(processedRows(envelope.eventId(), CONSUMER)).isEqualTo(1);
+    }
+
+    @Test
+    void rollsBackTheHandlerWritesTogetherWithTheProcessedRow() {
+        EventEnvelope<String> envelope = newEnvelope();
+
+        assertThatThrownBy(() -> idempotentConsumer.handle(CONSUMER, envelope, event -> {
+            logEvent(event);
+            throw new IllegalStateException("handler failed after writing");
+        })).isInstanceOf(IllegalStateException.class);
+
+        assertThat(eventLogRows(envelope.eventId())).isZero();
+        assertThat(processedRows(envelope.eventId(), CONSUMER)).isZero();
+    }
+
     private static EventEnvelope<String> newEnvelope() {
         return new EventEnvelope<>(
                 UUID.randomUUID(),
@@ -75,6 +100,12 @@ class IdempotentConsumerTest {
                 Instant.now(),
                 "4bf92f3577b34da6a3ce929d0e0e4736",
                 "{}");
+    }
+
+    private void logEvent(EventEnvelope<String> event) {
+        jdbcTemplate.update(
+                "INSERT INTO event_logs (event_id, event_type, occurred_at) VALUES (?, ?, ?)",
+                event.eventId(), event.eventType(), Timestamp.from(event.occurredAt()));
     }
 
     private int processedRows(UUID eventId, String consumer) {
@@ -86,5 +117,10 @@ class IdempotentConsumerTest {
     private int processedRows(UUID eventId) {
         return jdbcTemplate.queryForObject(
                 "SELECT count(*) FROM processed_events WHERE event_id = ?", Integer.class, eventId);
+    }
+
+    private int eventLogRows(UUID eventId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM event_logs WHERE event_id = ?", Integer.class, eventId);
     }
 }
