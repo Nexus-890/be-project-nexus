@@ -8,12 +8,16 @@ import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface CartItemRepository
         extends JpaRepository<CartItem, UUID> {
 
     List<CartItem> findByCart_Id(UUID cartId);
+
+    Optional<CartItem> findByIdAndCart_UserIdAndCart_Status(
+            UUID itemId, UUID userId, String status);
 
     // clearAutomatically = true: buộc Hibernate xóa first-level cache sau khi
     // native upsert chạy xong, để findByCart_Id trong cùng transaction đọc

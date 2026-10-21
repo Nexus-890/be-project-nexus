@@ -42,6 +42,8 @@ independently, as required by ADR-006.
 | `/api/v1/skus/{id}` | PUT | PRODUCT.UPDATE | #86 — SKU create, update and read                       |
 | `/api/v1/carts/me` | GET | CART.VIEW | #110 — Cart: get-or-create and add item                 |
 | `/api/v1/carts/me/items` | POST | CART.UPDATE | #110 — Cart: get-or-create and add item                 |
+| `/api/v1/carts/me/items/{id}` | PUT | CART.UPDATE | #111 — Cart: update and remove item                     |
+| `/api/v1/carts/me/items/{id}` | DELETE | CART.REMOVE_ITEM | #111 — Cart: update and remove item                     |
 | Any other path | Any other method/path pair | Token required; add the SRS privilege before exposing a new endpoint | Gateway JWT filter and permit list; future owning issue |
 
 `GET /api/v1/users/{id}` (#76) has no row on purpose: a caller may read their own

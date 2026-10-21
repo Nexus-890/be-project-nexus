@@ -2,13 +2,14 @@ package com.group5.commerceservice.cart.service;
 
 import com.group5.commerceservice.cart.dto.CatalogClient;
 import com.group5.commerceservice.cart.dto.CatalogSkuResponse;
+import com.group5.commerceservice.cart.dto.request.UpdateCartItemRequest;
 import com.group5.commerceservice.cart.entity.Cart;
 import com.group5.commerceservice.cart.entity.CartItem;
 import com.group5.commerceservice.cart.repository.CartItemRepository;
 import com.group5.commerceservice.cart.repository.CartRepository;
-import com.group5.commerceservice.cart.request.CartItemRequest;
-import com.group5.commerceservice.cart.response.CartItemResponse;
-import com.group5.commerceservice.cart.response.CartResponse;
+import com.group5.commerceservice.cart.dto.request.CartItemRequest;
+import com.group5.commerceservice.cart.dto.response.CartItemResponse;
+import com.group5.commerceservice.cart.dto.response.CartResponse;
 import com.group5.common_core.constant.ErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
@@ -102,12 +103,60 @@ public class CartService {
         return toResponse(cart);
     }
 
+    @Transactional
+    public CartResponse updateCartItem(
+            CurrentUser currentUser, UUID itemId, UpdateCartItemRequest request) {
+        //kiểm tra quyền tránh user này cập nhật cart user khác
+        UUID userId = requireUserId(currentUser);
+
+        //số lượng null hoặc <= 0 thì ném lỗi 400
+        if (request == null || request.getQuantity() == null || request.getQuantity() <= 0) {
+            throw new DomainException(ErrorCode.INVALID_QUANTITY);
+        }
+        //tìm cart, nếu k có hoặc k active thì 404 not found
+        Cart cart = getActiveCartOrThrow(userId);
+
+        if (cartRepository.touchActiveCart(cart.getId()) == 0) {
+            throw new DomainException(ErrorCode.NOT_FOUND);
+        }
+        //tìm item, kiểm tra xem giỏ đó có item đó không, trạng thái active
+        CartItem item = cartItemRepository.findByIdAndCart_UserIdAndCart_Status(itemId, userId, ACTIVE)
+                .orElseThrow(() -> new DomainException(ErrorCode.NOT_FOUND));
+
+        //issue yêu cầu set số lượng chứ không add
+        item.setQuantity(request.getQuantity());
+        return toResponse(cart);
+    }
+
+    @Transactional
+    public void removeCartItem(CurrentUser currentUser, UUID itemId) {
+        //kiểm tra quyền tránh user này cập nhật cart user khác
+        UUID userId = requireUserId(currentUser);
+
+        //tìm cart, nếu k có hoặc k active thì 404 not found
+        Cart cart = getActiveCartOrThrow(userId);
+
+        if (cartRepository.touchActiveCart(cart.getId()) == 0) {
+            throw new DomainException(ErrorCode.NOT_FOUND);
+        }
+
+        CartItem item = cartItemRepository.findByIdAndCart_UserIdAndCart_Status(itemId, userId, ACTIVE)
+                .orElseThrow(() -> new DomainException(ErrorCode.NOT_FOUND));
+
+        cartItemRepository.delete(item);
+    }
+
     // Đảm bảo user đã đăng nhập (guest cart không được hỗ trợ trong R1).
     private UUID requireUserId(CurrentUser currentUser) {
         if (currentUser == null || currentUser.id() == null) {
             throw new DomainException(ErrorCode.UNAUTHENTICATED);
         }
         return currentUser.id();
+    }
+
+    private Cart getActiveCartOrThrow(UUID userId) {
+        return cartRepository.findByUserIdAndStatus(userId, ACTIVE)
+                .orElseThrow(() -> new DomainException(ErrorCode.NOT_FOUND));
     }
 
     // Lấy cart ACTIVE của user, tạo mới nếu chưa có.
