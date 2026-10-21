@@ -132,14 +132,28 @@ cd be-project-nexus/lib
 bash ./mvnw -pl common-outbox -am verify
 ```
 
-PostgreSQL 18 + real Kafka acceptance checks (Linux, Bash, Docker, Java 21 and Maven
-wrapper network/cache access):
+PostgreSQL 18 + real Kafka acceptance checks require Docker, Java 21 and Maven-wrapper
+network/cache access. Use the platform-specific script:
+
+Linux/macOS (Bash):
 
 ```bash
 bash be-project-nexus/lib/common-outbox/verify-integration.sh
 ```
 
-The script creates uniquely named disposable PostgreSQL/Kafka containers using
+Windows (PowerShell):
+
+```powershell
+& .\be-project-nexus\lib\common-outbox\verify-integration.ps1
+```
+
+The Windows script invokes `mvnw.cmd`; start Docker Desktop with Linux containers first.
+Pass `-KafkaPort 29094` when a fixed, available broker port is needed; otherwise the
+script selects a test-only port. If the execution policy blocks a repository script, run
+PowerShell with `-ExecutionPolicy Bypass` for that one invocation rather than changing
+the machine-wide policy.
+
+Each script creates uniquely named disposable PostgreSQL/Kafka containers using
 the project's existing image versions, selects test-only ports, and removes its
 containers/volumes on exit. It stops and restarts **only its own Kafka container**
 for the outage test. Existing local development containers and databases are not
