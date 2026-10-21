@@ -19,6 +19,7 @@ public class ProductResponse {
     private UUID categoryId;
     private UUID sellerId;
     private BigDecimal minPrice;
+    private String imageUrl;
 
     public ProductResponse(
             UUID id,

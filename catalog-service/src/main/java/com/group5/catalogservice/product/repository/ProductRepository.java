@@ -11,10 +11,25 @@ import org.springframework.stereotype.Repository;
 import com.group5.catalogservice.product.enums.ProductStatus;
 import java.util.UUID;
 import java.util.Optional;
+import java.util.List;
 
 @Repository
 public interface ProductRepository extends JpaRepository<Product, UUID> {
     Optional<Product> findByIdAndDeletedAtIsNull(UUID id);
+
+    interface PrimaryImage {
+        UUID getProductId();
+        String getImageUrl();
+    }
+
+    @Query(value = """
+            select distinct on (product_id)
+                product_id as "productId", image_url as "imageUrl"
+            from product_images
+            where product_id in (:productIds)
+            order by product_id, sort_order, id
+            """, nativeQuery = true)
+    List<PrimaryImage> findPrimaryImagesByProductIds(@Param("productIds") List<UUID> productIds);
 
     /**
      * Product Detail.

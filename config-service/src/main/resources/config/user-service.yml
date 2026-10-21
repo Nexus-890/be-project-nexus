@@ -28,7 +28,7 @@ nexus:
 
 spring:
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/user_db
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${USER_DB_NAME:user_db}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
   jpa:

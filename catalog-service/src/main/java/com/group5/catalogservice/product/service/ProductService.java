@@ -9,6 +9,7 @@ import com.group5.catalogservice.product.dto.response.SkuResponse;
 import com.group5.catalogservice.product.entity.ProductImage;
 import com.group5.catalogservice.product.entity.Skus;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.time.OffsetDateTime;
 import com.group5.catalogservice.product.OrderReferenceChecker;
 import com.group5.catalogservice.shared.config.CatalogProperties;
@@ -134,17 +135,17 @@ public class ProductService {
 
 
         if (categoryId == null) {
-            return productRepository.findProductResponsesByStatus(
+            return withPrimaryImages(productRepository.findProductResponsesByStatus(
                     ProductStatus.ACTIVE,
                     pageable
-            );
+            ));
         }
 
-        return productRepository.findProductResponsesByCategory(
+        return withPrimaryImages(productRepository.findProductResponsesByCategory(
                 categoryId,
                 ProductStatus.ACTIVE,
                 pageable
-        );
+        ));
     }
 
     @Transactional(readOnly = true)
@@ -168,6 +169,18 @@ public class ProductService {
         log.debug("Finished getting seller products: sellerId={}, totalElements={}",
                 sellerId, responses.getTotalElements());
 
+        return withPrimaryImages(responses);
+    }
+
+    private Page<ProductResponse> withPrimaryImages(Page<ProductResponse> responses) {
+        if (responses.isEmpty()) {
+            return responses;
+        }
+        var productIds = responses.stream().map(ProductResponse::getId).toList();
+        var imageUrls = new HashMap<UUID, String>();
+        productRepository.findPrimaryImagesByProductIds(productIds)
+                .forEach(image -> imageUrls.put(image.getProductId(), image.getImageUrl()));
+        responses.forEach(product -> product.setImageUrl(imageUrls.get(product.getId())));
         return responses;
     }
 
@@ -249,7 +262,7 @@ public class ProductService {
 
         var images = product.getProductImages().stream()
                 .sorted(Comparator.comparing(ProductImage::getSortOrder)
-                        .thenComparing(ProductImage::getId))
+                        .thenComparing(image -> image.getId().toString()))
                 .map(image -> new ImageResponse(
                         image.getId(),
                         image.getImageUrl(),
