@@ -2,6 +2,9 @@ package com.group5.common_outbox;
 
 import com.group5.common_events.EventEnvelope;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+
 import org.junit.jupiter.api.Test;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +19,7 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -32,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class IdempotentConsumerTest {
 
     private static final String CONSUMER = "notification-service.order-created";
+    private static final String OTHER_CONSUMER = "commerce-service.order-created";
 
     @Container
     @ServiceConnection
@@ -43,6 +48,9 @@ class IdempotentConsumerTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @Test
     void runsTheHandlerOnceWhenTheSameEventArrivesTwice() {
@@ -92,6 +100,20 @@ class IdempotentConsumerTest {
         assertThat(processedRows(envelope.eventId(), CONSUMER)).isZero();
     }
 
+    @Test
+    void runsTheHandlerOfEveryConsumerOfTheSameEvent() {
+        EventEnvelope<String> envelope = newEnvelope();
+        AtomicInteger runs = new AtomicInteger();
+
+        boolean byNotification = idempotentConsumer.handle(CONSUMER, envelope, event -> runs.incrementAndGet());
+        boolean byCommerce = idempotentConsumer.handle(OTHER_CONSUMER, envelope, event -> runs.incrementAndGet());
+
+        assertThat(byNotification).isTrue();
+        assertThat(byCommerce).isTrue();
+        assertThat(runs).hasValue(2);
+        assertThat(consumersThatHandled(envelope.eventId())).containsExactly(OTHER_CONSUMER, CONSUMER);
+    }
+
     private static EventEnvelope<String> newEnvelope() {
         return new EventEnvelope<>(
                 UUID.randomUUID(),
@@ -122,5 +144,13 @@ class IdempotentConsumerTest {
     private int eventLogRows(UUID eventId) {
         return jdbcTemplate.queryForObject(
                 "SELECT count(*) FROM event_logs WHERE event_id = ?", Integer.class, eventId);
+    }
+
+    private List<String> consumersThatHandled(UUID eventId) {
+        return entityManager.createQuery(
+                        "SELECT p.consumer FROM ProcessedEvent p WHERE p.eventId = :eventId ORDER BY p.consumer",
+                        String.class)
+                .setParameter("eventId", eventId)
+                .getResultList();
     }
 }
