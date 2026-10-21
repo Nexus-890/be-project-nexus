@@ -5,6 +5,7 @@ import com.group5.common_events.EventEnvelope;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,9 +19,16 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -114,6 +122,52 @@ class IdempotentConsumerTest {
         assertThat(consumersThatHandled(envelope.eventId())).containsExactly(OTHER_CONSUMER, CONSUMER);
     }
 
+    @Test
+    void runsAgainAfterTheHandlerThrewAndKeepsOneRow() {
+        EventEnvelope<String> envelope = newEnvelope();
+        AtomicInteger runs = new AtomicInteger();
+
+        assertThatThrownBy(() -> idempotentConsumer.handle(CONSUMER, envelope, event -> {
+            runs.incrementAndGet();
+            throw new IllegalStateException("first delivery failed");
+        })).isInstanceOf(IllegalStateException.class);
+        assertThat(processedRows(envelope.eventId(), CONSUMER)).isZero();
+
+        boolean retried = idempotentConsumer.handle(CONSUMER, envelope, event -> runs.incrementAndGet());
+
+        assertThat(retried).isTrue();
+        assertThat(runs).hasValue(2);
+        assertThat(processedRows(envelope.eventId(), CONSUMER)).isEqualTo(1);
+    }
+
+    @RepeatedTest(10)
+    void runsTheHandlerOnceWhenTwoDeliveriesOfOneEventArriveTogether() throws Exception {
+        EventEnvelope<String> envelope = newEnvelope();
+        AtomicInteger runs = new AtomicInteger();
+        CountDownLatch start = new CountDownLatch(1);
+        Callable<Boolean> delivery = () -> {
+            start.await();
+            return idempotentConsumer.handle(CONSUMER, envelope, event -> {
+                runs.incrementAndGet();
+                pause(Duration.ofMillis(200));
+            });
+        };
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<Boolean> first = pool.submit(delivery);
+            Future<Boolean> second = pool.submit(delivery);
+            start.countDown();
+
+            assertThat(List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(true, false);
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(runs).hasValue(1);
+        assertThat(processedRows(envelope.eventId(), CONSUMER)).isEqualTo(1);
+    }
+
     private static EventEnvelope<String> newEnvelope() {
         return new EventEnvelope<>(
                 UUID.randomUUID(),
@@ -152,5 +206,14 @@ class IdempotentConsumerTest {
                         String.class)
                 .setParameter("eventId", eventId)
                 .getResultList();
+    }
+
+    private static void pause(Duration duration) {
+        try {
+            Thread.sleep(duration);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(ex);
+        }
     }
 }
