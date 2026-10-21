@@ -20,6 +20,7 @@ public class ProductDetailResponse extends ProductResponse {
         this.auctionEnable = auctionEnable;
         this.skus = List.copyOf(skus);
         this.images = List.copyOf(images);
+        setImageUrl(this.images.isEmpty() ? null : this.images.getFirst().imageUrl());
     }
 
 
