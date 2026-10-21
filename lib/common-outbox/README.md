@@ -113,10 +113,12 @@ nexus:
       enabled: true           # default; false disables only the relay and its scheduler
       fixed-delay: 1000       # milliseconds between completed runs
       initial-delay: 1000     # milliseconds before the first run
-      send-timeout: 10s       # positive duration, at least 1ms
+      send-timeout: 3s        # default; positive duration, at least 1ms
 ```
 
-The future timeout bounds the acknowledgement wait, not Kafka's separate
+The default of three seconds bounds the acknowledgement wait and therefore
+keeps a slow Kafka broker from holding a claimed database batch for too long.
+It is still configurable per service. The future timeout does not bound Kafka's separate
 `max.block.ms` metadata/buffer wait inside `send()`. Configure Kafka
 `max.block.ms`, `request.timeout.ms` and `delivery.timeout.ms` consistently with
 the desired database lock duration and operational retry budget. Keep the

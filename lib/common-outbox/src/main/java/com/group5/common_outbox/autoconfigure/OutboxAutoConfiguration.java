@@ -52,7 +52,7 @@ public class OutboxAutoConfiguration {
         OutboxRelay outboxRelay(JdbcTemplate jdbc, ObjectProvider<JsonMapper> jsonMapper,
                                 @Qualifier(EventKafka.TEMPLATE) KafkaTemplate<String, EventEnvelope<?>> kafka,
                                 PlatformTransactionManager transactionManager,
-                                @Value("${nexus.outbox.relay.send-timeout:10s}") String sendTimeout) {
+                                @Value("${nexus.outbox.relay.send-timeout:3s}") String sendTimeout) {
             return new OutboxRelay(jdbc, jsonMapper.getIfAvailable(JsonMapper::shared), kafka,
                     transactionManager, DurationStyle.detectAndParse(sendTimeout));
         }
