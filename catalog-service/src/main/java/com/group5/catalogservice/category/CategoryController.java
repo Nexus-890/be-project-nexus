@@ -6,6 +6,7 @@ import com.group5.catalogservice.category.dto.CategoryUpdateRequest;
 import com.group5.catalogservice.category.dto.CategoryTreeResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -23,6 +24,7 @@ public class CategoryController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAuthority('CATEGORY.CREATE')")
     public CategoryResponse create(
             @Valid @RequestBody CategoryRequest request) {
 
@@ -30,6 +32,7 @@ public class CategoryController {
     }
 
     @PatchMapping("/{id}")
+    @PreAuthorize("hasAuthority('CATEGORY.UPDATE')")
     public CategoryResponse update(
             @PathVariable UUID id,
             @Valid @RequestBody CategoryUpdateRequest request) {
@@ -37,11 +40,13 @@ public class CategoryController {
         return categoryService.update(id, request);
     }
     @GetMapping("/tree")
+    @PreAuthorize("permitAll()")
     public List<CategoryTreeResponse> getCategoryTree() {
         return categoryService.getCategoryTree();
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("permitAll()")
     public CategoryResponse getById(
             @PathVariable UUID id) {
 
@@ -49,6 +54,7 @@ public class CategoryController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAuthority('CATEGORY.DELETE')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID id) {
         categoryService.delete(id);
