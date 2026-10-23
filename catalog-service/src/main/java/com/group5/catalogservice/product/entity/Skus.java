@@ -1,5 +1,7 @@
 package com.group5.catalogservice.product.entity;
 
+import com.group5.catalogservice.product.enums.SkuStatus;
+import com.group5.common_core.persistence.AuditedEntity;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -23,7 +25,7 @@ import java.util.UUID;
                 columnList = "product_id")}, uniqueConstraints = {@UniqueConstraint(name = "skus_sku_code_key",
         columnNames = {"sku_code"})})
 
-public class Skus {
+public class Skus extends AuditedEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false)
@@ -59,11 +61,12 @@ public class Skus {
     @Column(name = "currency", nullable = false, length = 3)
     private String currency = "VND";
 
-    @Size(max = 20)
     @NotNull
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @ColumnDefault("'ACTIVE'")
-    @Column(name = "status", nullable = false, length = 20)
-    private String status = "ACTIVE";
+    @Column(name = "status", nullable = false, columnDefinition = "sku_status")
+    private SkuStatus status = SkuStatus.ACTIVE;
 
     @CreationTimestamp
     @ColumnDefault("now()")

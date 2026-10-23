@@ -1,5 +1,6 @@
 package com.group5.userservice.iam.entity;
 
+import com.group5.common_core.persistence.AuditedEntity;
 import com.group5.userservice.iam.enums.Gender;
 import com.group5.userservice.iam.enums.UserStatus;
 import jakarta.persistence.Column;
@@ -19,8 +20,10 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.annotations.UuidGenerator;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -34,7 +37,7 @@ import java.util.UUID;
 @Getter
 @Setter //@Data sinh ra equals, hashCode, toString trên mọi field secret
 @NoArgsConstructor
-public class User {
+public class User extends AuditedEntity {
 
     @Id
     @GeneratedValue
@@ -57,7 +60,8 @@ public class User {
     private String identityNumber;
 
     @Enumerated(EnumType.STRING)
-    @Column(length = 10)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(columnDefinition = "gender")
     private Gender gender;
 
     @Column(columnDefinition = "text")
@@ -67,7 +71,8 @@ public class User {
     private LocalDate dateOfBirth;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(nullable = false, columnDefinition = "user_status")
     private UserStatus status = UserStatus.ACTIVE;
 
     @Column(name = "failed_login_count", nullable = false)

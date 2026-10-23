@@ -1,6 +1,7 @@
 package com.group5.commerceservice.cart.repository;
 
 import com.group5.commerceservice.cart.entity.Cart;
+import com.group5.commerceservice.cart.CartStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -11,7 +12,7 @@ import java.util.UUID;
 
 public interface CartRepository extends JpaRepository<Cart, UUID> {
 
-    Optional<Cart> findByUserIdAndStatus(UUID userId, String status);
+    Optional<Cart> findByUserIdAndStatus(UUID userId, CartStatus status);
 
     // ON CONFLICT dựa trên partial unique index idx_carts_one_active
     // (user_id WHERE status='ACTIVE' AND user_id IS NOT NULL).
@@ -20,8 +21,8 @@ public interface CartRepository extends JpaRepository<Cart, UUID> {
     @Modifying
     @Query(
             value = """
-            INSERT INTO carts (id, user_id, status, created_at, updated_at)
-            VALUES (:id, :userId, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            INSERT INTO carts (id, user_id, status, created_at, updated_at, created_by, updated_by)
+            VALUES (:id, :userId, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, :actorId, :actorId)
             ON CONFLICT (user_id) WHERE status = 'ACTIVE' AND user_id IS NOT NULL
             DO NOTHING
             """,
@@ -29,7 +30,8 @@ public interface CartRepository extends JpaRepository<Cart, UUID> {
     )
     void createActiveCartIfAbsent(
             @Param("id") UUID id,
-            @Param("userId") UUID userId
+            @Param("userId") UUID userId,
+            @Param("actorId") UUID actorId
     );
 
     // Cập nhật updated_at để "đánh dấu" cart còn hoạt động,
@@ -37,9 +39,10 @@ public interface CartRepository extends JpaRepository<Cart, UUID> {
     @Modifying
     @Query(value = """
     UPDATE carts
-       SET updated_at = CURRENT_TIMESTAMP
+       SET updated_at = CURRENT_TIMESTAMP,
+           updated_by = :actorId
      WHERE id = :cartId
        AND status = 'ACTIVE'
     """, nativeQuery = true)
-    int touchActiveCart(@Param("cartId") UUID cartId);
+    int touchActiveCart(@Param("cartId") UUID cartId, @Param("actorId") UUID actorId);
 }
