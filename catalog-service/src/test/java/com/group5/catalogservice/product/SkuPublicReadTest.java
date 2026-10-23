@@ -72,11 +72,12 @@ class SkuPublicReadTest {
     @Test
     void anonymousReadsReturnSkuData() throws Exception {
         mvc.perform(get("/api/v1/products/{id}/skus", product.getId()))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].id").value(sku.getId().toString()))
-                .andExpect(jsonPath("$[0].productId").value(product.getId().toString()));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(sku.getId().toString()))
+                .andExpect(jsonPath("$.data[0].productId").value(product.getId().toString()))
+                .andExpect(jsonPath("$.page.totalElements").value(1));
         mvc.perform(get("/api/v1/skus/{id}", sku.getId()))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.price").value(150000));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.price").value(150000));
     }
 
     @ParameterizedTest
@@ -102,15 +103,24 @@ class SkuPublicReadTest {
 
     @Test
     void missingResourcesReturn404() throws Exception {
-        mvc.perform(get("/api/v1/products/{id}/skus", UUID.randomUUID())).andExpect(status().isNotFound());
-        mvc.perform(get("/api/v1/skus/{id}", UUID.randomUUID())).andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/products/{id}/skus", UUID.randomUUID()))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
+                .andExpect(jsonPath("$.code").value("CATALOG_PRODUCT_NOT_FOUND"));
+        mvc.perform(get("/api/v1/skus/{id}", UUID.randomUUID()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("CATALOG_SKU_NOT_FOUND"));
     }
 
     @Test
     void visibleProductWithoutSkusReturnsEmptyArray() throws Exception {
         when(skus.findAllByProduct_Id(product.getId())).thenReturn(List.of());
         mvc.perform(get("/api/v1/products/{id}/skus", product.getId()))
-                .andExpect(status().isOk()).andExpect(content().json("[]"));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data").isEmpty())
+                .andExpect(jsonPath("$.page.number").value(0))
+                .andExpect(jsonPath("$.page.size").value(1))
+                .andExpect(jsonPath("$.page.totalElements").value(0))
+                .andExpect(jsonPath("$.page.totalPages").value(0));
     }
 
     @Test

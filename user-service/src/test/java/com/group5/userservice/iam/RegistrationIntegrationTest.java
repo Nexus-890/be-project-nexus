@@ -135,7 +135,7 @@ class RegistrationIntegrationTest {
     void createsOneBuyerRoleAndNeverReturnsSecrets() throws Exception {
         HttpResponse<String> response = post(REGISTER, request("buyer@nexus.test", "0901234567", "001234"));
         assertThat(response.statusCode()).isEqualTo(201);
-        JsonNode body = JSON.readTree(response.body());
+        JsonNode body = JSON.readTree(response.body()).get("data");
         assertThat(body.get("roles").get(0).asString()).isEqualTo("BUYER");
         assertThat(body.get("roles").size()).isEqualTo(1);
         assertThat(body.has("passwordHash")).isFalse();
@@ -158,7 +158,7 @@ class RegistrationIntegrationTest {
         HttpResponse<String> login = post("/api/v1/auth/login",
                 Map.of("email", "LOGIN@NEXUS.TEST", "password", PASSWORD));
         assertThat(login.statusCode()).isEqualTo(200);
-        String token = JSON.readTree(login.body()).get("accessToken").asString();
+        String token = JSON.readTree(login.body()).get("data").get("accessToken").asString();
         assertThat(SignedJWT.parse(token).getJWTClaimsSet().getStringListClaim("roles")).containsExactly("BUYER");
     }
 
@@ -256,7 +256,7 @@ class RegistrationIntegrationTest {
         assertThat(iamProperties.getDefaultUserRole()).isEqualTo("SELLER");
         HttpResponse<String> response = post(REGISTER, request("seller@nexus.test", "0901234567", "001234"));
         assertThat(response.statusCode()).isEqualTo(201);
-        assertThat(JSON.readTree(response.body()).get("roles").get(0).asString()).isEqualTo("SELLER");
+        assertThat(JSON.readTree(response.body()).get("data").get("roles").get(0).asString()).isEqualTo("SELLER");
         assertThat(jdbc.queryForObject("""
                 select r.code from user_roles ur join roles r on r.id = ur.role_id
                 """, String.class)).isEqualTo("SELLER");

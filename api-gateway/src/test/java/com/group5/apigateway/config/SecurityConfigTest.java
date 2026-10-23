@@ -104,7 +104,7 @@ class SecurityConfigTest {
                 .expectBody().jsonPath("$.type").isEqualTo("https://nexus/errors/unauthorized")
                 .jsonPath("$.status").isEqualTo(401)
                 .jsonPath("$.instance").isEqualTo(ME)
-                .jsonPath("$.traceId").isNotEmpty();
+                .jsonPath("$.code").isNotEmpty();
         assertThat(SERVICE_LOG).isEmpty();
     }
 
@@ -189,7 +189,7 @@ class SecurityConfigTest {
                 }
                 response.expectStatus().isUnauthorized();
                 if (method != HttpMethod.HEAD) {
-                    response.expectBody().jsonPath("$.traceId").isNotEmpty();
+                    response.expectBody().jsonPath("$.code").isNotEmpty();
                 }
             }
         }
@@ -209,7 +209,7 @@ class SecurityConfigTest {
                     .exchange().expectStatus().isForbidden()
                     .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                     .expectBody().jsonPath("$.type").isEqualTo("https://nexus/errors/forbidden")
-                    .jsonPath("$.traceId").isNotEmpty();
+                    .jsonPath("$.code").isNotEmpty();
             assertThat(SERVICE_LOG).hasSize(requests);
             client.method(endpoint.method()).uri(path)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
@@ -250,7 +250,7 @@ class SecurityConfigTest {
     @Test
     void invalidBearerIsRejectedEvenOnPublicPaths() {
         client.get().uri("/api/v1/products").header(HttpHeaders.AUTHORIZATION, "Bearer not-a-jwt")
-                .exchange().expectStatus().isUnauthorized().expectBody().jsonPath("$.traceId").isNotEmpty();
+                .exchange().expectStatus().isUnauthorized().expectBody().jsonPath("$.code").isNotEmpty();
         assertThat(SERVICE_LOG).isEmpty();
     }
 
@@ -259,7 +259,7 @@ class SecurityConfigTest {
                 .expectStatus().isUnauthorized()
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody().jsonPath("$.type").isEqualTo("https://nexus/errors/unauthorized")
-                .jsonPath("$.traceId").isNotEmpty();
+                .jsonPath("$.code").isNotEmpty();
         assertThat(SERVICE_LOG).isEmpty();
     }
 

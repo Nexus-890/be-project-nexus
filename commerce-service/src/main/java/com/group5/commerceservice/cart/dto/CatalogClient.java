@@ -5,6 +5,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 
 import java.util.UUID;
+import com.group5.common_core.model.ApiResponse;
 
 @FeignClient(
         name = "catalog-service",
@@ -13,5 +14,5 @@ import java.util.UUID;
 public interface CatalogClient {
 
     @GetMapping("/{id}")
-    CatalogSkuResponse getSkuById(@PathVariable("id") UUID id);
+    ApiResponse<CatalogSkuResponse> getSkuById(@PathVariable("id") UUID id);
 }

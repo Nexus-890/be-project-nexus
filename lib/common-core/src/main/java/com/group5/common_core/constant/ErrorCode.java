@@ -1,92 +1,10 @@
 package com.group5.common_core.constant;
 
-import lombok.AccessLevel;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.experimental.FieldDefaults;
 import org.springframework.http.HttpStatus;
 
-@Getter
-@FieldDefaults(level = AccessLevel.PRIVATE)
-@AllArgsConstructor
-public enum ErrorCode {
-
-    // ===============  check validation ===============
-    EMAIL_EXISTED("Email is existed", HttpStatus.BAD_REQUEST),
-    PHONE_EXISTED("Phone is existed", HttpStatus.BAD_REQUEST),
-    INVALID_SIZE_100("name must not exceed 100 characters", HttpStatus.BAD_REQUEST),
-    INVALID_PHONE_NUMBER("Invalid phone number!", HttpStatus.BAD_REQUEST),
-    INVALID_EMAIL("Invalid email address!", HttpStatus.BAD_REQUEST),
-    FIELD_REQUIRED("cannot be blank!", HttpStatus.BAD_REQUEST),
-    INVALID_SIZE_FULL_NAME("Full name must be between 2 and 50 characters", HttpStatus.BAD_REQUEST),
-    INVALID_SIZE_PASSWORD("Password must be between 8 and 50 characters", HttpStatus.BAD_REQUEST),
-    INVALID_DATE("Invalid date", HttpStatus.BAD_REQUEST),
-
-    INVALID_MIN_0("must be greater than or equal to 0", HttpStatus.BAD_REQUEST),
-    INVALID_PATTERN_PASSWORD(
-            "Password must contain at least one uppercase letter, one lowercase letter, one number, and"
-                    + " one special character",
-            HttpStatus.BAD_REQUEST),
-    //  =======================================================
-    EMPTY_TOKEN("Empty token", HttpStatus.UNAUTHORIZED),
-    EXPIRED_TOKEN("Expired token!", HttpStatus.UNAUTHORIZED),
-    INVALID_TOKEN("Invalid token!", HttpStatus.UNAUTHORIZED),
-    INVALID_REFRESH_TOKEN("Invalid refresh token!", HttpStatus.UNAUTHORIZED),
-    INVALID_CODE("Invalid message code!", HttpStatus.BAD_REQUEST),
-    NOT_MATCH_TOKEN("Token does not match locally computed signature!", HttpStatus.UNAUTHORIZED),
-    OTHER(null, HttpStatus.BAD_REQUEST),
-    UNCATEGORIZED_EXCEPTION(null, HttpStatus.INTERNAL_SERVER_ERROR),
-    UNAUTHENTICATED("Unauthenticated!", HttpStatus.UNAUTHORIZED),
-    UNAUTHORIZED("You do not have permission!", HttpStatus.FORBIDDEN),
-    DATA_INVALID("Invalid data", HttpStatus.BAD_REQUEST),
-    DB_ERROR("Database error", HttpStatus.INTERNAL_SERVER_ERROR),
-
-    ACCOUNT_BANNED("account is banned", HttpStatus.FORBIDDEN),
-    ACCOUNT_INACTIVE("account is inactive", HttpStatus.FORBIDDEN),
-    STAFF_BUSY("Staff is busy", HttpStatus.BAD_REQUEST),
-    FIELDS_EMPTY("Black or missing fileds", HttpStatus.BAD_REQUEST),
-    NOT_FOUND_ENUM("Field enum not found", HttpStatus.NOT_FOUND),
-    INVALID_STATUS("Invalid status", HttpStatus.BAD_REQUEST),
-    EXPIRED_CONTRACT("Contract is expired", HttpStatus.BAD_REQUEST),
-    INVENTORY_INVALID("Inventory is invalid", HttpStatus.BAD_REQUEST),
-    INVALID_QUANTITY("Quantity is invalid", HttpStatus.BAD_REQUEST),
-    TOO_MANY_OTP("You sent otp too much", HttpStatus.BAD_REQUEST),
-    INVALID_DEPOSIT("Deposit is invalid", HttpStatus.BAD_REQUEST),
-    INVALID_TERM("Month term is invalid", HttpStatus.BAD_REQUEST),
-    NOT_FOUND("Not found!", HttpStatus.NOT_FOUND),
-    //===============User service=====================
-    INVALID_CREDENTIALS("Invalid email or password", HttpStatus.UNAUTHORIZED),
-    ACCOUNT_LOCKED("Account is locked", HttpStatus.LOCKED),
-
-    //===============Catalog service=====================
-    SLUG_DUPLICATED("Slug duplicated", HttpStatus.CONFLICT),
-    CATEGORY_NOT_FOUND("Category not found", HttpStatus.NOT_FOUND),
-    CATEGORY_LEVEL_MAX("Category max level", HttpStatus.BAD_REQUEST),
-    INVALID_PARENT("Category cannot be its own parent", HttpStatus.BAD_REQUEST),
-    INVALID_CHANGE_PARENT("Cannot change parent of a category that has children", HttpStatus.BAD_REQUEST),
-    RELATIONSHIP_ERROR("Circular category relationship detected", HttpStatus.CONFLICT),
-    INVALID_SORT("Unable to sort categories", HttpStatus.BAD_REQUEST),
-    CATEGORY_HAS_PRODUCTS("Cannot delete a category that has products", HttpStatus.CONFLICT),
-    CATEGORY_HAS_CHILDREN("Cannot delete a category that has child categories", HttpStatus.CONFLICT),
-
-    //========PRODUCT
-    PRODUCT_NOT_FOUND("Product not found, not ACTIVE or deleted", HttpStatus.NOT_FOUND),
-    PRODUCT_HAS_ORDERS("Cannot delete a product that has orders",HttpStatus.CONFLICT),
-    INVALID_PRODUCT_STATUS_TRANSITION("Product status transition is not allowed",HttpStatus.BAD_REQUEST),
-
-    //========SKU
-    SKU_DUPLICATE ("Duplicate SKU code or variant", HttpStatus.CONFLICT),
-    SKU_NOT_FOUND("SKU not found", HttpStatus.NOT_FOUND),
-
-    //=======Cart
-    INVALID_CONFIGURATION("Expiration-days must be greater or equal to 1",HttpStatus.INTERNAL_SERVER_ERROR);
-
-
-
-    final String message;
-    final HttpStatus status;
-
-    public int getCode() {
-        return status.value();
-    }
+/** Stable machine-readable identity, independent of HTTP status and human detail. */
+public interface ErrorCode {
+    String code();
+    HttpStatus status();
+    String message();
 }

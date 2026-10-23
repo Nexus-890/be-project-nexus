@@ -8,7 +8,7 @@ import com.group5.catalogservice.product.enums.ProductStatus;
 import com.group5.catalogservice.product.repository.ProductRepository;
 import com.group5.catalogservice.product.repository.SkuRepository;
 import com.group5.common_security.CurrentUser;
-import com.group5.common_core.constant.ErrorCode;
+import com.group5.catalogservice.shared.exception.CatalogErrorCode;
 import com.group5.common_core.exception.DomainException;
 
 import org.springframework.dao.DataIntegrityViolationException;
@@ -70,7 +70,7 @@ public class SkuService {
         requirePrivilege(currentUser, "PRODUCT.UPDATE");
 
         Skus sku = skuRepository.findById(id)
-                .orElseThrow(() -> new DomainException(ErrorCode.SKU_NOT_FOUND));
+                .orElseThrow(() -> new DomainException(CatalogErrorCode.SKU_NOT_FOUND));
 
         findEditableProduct(sku.getProduct().getId(), currentUser);
         validatePrice(request.getPrice());
@@ -88,9 +88,9 @@ public class SkuService {
     @Transactional(readOnly = true)
     public SkuResponse getById(UUID id) {
         Skus sku = skuRepository.findById(id)
-                .orElseThrow(() -> new DomainException(ErrorCode.SKU_NOT_FOUND));
+                .orElseThrow(() -> new DomainException(CatalogErrorCode.SKU_NOT_FOUND));
 
-        requireVisibleProduct(sku.getProduct(), ErrorCode.SKU_NOT_FOUND);
+        requireVisibleProduct(sku.getProduct(), CatalogErrorCode.SKU_NOT_FOUND);
 
         return toResponse(sku);
     }
@@ -98,15 +98,15 @@ public class SkuService {
     @Transactional(readOnly = true)
     public List<SkuResponse> getByProductId(UUID productId) {
         Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new DomainException(ErrorCode.PRODUCT_NOT_FOUND));
+                .orElseThrow(() -> new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND));
 
-        requireVisibleProduct(product, ErrorCode.PRODUCT_NOT_FOUND);
+        requireVisibleProduct(product, CatalogErrorCode.PRODUCT_NOT_FOUND);
         return skuRepository.findAllByProduct_Id(productId).stream()
                 .map(this::toResponse)
                 .toList();
     }
 
-    private void requireVisibleProduct(Product product, ErrorCode errorCode) {
+    private void requireVisibleProduct(Product product, CatalogErrorCode errorCode) {
         if (product.getStatus() != ProductStatus.ACTIVE
                 || product.getDeletedAt() != null) {
             throw new DomainException(errorCode);
@@ -119,7 +119,7 @@ public class SkuService {
 
         Product product = productRepository
                 .findByIdAndDeletedAtIsNull(productId)
-                .orElseThrow(() -> new DomainException(ErrorCode.PRODUCT_NOT_FOUND));
+                .orElseThrow(() -> new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND));
 
         checkProductOwner(product, currentUser);
 
@@ -128,11 +128,11 @@ public class SkuService {
 
     private void requirePrivilege(CurrentUser currentUser, String privilege) {
         if (currentUser == null) {
-            throw new DomainException(ErrorCode.UNAUTHENTICATED);
+            throw new DomainException(CatalogErrorCode.UNAUTHENTICATED);
         }
 
         if (!currentUser.hasPrivilege(privilege)) {
-            throw new DomainException(ErrorCode.UNAUTHORIZED);
+            throw new DomainException(CatalogErrorCode.UNAUTHORIZED);
         }
     }
 
@@ -145,13 +145,13 @@ public class SkuService {
         }
 
         if (!currentUser.id().equals(product.getSellerId())) {
-            throw new DomainException(ErrorCode.UNAUTHORIZED);
+            throw new DomainException(CatalogErrorCode.UNAUTHORIZED);
         }
     }
 
     private void validatePrice(BigDecimal price) {
         if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new DomainException(ErrorCode.DATA_INVALID);
+            throw new DomainException(CatalogErrorCode.DATA_INVALID);
         }
     }
 
@@ -160,7 +160,7 @@ public class SkuService {
             return skuRepository.saveAndFlush(sku);
         } catch (DataIntegrityViolationException e) {
             if (isDuplicateKey(e)) {
-                throw new DomainException(ErrorCode.SKU_DUPLICATE);
+                throw new DomainException(CatalogErrorCode.SKU_DUPLICATE);
             }
 
             throw e;

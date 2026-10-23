@@ -62,6 +62,7 @@ public class SecurityProblemAdvice {
         problem.setType(URI.create(type));
         problem.setTitle(status.getReasonPhrase());
         problem.setInstance(URI.create(request.getRequestURI()));
+        problem.setProperty("code", status == HttpStatus.UNAUTHORIZED ? "UNAUTHENTICATED" : "FORBIDDEN");
         String traceId = traceId();
         if (traceId != null) {
             problem.setProperty("traceId", traceId);

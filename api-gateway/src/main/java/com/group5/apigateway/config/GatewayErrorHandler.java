@@ -62,7 +62,19 @@ public class GatewayErrorHandler implements WebExceptionHandler {
         problem.setTitle(status.getReasonPhrase());
         problem.setDetail(detail(status));
         problem.setInstance(URI.create(path));
-        problem.setProperty("traceId", traceId(exchange));
+        problem.setProperty("code", switch (status) {
+            case BAD_REQUEST -> "INVALID_PARAMETER";
+            case UNAUTHORIZED -> "UNAUTHENTICATED";
+            case FORBIDDEN -> "FORBIDDEN";
+            case NOT_FOUND -> "NOT_FOUND";
+            case METHOD_NOT_ALLOWED -> "METHOD_NOT_ALLOWED";
+            case TOO_MANY_REQUESTS -> "RATE_LIMITED";
+            case SERVICE_UNAVAILABLE -> "SERVICE_UNAVAILABLE";
+            case GATEWAY_TIMEOUT -> "GATEWAY_TIMEOUT";
+            default -> "INTERNAL_ERROR";
+        });
+        String traceId = traceId(exchange);
+        if (traceId != null) problem.setProperty("traceId", traceId);
 
         return ServerResponse.status(status)
                 .contentType(MediaType.APPLICATION_PROBLEM_JSON)

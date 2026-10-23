@@ -1,5 +1,13 @@
 # Gateway permissions
 
+The delivered JSON response/error contract introduced by #248 is documented in
+[ADR-008](../adr/ADR-008-api-contract.md), the [style guide](style-guide.md), and
+[`openapi/`](openapi/). Its 24 delivered application operations use `{data,page?}`
+and symbolic Problem Details `code` values. The older **#88 draft** below retains
+its original scope and historical contract; its former page/error-shape text does
+not override #248 for already delivered endpoints. Access-policy rows remain the
+source of truth for gateway privilege registration.
+
 This document contains the active gateway policy table and the #88 API-shape
 draft contracts below. A draft contract does not expose a runtime endpoint. Every
 issue enabling or changing a runtime endpoint must update this document and the endpoint policy
@@ -67,10 +75,10 @@ the gateway and user-service allows the caller's own id or `USER.VIEW`.
   `USER_SERVICE_JWKS_URI` for the deployment network. The reactive decoder caches
   public keys; validation does not call the login API or loop through gateway.
 - Missing/invalid tokens return 401 `application/problem+json` with `type`,
-  `title`, `status`, `detail`, `instance`, nonempty `traceId`, and
-  `WWW-Authenticate: Bearer`. Missing privileges return 403 in the same JSON format.
-  Details never echo tokens or decoder exceptions. The trace ID uses the active
-  tracing span, or a generated correlation ID when tracing is unavailable.
+  `title`, `status`, `detail`, `instance`, `code: UNAUTHENTICATED`, and
+  `WWW-Authenticate: Bearer`. Missing privileges return 403 with `code: FORBIDDEN`
+  in the same JSON format. Details never echo tokens or decoder exceptions.
+  `traceId` uses the active tracing span and is omitted when tracing is unavailable.
 - No security session is created. Existing routes forward the bearer header;
   authenticated unknown paths keep the existing route/fallback behavior.
 
