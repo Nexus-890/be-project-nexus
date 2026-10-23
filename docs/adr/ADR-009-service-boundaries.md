@@ -22,7 +22,7 @@ A change to one job redeploys the others, and the data of one job is reachable f
 
 | Service | Responsibility | Database | Port | Publishes on |
 |---|---|---|---|---|
-| **auth: Keycloak** | Sign-in, tokens, refresh, sign-out, lockout, passwords, roles and privileges | `keycloak_db` | `KEYCLOAK_PORT` | none |
+| auth-service (Keycloak) | Sign-in, tokens, refresh, sign-out, lockout, passwords, roles and privileges | `auth_db` | `KEYCLOAK_PORT` | none |
 | user-service | Profiles; registration and admin user management through the Keycloak Admin API | `user_db` | 8081 | `nexus.user.events` |
 | catalog-service | Categories, products, SKUs, images | `catalog_db` | 8082 | `nexus.catalog.events` |
 | commerce-service | Carts, orders, order status, promotions | `commerce_db` | 8083 | `nexus.commerce.events` |
@@ -37,7 +37,7 @@ Platform services keep their ports: api-gateway 8080, config-service 8888, disco
 
 `inventory-service` is the new name of `fulfillment-service`. Shipping moves out of it into `shipment-service`.
 
-Keycloak replaces the token code of `user-service`. The gateway and the services keep validating RS256 tokens with the claims `sub`, `roles`, `privileges` and audience `nexus-services`; only the issuer and the JWKS address change (ADR-006).
+`auth-service` is not project code: it runs the Keycloak image, configured by the realm import (#236). It replaces the token code of `user-service`. The gateway and the services keep validating RS256 tokens with the claims `sub`, `roles`, `privileges` and audience `nexus-services`; only the issuer and the JWKS address change (ADR-006).
 
 ---
 
@@ -50,8 +50,8 @@ No service reads or writes the database of another service. A column that holds 
 | V1 schema | Table | Owner after the split | Issue |
 |---|---|---|---|
 | user | `users` | user-service; `password_hash` and the lockout columns are dropped | #238 |
-| user | `roles`, `permissions`, `user_roles`, `role_permissions` | Keycloak; dropped from `user_db` | #236, #238 |
-| user | `refresh_tokens`, `password_reset_tokens` | Keycloak; dropped from `user_db` | #238 |
+| user | `roles`, `permissions`, `user_roles`, `role_permissions` | auth-service; dropped from `user_db` | #236, #238 |
+| user | `refresh_tokens`, `password_reset_tokens` | auth-service; dropped from `user_db` | #238 |
 | user | `ratings`, `user_reputations` | rating-service; dropped from `user_db` | #242 |
 | user | `outbox`, `processed_events`, `shedlock` | user-service | — |
 | catalog | `categories`, `products`, `skus`, `product_images`, `product_stats` | catalog-service | — |
@@ -77,7 +77,7 @@ Columns that move: `orders.memo_code` (commerce V2) becomes `payment_instruction
 | `payment_db` | `payment_instructions`, `payment_transactions`, `outbox`, `processed_events` | #240 |
 | `shipment_db` | `shipments`, `shipment_history`, `outbox`, `processed_events` | #241 |
 | `rating_db` | `ratings`, `user_reputations`, `rating_eligibility`, `outbox`, `processed_events` | #242 |
-| `keycloak_db` | managed by Keycloak | #235 |
+| `auth_db` | managed by Keycloak | #235 |
 
 ---
 
@@ -106,7 +106,7 @@ There is no route for `/api/v1/webhooks/**` as a whole: each webhook has its own
 Not routed by the gateway:
 
 - `/internal/v1/**`: service-to-service calls only.
-- `/realms/**` and `/admin/realms/**`: the browser and `user-service` talk to Keycloak directly.
+- `/realms/**` and `/admin/realms/**`: the browser and `user-service` talk to `auth-service` directly.
 
 ---
 
@@ -120,8 +120,8 @@ Services talk through events by default: outbox, Kafka, `IdempotentConsumer`. A 
 | commerce → inventory | `POST /api/v1/inventory/reservations` | The buyer waits for the answer: an order without stock must fail at once with 409 | #113, #138 |
 | commerce → shipment | `POST /api/v1/shipping/quotes` | The checkout preview shows the shipping fee before the buyer confirms | #188, #201 |
 | auction → rating | `GET /internal/v1/eligibility/{userId}` | A bid or an auction from an ineligible user must be refused before it is written | #214 |
-| user → Keycloak | Admin API: create user, set password, assign role, unlock | Registration returns 201 only once the account exists | #211, #238 |
-| gateway and services → Keycloak | `GET /realms/nexus/protocol/openid-connect/certs` | Public keys to validate tokens, cached by the resource server | #237 |
+| user → auth-service | Keycloak Admin API: create user, set password, assign role, unlock | Registration returns 201 only once the account exists | #211, #238 |
+| gateway and services → auth-service | `GET /realms/nexus/protocol/openid-connect/certs` | Public keys to validate tokens, cached by the resource server | #237 |
 | shipment → GHN | quote, create, track | External provider | #201, #202, #203 |
 | Sepay → payment | `POST /api/v1/webhooks/sepay` | External provider, inbound | #155 |
 
@@ -155,7 +155,7 @@ Payloads are in `docs/api/events.md` (#186).
 
 **Negative**
 
-- Four more services to run locally, plus Keycloak.
+- Five more services to run locally, `auth-service` included.
 - More flows are eventually consistent. For example, an order shows `PAID` a few seconds after the bank transfer, not in the same request.
 - `UserLoggedIn`, `UserPasswordChanged` and `UserPasswordReset` stay in Keycloak's own event store and are not published to Kafka.
 
