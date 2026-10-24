@@ -51,7 +51,7 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "eureka.client.enabled=false",
                 "spring.cloud.discovery.enabled=false",
                 "management.tracing.export.zipkin.enabled=false",
-                "spring.security.oauth2.resourceserver.jwt.issuer-uri=user-service",
+                "spring.security.oauth2.resourceserver.jwt.issuer-uri=http://localhost:18080/realms/nexus",
                 "spring.security.oauth2.resourceserver.jwt.audiences[0]=nexus-services"
         })
 class SecurityConfigTest {
@@ -145,6 +145,12 @@ class SecurityConfigTest {
         expectInvalidToken(token(SIGNING_KEY, c -> c.notBeforeTime(Date.from(Instant.now().plusSeconds(120)))));
         expectInvalidToken(token(FOREIGN_KEY, c -> { }));
         expectInvalidToken("not-a-jwt");
+    }
+
+    @Test
+    void rejectsLegacyUserServiceTokenEvenIfIssuerClaimsToBeKeycloak() {
+        expectInvalidToken(token(FOREIGN_KEY, c -> c.issuer("user-service")));
+        expectInvalidToken(token(FOREIGN_KEY, c -> c.claim("privileges", List.of("PROFILE.VIEW"))));
     }
 
     @Test
@@ -265,7 +271,7 @@ class SecurityConfigTest {
 
     private static String token(RSAKey key, Consumer<JWTClaimsSet.Builder> customizer) {
         Instant now = Instant.now();
-        var claims = new JWTClaimsSet.Builder().issuer("user-service").audience("nexus-services")
+        var claims = new JWTClaimsSet.Builder().issuer("http://localhost:18080/realms/nexus").audience("nexus-services")
                 .subject(ID).claim("roles", List.of("SELLER")).claim("privileges", List.of())
                 .issueTime(Date.from(now)).expirationTime(Date.from(now.plusSeconds(3600)))
                 .jwtID(UUID.randomUUID().toString());
