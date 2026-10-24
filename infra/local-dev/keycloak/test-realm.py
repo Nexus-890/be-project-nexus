@@ -67,6 +67,7 @@ class RealmContractTest(unittest.TestCase):
         self.assertEqual(mappers["oidc-usermodel-client-role-mapper"]["usermodel.clientRoleMapping.clientId"], "nexus-web")
         self.assertEqual(mappers["oidc-audience-mapper"]["included.custom.audience"], "nexus-services")
         self.assertEqual(self.realm["defaultSignatureAlgorithm"], "RS256")
+        self.assertIn("basic", self.client["defaultClientScopes"], "Keycloak 26.7 needs basic to emit sub")
         self.assertNotIn("roles", self.client["defaultClientScopes"])
         self.assertEqual(set(self.realm["scopeMappings"][0]["roles"]), set(source_matrix()[1]))
 
