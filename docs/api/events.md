@@ -55,14 +55,17 @@ Source tests in #102 cover field validation, factory identity/time/current trace
 | catalog-service | Topics.CATALOG | nexus.catalog.events | CategoryCreated, CategoryUpdated, CategoryDeleted. |
 | commerce-service | Topics.COMMERCE | nexus.commerce.events | OrderCreated, OrderPaid, OrderCancelled. |
 | auction-service | Topics.AUCTION | nexus.auction.events | AuctionStarted, AuctionEnded, BidPlaced, AuctionWon, AuctionFailed, AuctionSettled. |
-| fulfillment-service | Topics.FULFILLMENT | nexus.fulfillment.events | InventoryReservationExpired. |
+| inventory-service | Topics.INVENTORY | nexus.inventory.events | InventoryReservationExpired. |
+| payment-service | Topics.PAYMENT | nexus.payment.events | Listed in #186. |
+| shipment-service | Topics.SHIPMENT | nexus.shipment.events | Listed in #186. |
+| rating-service | Topics.RATING | nexus.rating.events | Listed in #186. |
 
 Do not add notification/system topics. Topics.USER remains part of #102 even though this release publishes no user events. The local manifest uses one partition, one replica and seven-day retention; these settings are not production guarantees.
 
 - Commit business state and the outbox row together (#104). The writer does not call Kafka. The relay claims rows with FOR UPDATE SKIP LOCKED and leaves failed sends unpublished. A crash after ACK but before published_at may cause redelivery; this is not exactly-once delivery across DB/Kafka.
 - Deduplicate by `(eventId, consumer)` (#105); commit the processed marker and business effects together. Exceptions/rollbacks must not leave a successful marker. Different handlers need distinct consumer identities.
 - Each event specifies its Kafka key. Category events use categoryId; align the catalog manifest's productId label with aggregate-based routing. #106 requires category create/update/delete order: multiple relays need aggregate ordering protection; ORDER BY with SKIP LOCKED alone does not prove it.
-- Reservation expiry uses aggregateId=reservationId and key=orderId. Do not assume ordering between commerce and fulfillment topics or repeat a stock mutation already performed by its publisher.
+- Reservation expiry uses aggregateId=reservationId and key=orderId. Do not assume ordering between commerce and inventory topics or repeat a stock mutation already performed by its publisher.
 - Schemas use Draft 7. All listed properties are required; only explicitly nullable fields allow null. additionalProperties=true supports additive evolution. UUIDs are strings; UTC timestamps end in Z.
 - Money is a JSON number with at most two decimal places (multipleOf 0.01). Use BigDecimal and numeric(19,2) under #66/#67/V2; do not convert through float/double, truncate fractions or perform business arithmetic with JavaScript Number. Validate database precision 19/scale 2 using decimal arithmetic.
 - Keep payload fields separate from envelope metadata. JSON Schema does not replace state-machine, chronology, transaction or concurrency checks.
@@ -148,21 +151,37 @@ Publishers are backed by explicit publication requirements. A consumer entry ide
 | `CategoryUpdated` | `nexus.catalog.events` | [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) - S1 | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): generic no-template filter; no notification. |
 | `CategoryDeleted` | `nexus.catalog.events` | [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) - S1 | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): generic no-template filter; no notification. |
 | `OrderCreated` | `nexus.commerce.events` | [#118](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/118) - S1; [#172](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/172) - S3 | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify buyer; auction-service [#173](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/173): settle AUCTION orders. |
-| `OrderPaid` | `nexus.commerce.events` | [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156) - S3 | fulfillment-service [#160](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/160): confirm reservations by orderId. |
-| `OrderCancelled` | `nexus.commerce.events` | [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159) - S3 | fulfillment-service [#161](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/161): release HELD reservations; notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify buyer as required by [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159). |
+| `OrderPaid` | `nexus.commerce.events` | [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156) - S3 | inventory-service [#160](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/160): confirm reservations by orderId; shipment-service [#202](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/202): create the shipment. |
+| `OrderCancelled` | `nexus.commerce.events` | [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159) - S3 | inventory-service [#161](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/161): release HELD reservations; notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify buyer as required by [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159); payment-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157): refuse a later transfer for the cancelled order. |
 | `AuctionStarted` | `nexus.auction.events` | [#145](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/145) - S2 | **Publisher-only (R1)** |
 | `AuctionEnded` | `nexus.auction.events` | [#145](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/145) - S2 | **Publisher-only (R1)** |
 | `BidPlaced` | `nexus.auction.events` | [#146](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/146) - S2 | **Publisher-only (R1)** |
 | `AuctionWon` | `nexus.auction.events` | [#171](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/171) - S3 | commerce-service [#172](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/172): create the AUCTION order. |
 | `AuctionFailed` | `nexus.auction.events` | [#171](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/171) - S3 | **Publisher-only (R1)** |
 | `AuctionSettled` | `nexus.auction.events` | [#173](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/173) - S3 | **Publisher-only (R1)** |
-| `InventoryReservationExpired` | `nexus.fulfillment.events` | [#175](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/175) - S3 | **Publisher-only (R1)** |
+| `InventoryReservationExpired` | `nexus.inventory.events` | [#175](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/175) - S3 | **Publisher-only (R1)** |
 
 ### Consumer boundaries
 
-#107 subscribes to commerce/catalog: OrderCreated creates a notification; CategoryCreated is explicitly skipped with DEBUG. CategoryUpdated/Deleted follow the generic no-template rule, rather than separately named acceptance tests. The cancellation notification required by #159 extends #107's templates on the existing commerce topic. No auction/fulfillment subscriptions are added here.
+#107 subscribes to commerce/catalog: OrderCreated creates a notification; CategoryCreated is explicitly skipped with DEBUG. CategoryUpdated/Deleted follow the generic no-template rule, rather than separately named acceptance tests. The cancellation notification required by #159 extends #107's templates on the existing commerce topic. No auction/inventory subscriptions are added here.
 
 #170 determines winners by reading ENDED database state. #168 provides the HTTP state endpoint and #178 polls it. These are not Kafka consumers. #172 consumes AuctionWon and publishes OrderCreated; #173 consumes OrderCreated and publishes AuctionSettled. Notification-service notifies the winner through OrderCreated. Under #175, the publisher already releases stock; #161 consumes OrderCancelled and skips expired reservations, not InventoryReservationExpired.
+
+## Events after the service split
+
+ADR-009 (#234) moved these events to the topic of the service that now publishes them. Payloads are in #186.
+
+| Event | Topic | Publisher | Contract |
+| --- | --- | --- | --- |
+| `PaymentConfirmed` | `nexus.payment.events` | payment-service [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156) | New with the split; commerce moves the order to PAID |
+| `PaymentUnreconciled` | `nexus.payment.events` | payment-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157) | New with the split; commerce puts a reason on the order |
+| `OrderRefundRequested`, `OrderRefundCompleted` | `nexus.payment.events` | payment-service [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247) | R2 in the list above; payload in #186 |
+| `InventoryReserved`, `InventoryReleased`, `InventoryCommitted` | `nexus.inventory.events` | inventory-service [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209) | R2 in the list above; payload in #186 |
+| `ShipmentCreated`, `ShipmentPickedUp`, `ShipmentInTransit`, `ShipmentDelivered`, `ShipmentFailed`, `ShipmentReturned` | `nexus.shipment.events` | shipment-service [#202](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/202), [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | R2 in the list above; payload in #186 |
+| `UserRated` | `nexus.rating.events` | rating-service [#212](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/212) | R2 in the list above; payload in #186 |
+| `ReputationScoreUpdated`, `ReputationPenaltyApplied`, `TrustLevelChanged` | `nexus.rating.events` | rating-service [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213) | R2 in the list above; payload in #186 |
+
+`UserLoggedIn`, `UserPasswordChanged` and `UserPasswordReset` stay in the event store of auth-service (Keycloak) and are not published to Kafka (#210).
 
 ## Settlement mapping and integration flow
 
@@ -492,12 +511,12 @@ Publish only the categoryId of the deleted record after successful deletion. A c
 
 - Topic: `nexus.commerce.events`.
 - Publisher: [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156) - S3.
-- Consumer: fulfillment-service [#160](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/160): confirm reservations by orderId.
+- Consumer: inventory-service [#160](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/160): confirm reservations by orderId; shipment-service [#202](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/202): create the shipment.
 - Envelope aggregateId: `orderId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
 | --- | --- |
-| `orderId` | orders.id; fulfillment finds reservations through order_id. |
+| `orderId` | orders.id; inventory-service finds reservations through order_id. |
 | `buyerId` | orders.user_id; buyer UUID. |
 | `orderNumber` | orders.order_number at payment time. |
 | `orderType` | STANDARD or AUCTION, matching orders.order_type. |
@@ -600,18 +619,18 @@ Publish only the categoryId of the deleted record after successful deletion. A c
 }
 ```
 
-#156 accepts exact, on-time payment, moves PENDING to PAID and commits payment/history/outbox together. Deduplicate by Sepay transaction ID. Under #157, late payments or payments for CANCELED orders become UNRECONCILED without OrderPaid. A mismatched amount also leaves the order unchanged and records UNRECONCILED/WARN under #156; underpayment/overpayment resolution is outside R1. #160 finds reservations by orderId, not reservation IDs from the event. For an AUCTION order with no reservations, log INFO, mark processed and complete without endless retries.
+payment-service (#156) records an exact, on-time payment and publishes PaymentConfirmed; commerce consumes it, moves PENDING to PAID and commits history/outbox together. Payment deduplicates by Sepay transaction ID and commerce by `(eventId, consumer)`. Under #157, late payments or payments for CANCELED orders become UNRECONCILED and publish PaymentUnreconciled instead, so no OrderPaid follows. A mismatched amount also records UNRECONCILED/WARN under #156; underpayment/overpayment resolution is outside R1. #160 finds reservations by orderId, not reservation IDs from the event. For an AUCTION order with no reservations, log INFO, mark processed and complete without endless retries.
 
 ### OrderCancelled
 
 - Topic: `nexus.commerce.events`.
 - Publisher: [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159) - S3.
-- Consumer: fulfillment-service [#161](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/161): release HELD reservations; notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify buyer as required by [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159).
+- Consumer: inventory-service [#161](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/161): release HELD reservations; notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify buyer as required by [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159); payment-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157): refuse a later transfer for the cancelled order.
 - Envelope aggregateId: `orderId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
 | --- | --- |
-| `orderId` | orders.id; fulfillment finds reservations through order_id. |
+| `orderId` | orders.id; inventory-service finds reservations through order_id. |
 | `buyerId` | orders.user_id; recipient of the cancellation notification. |
 | `orderNumber` | orders.order_number shown in the notification. |
 | `orderType` | STANDARD or AUCTION, matching orders.order_type. |
@@ -1235,7 +1254,7 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 
 ### InventoryReservationExpired
 
-- Topic: `nexus.fulfillment.events`.
+- Topic: `nexus.inventory.events`.
 - Publisher: [#175](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/175) - S3.
 - Consumer: **Publisher-only (R1)**; no consuming issue is assigned in this release.
 - Envelope aggregateId: `reservationId`; Kafka key: `orderId`.
