@@ -6,7 +6,10 @@ public final class Topics {
     public static final String CATALOG = "nexus.catalog.events";
     public static final String COMMERCE = "nexus.commerce.events";
     public static final String AUCTION = "nexus.auction.events";
-    public static final String FULFILLMENT = "nexus.fulfillment.events";
+    public static final String INVENTORY = "nexus.inventory.events";
+    public static final String PAYMENT = "nexus.payment.events";
+    public static final String SHIPMENT = "nexus.shipment.events";
+    public static final String RATING = "nexus.rating.events";
 
     private Topics() {
     }

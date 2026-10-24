@@ -55,7 +55,10 @@ Source tests in #102 cover field validation, factory identity/time/current trace
 | catalog-service | Topics.CATALOG | nexus.catalog.events | CategoryCreated, CategoryUpdated, CategoryDeleted. |
 | commerce-service | Topics.COMMERCE | nexus.commerce.events | OrderCreated, OrderPaid, OrderCancelled. |
 | auction-service | Topics.AUCTION | nexus.auction.events | AuctionStarted, AuctionEnded, BidPlaced, AuctionWon, AuctionFailed, AuctionSettled. |
-| fulfillment-service | Topics.FULFILLMENT | nexus.fulfillment.events | InventoryReservationExpired. |
+| inventory-service | Topics.INVENTORY | nexus.inventory.events | InventoryReservationExpired. |
+| payment-service | Topics.PAYMENT | nexus.payment.events | Listed in #186. |
+| shipment-service | Topics.SHIPMENT | nexus.shipment.events | Listed in #186. |
+| rating-service | Topics.RATING | nexus.rating.events | Listed in #186. |
 
 Do not add notification/system topics. Topics.USER remains part of #102 even though this release publishes no user events. The local manifest uses one partition, one replica and seven-day retention; these settings are not production guarantees.
 
@@ -156,7 +159,7 @@ Publishers are backed by explicit publication requirements. A consumer entry ide
 | `AuctionWon` | `nexus.auction.events` | [#171](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/171) - S3 | commerce-service [#172](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/172): create the AUCTION order. |
 | `AuctionFailed` | `nexus.auction.events` | [#171](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/171) - S3 | **Publisher-only (R1)** |
 | `AuctionSettled` | `nexus.auction.events` | [#173](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/173) - S3 | **Publisher-only (R1)** |
-| `InventoryReservationExpired` | `nexus.fulfillment.events` | [#175](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/175) - S3 | **Publisher-only (R1)** |
+| `InventoryReservationExpired` | `nexus.inventory.events` | [#175](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/175) - S3 | **Publisher-only (R1)** |
 
 ### Consumer boundaries
 
@@ -1235,7 +1238,7 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 
 ### InventoryReservationExpired
 
-- Topic: `nexus.fulfillment.events`.
+- Topic: `nexus.inventory.events`.
 - Publisher: [#175](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/175) - S3.
 - Consumer: **Publisher-only (R1)**; no consuming issue is assigned in this release.
 - Envelope aggregateId: `reservationId`; Kafka key: `orderId`.
