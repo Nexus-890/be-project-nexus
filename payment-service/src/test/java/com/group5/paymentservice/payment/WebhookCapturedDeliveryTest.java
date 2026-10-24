@@ -1,4 +1,4 @@
-package com.group5.commerceservice.payment;
+package com.group5.paymentservice.payment;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
