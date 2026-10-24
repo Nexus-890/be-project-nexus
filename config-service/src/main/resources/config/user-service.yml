@@ -15,9 +15,9 @@ nexus:
       public-key-path: ${JWT_PUBLIC_KEY_PATH:}
   security:
     jwt:
-      issuer: user-service
+      issuer: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
       audience: nexus-services
-      jwk-set-uri: http://localhost:8081/.well-known/jwks.json
+      jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:18080/realms/nexus/protocol/openid-connect/certs}
     public-endpoints:
       - method: POST
         path: /api/v1/auth/login

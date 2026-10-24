@@ -11,6 +11,11 @@ spring:
       ddl-auto: validate
 
 nexus:
+  security:
+    jwt:
+      issuer: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
+      audience: nexus-services
+      jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:18080/realms/nexus/protocol/openid-connect/certs}
   kafka:
     demo:
       group-id: nexus.notification.kafka-demo.v1

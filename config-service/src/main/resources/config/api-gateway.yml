@@ -8,9 +8,9 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          # Fetch keys directly from user-service, never through this gateway.
-          jwk-set-uri: ${USER_SERVICE_JWKS_URI:http://localhost:8081/.well-known/jwks.json}
-          issuer-uri: user-service
+          # Fetch realm keys directly from Keycloak, never through this gateway.
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:18080/realms/nexus/protocol/openid-connect/certs}
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
           audiences:
             - nexus-services
   data:
