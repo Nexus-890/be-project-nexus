@@ -65,7 +65,7 @@ services:
     networks:
       - nexus-network
 
-  # Explicit password provisioning: bash keycloak/seed-users.sh
+  # Explicit password provisioning: .\keycloak\seed-users.ps1 on Windows
   auth-seed:
     profiles: ["tools"]
     image: quay.io/keycloak/keycloak:26.7.5

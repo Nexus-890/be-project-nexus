@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Offline contract checks: python3 keycloak/test-realm.py (no dependencies)."""
+"""Offline contract checks: py -3 keycloak/test-realm.py (no dependencies)."""
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -107,6 +108,7 @@ class RealmContractTest(unittest.TestCase):
         self.assertEqual(self.realm["passwordPolicy"], r"length(8) and regexPattern((?s).*\S.*)")
 
 
+@unittest.skipIf(os.name == "nt" or not shutil.which("bash"), "Bash entry point runs on Unix")
 class SeedScriptTest(unittest.TestCase):
     def run_script(self, *args, env=None):
         return subprocess.run(["bash", str(HERE / "seed-users.sh"), *args],
@@ -139,6 +141,46 @@ class SeedScriptTest(unittest.TestCase):
             env_file.write_text(f'DEMO_SELLER_PASSWORD=$(touch "{marker}")\n')
             env["PATH"] = f'{root}{os.pathsep}{env["PATH"]}'
             result = self.run_script("--env-file", str(env_file), env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(marker.exists())
+            args = json.loads(result.stdout)
+            self.assertEqual(args[:3], ["compose", "--env-file", str(env_file)])
+            self.assertEqual(args[-5:], ["run", "--rm", "--no-deps", "-T", "auth-seed"])
+
+
+@unittest.skipUnless(os.name == "nt" and (shutil.which("pwsh") or shutil.which("powershell")),
+                     "PowerShell entry point runs on Windows")
+class PowerShellSeedScriptTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.shell = shutil.which("pwsh") or shutil.which("powershell")
+        cls.script = HERE / "seed-users.ps1"
+
+    def run_script(self, *args):
+        return subprocess.run([self.shell, "-NoProfile", "-File", str(self.script), *args],
+                              text=True, capture_output=True)
+
+    def test_help_and_missing_env_file(self):
+        self.assertEqual(self.run_script("-Help").returncode, 0)
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.run_script("-EnvFile", str(Path(directory) / "missing.env"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing env file", result.stderr)
+
+    def test_env_file_is_passed_to_compose_without_evaluation(self):
+        def quote(value):
+            return "'" + str(value).replace("'", "''") + "'"
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env_file = root / "path with spaces.env"
+            marker = root / "must-not-exist"
+            env_file.write_text(f'DEMO_SELLER_PASSWORD=$(New-Item {quote(marker)})\n')
+            command = ("function docker { ConvertTo-Json -InputObject @($args) -Compress; "
+                       "$global:LASTEXITCODE = 0 }; "
+                       f"& {quote(self.script)} -EnvFile {quote(env_file)}")
+            result = subprocess.run([self.shell, "-NoProfile", "-Command", command],
+                                    text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(marker.exists())
             args = json.loads(result.stdout)

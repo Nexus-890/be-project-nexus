@@ -4,11 +4,11 @@
 
 From `be-project-nexus/infra/local-dev`:
 
-```bash
-[ -f .env ] || cp .env.example .env
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 # Fill DB_*, KEYCLOAK_* and the three DEMO_*_PASSWORD values in .env.
 docker compose up -d postgres auth-service
-bash keycloak/seed-users.sh
+.\keycloak\seed-users.ps1
 ```
 
 Open `http://localhost:18080/admin` (or your `KEYCLOAK_PORT`) and select
@@ -17,11 +17,12 @@ different from the demo `admin@nexus.local` user in `nexus`.
 
 For an alternative local env file:
 
-```bash
-bash keycloak/seed-users.sh --env-file /absolute/path/to/local.env
+```powershell
+.\keycloak\seed-users.ps1 -EnvFile 'C:\path with spaces\local.env'
 ```
 
-The script uses Compose's dotenv parser, not shell `source`. Quote values with
+The PowerShell entry point passes the file to Compose's dotenv parser; it does
+not execute its contents. Quote values with
 spaces, `$`, or `#` using single quotes. Use your local values; the existing
 `infra/staging/.env.example` identifies the project's demo-password variables.
 Never commit `.env`. No password or credential hash belongs in the realm JSON.
@@ -77,24 +78,31 @@ the next attempt is refused even with a correct password. Permanent lockout
 is disabled. Quick-login throttling is disabled so rapid attempts do not lock
 the account before the fifth failure. A successful login resets the counter.
 
-`seed-users.sh` only resets credentials of the three exact imported IDs. It
+The PowerShell entry point runs `seed-users.sh` inside the Keycloak container.
+That container script only resets credentials of the three exact imported IDs. It
 checks their usernames, uses a private temporary kcadm config, and removes it
 on exit. Passwords are non-temporary, so no forced reset blocks demo login.
 The script can be re-run without creating users or changing IDs.
 
 ## Repeatable verification
 
-Requires Python 3, Docker Compose and OpenSSL. No extra Python packages.
+Requires Python 3 and Docker Compose. No extra Python packages or OpenSSL.
 
-```bash
-python3 keycloak/test-realm.py
-python3 keycloak/test-keycloak.py
+```powershell
+py -3 keycloak/test-realm.py
+py -3 keycloak/test-keycloak.py
 # Full AC: also observe rejection near 15 minutes and automatic recovery.
-python3 keycloak/test-keycloak.py --full-lockout
+py -3 keycloak/test-keycloak.py --full-lockout
 ```
 
+If Python is installed without the Windows launcher, use `python` in place of
+`py -3`. The offline suite checks the PowerShell entry point on Windows and the
+Bash entry point on Unix. Bash remains inside the Linux Keycloak container.
+
 The offline tests compare **every** privilege and mapping with V3, check token
-mapper/security settings and missing-secret/error handling in the seed script.
+mapper/security settings, and verify the host seed entry point does not execute
+dotenv contents. On Unix, they also check missing-secret handling in the Bash
+container script.
 
 The integration test renders the real Compose configuration, then starts only
 Postgres, Keycloak and the disposable seed client in a unique test project.

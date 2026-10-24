@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Real Keycloak/Postgres acceptance checks in disposable Docker resources.
 
-Requires Python 3, Docker Compose and OpenSSL; no Python packages.
+Requires Python 3 and Docker Compose; no extra Python packages.
 --full-lockout waits the real 15 minutes before checking account recovery.
 """
 import argparse
 import base64
 import hashlib
+import hmac
 from html.parser import HTMLParser
 from http.cookiejar import CookieJar, DefaultCookiePolicy
 import importlib.util
@@ -132,7 +133,7 @@ def exchange(base, code, verifier):
     return status, json.loads(body)
 
 
-def verify_token(base, token, directory):
+def verify_token(base, token):
     header, payload, signature = token.split(".")
     header_data = json.loads(unb64(header))
     check(header_data["alg"] == "RS256", "Expected RS256")
@@ -140,27 +141,23 @@ def verify_token(base, token, directory):
     check(status == 200, "JWKS unavailable")
     key = next(k for k in json.loads(body)["keys"] if k["kid"] == header_data["kid"])
 
-    def der(tag, value):
-        length = len(value)
-        encoded = length.to_bytes((length.bit_length() + 7) // 8, "big")
-        return bytes([tag]) + (bytes([length]) if length < 128 else bytes([128 + len(encoded)]) + encoded) + value
-
-    def integer(value):
-        raw = unb64(value)
-        return der(2, (b"\0" if raw[0] & 128 else b"") + raw)
-
-    encoded = base64.b64encode(der(48, integer(key["n"]) + integer(key["e"]))).decode()
-    pem = "-----BEGIN RSA PUBLIC KEY-----\n" + "\n".join(encoded[i:i+64] for i in range(0, len(encoded), 64)) + "\n-----END RSA PUBLIC KEY-----\n"
-    public = directory / "public.pem"
-    sig = directory / "signature.bin"
-    public.write_text(pem)
-    sig.write_bytes(unb64(signature))
-    result = subprocess.run(["openssl", "dgst", "-sha256", "-verify", str(public), "-signature", str(sig)],
-                            input=f"{header}.{payload}".encode(), capture_output=True)
-    check(result.returncode == 0, "JWT signature verification failed")
+    modulus = int.from_bytes(unb64(key["n"]), "big")
+    exponent = int.from_bytes(unb64(key["e"]), "big")
+    size = (modulus.bit_length() + 7) // 8
+    signature_bytes = unb64(signature)
+    check(len(signature_bytes) == size, "JWT signature length mismatch")
+    decoded = pow(int.from_bytes(signature_bytes, "big"), exponent, modulus).to_bytes(size, "big")
+    # RS256 is RSASSA-PKCS1-v1_5 with the SHA-256 DigestInfo prefix.
+    digest_info = bytes.fromhex("3031300d060960864801650304020105000420") + hashlib.sha256(f"{header}.{payload}".encode()).digest()
+    padding = size - len(digest_info) - 3
+    check(padding >= 8 and hmac.compare_digest(decoded, b"\x00\x01" + b"\xff" * padding + b"\x00" + digest_info),
+          "JWT signature verification failed")
     claims = json.loads(unb64(payload))
     check(claims["iss"] == f"{base}/realms/nexus", "Unexpected issuer")
-    check(claims["iat"] <= time.time() < claims["exp"], "Token not currently valid")
+    # Docker Desktop's VM clock can differ slightly from the Windows host clock.
+    now = time.time()
+    check(claims["iat"] <= claims["exp"] and claims["iat"] - 60 <= now < claims["exp"] + 60,
+          "Token not currently valid")
     return claims
 
 
@@ -177,7 +174,8 @@ def run(full_lockout):
             values[f"DEMO_{role}_PASSWORD"] = secrets.token_urlsafe(20) + '#$"\\ space'
         env_file = directory / ".env"
         env_file.write_text("\n".join(f"{k}='{v}'" for k, v in values.items()) + "\n")
-        env_file.chmod(0o600)
+        if os.name != "nt":
+            env_file.chmod(0o600)
         environment = os.environ.copy()
         for key in values:
             environment.pop(key, None)
@@ -195,7 +193,8 @@ def run(full_lockout):
         config["services"]["auth-service"]["environment"]["JAVA_OPTS_KC_HEAP"] = "-Xms64m -Xmx512m"
         compose_file = directory / "compose.json"
         compose_file.write_text(json.dumps(config))
-        compose_file.chmod(0o600)
+        if os.name != "nt":
+            compose_file.chmod(0o600)
 
         def compose(*args):
             result = subprocess.run(["docker", "compose", "-p", project, "-f", str(compose_file), *args],
@@ -220,7 +219,7 @@ def run(full_lockout):
                 check(code, f"{role} login failed")
                 status, tokens = exchange(base, code, verifier)
                 check(status == 200, f"{role} code exchange failed")
-                claims = verify_token(base, tokens["access_token"], directory)
+                claims = verify_token(base, tokens["access_token"])
                 check(claims["sub"] == f"68000000-0000-4000-8000-{i:012d}", f"{role} wrong subject")
                 check(claims["roles"] == [role], f"{role} leaked/default realm roles")
                 check(set(claims["privileges"]) == set(matrix[role]), f"{role} wrong privileges")
