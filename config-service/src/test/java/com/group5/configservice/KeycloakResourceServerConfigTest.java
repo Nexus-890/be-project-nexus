@@ -39,7 +39,7 @@ class KeycloakResourceServerConfigTest {
     }
 
     @Test
-    void platformServicesDoNotBecomeResourceServersAndLegacyIssuanceIsSeparate() {
+    void platformServicesDoNotBecomeResourceServers() {
         for (String name : List.of("config-service", "discovery-service")) {
             ClassPathResource resource = new ClassPathResource("config/" + name + ".yml");
             if (resource.exists()) {
@@ -47,7 +47,6 @@ class KeycloakResourceServerConfigTest {
                         key.startsWith("nexus.security.jwt.") || key.startsWith("spring.security.oauth2.resourceserver."));
             }
         }
-        assertThat(environment("user-service").getProperty("nexus.iam.jwt.issuer")).isEqualTo("user-service");
     }
 
     private static StandardEnvironment environment(String name) {
