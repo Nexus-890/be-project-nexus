@@ -26,13 +26,22 @@ done
 | catalog-service | 34 | 0 | 0 |
 | user-service | 183 | 17 | 0 |
 | commerce-service | 52 | 2 | 0 |
-| auction-service | 0 | 0 | 0 |
-| fulfillment-service | 1 | 0 | 0 |
-| notification-service | 14 | 0 | 0 |
+| auction-service | 3 | 0 | 0 |
+| fulfillment-service | 4 | 0 | 0 |
+| notification-service | 17 | 0 | 0 |
 
 The 17 existing registration integration tests require `REGISTRATION_TEST_DB_URL`;
 the two existing captured-payment webhook tests require `SEPAY_CAPTURE_TEST=true`.
-These opt-in suites were not enabled. Auction currently has no test suite.
+These opt-in suites were not enabled.
+
+Review follow-up added the existing `common-security` dependency and three actual
+application-context filter tests to auction, fulfillment and notification. Each
+context verifies valid Keycloak-shaped RS256/flat authorities reach a protected
+probe (200), while missing bearer/forged identity headers, legacy issuer/key and
+missing/wrong audience are rejected (401). Database auto-configuration and Kafka
+startup are isolated; notification uses a mock JdbcTemplate for its unrelated
+message repository. The SecurityFilterChain, JwtDecoder, JWKS fetch, RSA signature
+verification and current-user resolution are not mocked.
 
 ## Real end-to-end acceptance
 
@@ -70,9 +79,6 @@ remained. Existing containers and private `.env` were not changed.
 
 - This is the verification migration; #238 still owns legacy login/issuer removal.
 - The realm and claim mappers from #236 must be merged/deployed first.
-- Auction, fulfillment and notification receive JWT configuration here but do not
-  yet depend on `common-security`; no new endpoint-security implementation is
-  claimed for those services.
 - The live acceptance covers Gateway and Catalog, not a full deployment of every
   business service. Unit/config contracts and the existing Maven suites cover
   the broader configuration surface.

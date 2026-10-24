@@ -70,10 +70,15 @@ bearer tokens. Redirect stdout/stderr to a local evidence log if desired.
   and the shipped Config Server YAML contract.
 - `common-security`: independent servlet JWT verification, flat authority mapping,
   no-audience and legacy-key/issuer rejection, existing public endpoint policy.
+- Auction, fulfillment and notification application contexts: actual classpath
+  security auto-configuration and filter chain; valid Keycloak-shaped RS256 token
+  reaches a protected probe with flat role/privilege/sub intact; absent bearer,
+  forged identity headers, legacy issuer/key and missing/wrong audience return 401.
+  Only unrelated database/Kafka infrastructure is isolated, not JWT verification.
 
-Configuration in a service that does not yet depend on `common-security` is
-preparation, not proof that its endpoints have a resource-server filter. The
-live end-to-end acceptance specifically verifies Gateway and Catalog. Config and
-Discovery deliberately remain platform services outside this token-trust scope.
+All six business services use `common-security`; auction, fulfillment and
+notification now install the same resource-server filter as user/catalog/commerce.
+The live end-to-end acceptance specifically verifies Gateway and Catalog. Config
+and Discovery remain platform services outside this token-trust scope.
 
 Recorded run: [validation evidence](validation.md).

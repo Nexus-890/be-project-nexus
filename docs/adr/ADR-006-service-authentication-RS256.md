@@ -25,9 +25,9 @@ not end-user JWT resource servers.
 
 Gateway uses `spring.security.oauth2.resourceserver.jwt`; servlet services use
 `nexus.security.jwt` from `common-security`. Config includes all six business
-services (user, catalog, commerce, auction, fulfillment, notification). A service
-without `common-security` still needs to adopt that module before its protected
-endpoints are secured; configuration alone does not install a security filter.
+services (user, catalog, commerce, auction, fulfillment, notification). All six
+business services depend on the existing `common-security` module, so its servlet
+resource-server filter validates protected requests even when Gateway is bypassed.
 
 ## Token and authorization contract
 
