@@ -15,7 +15,9 @@ is obsolete issuance compatibility pending #238, not an additional trusted issue
 ## Reproduce
 
 Prerequisites: merge #236 first (provides `infra/local-dev/keycloak` fixtures),
-Docker Compose, OpenSSL, Python 3 stdlib and Java 21+. No Python dependencies.
+Docker Compose, OpenSSL, Python 3 stdlib and Java 21. No Python dependencies.
+#236 no longer needs host OpenSSL; #237 still uses it to sign an independent
+legacy-key token for the rejection checks.
 Build the executable jars and install shared libraries:
 
 ```bash
@@ -24,8 +26,43 @@ JAVA_HOME=/path/to/java21 ./config-service/mvnw -f lib/pom.xml install
 for service in config-service api-gateway catalog-service; do
   JAVA_HOME=/path/to/java21 "$service/mvnw" -f "$service/pom.xml" verify
 done
+python3 docs/security-keycloak/test-harness.py
 JAVA_HOME=/path/to/java21 python3 docs/security-keycloak/test-token-trust.py
 ```
+
+On Windows PowerShell, from `be-project-nexus` (Java 21 and OpenSSL on PATH):
+
+```powershell
+.\config-service\mvnw.cmd -f lib/pom.xml install
+if ($LASTEXITCODE -ne 0) { throw 'Shared library build failed' }
+foreach ($service in @('config-service', 'api-gateway', 'catalog-service')) {
+    & ".\$service\mvnw.cmd" -f "$service/pom.xml" verify
+    if ($LASTEXITCODE -ne 0) { throw "$service build failed" }
+}
+py -3 docs/security-keycloak/test-harness.py
+if ($LASTEXITCODE -ne 0) { throw 'Fixture compatibility check failed' }
+py -3 docs/security-keycloak/test-token-trust.py
+```
+
+Use `python` instead of `py -3` if the Windows launcher is not installed.
+These commands reuse #236's committed helpers, including its cross-platform JWT
+verification; no Bash installation is needed on the Windows host. Bash runs only
+inside the Linux Keycloak seed container. Windows execution has not been tested
+in the recorded Linux validation.
+
+For review before #236 is merged, `KEYCLOAK_FIXTURE_DIR` may point at the
+`infra/local-dev/keycloak` directory in a separate checkout/export of **the latest
+#236 commit**. Set it for both Python commands. Do not copy or cherry-pick #236's
+realm/Compose commits into #237. Without that override the scripts use the normal
+in-repository directory after #236 is merged. The offline check verifies every
+helper call against the actual fixture API, catching changes such as the new
+`verify_token(base, token)` signature before starting containers.
+
+If local Keycloak uses a different port/hostname, set `KEYCLOAK_ISSUER_URI` and
+`KEYCLOAK_JWK_SET_URI` in the Config Server process environment before startup.
+Changing Docker's `KEYCLOAK_PORT` alone does not update resource-server URLs.
+The issuer must exactly match the real access token's `iss`; JWKS may use an
+internal URL reachable by the resource servers.
 
 The harness:
 

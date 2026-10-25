@@ -84,3 +84,49 @@ remained. Existing containers and private `.env` were not changed.
   the broader configuration surface.
 - Final `git diff --check` and Python source compilation passed. The project has
   no separate lint/typecheck command for these Java/YAML changes.
+
+## Revalidation against the latest #236 — 2026-10-25
+
+Branch: `fsa_ANNT_25/feature/237-keycloak-tokens`, still based on `develop`
+`d816a5e`; no #236 commits or fixture files were copied into its history.
+Latest #236 fixture commit: `8780c6976f177dafedf93a98d1d05d71d07bcd73`.
+The fixture directory was exported from that exact commit and supplied through
+`KEYCLOAK_FIXTURE_DIR` to both Python checks.
+
+The old harness failed the new offline compatibility check at **both**
+`verify_token` calls with `TypeError: too many positional arguments`. After
+switching to #236's `verify_token(base, token)` API, the check passed. It checks
+all imported helper calls without starting containers.
+
+Re-ran the full Maven commands above with Java 21: **all nine module/reactor
+builds succeeded**, with the same test counts in the table (372 discovered,
+zero failures/errors, 19 existing opt-in skips). Python syntax checks and
+`git diff --check` passed. An independent read-only review found no further
+configuration mismatch with the latest realm's issuer, audience or flat claims.
+Windows instructions were reviewed, but Windows runtime execution was not tested.
+
+Live rerun command (exit **0**):
+
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+export KEYCLOAK_FIXTURE_DIR=/tmp/nexus-236-fixtures-latest/be-project-nexus/infra/local-dev/keycloak
+python3 be-project-nexus/docs/security-keycloak/test-harness.py
+python3 be-project-nexus/docs/security-keycloak/test-token-trust.py
+```
+
+Successful output against #236 `8780c69`:
+
+```text
+Starting disposable project nexus-237-test-54359e64
+PASS: real seeded seller PKCE login; Keycloak RS256 signature and flat claims verified
+PASS: seller token -> real Gateway -> real Catalog POST products = 201; persisted id=66ce6965-8b2f-4464-872d-a906dd0c72a3 seller=68000000-0000-4000-8000-000000000002
+PASS: legacy user-service issuer/key -> 401 at Gateway AND direct Catalog
+PASS: legacy key with forged Keycloak issuer -> 401 at Gateway AND direct Catalog
+PASS: real Keycloak token without aud -> 401 at Gateway AND direct Catalog
+PASS: original valid seller token still reads own products = 200
+Removed isolated containers and terminated owned application processes
+```
+
+The temporary test project was fully removed. Private `.env`, existing Docker
+resources and the #236/#238 branches were unchanged. `git merge-tree` confirmed
+that the latest #236 and updated #237 merge without conflicts.
