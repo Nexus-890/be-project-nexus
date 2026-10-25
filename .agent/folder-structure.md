@@ -53,7 +53,7 @@ be-project-nexus/
 ├─ catalog-service/     :8082   catalog_db
 ├─ commerce-service/    :8083   commerce_db
 ├─ auction-service/     :8084   auction_db
-├─ fulfillment-service/ :8085   fulfillment_db
+├─ inventory-service/ :8085   inventory_db
 └─ notification-service/:8086   notification_db
 ```
 

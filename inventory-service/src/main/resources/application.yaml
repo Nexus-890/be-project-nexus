@@ -1,6 +1,6 @@
 spring:
   application:
-    name: fulfillment-service
+    name: inventory-service
 
   config:
     import:
