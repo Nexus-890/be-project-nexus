@@ -18,7 +18,7 @@ from urllib.error import URLError
 
 ROOT = Path(__file__).resolve().parents[2]
 INFRA = ROOT / "infra/local-dev"
-KEYCLOAK = INFRA / "keycloak"
+KEYCLOAK = Path(os.environ.get("KEYCLOAK_FIXTURE_DIR", str(INFRA / "keycloak"))).resolve()
 SELLER = "68000000-0000-4000-8000-000000000002"
 CATEGORY = "69000000-0000-4000-8000-000000000102"
 
@@ -35,7 +35,9 @@ def port():
 
 
 def run():
-    check((KEYCLOAK / "test-keycloak.py").is_file(), "Merge #236 Keycloak fixtures first")
+    for name in ("test-keycloak.py", "realm-nexus.json", "seed-users.sh"):
+        check((KEYCLOAK / name).is_file(),
+              f"Missing {name}: merge #236 first or set KEYCLOAK_FIXTURE_DIR to its keycloak directory")
     sys.dont_write_bytecode = True
     spec = importlib.util.spec_from_file_location("keycloak_test", KEYCLOAK / "test-keycloak.py")
     kc = importlib.util.module_from_spec(spec)
@@ -78,7 +80,8 @@ def run():
                     "volumes": [f"{KEYCLOAK / 'seed-users.sh'}:/opt/nexus/seed-users.sh:ro"]}}}
         compose_file = directory / "compose.json"
         compose_file.write_text(json.dumps(compose_config))
-        compose_file.chmod(0o600)
+        if os.name != "nt":
+            compose_file.chmod(0o600)
         # Ignore any operator Compose variables; this project owns only its resources.
         environment = os.environ.copy()
         for key in ("COMPOSE_FILE", "COMPOSE_PROFILES", "COMPOSE_PROJECT_NAME"):
@@ -125,7 +128,7 @@ def run():
             status, tokens = kc.exchange(base, code, verifier)
             check(status == 200, "Seller code exchange failed")
             token = tokens["access_token"]
-            claims = kc.verify_token(base, token, directory)
+            claims = kc.verify_token(base, token)
             check(claims["sub"] == SELLER and "SELLER" in claims["roles"]
                   and "PRODUCT.CREATE" in claims["privileges"], "Wrong seller claims")
             print("PASS: real seeded seller PKCE login; Keycloak RS256 signature and flat claims verified", flush=True)
@@ -183,7 +186,7 @@ def run():
             status, tokens = kc.exchange(base, code, verifier)
             check(status == 200, "Missing-aud token code exchange failed")
             no_aud = tokens["access_token"]
-            no_aud_claims = kc.verify_token(base, no_aud, directory)
+            no_aud_claims = kc.verify_token(base, no_aud)
             check("aud" not in no_aud_claims, "Expected a genuinely missing aud claim")
 
             # Legacy issuer/key and forged Keycloak issuer are signed with a fresh
