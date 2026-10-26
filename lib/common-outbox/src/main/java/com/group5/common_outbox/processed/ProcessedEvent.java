@@ -1,4 +1,4 @@
-package com.group5.common_outbox;
+package com.group5.common_outbox.processed;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

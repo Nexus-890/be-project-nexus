@@ -1,7 +1,7 @@
 package com.group5.common_outbox.autoconfigure;
 
 import com.group5.common_outbox.IdempotentConsumer;
-import com.group5.common_outbox.ProcessedEvent;
+import com.group5.common_outbox.processed.ProcessedEvent;
 
 import jakarta.persistence.EntityManagerFactory;
 
