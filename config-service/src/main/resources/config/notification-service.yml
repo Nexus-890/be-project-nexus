@@ -11,6 +11,11 @@ spring:
       ddl-auto: validate
 
 nexus:
+  security:
+    jwt:
+      issuer: user-service
+      audience: nexus-services
+      jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:8081/.well-known/jwks.json}
   kafka:
     demo:
       group-id: nexus.notification.kafka-demo.v1
