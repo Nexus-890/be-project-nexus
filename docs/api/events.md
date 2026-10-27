@@ -1,18 +1,29 @@
-# Event catalogue - issue #103
+# Event catalogue — #103 / #186
 
-Updated 2026-10-20. The leader-confirmed scope is **13 R1 events** and **51 events marked `R2`**. R2 means event publication is outside this release; it does not commit to a later delivery date. HTTP feature scope and Kafka event scope are separate.
+Updated 2026-10-27 against branch `fsa_ANNT_25/docs/186-event-catalogue`, baseline `fc0a982`. This is the proposed R1 event contract for backend review; a schema does not claim that its publisher/consumer is implemented or that both lanes have approved it.
 
-This document specifies payloads for MR review. For the six events without a consuming issue, the selected R1 behavior is **publisher-only**: publish the event with the contract below, with no R1 subscriber assigned. Retain the topic, publisher and payload; no additional consumer is introduced. Record this exception to the original consumer requirement in #103/#139 during MR review. Payload approval and backend-lane approvals are still pending.
+## Scope and source precedence
 
-## Sources and conventions
+The original #103 catalogue contained 64 SRS names: 13 R1 contracts and 51 R2 entries. #186 now promotes **30 of those R2 entries**, adds **PaymentConfirmed and PaymentUnreconciled**, and requires schemas/examples and publisher/consumer mappings for that **32-event expansion set**. Its overview still says 30; the current table contains 32 names after the payment additions.
 
-- The leader's 13/51 event-scope decision was supplied by the #103 owner on 2026-10-19 and supersedes earlier classifications inferred from the API catalogue. Publisher-only handling was confirmed by the owner on 2026-10-20.
-- SRS v1.0 section 2.8 supplies all 64 event names. The canonical expiry spelling is InventoryReservationExpired.
-- The 128 opened/closed Sprint 0-3 work items were reviewed on 2026-10-19. Publication and consumption requirements are linked per event. Current milestones are S0-S3; older issue prose calls them Sprints 1-4.
-- The #102 branch `fsa_VinhDP/feature/102-event-envelope-and-topic-constants`, commit `ccbdd28`, supplies the envelope, factory, topic constants and shared Kafka configuration. This is source evidence, not a claim that the branch is merged.
-- Monetary types follow #66/#67 and the applied V2 numeric(19,2) migrations. Older bigint wording in #140/#146 must not cause decimal truncation.
+The newer group-payment requirements in #113/#118/#121/#240/#250 add **CheckoutPaymentRequested, CheckoutPaymentConfirmed and OrderGroupCancelled**. These three coordinated additions have contracts here and are counted separately from the #186 expansion set. The complete inventory is **69 names: 48 R1 design contracts and 21 R2 entries**. Within the original 64 SRS names the split is **43 R1 / 21 R2**; five additional names have contracts. R2 means publication is outside current R1 scope, without a delivery-date commitment. HTTP feature scope and Kafka-event scope differ.
 
-## EventEnvelope and Kafka configuration from #102
+PaymentConfirmed is retained to expose a source conflict, not to authorize two payment paths: **CheckoutPaymentConfirmed is the authoritative group-payment contract in this proposal**. Whether PaymentConfirmed is removed from R1 or retained as non-authoritative compatibility output requires leader confirmation. The count includes its reviewable contract, not an approved publication obligation. UserPasswordChanged, UserPasswordReset and UserLoggedIn remain R2 here; Keycloak owns their authentication events (#210/ADR-009).
+
+| Source | Use in this revision |
+| --- | --- |
+| #103 / MR !55 | Preserve the 64-name SRS 2.8 inventory and existing thirteen payload contracts, extending fields only for explicit new consumers. The six publisher-only exceptions were accepted for that earlier scope. |
+| #186, read 2026-10-27 | 32-event expansion list, topic/publisher/consumer assignments, schema/example validation and both-lane review. |
+| #234 / ADR-009; #244 / #246 | Eight domain topics, independent payment/shipment/rating/inventory owners, no notification/system topic. |
+| #113 / #118 / #121 / #240; #250 design in `../database/schema-after-service-split.md` | Complete group manifest, one immutable session/QR, one instruction and shipping/refund lifecycle per seller order. These newer explicit group rules supersede older per-order memo/payment prose in #155–#157 and ADR-009. |
+| #204 / #212 / #213 / #242 | Order completion, local rating eligibility, reputation inputs/results. |
+| #197 / #208 / #209 / #216 | Auction cancellation/timeout, auction stock, product flags. |
+| #191 / #192 / #193 / #211 / #217 / #247 | Delivery records, immutable event/audit log, health transitions, admin user/config audit and instruction-scoped refunds. |
+| Migrations, EventEnvelope/Topics, and #250 | Available fields, UUID/nullability, numeric(19,2), exact state names and service ownership. #250 is a reviewed target design; this document does not execute its migrations. |
+
+New field names, nullability, machine reason codes, local recording boundaries and version conventions in #186 are contract decisions proposed for both lanes, not verbatim claims about the SRS. Specific unresolved decisions are listed under [Review and implementation handoff](#review-and-implementation-handoff).
+
+## EventEnvelope and Kafka configuration
 
 | Field | Java type | Rule |
 | --- | --- | --- |
@@ -45,156 +56,462 @@ Complete CategoryCreated envelope example, illustrating the wire shape rather th
 }
 ```
 
-Source tests in #102 cover field validation, factory identity/time/current trace, JSON round-trip to JsonNode, UTC Instant serialization, disabled type headers and missing-trace deserialization errors. The Java suite was not successfully rerun during this documentation work because Spring Boot parent 4.1.1 was unavailable in the local cache and could not be downloaded. The CatalogTestEvent demo is not a production outbox/deduplication flow or one of the 64 SRS events.
+The upstream #102 tests cover field validation, factory identity/time/current trace, JSON round-trip to JsonNode, UTC Instant serialization, disabled type headers and missing-trace deserialization errors. This documentation revision runs the Markdown/schema validator below, not the Java suite or Kafka integration tests. The CatalogTestEvent demo is not one of the SRS events.
+
+Complete group manifest envelope example for a hand-published contract test (synthetic IDs/data):
+
+```json
+{
+  "eventId": "00000000-0000-4000-8000-000000000090",
+  "eventType": "CheckoutPaymentRequested",
+  "aggregateId": "00000000-0000-4000-8000-000000000020",
+  "occurredAt": "2026-11-20T10:00:00Z",
+  "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "payload": {
+    "orderGroupId": "00000000-0000-4000-8000-000000000020",
+    "buyerId": "00000000-0000-4000-8000-000000000002",
+    "currency": "VND",
+    "totalAmount": "350000.50",
+    "dueAt": "2026-11-20T10:30:00Z",
+    "occurredAt": "2026-11-20T10:00:00Z",
+    "orderCount": 2,
+    "orders": [
+      {
+        "orderId": "00000000-0000-4000-8000-000000000001",
+        "sellerId": "00000000-0000-4000-8000-000000000004",
+        "amount": "200000.50",
+        "paymentDueAt": "2026-11-20T10:30:00Z",
+        "orderVersion": 0
+      },
+      {
+        "orderId": "00000000-0000-4000-8000-000000000011",
+        "sellerId": "00000000-0000-4000-8000-000000000012",
+        "amount": "150000.00",
+        "paymentDueAt": "2026-11-20T10:30:00Z",
+        "orderVersion": 0
+      }
+    ]
+  }
+}
+```
 
 ## Topics and delivery rules
 
-| Owner | Constant in #102 | Topic | R1 publications |
-| --- | --- | --- | --- |
-| user-service | Topics.USER | nexus.user.events | No R1 events in the confirmed scope. |
-| catalog-service | Topics.CATALOG | nexus.catalog.events | CategoryCreated, CategoryUpdated, CategoryDeleted. |
-| commerce-service | Topics.COMMERCE | nexus.commerce.events | OrderCreated, OrderPaid, OrderCancelled. |
-| auction-service | Topics.AUCTION | nexus.auction.events | AuctionStarted, AuctionEnded, BidPlaced, AuctionWon, AuctionFailed, AuctionSettled. |
-| inventory-service | Topics.INVENTORY | nexus.inventory.events | InventoryReservationExpired. |
-| payment-service | Topics.PAYMENT | nexus.payment.events | Listed in #186. |
-| shipment-service | Topics.SHIPMENT | nexus.shipment.events | Listed in #186. |
-| rating-service | Topics.RATING | nexus.rating.events | Listed in #186. |
+| Owner | Constant | Topic |
+| --- | --- | --- |
+| user-service | Topics.USER | nexus.user.events |
+| catalog-service | Topics.CATALOG | nexus.catalog.events |
+| commerce-service | Topics.COMMERCE | nexus.commerce.events |
+| auction-service | Topics.AUCTION | nexus.auction.events |
+| inventory-service | Topics.INVENTORY | nexus.inventory.events |
+| payment-service | Topics.PAYMENT | nexus.payment.events |
+| shipment-service | Topics.SHIPMENT | nexus.shipment.events |
+| rating-service | Topics.RATING | nexus.rating.events |
 
-Do not add notification/system topics. Topics.USER remains part of #102 even though this release publishes no user events. The local manifest uses one partition, one replica and seven-day retention; these settings are not production guarantees.
+- Domain publishers commit business changes and OutboxWriter rows in their own database transaction (#104). The relay preserves eventId/occurredAt/traceId/payload across retries. Delivery is at least once; an ACK/crash race can redeliver. Kafka, carrier calls, Keycloak and another service's DB are outside that SQL transaction.
+- Consumers use IdempotentConsumer (#105) with `(eventId, consumer)`. The marker and business effects commit together; missing prerequisites/failed effects roll back or remain in durable retry. Domain uniqueness/version guards also prevent the same operation arriving under another eventId. The eight-topic #192 logger is a real consuming issue for every domain event; an event with no business handler is now **log-only**, rather than the old publisher-only classification.
+- Kafka keys are explicit per contract. A shared key only orders one partition/topic; it does not order commerce versus payment/shipment/auction topics. Version/business membership checks remain necessary. Event schema version, orderVersion, groupVersion, sessionVersion and instructionVersion are distinct concepts.
+- All properties listed in a schema are required; null is allowed only explicitly. Draft 7, `additionalProperties=true`, UUID strings and UTC ISO-8601 timestamps ending in Z follow #103. Consumers dispatch by envelope.eventType and validate before effects. Breaking new required snapshots need coordinated producer/consumer rollout and historical replay/backfill; additive-property tolerance alone does not make missing required fields compatible.
+- Existing #103 money fields remain JSON numbers with `multipleOf: 0.01`. New financial contracts use plain decimal strings (at most 17 integer and 2 fractional digits), following #118's manifest requirement, to preserve numeric(19,2) without JSON binary-float loss. Parse both with BigDecimal/Decimal; never calculate money through float/double. Amounts, membership, chronology, actor authority and state transitions also need semantic checks beyond JSON Schema.
+- **Non-Kafka records:** NotificationCreated/Sent/Failed and the four health transitions have topic `none`. #191/#193 create EventEnvelope records via the #192 in-process recorder, without a Kafka outbox row or extra topic; local effects/logs can share notification_db transactions. A broker outage must not prevent its own health failure/recovery log. Redis health state and PostgreSQL logs still need durable handoff/retry; they are not one atomic transaction. The `none` topic on SystemConfigUpdated requires a separate durable internal handoff from the #217 owner to #192, explicitly pending review below.
+- #192 stores the original logical envelope payload once by eventId; JSONB is not byte-for-byte HTTP evidence. Derive operator_id from payload.actorId for user/role/refund/config audit and derive aggregate type/producer from this catalogue. Never overwrite a duplicate eventId with different content. Actor IDs describe the original action, not the viewer or technical recorder. Passwords/tokens/provider keys and full notification bodies/addresses are excluded from these audit/delivery contracts.
 
-- Commit business state and the outbox row together (#104). The writer does not call Kafka. The relay claims rows with FOR UPDATE SKIP LOCKED and leaves failed sends unpublished. A crash after ACK but before published_at may cause redelivery; this is not exactly-once delivery across DB/Kafka.
-- Deduplicate by `(eventId, consumer)` (#105); commit the processed marker and business effects together. Exceptions/rollbacks must not leave a successful marker. Different handlers need distinct consumer identities.
-- Each event specifies its Kafka key. Category events use categoryId; align the catalog manifest's productId label with aggregate-based routing. #106 requires category create/update/delete order: multiple relays need aggregate ordering protection; ORDER BY with SKIP LOCKED alone does not prove it.
-- Reservation expiry uses aggregateId=reservationId and key=orderId. Do not assume ordering between commerce and fulfillment topics or repeat a stock mutation already performed by its publisher.
-- Schemas use Draft 7. All listed properties are required; only explicitly nullable fields allow null. additionalProperties=true supports additive evolution. UUIDs are strings; UTC timestamps end in Z.
-- Money is a JSON number with at most two decimal places (multipleOf 0.01). Use BigDecimal and numeric(19,2) under #66/#67/V2; do not convert through float/double, truncate fractions or perform business arithmetic with JavaScript Number. Validate database precision 19/scale 2 using decimal arithmetic.
-- Keep payload fields separate from envelope metadata. JSON Schema does not replace state-machine, chronology, transaction or concurrency checks.
+## Event inventory
 
-## All 64 SRS events
+### Original 64 SRS 2.8 names
 
-R1 entries link to the payloads and publisher/consumer table. The other 51 contract cells contain only R2, with no R1 publisher, consumer or payload assigned.
+The contract cell contains only `R2` for out-of-scope names. Each R1 link resolves to a schema, example and publisher/consumer mapping.
 
 | # | Event | Contract |
 | --- | --- | --- |
 | 1 | `UserRegistered` | R2 |
-| 2 | `UserUpdated` | R2 |
-| 3 | `UserDeleted` | R2 |
+| 2 | `UserUpdated` | [R1 — payload](#userupdated) |
+| 3 | `UserDeleted` | [R1 — payload](#userdeleted) |
 | 4 | `UserPasswordChanged` | R2 |
 | 5 | `UserPasswordReset` | R2 |
 | 6 | `UserLoggedIn` | R2 |
 | 7 | `UserLoggedOut` | R2 |
-| 8 | `UserRoleAssigned` | R2 |
+| 8 | `UserRoleAssigned` | [R1 — payload](#userroleassigned) |
 | 9 | `ProductCreated` | R2 |
 | 10 | `ProductUpdated` | R2 |
 | 11 | `ProductDeleted` | R2 |
 | 12 | `ProductStatusChanged` | R2 |
-| 13 | `CategoryCreated` | [R1 - payload](#categorycreated) |
-| 14 | `CategoryUpdated` | [R1 - payload](#categoryupdated) |
-| 15 | `CategoryDeleted` | [R1 - payload](#categorydeleted) |
+| 13 | `CategoryCreated` | [R1 — payload](#categorycreated) |
+| 14 | `CategoryUpdated` | [R1 — payload](#categoryupdated) |
+| 15 | `CategoryDeleted` | [R1 — payload](#categorydeleted) |
 | 16 | `CartCreated` | R2 |
 | 17 | `CartItemAdded` | R2 |
 | 18 | `CartItemUpdated` | R2 |
 | 19 | `CartItemRemoved` | R2 |
 | 20 | `CartExpired` | R2 |
 | 21 | `CheckoutStarted` | R2 |
-| 22 | `OrderCreated` | [R1 - payload](#ordercreated) |
-| 23 | `OrderCancelled` | [R1 - payload](#ordercancelled) |
-| 24 | `OrderPaid` | [R1 - payload](#orderpaid) |
+| 22 | `OrderCreated` | [R1 — payload](#ordercreated) |
+| 23 | `OrderCancelled` | [R1 — payload](#ordercancelled) |
+| 24 | `OrderPaid` | [R1 — payload](#orderpaid) |
 | 25 | `OrderPaymentFailed` | R2 |
-| 26 | `OrderCompleted` | R2 |
-| 27 | `OrderRefundRequested` | R2 |
-| 28 | `OrderRefundCompleted` | R2 |
-| 29 | `AuctionCreated` | R2 |
+| 26 | `OrderCompleted` | [R1 — payload](#ordercompleted) |
+| 27 | `OrderRefundRequested` | [R1 — payload](#orderrefundrequested) |
+| 28 | `OrderRefundCompleted` | [R1 — payload](#orderrefundcompleted) |
+| 29 | `AuctionCreated` | [R1 — payload](#auctioncreated) |
 | 30 | `AuctionScheduled` | R2 |
-| 31 | `AuctionStarted` | [R1 - payload](#auctionstarted) |
-| 32 | `BidPlaced` | [R1 - payload](#bidplaced) |
+| 31 | `AuctionStarted` | [R1 — payload](#auctionstarted) |
+| 32 | `BidPlaced` | [R1 — payload](#bidplaced) |
 | 33 | `Outbid` | R2 |
-| 34 | `AuctionCancelled` | R2 |
-| 35 | `AuctionEnded` | [R1 - payload](#auctionended) |
-| 36 | `AuctionWon` | [R1 - payload](#auctionwon) |
-| 37 | `AuctionFailed` | [R1 - payload](#auctionfailed) |
-| 38 | `AuctionPaymentTimeout` | R2 |
-| 39 | `AuctionSettled` | [R1 - payload](#auctionsettled) |
+| 34 | `AuctionCancelled` | [R1 — payload](#auctioncancelled) |
+| 35 | `AuctionEnded` | [R1 — payload](#auctionended) |
+| 36 | `AuctionWon` | [R1 — payload](#auctionwon) |
+| 37 | `AuctionFailed` | [R1 — payload](#auctionfailed) |
+| 38 | `AuctionPaymentTimeout` | [R1 — payload](#auctionpaymenttimeout) |
+| 39 | `AuctionSettled` | [R1 — payload](#auctionsettled) |
 | 40 | `InventoryChecked` | R2 |
-| 41 | `InventoryReserved` | R2 |
-| 42 | `InventoryReleased` | R2 |
-| 43 | `InventoryCommitted` | R2 |
+| 41 | `InventoryReserved` | [R1 — payload](#inventoryreserved) |
+| 42 | `InventoryReleased` | [R1 — payload](#inventoryreleased) |
+| 43 | `InventoryCommitted` | [R1 — payload](#inventorycommitted) |
 | 44 | `InventoryAdjusted` | R2 |
-| 45 | `InventoryReservationExpired` | [R1 - payload](#inventoryreservationexpired) |
+| 45 | `InventoryReservationExpired` | [R1 — payload](#inventoryreservationexpired) |
 | 46 | `ShippingQuoteRequested` | R2 |
-| 47 | `ShipmentCreated` | R2 |
-| 48 | `ShipmentPickedUp` | R2 |
-| 49 | `ShipmentInTransit` | R2 |
-| 50 | `ShipmentDelivered` | R2 |
-| 51 | `ShipmentFailed` | R2 |
-| 52 | `ShipmentReturned` | R2 |
-| 53 | `NotificationCreated` | R2 |
-| 54 | `NotificationSent` | R2 |
-| 55 | `NotificationFailed` | R2 |
-| 56 | `UserRated` | R2 |
-| 57 | `ReputationScoreUpdated` | R2 |
-| 58 | `ReputationPenaltyApplied` | R2 |
-| 59 | `TrustLevelChanged` | R2 |
-| 60 | `SystemConfigUpdated` | R2 |
-| 61 | `SystemHealthCheckFailed` | R2 |
-| 62 | `SystemHealthCheckRecovered` | R2 |
-| 63 | `MessageBrokerUnavailable` | R2 |
-| 64 | `MessageBrokerRecovered` | R2 |
+| 47 | `ShipmentCreated` | [R1 — payload](#shipmentcreated) |
+| 48 | `ShipmentPickedUp` | [R1 — payload](#shipmentpickedup) |
+| 49 | `ShipmentInTransit` | [R1 — payload](#shipmentintransit) |
+| 50 | `ShipmentDelivered` | [R1 — payload](#shipmentdelivered) |
+| 51 | `ShipmentFailed` | [R1 — payload](#shipmentfailed) |
+| 52 | `ShipmentReturned` | [R1 — payload](#shipmentreturned) |
+| 53 | `NotificationCreated` | [R1 — payload](#notificationcreated) |
+| 54 | `NotificationSent` | [R1 — payload](#notificationsent) |
+| 55 | `NotificationFailed` | [R1 — payload](#notificationfailed) |
+| 56 | `UserRated` | [R1 — payload](#userrated) |
+| 57 | `ReputationScoreUpdated` | [R1 — payload](#reputationscoreupdated) |
+| 58 | `ReputationPenaltyApplied` | [R1 — payload](#reputationpenaltyapplied) |
+| 59 | `TrustLevelChanged` | [R1 — payload](#trustlevelchanged) |
+| 60 | `SystemConfigUpdated` | [R1 — payload](#systemconfigupdated) |
+| 61 | `SystemHealthCheckFailed` | [R1 — payload](#systemhealthcheckfailed) |
+| 62 | `SystemHealthCheckRecovered` | [R1 — payload](#systemhealthcheckrecovered) |
+| 63 | `MessageBrokerUnavailable` | [R1 — payload](#messagebrokerunavailable) |
+| 64 | `MessageBrokerRecovered` | [R1 — payload](#messagebrokerrecovered) |
 
-## Publishers and consumers for the 13 R1 events
+### Additional names after the SRS baseline
 
-Publishers are backed by explicit publication requirements. A consumer entry identifies either an assigned handler/filter or the selected publisher-only R1 classification.
+| Event | Source | Contract |
+| --- | --- | --- |
+| `PaymentConfirmed` | #186 payment addition | [R1 — payload](#paymentconfirmed) |
+| `PaymentUnreconciled` | #186 payment addition | [R1 — payload](#paymentunreconciled) |
+| `CheckoutPaymentRequested` | #113/#118/#121/#240/#250 group design | [R1 — payload](#checkoutpaymentrequested) |
+| `CheckoutPaymentConfirmed` | #113/#118/#121/#240/#250 group design | [R1 — payload](#checkoutpaymentconfirmed) |
+| `OrderGroupCancelled` | #113/#118/#121/#240/#250 group design | [R1 — payload](#ordergroupcancelled) |
 
-| Event | Topic | Publishing issue / milestone | Consumer / handling |
+## Publishers and consumers
+
+Issue numbers identify implementation ownership, not completed runtime behavior. See each payload section for log-only handling and review conditions.
+
+| Event | Topic | Publishing issue | Consuming issue / handling |
 | --- | --- | --- | --- |
-| `CategoryCreated` | `nexus.catalog.events` | [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) - S1 | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): skip and log DEBUG; no recipient. |
-| `CategoryUpdated` | `nexus.catalog.events` | [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) - S1 | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): generic no-template filter; no notification. |
-| `CategoryDeleted` | `nexus.catalog.events` | [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) - S1 | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): generic no-template filter; no notification. |
-| `OrderCreated` | `nexus.commerce.events` | [#118](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/118) - S1; [#172](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/172) - S3 | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify buyer; auction-service [#173](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/173): settle AUCTION orders. |
-| `OrderPaid` | `nexus.commerce.events` | [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156) - S3 | fulfillment-service [#160](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/160): confirm reservations by orderId. |
-| `OrderCancelled` | `nexus.commerce.events` | [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159) - S3 | fulfillment-service [#161](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/161): release HELD reservations; notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify buyer as required by [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159). |
-| `AuctionStarted` | `nexus.auction.events` | [#145](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/145) - S2 | **Publisher-only (R1)** |
-| `AuctionEnded` | `nexus.auction.events` | [#145](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/145) - S2 | **Publisher-only (R1)** |
-| `BidPlaced` | `nexus.auction.events` | [#146](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/146) - S2 | **Publisher-only (R1)** |
-| `AuctionWon` | `nexus.auction.events` | [#171](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/171) - S3 | commerce-service [#172](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/172): create the AUCTION order. |
-| `AuctionFailed` | `nexus.auction.events` | [#171](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/171) - S3 | **Publisher-only (R1)** |
-| `AuctionSettled` | `nexus.auction.events` | [#173](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/173) - S3 | **Publisher-only (R1)** |
-| `InventoryReservationExpired` | `nexus.inventory.events` | [#175](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/175) - S3 | **Publisher-only (R1)** |
+| `UserUpdated` | `nexus.user.events` | [#211](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/211) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit |
+| `UserDeleted` | `nexus.user.events` | [#211](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/211) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit |
+| `UserRoleAssigned` | `nexus.user.events` | [#211](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/211) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit |
+| `CategoryCreated` | `nexus.catalog.events` | [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): skip/no template; no notification recipient; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `CategoryUpdated` | `nexus.catalog.events` | [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): skip/no template; no notification recipient; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `CategoryDeleted` | `nexus.catalog.events` | [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): skip/no template; no notification recipient; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `OrderCreated` | `nexus.commerce.events` | [#118](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/118), [#172](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/172) | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify the buyer; auction-service [#173](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/173): settle AUCTION orders; catalog-service [#216](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/216): set has_order on the listed products; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `OrderCancelled` | `nexus.commerce.events` | [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159), [#189](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/189) | inventory-service [#161](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/161): release HELD order reservations; notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify the buyer; payment-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157), [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247): close unpaid instructions or refund the funded child; auction-service [#208](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/208): timeout AUCTION only for PAYMENT_DEADLINE_EXPIRED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `OrderPaid` | `nexus.commerce.events` | [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156) | inventory-service [#160](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/160): confirm order reservations; shipment-service [#202](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/202): create one shipment using this trusted snapshot; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `OrderCompleted` | `nexus.commerce.events` | [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204) | rating-service [#242](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/242), [#212](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/212): persist rating_eligibility without calling commerce; rating-service [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213): update score and transaction counts; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `OrderRefundRequested` | `nexus.payment.events` | [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247) | commerce-service [#116](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/116): move CANCELED -> REFUND_REQUESTED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit |
+| `OrderRefundCompleted` | `nexus.payment.events` | [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247) | commerce-service [#116](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/116): move REFUND_REQUESTED -> REFUNDED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit |
+| `AuctionCreated` | `nexus.auction.events` | [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209) | inventory-service [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209): hold one unit for the auction; catalog-service [#216](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/216): set product in_auction; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `AuctionStarted` | `nexus.auction.events` | [#145](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/145) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `BidPlaced` | `nexus.auction.events` | [#146](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/146) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `AuctionCancelled` | `nexus.auction.events` | [#197](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/197) | inventory-service [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209): release the auction hold; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `AuctionEnded` | `nexus.auction.events` | [#145](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/145) | catalog-service [#216](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/216): clear product in_auction; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `AuctionWon` | `nexus.auction.events` | [#171](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/171) | commerce-service [#172](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/172): create the AUCTION order and singleton group; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `AuctionFailed` | `nexus.auction.events` | [#171](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/171) | inventory-service [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209): release the auction hold; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `AuctionPaymentTimeout` | `nexus.auction.events` | [#208](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/208) | rating-service [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213): apply the late-payment penalty to the winner once; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `AuctionSettled` | `nexus.auction.events` | [#173](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/173) | inventory-service [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209): commit the auction hold and emit InventoryCommitted; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `InventoryReserved` | `nexus.inventory.events` | [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log only; stock was already changed by inventory |
+| `InventoryReleased` | `nexus.inventory.events` | [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log only; stock was already changed by inventory |
+| `InventoryCommitted` | `nexus.inventory.events` | [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log only; stock was already changed by inventory |
+| `InventoryReservationExpired` | `nexus.inventory.events` | [#175](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/175) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `ShipmentCreated` | `nexus.shipment.events` | [#202](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/202) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log creation; no order-state move; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `ShipmentPickedUp` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): PAID -> SHIPPED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `ShipmentInTransit` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log only; no additional order state is defined in #116; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `ShipmentDelivered` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): SHIPPED -> DELIVERED -> COMPLETED and publish OrderCompleted; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `ShipmentFailed` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log only; no additional order state is defined in #116; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `ShipmentReturned` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log only; no additional order state is defined in #116; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `NotificationCreated` | `none` | [#191](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/191) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log |
+| `NotificationSent` | `none` | [#191](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/191) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log |
+| `NotificationFailed` | `none` | [#191](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/191) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log |
+| `UserRated` | `nexus.rating.events` | [#212](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/212) | rating-service [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213): update the rated user's effective rating inputs and score; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `ReputationScoreUpdated` | `nexus.rating.events` | [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `ReputationPenaltyApplied` | `nexus.rating.events` | [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `TrustLevelChanged` | `nexus.rating.events` | [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `SystemConfigUpdated` | `none` | [#217](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/217) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): audit through the proposed durable internal handoff; delivery/owner review below |
+| `SystemHealthCheckFailed` | `none` | [#193](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/193) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log; no Kafka dependency |
+| `SystemHealthCheckRecovered` | `none` | [#193](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/193) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log; no Kafka dependency |
+| `MessageBrokerUnavailable` | `none` | [#193](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/193) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log; no Kafka dependency |
+| `MessageBrokerRecovered` | `none` | [#193](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/193) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log; no Kafka dependency |
+| `PaymentConfirmed` | `nexus.payment.events` | [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156) | commerce-service [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156): compatibility contract only; group processing decision below; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log if published |
+| `PaymentUnreconciled` | `nexus.payment.events` | [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157) | commerce-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157): set buyer-readable paymentNote for affected orders without moving their status; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `CheckoutPaymentRequested` | `nexus.commerce.events` | [#118](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/118) | payment-service [#121](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/121), [#240](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/240): create the one immutable session and all seller instructions atomically; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `CheckoutPaymentConfirmed` | `nexus.payment.events` | [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156) | commerce-service [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156), [#116](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/116): validate the whole group and commit valid child PAID/history/OrderPaid atomically; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `OrderGroupCancelled` | `nexus.commerce.events` | [#189](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/189), [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159) | payment-service [#121](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/121), [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157), [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247): close the immutable unpaid session or compensate funded cancelled children; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 
-### Consumer boundaries
+## Integration flows and compatibility
 
-#107 subscribes to commerce/catalog: OrderCreated creates a notification; CategoryCreated is explicitly skipped with DEBUG. CategoryUpdated/Deleted follow the generic no-template rule, rather than separately named acceptance tests. The cancellation notification required by #159 extends #107's templates on the existing commerce topic. No auction/fulfillment subscriptions are added here.
+1. **Purchase/group payment:** #113/#118 commit one group, seller orders, OrderCreated per child and the complete CheckoutPaymentRequested. #121 creates one immutable payment session and all instructions. #156 accepts one exact on-time movement, funds the whole plan and writes CheckoutPaymentConfirmed; commerce validates/commits group and eligible child PAID/history plus OrderPaid per child. The first OrderCreated never issues a partial-group QR, and the compatibility PaymentConfirmed must not independently pay a subset.
+2. **Delivery/completion:** #202 consumes per-order OrderPaid with the trusted buyer/warehouse/shipping snapshot. #203 publishes normalized Shipment* changes. #204 applies ShipmentPickedUp -> SHIPPED and ShipmentDelivered -> DELIVERED -> COMPLETED, then emits OrderCompleted. Other shipment types are recognized/logged without inventing order states. #242/#212 populate eligibility; #213 applies the unique canonical outcome and later UserRated inputs.
+3. **Unpaid cancellation:** #189/#159 cancel the complete group and its still-PENDING children atomically in commerce, publishing OrderGroupCancelled and OrderCancelled per child. Payment closes the immutable unpaid session/instructions. A raced successful receipt remains successful financial evidence; a late confirmation cannot resurrect cancelled orders, and #247 compensates each funded cancelled child's own share.
+4. **Paid child cancellation/refund:** #250 requires shipment handover/cancellation coordination before #189's final OrderCancelled. The paid-child request/ACK contracts (OrderCancellationRequested and ShipmentCancellationConfirmed/Rejected) are not added to the 32-event #186 set here; the owning #189/#203 follow-up must specify them before that coordinated flow is implemented. OrderRefundRequested/Completed identify one child/instruction/refund; never refund the entire multi-seller receipt for each child.
+5. **Auction stock and settlement:** #209 AuctionCreated -> inventory hold/InventoryReserved; AuctionFailed/AuctionCancelled -> release/InventoryReleased; AuctionSettled -> commit/InventoryCommitted. #171 AuctionWon -> #172 singleton group/AUCTION order -> OrderCreated -> #173 AuctionSettled. This expanded #209 stock behavior supersedes #103's earlier no-inventory-commit note. Financial payment is still separate. #208 consumes only AUCTION OrderCancelled with PAYMENT_DEADLINE_EXPIRED and emits AuctionPaymentTimeout for #213's winner-only penalty.
+6. **Logging/audit:** #192 independently consumes all eight domain topics and records the seven local notification/health types. #217's config audit delivery is a proposed durable internal handoff with no Kafka topic. Local logging does not subscribe to itself or create recursive notification events.
 
-#170 determines winners by reading ENDED database state. #168 provides the HTTP state endpoint and #178 polls it. These are not Kafka consumers. #172 consumes AuctionWon and publishes OrderCreated; #173 consumes OrderCreated and publishes AuctionSettled. Notification-service notifies the winner through OrderCreated. Under #175, the publisher already releases stock; #161 consumes OrderCancelled and skips expired reservations, not InventoryReservationExpired.
+The existing AuctionWon -> order snapshot mapping remains: winnerId -> buyer, sellerId -> seller, productId/skuId/title/imageUrl/quantity/finalPrice -> immutable order item, referenceId=auctionId, and paymentDueAt is preserved. #172 also creates the singleton group/manifest required by the new payment model. The nullable auction image source and one-unit policy still need publisher validation; never fetch missing settlement fields from another database.
 
-## Settlement mapping and integration flow
+## R1 payload contracts
 
-| Flow | Handling | Issues |
-| --- | --- | --- |
-| Standard order | OrderCreated produces one buyer notification; OrderPaid confirms reservations. | #118 -> #107; #156 -> #160 |
-| Expiry | OrderCancelled releases HELD reservations and notifies the buyer; EXPIRED reservations are not released twice. | #159 -> #161/#107; #175 |
-| Auction winner | AuctionWon -> AUCTION order -> OrderCreated -> SETTLED plus notification -> AuctionSettled. | #171 -> #172 -> #173/#107 |
+### UserUpdated
 
-| AuctionWon field | Destination in #172 | Rule |
-| --- | --- | --- |
-| auctionId | orders.reference_id | orderType=AUCTION; do not substitute an ID from a request. |
-| winnerId, sellerId | orders.user_id, orders.seller_id | Auction buyer and seller. |
-| productId, skuId, title, imageUrl | order_items snapshot | No Feign lookup for missing fields; sku_code may remain null. |
-| quantity=1, finalPrice | order_items.quantity/unit_price/total_price; orders.subtotal | Single-unit quantity is a payload proposal; there is no auction quantity column. |
-| paymentDueAt | orders.payment_due_at | Preserve the deadline calculated by #170, not the standard reservation deadline. |
-| currency=VND | Currency validation | orders currently has no currency column. |
+- Topic: `nexus.user.events`.
+- Publisher: [#211](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/211).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit.
+- Envelope aggregateId: `userId`; Kafka key: `userId`.
 
-Commerce generates orderId, order number, memo code and order-line ID. #172 requires a different order-number prefix for auctions but does not name it. Agree shipping/tax/discount defaults during implementation. Do not silently require fields that have no source. Both processed_events and the reference_id lookup are needed; the current non-unique reference_id index also needs a concurrency guard to prevent two orders for one auction when event IDs differ (#172/#174).
+| Payload field | Meaning |
+| --- | --- |
+| `userId` | Profile/Keycloak identity being administered. |
+| `actorId` | Authorized Admin/Support making the change. |
+| `changedFields` | Actual supported profile fields changed; exclude credentials/identity documents. |
+| `updatedAt` | Committed profile change time. |
 
-## R1 payloads
+**Payload schema**
 
-The following schemas/examples are payload proposals for review; envelope metadata comes from #102. Publisher-only events still require a payload contract for publication. No R2 payloads are specified here.
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "UserUpdatedPayload",
+  "type": "object",
+  "properties": {
+    "userId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "changedFields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "fullName",
+          "email",
+          "phone",
+          "gender",
+          "address",
+          "dateOfBirth",
+          "status"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "userId",
+    "actorId",
+    "changedFields",
+    "updatedAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "userId": "00000000-0000-4000-8000-000000000002",
+  "actorId": "00000000-0000-4000-8000-000000000060",
+  "changedFields": [
+    "fullName",
+    "address"
+  ],
+  "updatedAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#211 publishes after the permitted profile operation succeeds, using user_db.users.id=Keycloak ID. The audit records actor, target and changed field names without copying an entire profile into the log. This does not add publication to the separate self-profile issue or invent a profile version column. Credentials/password hashes/tokens are never payload fields. Keycloak/profile compensation and permissions remain #211/#238 implementation requirements.
+
+### UserDeleted
+
+- Topic: `nexus.user.events`.
+- Publisher: [#211](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/211).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit.
+- Envelope aggregateId: `userId`; Kafka key: `userId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `userId` | Deleted identity; retain this value even if the profile is hard-deleted. |
+| `actorId` | Admin performing deletion. |
+| `deletionMode` | Actual mode chosen under USER_SOFT_DELETE. |
+| `deletedAt` | Accepted deletion time. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "UserDeletedPayload",
+  "type": "object",
+  "properties": {
+    "userId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "deletionMode": {
+      "type": "string",
+      "enum": [
+        "SOFT",
+        "HARD"
+      ]
+    },
+    "deletedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "userId",
+    "actorId",
+    "deletionMode",
+    "deletedAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "userId": "00000000-0000-4000-8000-000000000002",
+  "actorId": "00000000-0000-4000-8000-000000000060",
+  "deletionMode": "SOFT",
+  "deletedAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#211 records the successful deletion and audit evidence, with actor/target retained independently of the deleted row. USER_SOFT_DELETE selects soft versus hard behavior; both disable Keycloak sign-in. Do not copy the full deleted contact/profile or credentials. The workflow must compensate Keycloak/profile failure; this payload does not claim a distributed SQL transaction.
+
+### UserRoleAssigned
+
+- Topic: `nexus.user.events`.
+- Publisher: [#211](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/211).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit.
+- Envelope aggregateId: `userId`; Kafka key: `userId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `userId` | Keycloak identity whose fixed realm-role set changed. |
+| `actorId` | Authorized Admin requesting role assignment. |
+| `previousRoles` | Verified previous realm-role set. |
+| `roles` | Verified complete resulting realm-role set; an empty set records removal. |
+| `assignedAt` | Successful role operation time. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "UserRoleAssignedPayload",
+  "type": "object",
+  "properties": {
+    "userId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "previousRoles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "ADMIN",
+          "SELLER",
+          "BUYER",
+          "SUPPORT_STAFF"
+        ]
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "roles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "ADMIN",
+          "SELLER",
+          "BUYER",
+          "SUPPORT_STAFF"
+        ]
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "assignedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "userId",
+    "actorId",
+    "previousRoles",
+    "roles",
+    "assignedAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "userId": "00000000-0000-4000-8000-000000000002",
+  "actorId": "00000000-0000-4000-8000-000000000060",
+  "previousRoles": [
+    "BUYER"
+  ],
+  "roles": [
+    "BUYER",
+    "SELLER"
+  ],
+  "assignedAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#211 reads and assigns the fixed Keycloak realm-role set; role CRUD remains out of scope. Emit only after a real successful set change. Audit both sets and actor, with no tokens/passwords. Client privileges and role definitions are not newly invented by this event. user_db owns no recreated roles/user_roles tables after #238.
 
 ### CategoryCreated
 
 - Topic: `nexus.catalog.events`.
-- Publisher: [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) - S1.
-- Consumer: notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): skip and log DEBUG; no recipient.
+- Publisher: [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106).
+- Consumer: notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): skip/no template; no notification recipient; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `categoryId`; Kafka key: `categoryId`.
 
 | Payload field | Meaning |
@@ -264,8 +581,8 @@ The following schemas/examples are payload proposals for review; envelope metada
 ### CategoryUpdated
 
 - Topic: `nexus.catalog.events`.
-- Publisher: [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) - S1.
-- Consumer: notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): generic no-template filter; no notification.
+- Publisher: [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106).
+- Consumer: notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): skip/no template; no notification recipient; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `categoryId`; Kafka key: `categoryId`.
 
 | Payload field | Meaning |
@@ -335,8 +652,8 @@ Publish the snapshot after the update/move, with parentId=null for a root. #106 
 ### CategoryDeleted
 
 - Topic: `nexus.catalog.events`.
-- Publisher: [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) - S1.
-- Consumer: notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): generic no-template filter; no notification.
+- Publisher: [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106).
+- Consumer: notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): skip/no template; no notification recipient; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `categoryId`; Kafka key: `categoryId`.
 
 | Payload field | Meaning |
@@ -376,8 +693,8 @@ Publish only the categoryId of the deleted record after successful deletion. A c
 ### OrderCreated
 
 - Topic: `nexus.commerce.events`.
-- Publisher: [#118](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/118) - S1; [#172](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/172) - S3.
-- Consumer: notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify buyer; auction-service [#173](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/173): settle AUCTION orders.
+- Publisher: [#118](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/118), [#172](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/172).
+- Consumer: notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify the buyer; auction-service [#173](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/173): settle AUCTION orders; catalog-service [#216](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/216): set has_order on the listed products; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `orderId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
@@ -387,6 +704,10 @@ Publish only the categoryId of the deleted record after successful deletion. A c
 | `orderNumber` | orders.order_number; order number shown to the buyer. |
 | `orderType` | STANDARD or AUCTION, matching orders.order_type. |
 | `referenceId` | Auction UUID for AUCTION orders; null for STANDARD orders. |
+| `orderGroupId` | Persisted group ID; singleton group for an auction order. |
+| `sellerId` | This child order's seller. |
+| `orderVersion` | Committed commerce order version. |
+| `productIds` | Unique product IDs from persisted order_items, required by #216. |
 
 **Payload schema**
 
@@ -426,130 +747,27 @@ Publish only the categoryId of the deleted record after successful deletion. A c
           "type": "null"
         }
       ]
-    }
-  },
-  "required": [
-    "orderId",
-    "buyerId",
-    "orderNumber",
-    "orderType",
-    "referenceId"
-  ],
-  "additionalProperties": true,
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "orderType": {
-            "const": "AUCTION"
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "referenceId": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      },
-      "else": {
-        "properties": {
-          "referenceId": {
-            "type": "null"
-          }
-        }
-      }
-    }
-  ]
-}
-```
-
-**Payload example**
-
-```json
-{
-  "orderId": "00000000-0000-4000-8000-000000000001",
-  "buyerId": "00000000-0000-4000-8000-000000000002",
-  "orderNumber": "NX-20261120-0001",
-  "orderType": "STANDARD",
-  "referenceId": null
-}
-```
-
-**AUCTION order example**
-
-```json
-{
-  "orderId": "00000000-0000-4000-8000-000000000001",
-  "buyerId": "00000000-0000-4000-8000-000000000002",
-  "orderNumber": "AUC-20261120-0001",
-  "orderType": "AUCTION",
-  "referenceId": "00000000-0000-4000-8000-000000000003"
-}
-```
-
-#118 creates STANDARD orders; #172 creates AUCTION orders. STANDARD requires referenceId=null; AUCTION requires referenceId=auctionId. Commit order and outbox together. #107 creates one notification using buyerId/orderNumber; #173 settles only AUCTION orders. The winner is notified through OrderCreated, not a second direct AuctionWon notification. Idempotency retries produce no additional event.
-
-### OrderPaid
-
-- Topic: `nexus.commerce.events`.
-- Publisher: [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156) - S3.
-- Consumer: fulfillment-service [#160](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/160): confirm reservations by orderId.
-- Envelope aggregateId: `orderId`; Kafka key: `orderId`.
-
-| Payload field | Meaning |
-| --- | --- |
-| `orderId` | orders.id; fulfillment finds reservations through order_id. |
-| `buyerId` | orders.user_id; buyer UUID. |
-| `orderNumber` | orders.order_number at payment time. |
-| `orderType` | STANDARD or AUCTION, matching orders.order_type. |
-| `referenceId` | Auction UUID for AUCTION orders; null for STANDARD orders. |
-| `paidAt` | Persisted successful-payment timestamp in UTC. |
-
-**Payload schema**
-
-```json
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "OrderPaidPayload",
-  "type": "object",
-  "properties": {
-    "orderId": {
+    },
+    "orderGroupId": {
       "type": "string",
       "format": "uuid"
     },
-    "buyerId": {
+    "sellerId": {
       "type": "string",
       "format": "uuid"
     },
-    "orderNumber": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 40
+    "orderVersion": {
+      "type": "integer",
+      "minimum": 0
     },
-    "orderType": {
-      "type": "string",
-      "enum": [
-        "STANDARD",
-        "AUCTION"
-      ]
-    },
-    "referenceId": {
-      "anyOf": [
-        {
-          "type": "string",
-          "format": "uuid"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "paidAt": {
-      "type": "string",
-      "format": "date-time",
-      "pattern": "Z$"
+    "productIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "minItems": 1,
+      "uniqueItems": true
     }
   },
   "required": [
@@ -558,7 +776,10 @@ Publish only the categoryId of the deleted record after successful deletion. A c
     "orderNumber",
     "orderType",
     "referenceId",
-    "paidAt"
+    "orderGroupId",
+    "sellerId",
+    "orderVersion",
+    "productIds"
   ],
   "additionalProperties": true,
   "allOf": [
@@ -599,28 +820,57 @@ Publish only the categoryId of the deleted record after successful deletion. A c
   "orderNumber": "NX-20261120-0001",
   "orderType": "STANDARD",
   "referenceId": null,
-  "paidAt": "2026-11-20T10:00:00Z"
+  "orderGroupId": "00000000-0000-4000-8000-000000000020",
+  "sellerId": "00000000-0000-4000-8000-000000000004",
+  "orderVersion": 0,
+  "productIds": [
+    "00000000-0000-4000-8000-000000000006"
+  ]
 }
 ```
 
-#156 accepts exact, on-time payment, moves PENDING to PAID and commits payment/history/outbox together. Deduplicate by Sepay transaction ID. Under #157, late payments or payments for CANCELED orders become UNRECONCILED without OrderPaid. A mismatched amount also leaves the order unchanged and records UNRECONCILED/WARN under #156; underpayment/overpayment resolution is outside R1. #160 finds reservations by orderId, not reservation IDs from the event. For an AUCTION order with no reservations, log INFO, mark processed and complete without endless retries.
+**AUCTION order example**
+
+```json
+{
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "orderNumber": "AUC-20261120-0001",
+  "orderType": "AUCTION",
+  "referenceId": "00000000-0000-4000-8000-000000000003",
+  "orderGroupId": "00000000-0000-4000-8000-000000000020",
+  "sellerId": "00000000-0000-4000-8000-000000000004",
+  "orderVersion": 0,
+  "productIds": [
+    "00000000-0000-4000-8000-000000000006"
+  ]
+}
+```
+
+#118 creates STANDARD orders under one group with one order per seller; #172 creates an AUCTION singleton group. STANDARD requires referenceId=null; AUCTION requires referenceId=auctionId. Commit group/order/items, OrderCreated per child and the complete CheckoutPaymentRequested manifest together. #107 notifies by buyerId/orderNumber; #173 settles only AUCTION; #216 sets has_order for every productIds entry. Payment must not create a session/QR from the first individual OrderCreated. Replayed checkout keys produce no new events. The array comes from the immutable item snapshot, not a later product lookup.
 
 ### OrderCancelled
 
 - Topic: `nexus.commerce.events`.
-- Publisher: [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159) - S3.
-- Consumer: fulfillment-service [#161](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/161): release HELD reservations; notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify buyer as required by [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159).
+- Publisher: [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159), [#189](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/189).
+- Consumer: inventory-service [#161](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/161): release HELD order reservations; notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify the buyer; payment-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157), [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247): close unpaid instructions or refund the funded child; auction-service [#208](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/208): timeout AUCTION only for PAYMENT_DEADLINE_EXPIRED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `orderId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
 | --- | --- |
-| `orderId` | orders.id; fulfillment finds reservations through order_id. |
+| `orderId` | orders.id; inventory finds reservations through order_id. |
 | `buyerId` | orders.user_id; recipient of the cancellation notification. |
 | `orderNumber` | orders.order_number shown in the notification. |
 | `orderType` | STANDARD or AUCTION, matching orders.order_type. |
 | `referenceId` | Auction UUID for AUCTION orders; null for STANDARD orders. |
-| `cancelledAt` | Time of the PENDING to CANCELED transition. |
-| `reason` | Proposed PAYMENT_DEADLINE_EXPIRED code for the expiry path; #159 requires a reason but does not prescribe its spelling. |
+| `cancelledAt` | Committed PENDING or eligible PAID -> CANCELED transition time. |
+| `reason` | Exact expiry discriminator for #208, otherwise a nonempty validated manual/group reason. |
+| `orderGroupId` | Group containing the cancelled seller order. |
+| `sellerId` | Seller owning this child order. |
+| `orderVersion` | Committed monotonic commerce order version. |
+| `paidAmount` | Trusted paid amount for this child only; zero if unpaid. |
+| `currency` | Currency of this persisted snapshot; R1 uses VND. |
+| `actorId` | Authenticated action actor UUID, or the fixed system UUID for a job/consumer; never a viewer-supplied actor. |
 
 **Payload schema**
 
@@ -667,7 +917,33 @@ Publish only the categoryId of the deleted record after successful deletion. A c
       "pattern": "Z$"
     },
     "reason": {
-      "const": "PAYMENT_DEADLINE_EXPIRED"
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 500
+    },
+    "orderGroupId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sellerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "paidAmount": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$"
+    },
+    "currency": {
+      "const": "VND"
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
     }
   },
   "required": [
@@ -677,7 +953,13 @@ Publish only the categoryId of the deleted record after successful deletion. A c
     "orderType",
     "referenceId",
     "cancelledAt",
-    "reason"
+    "reason",
+    "orderGroupId",
+    "sellerId",
+    "orderVersion",
+    "paidAmount",
+    "currency",
+    "actorId"
   ],
   "additionalProperties": true,
   "allOf": [
@@ -719,17 +1001,938 @@ Publish only the categoryId of the deleted record after successful deletion. A c
   "orderType": "STANDARD",
   "referenceId": null,
   "cancelledAt": "2026-11-20T10:00:00Z",
-  "reason": "PAYMENT_DEADLINE_EXPIRED"
+  "reason": "PAYMENT_DEADLINE_EXPIRED",
+  "orderGroupId": "00000000-0000-4000-8000-000000000020",
+  "sellerId": "00000000-0000-4000-8000-000000000004",
+  "orderVersion": 2,
+  "paidAmount": "0.00",
+  "currency": "VND",
+  "actorId": "00000000-0000-0000-0000-000000000000"
 }
 ```
 
-#159 runs every 30 seconds and cancels PENDING orders after their reservation deadline, committing the reason/history/outbox together. PAYMENT_DEADLINE_EXPIRED is the proposed reason code for this expiry path. PAID orders are untouched; repeated runs publish nothing. #161 releases HELD reservations and skips EXPIRED ones. The notification requirement in #159 extends #107 templates. This payload does not establish publication for manual PATCH #116 or confirm #159 already supports the separate deadline of an AUCTION order without reservations; review those paths during implementation.
+**Paid manual cancellation example**
+
+```json
+{
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "orderNumber": "NX-20261120-0001",
+  "orderType": "STANDARD",
+  "referenceId": null,
+  "cancelledAt": "2026-11-20T10:30:00Z",
+  "reason": "Buyer requested cancellation before carrier handover",
+  "orderGroupId": "00000000-0000-4000-8000-000000000020",
+  "sellerId": "00000000-0000-4000-8000-000000000004",
+  "orderVersion": 2,
+  "paidAmount": "200000.50",
+  "currency": "VND",
+  "actorId": "00000000-0000-4000-8000-000000000002"
+}
+```
+
+#159 expiry and #189 manual cancellation commit state/history/outbox together through #116. PAYMENT_DEADLINE_EXPIRED is the exact #208 timeout discriminator; other reasons must not penalize the buyer. Before payment cancel the whole group, emit OrderGroupCancelled and per-child OrderCancelled atomically; do not reprice one unpaid child under an existing QR. After payment, #250's shipment-handover coordination must complete before final CANCELED; the cancellation-request/ACK event contracts remain a separate owner handoff. paidAmount is immutable child funding evidence, verified against the payment instruction by #247, never a caller override/group total. #161 releases HELD only and skips EXPIRED/CONFIRMED according to the owned stock flow. Payment retains successful incoming evidence and creates at most one instruction-budget refund. Apply source orderVersion so stale redelivery cannot reopen payment. No cross-topic ordering or cross-database transaction is assumed.
+
+### OrderPaid
+
+- Topic: `nexus.commerce.events`.
+- Publisher: [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156).
+- Consumer: inventory-service [#160](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/160): confirm order reservations; shipment-service [#202](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/202): create one shipment using this trusted snapshot; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `orderId`; Kafka key: `orderId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `orderId` | orders.id; inventory finds reservations through order_id. |
+| `buyerId` | orders.user_id; buyer UUID. |
+| `orderNumber` | orders.order_number at payment time. |
+| `orderType` | STANDARD or AUCTION, matching orders.order_type. |
+| `referenceId` | Auction UUID for AUCTION orders; null for STANDARD orders. |
+| `paidAt` | Persisted successful-payment timestamp in UTC. |
+| `orderGroupId` | Group context; this remains an individual seller-order event. |
+| `sellerId` | Seller owning this child shipment/order. |
+| `orderVersion` | Committed commerce order version. |
+| `sessionId` | Shared session that funded this instruction. |
+| `instructionId` | Funded instruction for this order. |
+| `transactionId` | Shared NORMAL/SUCCESS receipt; do not copy its full amount to this child. |
+| `paidAmount` | This child's funded amount. |
+| `currency` | Currency of this persisted snapshot; R1 uses VND. |
+| `warehouseId` | Trusted selected warehouse from the order/preparation snapshot; never a warehouse code. |
+| `shippingFee` | This order's frozen shipping fee; do not charge the group total again. |
+| `shippingInfo` | Trusted immutable recipient/address/items snapshot. Nullable parcel/pickupAddress require preparation before a carrier call when required. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OrderPaidPayload",
+  "type": "object",
+  "properties": {
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "buyerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderNumber": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+    },
+    "orderType": {
+      "type": "string",
+      "enum": [
+        "STANDARD",
+        "AUCTION"
+      ]
+    },
+    "referenceId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "paidAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "orderGroupId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sellerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sessionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "instructionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "transactionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "paidAmount": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$"
+    },
+    "currency": {
+      "const": "VND"
+    },
+    "warehouseId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "shippingFee": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$"
+    },
+    "shippingInfo": {
+      "type": "object",
+      "properties": {
+        "recipient": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S",
+              "maxLength": 150
+            },
+            "phone": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S",
+              "maxLength": 20
+            },
+            "address": {
+              "type": "object",
+              "properties": {
+                "line1": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "maxLength": 500
+                },
+                "wardCode": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "maxLength": 40
+                },
+                "districtCode": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "maxLength": 40
+                },
+                "provinceCode": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "maxLength": 40
+                }
+              },
+              "required": [
+                "line1",
+                "wardCode",
+                "districtCode",
+                "provinceCode"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "name",
+            "phone",
+            "address"
+          ],
+          "additionalProperties": true
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "skuId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "productName": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S",
+                "maxLength": 255
+              },
+              "quantity": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "skuId",
+              "productName",
+              "quantity"
+            ],
+            "additionalProperties": true
+          },
+          "minItems": 1
+        },
+        "parcel": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "weightGrams": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "lengthCm": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "widthCm": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "heightCm": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                }
+              },
+              "required": [
+                "weightGrams",
+                "lengthCm",
+                "widthCm",
+                "heightCm"
+              ],
+              "additionalProperties": true
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pickupAddress": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "line1": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "maxLength": 500
+                },
+                "wardCode": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "maxLength": 40
+                },
+                "districtCode": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "maxLength": 40
+                },
+                "provinceCode": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "maxLength": 40
+                }
+              },
+              "required": [
+                "line1",
+                "wardCode",
+                "districtCode",
+                "provinceCode"
+              ],
+              "additionalProperties": true
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "recipient",
+        "items",
+        "parcel",
+        "pickupAddress"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "orderId",
+    "buyerId",
+    "orderNumber",
+    "orderType",
+    "referenceId",
+    "paidAt",
+    "orderGroupId",
+    "sellerId",
+    "orderVersion",
+    "sessionId",
+    "instructionId",
+    "transactionId",
+    "paidAmount",
+    "currency",
+    "warehouseId",
+    "shippingFee",
+    "shippingInfo"
+  ],
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "orderType": {
+            "const": "AUCTION"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "referenceId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "referenceId": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+**Payload example**
+
+```json
+{
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "orderNumber": "NX-20261120-0001",
+  "orderType": "STANDARD",
+  "referenceId": null,
+  "paidAt": "2026-11-20T10:00:00Z",
+  "orderGroupId": "00000000-0000-4000-8000-000000000020",
+  "sellerId": "00000000-0000-4000-8000-000000000004",
+  "orderVersion": 1,
+  "sessionId": "00000000-0000-4000-8000-000000000021",
+  "instructionId": "00000000-0000-4000-8000-000000000022",
+  "transactionId": "00000000-0000-4000-8000-000000000023",
+  "paidAmount": "200000.50",
+  "currency": "VND",
+  "warehouseId": "00000000-0000-4000-8000-000000000010",
+  "shippingFee": "15000.00",
+  "shippingInfo": {
+    "recipient": {
+      "name": "Demo Recipient",
+      "phone": "0900000000",
+      "address": {
+        "line1": "1 Demo Street",
+        "wardCode": "W01",
+        "districtCode": "D01",
+        "provinceCode": "P01"
+      }
+    },
+    "items": [
+      {
+        "skuId": "00000000-0000-4000-8000-000000000005",
+        "productName": "Demo item",
+        "quantity": 1
+      }
+    ],
+    "parcel": null,
+    "pickupAddress": null
+  }
+}
+```
+
+#156 consumes authoritative CheckoutPaymentConfirmed from payment-service under the group design. Commerce validates the complete plan and commits eligible child PAID/history/OrderPaid/processed marker together; payment owns the separate funding/ledger transaction. paidAmount is the instruction share, not the session total. #160 confirms reservations; #202 creates one shipment per seller order using buyerId/warehouseId/shippingInfo and shippingFee. Locality codes shown in the example are synthetic and are not valid GHN booking data. Missing real measurements/pickup data leaves PENDING_TRACKING/preparation; never fabricate them or query commerce_db. For an AUCTION order without order reservations, #160 logs/marks the no-op; #209 owns the auction reservation. Late/cancelled/unreconciled payments emit no OrderPaid for cancelled children. Historical messages lacking new required fields need an explicit backfill/replay or durable validation-retry policy before these consumers are enabled.
+
+### OrderCompleted
+
+- Topic: `nexus.commerce.events`.
+- Publisher: [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204).
+- Consumer: rating-service [#242](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/242), [#212](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/212): persist rating_eligibility without calling commerce; rating-service [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213): update score and transaction counts; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `orderId`; Kafka key: `orderId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `orderId` | Canonical seller-order UUID; never the order-group UUID. |
+| `orderGroupId` | Stored order_groups.id; auction orders also have a singleton group. |
+| `buyerId` | Buyer from the immutable commerce order snapshot. |
+| `sellerId` | Seller owning this child order. |
+| `orderType` | STANDARD or AUCTION, from the persisted order. |
+| `referenceId` | Auction UUID for AUCTION; null for STANDARD. |
+| `orderVersion` | Committed commerce orders.version, not a schema version or payment version. |
+| `completedAt` | Persisted business completion time; maps to rating_eligibility.completed_at. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OrderCompletedPayload",
+  "type": "object",
+  "properties": {
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderGroupId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "buyerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sellerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderType": {
+      "type": "string",
+      "enum": [
+        "STANDARD",
+        "AUCTION"
+      ]
+    },
+    "referenceId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "orderVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "completedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "orderId",
+    "orderGroupId",
+    "buyerId",
+    "sellerId",
+    "orderType",
+    "referenceId",
+    "orderVersion",
+    "completedAt"
+  ],
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "orderType": {
+            "const": "AUCTION"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "referenceId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "referenceId": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+**Payload example**
+
+```json
+{
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "orderGroupId": "00000000-0000-4000-8000-000000000020",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "sellerId": "00000000-0000-4000-8000-000000000004",
+  "orderType": "STANDARD",
+  "referenceId": null,
+  "orderVersion": 1,
+  "completedAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#204 commits the DELIVERED -> COMPLETED transition, history and outbox together after ShipmentDelivered. #242 stores orderId/buyerId/sellerId/completedAt and referenceId as auction_id when applicable. #213 applies each canonical order outcome once per affected user; envelope deduplication alone does not prevent two different eventIds recounting the same order. Buyer/seller must differ. No new rating permission is inferred from a payment or shipment-created event.
+
+### OrderRefundRequested
+
+- Topic: `nexus.payment.events`.
+- Publisher: [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247).
+- Consumer: commerce-service [#116](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/116): move CANCELED -> REFUND_REQUESTED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit.
+- Envelope aggregateId: `orderId`; Kafka key: `orderId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `refundId` | The one R1 refund operation for this seller order. |
+| `orderId` | Cancelled, funded seller order. |
+| `orderGroupId` | Context only; this refund does not refund sibling orders. |
+| `sessionId` | Shared payment session, resolved from the local instruction. |
+| `instructionId` | Local funded instruction for this order. |
+| `incomingTransactionId` | Preserved NORMAL/SUCCESS funding transaction, shared by sibling instructions. |
+| `amount` | Positive requested/completed refund amount for this child; bounded by its funded share. |
+| `currency` | Currency of this persisted snapshot; R1 uses VND. |
+| `status` | Persisted refund status. |
+| `reason` | Nonempty stored refund/cancellation reason. |
+| `actorId` | Authenticated action actor UUID, or the fixed system UUID for a job/consumer; never a viewer-supplied actor. |
+| `refundVersion` | Committed refunds.version; serialize completion against duplicate requests. |
+| `instructionVersion` | Committed local instruction.version used to order this order's financial snapshots. |
+| `requestedAt` | Original request time; retained on completion. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OrderRefundRequestedPayload",
+  "type": "object",
+  "properties": {
+    "refundId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderGroupId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sessionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "instructionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "incomingTransactionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "amount": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$",
+      "not": {
+        "pattern": "^0(?:\\.0{1,2})?$"
+      }
+    },
+    "currency": {
+      "const": "VND"
+    },
+    "status": {
+      "const": "REQUESTED"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "refundVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "instructionVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "requestedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "refundId",
+    "orderId",
+    "orderGroupId",
+    "sessionId",
+    "instructionId",
+    "incomingTransactionId",
+    "amount",
+    "currency",
+    "status",
+    "reason",
+    "actorId",
+    "refundVersion",
+    "instructionVersion",
+    "requestedAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "refundId": "00000000-0000-4000-8000-000000000030",
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "orderGroupId": "00000000-0000-4000-8000-000000000020",
+  "sessionId": "00000000-0000-4000-8000-000000000021",
+  "instructionId": "00000000-0000-4000-8000-000000000022",
+  "incomingTransactionId": "00000000-0000-4000-8000-000000000023",
+  "amount": "200000.50",
+  "currency": "VND",
+  "status": "REQUESTED",
+  "reason": "Buyer cancellation before handover",
+  "actorId": "00000000-0000-0000-0000-000000000000",
+  "refundVersion": 1,
+  "instructionVersion": 1,
+  "requestedAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#247 creates the REQUESTED refund and this outbox row atomically. actorId is refunds.requested_by; automatic compensation uses the system UUID and stable system:cancel-refund:{orderId} identity. At most one refund exists per order, including an API request racing an automatic cancellation. If an amount is supplied, preserve it exactly after validating against the funded instruction; if omitted, resolve that child's budget. Never use the entire session receipt as each seller's refund. No bank transfer has completed yet. Commerce validates the status transition and tracks refund identity/version so late REQUESTED redelivery cannot undo REFUNDED.
+
+### OrderRefundCompleted
+
+- Topic: `nexus.payment.events`.
+- Publisher: [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247).
+- Consumer: commerce-service [#116](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/116): move REFUND_REQUESTED -> REFUNDED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit.
+- Envelope aggregateId: `orderId`; Kafka key: `orderId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `refundId` | The one R1 refund operation for this seller order. |
+| `orderId` | Cancelled, funded seller order. |
+| `orderGroupId` | Context only; this refund does not refund sibling orders. |
+| `sessionId` | Shared payment session, resolved from the local instruction. |
+| `instructionId` | Local funded instruction for this order. |
+| `incomingTransactionId` | Preserved NORMAL/SUCCESS funding transaction, shared by sibling instructions. |
+| `amount` | Positive requested/completed refund amount for this child; bounded by its funded share. |
+| `currency` | Currency of this persisted snapshot; R1 uses VND. |
+| `status` | Persisted refund status. |
+| `reason` | Nonempty stored refund/cancellation reason. |
+| `actorId` | Authenticated action actor UUID, or the fixed system UUID for a job/consumer; never a viewer-supplied actor. |
+| `refundVersion` | Committed refunds.version; serialize completion against duplicate requests. |
+| `instructionVersion` | Committed local instruction.version used to order this order's financial snapshots. |
+| `requestedAt` | Original request time; retained on completion. |
+| `completedTransactionId` | The single REFUND/SUCCESS outgoing ledger movement. |
+| `completedAt` | Persisted time Support confirms the manual transfer. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OrderRefundCompletedPayload",
+  "type": "object",
+  "properties": {
+    "refundId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderGroupId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sessionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "instructionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "incomingTransactionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "amount": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$",
+      "not": {
+        "pattern": "^0(?:\\.0{1,2})?$"
+      }
+    },
+    "currency": {
+      "const": "VND"
+    },
+    "status": {
+      "const": "COMPLETED"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "refundVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "instructionVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "requestedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "completedTransactionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "completedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "refundId",
+    "orderId",
+    "orderGroupId",
+    "sessionId",
+    "instructionId",
+    "incomingTransactionId",
+    "amount",
+    "currency",
+    "status",
+    "reason",
+    "actorId",
+    "refundVersion",
+    "instructionVersion",
+    "requestedAt",
+    "completedTransactionId",
+    "completedAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "refundId": "00000000-0000-4000-8000-000000000030",
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "orderGroupId": "00000000-0000-4000-8000-000000000020",
+  "sessionId": "00000000-0000-4000-8000-000000000021",
+  "instructionId": "00000000-0000-4000-8000-000000000022",
+  "incomingTransactionId": "00000000-0000-4000-8000-000000000023",
+  "amount": "200000.50",
+  "currency": "VND",
+  "status": "COMPLETED",
+  "reason": "Buyer cancellation before handover",
+  "actorId": "00000000-0000-0000-0000-000000000000",
+  "refundVersion": 1,
+  "instructionVersion": 1,
+  "requestedAt": "2026-11-20T10:00:00Z",
+  "completedTransactionId": "00000000-0000-4000-8000-000000000031",
+  "completedAt": "2026-11-20T10:30:00Z"
+}
+```
+
+#247 atomically commits Support's completion, its outgoing ledger reference and outbox. actorId is completed_by. Preserve requestedAt and incoming funding evidence; completedAt >= requestedAt. Amount/currency/order/instruction must agree with the original refund. Repeating completion adds no ledger row/event. On missing REQUESTED prerequisites, retain durable retry; do not skip the state machine or mark a failed handler processed.
+
+### AuctionCreated
+
+- Topic: `nexus.auction.events`.
+- Publisher: [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209).
+- Consumer: inventory-service [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209): hold one unit for the auction; catalog-service [#216](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/216): set product in_auction; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `auctionId`; Kafka key: `auctionId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `auctionId` | New auction UUID; reservation lookup uses this source identity. |
+| `sellerId` | Seller from the stored auction. |
+| `productId` | Product whose flag #216 updates. |
+| `skuId` | SKU to hold in inventory. |
+| `quantity` | R1 auction holds one unit. |
+| `startAt` | Scheduled start. |
+| `endAt` | Initial effective end. |
+| `auctionVersion` | Committed auction version. |
+| `createdAt` | Auction create transaction time. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AuctionCreatedPayload",
+  "type": "object",
+  "properties": {
+    "auctionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sellerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "productId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "skuId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "quantity": {
+      "const": 1
+    },
+    "startAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "endAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "auctionVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "auctionId",
+    "sellerId",
+    "productId",
+    "skuId",
+    "quantity",
+    "startAt",
+    "endAt",
+    "auctionVersion",
+    "createdAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "auctionId": "00000000-0000-4000-8000-000000000003",
+  "sellerId": "00000000-0000-4000-8000-000000000004",
+  "productId": "00000000-0000-4000-8000-000000000006",
+  "skuId": "00000000-0000-4000-8000-000000000005",
+  "quantity": 1,
+  "startAt": "2026-11-20T11:00:00Z",
+  "endAt": "2026-11-20T12:00:00Z",
+  "auctionVersion": 1,
+  "createdAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#209 writes this event with auction creation. Inventory selects a real warehouse under its stock policy, stores auction_id on the reservation and writes its hold/movement/InventoryReserved/processed marker together. No warehouse UUID is fabricated from an auction column that does not exist. Deduplicate also on auction/SKU/warehouse so a different envelope cannot hold twice. #216 only updates the product flag. startAt < endAt. The synchronous no-stock 409 required by #209 needs an agreed admission/compensation path; this async event alone cannot make a completed creation request fail retroactively.
 
 ### AuctionStarted
 
 - Topic: `nexus.auction.events`.
-- Publisher: [#145](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/145) - S2.
-- Consumer: **Publisher-only (R1)**; no consuming issue is assigned in this release.
+- Publisher: [#145](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/145).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `auctionId`; Kafka key: `auctionId`.
 
 | Payload field | Meaning |
@@ -811,11 +2014,191 @@ Publish only the categoryId of the deleted record after successful deletion. A c
 
 #145 commits the SCHEDULED to ACTIVE transition and event atomically. startAt must precede endAt; startedAt is the actual transition time and may reflect scheduler delay. Two scheduler instances must not create duplicate events.
 
+### BidPlaced
+
+- Topic: `nexus.auction.events`.
+- Publisher: [#146](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/146).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `auctionId`; Kafka key: `auctionId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `auctionId` | UUID of the auction receiving the accepted bid. |
+| `bidId` | Persisted bid UUID. |
+| `bidderId` | UUID of the accepted bidder. |
+| `amount` | Positive VND amount with at most two decimal places; parse/serialize with BigDecimal in Java. |
+| `currency` | VND. |
+| `placedAt` | Persisted bid timestamp in UTC. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BidPlacedPayload",
+  "type": "object",
+  "properties": {
+    "auctionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "bidId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "bidderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "amount": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "multipleOf": 0.01
+    },
+    "currency": {
+      "const": "VND"
+    },
+    "placedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "auctionId",
+    "bidId",
+    "bidderId",
+    "amount",
+    "currency",
+    "placedAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "auctionId": "00000000-0000-4000-8000-000000000003",
+  "bidId": "00000000-0000-4000-8000-000000000008",
+  "bidderId": "00000000-0000-4000-8000-000000000002",
+  "amount": 1500000,
+  "currency": "VND",
+  "placedAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#146 publishes only after the conditional price UPDATE and bid INSERT succeed in one transaction. Rejection or rollback produces no event. amount must be positive and meet currentPrice + bidIncrement. #147 retries with the same Idempotency-Key create no second event. #149 may extend endAt in the same transaction. Outbid remains R2. Use numeric(19,2)/BigDecimal from #66/#67; reconcile the older bigint wording in #140/#146 without truncating decimal values.
+
+### AuctionCancelled
+
+- Topic: `nexus.auction.events`.
+- Publisher: [#197](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/197).
+- Consumer: inventory-service [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209): release the auction hold; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `auctionId`; Kafka key: `auctionId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `auctionId` | Cancelled auction UUID. |
+| `sellerId` | Auction seller. |
+| `productId` | Stored product context. |
+| `skuId` | Stored SKU context. |
+| `actorId` | Authenticated action actor UUID, or the fixed system UUID for a job/consumer; never a viewer-supplied actor. |
+| `cancelledBy` | Business role of the actor, separate from actorId. |
+| `reason` | Stored cancellation reason. |
+| `auctionVersion` | Committed auction version. |
+| `cancelledAt` | Accepted transition time to CANCELLED. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AuctionCancelledPayload",
+  "type": "object",
+  "properties": {
+    "auctionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sellerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "productId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "skuId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "cancelledBy": {
+      "type": "string",
+      "enum": [
+        "SELLER",
+        "ADMIN"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 255
+    },
+    "auctionVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cancelledAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "auctionId",
+    "sellerId",
+    "productId",
+    "skuId",
+    "actorId",
+    "cancelledBy",
+    "reason",
+    "auctionVersion",
+    "cancelledAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "auctionId": "00000000-0000-4000-8000-000000000003",
+  "sellerId": "00000000-0000-4000-8000-000000000004",
+  "productId": "00000000-0000-4000-8000-000000000006",
+  "skuId": "00000000-0000-4000-8000-000000000005",
+  "actorId": "00000000-0000-0000-0000-000000000000",
+  "cancelledBy": "ADMIN",
+  "reason": "Cancelled by admin before settlement",
+  "auctionVersion": 1,
+  "cancelledAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#197 commits cancellation/reason/actor/outbox through the state machine. Seller permission requires no valid bids; Admin permission and final-state restrictions remain service checks. #209 releases only an existing HELD auction reservation once and emits InventoryReleased in that local transaction. Never release stock twice when AuctionFailed/cancellation/redelivery race; do not manufacture an order ID before settlement.
+
 ### AuctionEnded
 
 - Topic: `nexus.auction.events`.
-- Publisher: [#145](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/145) - S2.
-- Consumer: **Publisher-only (R1)**; no consuming issue is assigned in this release.
+- Publisher: [#145](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/145).
+- Consumer: catalog-service [#216](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/216): clear product in_auction; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `auctionId`; Kafka key: `auctionId`.
 
 | Payload field | Meaning |
@@ -895,90 +2278,13 @@ Publish only the categoryId of the deleted record after successful deletion. A c
 }
 ```
 
-#145 publishes after ACTIVE becomes ENDED. endAt includes anti-sniping extensions; endedAt must be at or after endAt. #170 selects ENDED auctions from the database, rather than subscribing to AuctionEnded.
-
-### BidPlaced
-
-- Topic: `nexus.auction.events`.
-- Publisher: [#146](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/146) - S2.
-- Consumer: **Publisher-only (R1)**; no consuming issue is assigned in this release.
-- Envelope aggregateId: `auctionId`; Kafka key: `auctionId`.
-
-| Payload field | Meaning |
-| --- | --- |
-| `auctionId` | UUID of the auction receiving the accepted bid. |
-| `bidId` | Persisted bid UUID. |
-| `bidderId` | UUID of the accepted bidder. |
-| `amount` | Positive VND amount with at most two decimal places; parse/serialize with BigDecimal in Java. |
-| `currency` | VND. |
-| `placedAt` | Persisted bid timestamp in UTC. |
-
-**Payload schema**
-
-```json
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "BidPlacedPayload",
-  "type": "object",
-  "properties": {
-    "auctionId": {
-      "type": "string",
-      "format": "uuid"
-    },
-    "bidId": {
-      "type": "string",
-      "format": "uuid"
-    },
-    "bidderId": {
-      "type": "string",
-      "format": "uuid"
-    },
-    "amount": {
-      "type": "number",
-      "exclusiveMinimum": 0,
-      "multipleOf": 0.01
-    },
-    "currency": {
-      "const": "VND"
-    },
-    "placedAt": {
-      "type": "string",
-      "format": "date-time",
-      "pattern": "Z$"
-    }
-  },
-  "required": [
-    "auctionId",
-    "bidId",
-    "bidderId",
-    "amount",
-    "currency",
-    "placedAt"
-  ],
-  "additionalProperties": true
-}
-```
-
-**Payload example**
-
-```json
-{
-  "auctionId": "00000000-0000-4000-8000-000000000003",
-  "bidId": "00000000-0000-4000-8000-000000000008",
-  "bidderId": "00000000-0000-4000-8000-000000000002",
-  "amount": 1500000,
-  "currency": "VND",
-  "placedAt": "2026-11-20T10:00:00Z"
-}
-```
-
-#146 publishes only after the conditional price UPDATE and bid INSERT succeed in one transaction. Rejection or rollback produces no event. amount must be positive and meet currentPrice + bidIncrement. #147 retries with the same Idempotency-Key create no second event. #149 may extend endAt in the same transaction. Outbid remains R2. Use numeric(19,2)/BigDecimal from #66/#67; reconcile the older bigint wording in #140/#146 without truncating decimal values.
+#145 publishes after ACTIVE becomes ENDED. endAt includes anti-sniping extensions; endedAt must be at or after endAt. #170 selects ENDED auctions from the database, rather than subscribing to AuctionEnded. #216 now consumes this event and clears productId.in_auction; the old #103 publisher-only classification no longer describes the expanded scope.
 
 ### AuctionWon
 
 - Topic: `nexus.auction.events`.
-- Publisher: [#171](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/171) - S3.
-- Consumer: commerce-service [#172](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/172): create the AUCTION order.
+- Publisher: [#171](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/171).
+- Consumer: commerce-service [#172](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/172): create the AUCTION order and singleton group; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `auctionId`; Kafka key: `auctionId`.
 
 | Payload field | Meaning |
@@ -1099,8 +2405,8 @@ Publish only the categoryId of the deleted record after successful deletion. A c
 ### AuctionFailed
 
 - Topic: `nexus.auction.events`.
-- Publisher: [#171](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/171) - S3.
-- Consumer: **Publisher-only (R1)**; no consuming issue is assigned in this release.
+- Publisher: [#171](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/171).
+- Consumer: inventory-service [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209): release the auction hold; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `auctionId`; Kafka key: `auctionId`.
 
 | Payload field | Meaning |
@@ -1178,13 +2484,104 @@ Publish only the categoryId of the deleted record after successful deletion. A c
 }
 ```
 
-With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_BIDS. Do not fabricate winnerId or finalPrice; published fields remain non-null under #171. Repeated runs and rollbacks produce no additional event. #172 consumes only AuctionWon.
+With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_BIDS. Do not fabricate winnerId or finalPrice; published fields remain non-null under #171. Repeated runs and rollbacks produce no additional event. #172 consumes only AuctionWon. #209 now consumes this outcome to release the HELD auction reservation and publishes InventoryReleased once.
+
+### AuctionPaymentTimeout
+
+- Topic: `nexus.auction.events`.
+- Publisher: [#208](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/208).
+- Consumer: rating-service [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213): apply the late-payment penalty to the winner once; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `auctionId`; Kafka key: `auctionId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `auctionId` | AUCTION OrderCancelled.referenceId, checked against the local auction. |
+| `orderId` | Cancelled canonical auction order. |
+| `winnerId` | Winning buyer read from the auction, not an arbitrary bidder. |
+| `sellerId` | Seller context; never the penalty target. |
+| `paymentDueAt` | Original auction payment deadline. |
+| `timedOutAt` | Committed transition time to PAYMENT_TIMEOUT. |
+| `reason` | Exact #208 cancellation discriminator. |
+| `auctionVersion` | Committed auction version. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AuctionPaymentTimeoutPayload",
+  "type": "object",
+  "properties": {
+    "auctionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "winnerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sellerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "paymentDueAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "timedOutAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "reason": {
+      "const": "PAYMENT_DEADLINE_EXPIRED"
+    },
+    "auctionVersion": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "auctionId",
+    "orderId",
+    "winnerId",
+    "sellerId",
+    "paymentDueAt",
+    "timedOutAt",
+    "reason",
+    "auctionVersion"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "auctionId": "00000000-0000-4000-8000-000000000003",
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "winnerId": "00000000-0000-4000-8000-000000000002",
+  "sellerId": "00000000-0000-4000-8000-000000000004",
+  "paymentDueAt": "2026-11-20T10:00:00Z",
+  "timedOutAt": "2026-11-20T10:30:00Z",
+  "reason": "PAYMENT_DEADLINE_EXPIRED",
+  "auctionVersion": 1
+}
+```
+
+#208 consumes OrderCancelled only for orderType=AUCTION and reason=PAYMENT_DEADLINE_EXPIRED. Ignore STANDARD and unrelated reasons. Read winner/deadline from local auction state, then commit PAYMENT_TIMEOUT/outbox/processed marker together. #213 penalizes winnerId once per auction/order business outcome using configured policy, not all bidders or the seller. A duplicate envelope or another eventId for the same outcome must not penalize twice; timedOutAt >= paymentDueAt.
 
 ### AuctionSettled
 
 - Topic: `nexus.auction.events`.
-- Publisher: [#173](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/173) - S3.
-- Consumer: **Publisher-only (R1)**; no consuming issue is assigned in this release.
+- Publisher: [#173](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/173).
+- Consumer: inventory-service [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209): commit the auction hold and emit InventoryCommitted; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `auctionId`; Kafka key: `auctionId`.
 
 | Payload field | Meaning |
@@ -1234,13 +2631,315 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 }
 ```
 
-#173 consumes AUCTION OrderCreated, moves WON to SETTLED, stores orderId and publishes one AuctionSettled in the same transaction as the processed marker. Ignore STANDARD orders; for an auction outside WON, log WARN and leave state unchanged. SETTLED means an order exists, not that it is paid. This event must not trigger an inventory commit.
+#173 consumes AUCTION OrderCreated, moves WON to SETTLED, stores orderId and publishes one AuctionSettled in the same transaction as the processed marker. Ignore STANDARD orders; for an auction outside WON, log WARN and leave state unchanged. SETTLED means an order exists, not that it is paid. #209 now explicitly requires inventory to commit the existing auction hold on this event and attach orderId. This expansion supersedes the old #103 no-commit note; SETTLED is still not financial PAID. Repeated delivery must neither create a second reservation nor commit stock twice.
+
+### InventoryReserved
+
+- Topic: `nexus.inventory.events`.
+- Publisher: [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log only; stock was already changed by inventory.
+- Envelope aggregateId: `reservationId`; Kafka key: `auctionId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `reservationId` | Stable inventory reservation UUID; retain when linking an auction to its order. |
+| `auctionId` | Auction source for the #209 hold. |
+| `orderId` | Null before an auction order exists; populated after settlement. |
+| `skuId` | Reserved SKU UUID. |
+| `warehouseId` | Actual inventory warehouse UUID. |
+| `quantity` | Quantity changed once by this transition. |
+| `status` | Persisted reservation outcome; movement type is separate. |
+| `reservedAt` | Committed inventory transition time. |
+| `expiresAt` | Stored reservation expiry deadline; never recalculate historical deadlines. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InventoryReservedPayload",
+  "type": "object",
+  "properties": {
+    "reservationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "auctionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "skuId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "warehouseId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "quantity": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "const": "HELD"
+    },
+    "reservedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "reservationId",
+    "auctionId",
+    "orderId",
+    "skuId",
+    "warehouseId",
+    "quantity",
+    "status",
+    "reservedAt",
+    "expiresAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "reservationId": "00000000-0000-4000-8000-000000000009",
+  "auctionId": "00000000-0000-4000-8000-000000000003",
+  "orderId": null,
+  "skuId": "00000000-0000-4000-8000-000000000005",
+  "warehouseId": "00000000-0000-4000-8000-000000000010",
+  "quantity": 1,
+  "status": "HELD",
+  "reservedAt": "2026-11-20T10:00:00Z",
+  "expiresAt": "2026-11-20T10:30:00Z"
+}
+```
+
+#209 owns these auction-stock publications. InventoryReserved follows AuctionCreated; InventoryReleased follows AuctionFailed/AuctionCancelled; InventoryCommitted follows AuctionSettled. In each case, state, balance, RESERVE/RELEASE/COMMIT movement, outbox and processed marker commit in one inventory transaction. Publish only when the conditional transition changes stock. An event-log consumer does not perform the mutation again. CONFIRMED is the existing reservation status used by the commit operation; no COMMITTED reservation status is invented. Keep the same reservation when order_id is attached after settlement. Order-based #134/#136 publications are not added merely because the schema can describe stock.
+
+### InventoryReleased
+
+- Topic: `nexus.inventory.events`.
+- Publisher: [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log only; stock was already changed by inventory.
+- Envelope aggregateId: `reservationId`; Kafka key: `auctionId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `reservationId` | Stable inventory reservation UUID; retain when linking an auction to its order. |
+| `auctionId` | Auction source for the #209 hold. |
+| `orderId` | Null before an auction order exists; populated after settlement. |
+| `skuId` | Reserved SKU UUID. |
+| `warehouseId` | Actual inventory warehouse UUID. |
+| `quantity` | Quantity changed once by this transition. |
+| `status` | Persisted reservation outcome; movement type is separate. |
+| `releasedAt` | Committed inventory transition time. |
+| `reason` | Source auction outcome causing this release. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InventoryReleasedPayload",
+  "type": "object",
+  "properties": {
+    "reservationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "auctionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "skuId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "warehouseId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "quantity": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "const": "RELEASED"
+    },
+    "releasedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "AUCTION_FAILED",
+        "AUCTION_CANCELLED"
+      ]
+    }
+  },
+  "required": [
+    "reservationId",
+    "auctionId",
+    "orderId",
+    "skuId",
+    "warehouseId",
+    "quantity",
+    "status",
+    "releasedAt",
+    "reason"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "reservationId": "00000000-0000-4000-8000-000000000009",
+  "auctionId": "00000000-0000-4000-8000-000000000003",
+  "orderId": null,
+  "skuId": "00000000-0000-4000-8000-000000000005",
+  "warehouseId": "00000000-0000-4000-8000-000000000010",
+  "quantity": 1,
+  "status": "RELEASED",
+  "releasedAt": "2026-11-20T10:00:00Z",
+  "reason": "AUCTION_CANCELLED"
+}
+```
+
+#209 owns these auction-stock publications. InventoryReserved follows AuctionCreated; InventoryReleased follows AuctionFailed/AuctionCancelled; InventoryCommitted follows AuctionSettled. In each case, state, balance, RESERVE/RELEASE/COMMIT movement, outbox and processed marker commit in one inventory transaction. Publish only when the conditional transition changes stock. An event-log consumer does not perform the mutation again. CONFIRMED is the existing reservation status used by the commit operation; no COMMITTED reservation status is invented. Keep the same reservation when order_id is attached after settlement. Order-based #134/#136 publications are not added merely because the schema can describe stock.
+
+### InventoryCommitted
+
+- Topic: `nexus.inventory.events`.
+- Publisher: [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log only; stock was already changed by inventory.
+- Envelope aggregateId: `reservationId`; Kafka key: `auctionId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `reservationId` | Stable inventory reservation UUID; retain when linking an auction to its order. |
+| `auctionId` | Auction source for the #209 hold. |
+| `orderId` | Canonical auction order linked at settlement. |
+| `skuId` | Reserved SKU UUID. |
+| `warehouseId` | Actual inventory warehouse UUID. |
+| `quantity` | Quantity changed once by this transition. |
+| `status` | Persisted reservation outcome; movement type is separate. |
+| `committedAt` | Committed inventory transition time. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InventoryCommittedPayload",
+  "type": "object",
+  "properties": {
+    "reservationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "auctionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "skuId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "warehouseId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "quantity": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "const": "CONFIRMED"
+    },
+    "committedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "reservationId",
+    "auctionId",
+    "orderId",
+    "skuId",
+    "warehouseId",
+    "quantity",
+    "status",
+    "committedAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "reservationId": "00000000-0000-4000-8000-000000000009",
+  "auctionId": "00000000-0000-4000-8000-000000000003",
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "skuId": "00000000-0000-4000-8000-000000000005",
+  "warehouseId": "00000000-0000-4000-8000-000000000010",
+  "quantity": 1,
+  "status": "CONFIRMED",
+  "committedAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#209 owns these auction-stock publications. InventoryReserved follows AuctionCreated; InventoryReleased follows AuctionFailed/AuctionCancelled; InventoryCommitted follows AuctionSettled. In each case, state, balance, RESERVE/RELEASE/COMMIT movement, outbox and processed marker commit in one inventory transaction. Publish only when the conditional transition changes stock. An event-log consumer does not perform the mutation again. CONFIRMED is the existing reservation status used by the commit operation; no COMMITTED reservation status is invented. Keep the same reservation when order_id is attached after settlement. Order-based #134/#136 publications are not added merely because the schema can describe stock.
 
 ### InventoryReservationExpired
 
 - Topic: `nexus.inventory.events`.
-- Publisher: [#175](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/175) - S3.
-- Consumer: **Publisher-only (R1)**; no consuming issue is assigned in this release.
+- Publisher: [#175](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/175).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `reservationId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
@@ -1319,51 +3018,2973 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 }
 ```
 
-#175 batch-expires overdue HELD reservations, returns quantity to available stock, writes a RELEASE movement and writes the outbox row in the same transaction. releasedAt must be at or after expiresAt. Publish one event per changed reservation; repeated runs change neither stock nor event count. R1 reservations carry orderId and do not use cart_id under #134; warehouseId is the UUID resolved from the warehouse code. InventoryReleased remains R2. #161 consumes OrderCancelled and skips EXPIRED reservations; stock must not be released again in response to this expiry event.
+#175 batch-expires overdue HELD reservations, returns quantity to available stock, writes a RELEASE movement and writes the outbox row in the same transaction. releasedAt must be at or after expiresAt. Publish one event per changed reservation; repeated runs change neither stock nor event count. R1 reservations carry orderId and do not use cart_id under #134; warehouseId is the UUID resolved from the warehouse code. InventoryReleased is now specified for #209 auction releases; #175 does not add an extra publication merely from this reclassification. #161 consumes OrderCancelled and skips EXPIRED reservations; stock must not be released again in response to this expiry event.
 
-## Implementation handoff and verification
+### ShipmentCreated
 
-| Issue | Responsibility | Dependency |
-| --- | --- | --- |
-| #104 | Shared outbox writer/relay, stable identity, concurrent row claims and ordering. | #102 under the issue requirements; parallel with #105. |
-| #105 | IdempotentConsumer by eventId and consumer, atomic effects/marker, concurrent duplicates and rollback retries. | #102; no new business consumer is needed to build the wrapper. |
-| #106 | Three category publishers with schema validation, rollback safety and create/update/delete order. | #104. |
-| #107 | OrderCreated notification, CategoryCreated/no-template filter and OrderCancelled under #159. | #103 and #105 under the issue; hand-published envelopes before real publishers. |
-| #118 | OrderCreated outbox publication and end-to-end notification. | #113/#104/#107. |
-| #139 | Settlement/payment/expiry payload agreement and corresponding OpenAPI/webhook/gateway work. | Review by both sides of AuctionWon; this catalogue does not complete that separate work. |
+- Topic: `nexus.shipment.events`.
+- Publisher: [#202](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/202).
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log creation; no order-state move; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
 
-| Required implementation check | Issues |
+| Payload field | Meaning |
 | --- | --- |
-| Kafka stopped: business/outbox commits, then publishes with the same eventId after recovery. Business rollback leaves no event. | #104/#106/#118 |
-| Duplicate/concurrent duplicate effects run once per consumer; exceptions roll back the marker and allow retry. | #105 |
-| Two relays preserve category create/update/delete order for one aggregate. | #104/#106 |
-| OrderCreated creates one notification; only AUCTION orders settle an auction. | #107/#118/#172/#173 |
-| AUCTION OrderPaid with no reservation logs INFO and completes processing; a multi-line order confirms all reservations or none. | #160 |
-| OrderCancelled and reservation expiry races do not double-release stock or duplicate movements. | #159/#161/#175 |
-| AuctionWon replay/crash recovery ends with one order, one OrderCreated and a SETTLED auction. | #172/#174 |
-| Scheduled publishers have a trace without an HTTP request; relay retries preserve event identity. | #102/#104/#145/#159/#175 |
-| BigDecimal preserves 150000.50 and 0.29 without truncation. | #66/#67 and monetary publishers/consumers |
+| `shipmentId` | Shipment UUID; one shipment per seller order. |
+| `orderId` | Canonical paid seller order, not the group UUID. |
+| `buyerId` | Buyer from the trusted shipping snapshot. |
+| `warehouseId` | Dispatch warehouse UUID; no FK/read into inventory_db. |
+| `carrier` | Persisted carrier namespace. |
+| `trackingCode` | Verified carrier tracking code; null while awaiting tracking. |
+| `status` | Internal creation outcome. |
+| `shipmentVersion` | Committed local shipment version. |
+| `createdAt` | Persisted shipment creation time. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ShipmentCreatedPayload",
+  "type": "object",
+  "properties": {
+    "shipmentId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "buyerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "warehouseId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "carrier": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 40
+    },
+    "trackingCode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 80
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "CREATED",
+        "PENDING_TRACKING"
+      ]
+    },
+    "shipmentVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "shipmentId",
+    "orderId",
+    "buyerId",
+    "warehouseId",
+    "carrier",
+    "trackingCode",
+    "status",
+    "shipmentVersion",
+    "createdAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "shipmentId": "00000000-0000-4000-8000-000000000040",
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "warehouseId": "00000000-0000-4000-8000-000000000010",
+  "carrier": "GHN",
+  "trackingCode": "GHN-12345",
+  "status": "CREATED",
+  "shipmentVersion": 1,
+  "createdAt": "2026-11-20T10:00:00Z"
+}
+```
+
+**Carrier unavailable example**
+
+```json
+{
+  "shipmentId": "00000000-0000-4000-8000-000000000040",
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "warehouseId": "00000000-0000-4000-8000-000000000010",
+  "carrier": "GHN",
+  "trackingCode": null,
+  "status": "PENDING_TRACKING",
+  "shipmentVersion": 1,
+  "createdAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#202 creates one shipment from OrderPaid or authorized idempotent manual creation, using trusted buyer/warehouse/shipping snapshots. A temporary carrier outage may commit the same creation fact with PENDING_TRACKING and trackingCode=null; obtaining tracking later does not create a second shipment or repeat the same creation event. #250's older success-only wording is extended here to describe the #202 outage case and needs shipment-owner review. Only ShipmentPickedUp and ShipmentDelivered drive #204 lifecycle moves. Persist the external request identity before retry/reconcile; DB uniqueness alone does not guarantee exactly-once carrier calls.
+
+### ShipmentPickedUp
+
+- Topic: `nexus.shipment.events`.
+- Publisher: [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203).
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): PAID -> SHIPPED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `shipmentId` | Shipment UUID; one shipment per seller order. |
+| `orderId` | Canonical paid seller order, not the group UUID. |
+| `buyerId` | Buyer from the trusted shipping snapshot. |
+| `warehouseId` | Dispatch warehouse UUID; no FK/read into inventory_db. |
+| `carrier` | Persisted carrier namespace. |
+| `trackingCode` | Carrier tracking code for this shipment. |
+| `status` | Normalized internal target state; event name is not a new enum value. |
+| `historyId` | History row written with this accepted transition. |
+| `shipmentVersion` | Committed shipment version; detect stale transitions and correlate history. |
+| `source` | Verified origin of the accepted change. |
+| `carrierEventId` | Stable namespaced provider delivery identity when available. |
+| `actorId` | Authenticated action actor UUID, or the fixed system UUID for a job/consumer; never a viewer-supplied actor. |
+| `changedAt` | Persisted accepted business transition time; not arbitrary consumer receipt time. |
+| `reason` | Sanitized manual/override reason when supplied. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ShipmentPickedUpPayload",
+  "type": "object",
+  "properties": {
+    "shipmentId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "buyerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "warehouseId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "carrier": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 40
+    },
+    "trackingCode": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 80
+    },
+    "status": {
+      "const": "SHIPPED"
+    },
+    "historyId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "shipmentVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "SYSTEM",
+        "CARRIER_WEBHOOK",
+        "POLLER",
+        "MANUAL"
+      ]
+    },
+    "carrierEventId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 160
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "changedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 255
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "shipmentId",
+    "orderId",
+    "buyerId",
+    "warehouseId",
+    "carrier",
+    "trackingCode",
+    "status",
+    "historyId",
+    "shipmentVersion",
+    "source",
+    "carrierEventId",
+    "actorId",
+    "changedAt",
+    "reason"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "shipmentId": "00000000-0000-4000-8000-000000000040",
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "warehouseId": "00000000-0000-4000-8000-000000000010",
+  "carrier": "GHN",
+  "trackingCode": "GHN-12345",
+  "status": "SHIPPED",
+  "historyId": "00000000-0000-4000-8000-000000000041",
+  "shipmentVersion": 1,
+  "source": "CARRIER_WEBHOOK",
+  "carrierEventId": "GHN:evt-123",
+  "actorId": "00000000-0000-0000-0000-000000000000",
+  "changedAt": "2026-11-20T10:00:00Z",
+  "reason": null
+}
+```
+
+#203 normalizes a verified carrier webhook, poller result or authorized manual update to SHIPPED. Commit status/version/history/outbox together; a duplicate or no-op produces no event. #204 uses only accepted forward transitions, through #116 and its own IdempotentConsumer. A late ShipmentCreated or lower shipmentVersion cannot reverse a completed order. Other Shipment* types are logged without inventing order statuses. Validate signatures before effects; store provider deduplication identities, and retain durable retry for missing prerequisites. A manual override needs permission and a nonempty reason even when the schema allows null for automated changes.
+
+### ShipmentInTransit
+
+- Topic: `nexus.shipment.events`.
+- Publisher: [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203).
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log only; no additional order state is defined in #116; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `shipmentId` | Shipment UUID; one shipment per seller order. |
+| `orderId` | Canonical paid seller order, not the group UUID. |
+| `buyerId` | Buyer from the trusted shipping snapshot. |
+| `warehouseId` | Dispatch warehouse UUID; no FK/read into inventory_db. |
+| `carrier` | Persisted carrier namespace. |
+| `trackingCode` | Carrier tracking code for this shipment. |
+| `status` | Normalized internal target state; event name is not a new enum value. |
+| `historyId` | History row written with this accepted transition. |
+| `shipmentVersion` | Committed shipment version; detect stale transitions and correlate history. |
+| `source` | Verified origin of the accepted change. |
+| `carrierEventId` | Stable namespaced provider delivery identity when available. |
+| `actorId` | Authenticated action actor UUID, or the fixed system UUID for a job/consumer; never a viewer-supplied actor. |
+| `changedAt` | Persisted accepted business transition time; not arbitrary consumer receipt time. |
+| `reason` | Sanitized manual/override reason when supplied. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ShipmentInTransitPayload",
+  "type": "object",
+  "properties": {
+    "shipmentId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "buyerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "warehouseId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "carrier": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 40
+    },
+    "trackingCode": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 80
+    },
+    "status": {
+      "const": "IN_TRANSIT"
+    },
+    "historyId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "shipmentVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "SYSTEM",
+        "CARRIER_WEBHOOK",
+        "POLLER",
+        "MANUAL"
+      ]
+    },
+    "carrierEventId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 160
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "changedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 255
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "shipmentId",
+    "orderId",
+    "buyerId",
+    "warehouseId",
+    "carrier",
+    "trackingCode",
+    "status",
+    "historyId",
+    "shipmentVersion",
+    "source",
+    "carrierEventId",
+    "actorId",
+    "changedAt",
+    "reason"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "shipmentId": "00000000-0000-4000-8000-000000000040",
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "warehouseId": "00000000-0000-4000-8000-000000000010",
+  "carrier": "GHN",
+  "trackingCode": "GHN-12345",
+  "status": "IN_TRANSIT",
+  "historyId": "00000000-0000-4000-8000-000000000041",
+  "shipmentVersion": 1,
+  "source": "CARRIER_WEBHOOK",
+  "carrierEventId": "GHN:evt-123",
+  "actorId": "00000000-0000-0000-0000-000000000000",
+  "changedAt": "2026-11-20T10:00:00Z",
+  "reason": null
+}
+```
+
+#203 normalizes a verified carrier webhook, poller result or authorized manual update to IN_TRANSIT. Commit status/version/history/outbox together; a duplicate or no-op produces no event. #204 uses only accepted forward transitions, through #116 and its own IdempotentConsumer. A late ShipmentCreated or lower shipmentVersion cannot reverse a completed order. Other Shipment* types are logged without inventing order statuses. Validate signatures before effects; store provider deduplication identities, and retain durable retry for missing prerequisites. A manual override needs permission and a nonempty reason even when the schema allows null for automated changes.
+
+### ShipmentDelivered
+
+- Topic: `nexus.shipment.events`.
+- Publisher: [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203).
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): SHIPPED -> DELIVERED -> COMPLETED and publish OrderCompleted; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `shipmentId` | Shipment UUID; one shipment per seller order. |
+| `orderId` | Canonical paid seller order, not the group UUID. |
+| `buyerId` | Buyer from the trusted shipping snapshot. |
+| `warehouseId` | Dispatch warehouse UUID; no FK/read into inventory_db. |
+| `carrier` | Persisted carrier namespace. |
+| `trackingCode` | Carrier tracking code for this shipment. |
+| `status` | Normalized internal target state; event name is not a new enum value. |
+| `historyId` | History row written with this accepted transition. |
+| `shipmentVersion` | Committed shipment version; detect stale transitions and correlate history. |
+| `source` | Verified origin of the accepted change. |
+| `carrierEventId` | Stable namespaced provider delivery identity when available. |
+| `actorId` | Authenticated action actor UUID, or the fixed system UUID for a job/consumer; never a viewer-supplied actor. |
+| `changedAt` | Persisted accepted business transition time; not arbitrary consumer receipt time. |
+| `reason` | Sanitized manual/override reason when supplied. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ShipmentDeliveredPayload",
+  "type": "object",
+  "properties": {
+    "shipmentId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "buyerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "warehouseId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "carrier": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 40
+    },
+    "trackingCode": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 80
+    },
+    "status": {
+      "const": "DELIVERED"
+    },
+    "historyId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "shipmentVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "SYSTEM",
+        "CARRIER_WEBHOOK",
+        "POLLER",
+        "MANUAL"
+      ]
+    },
+    "carrierEventId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 160
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "changedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 255
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "shipmentId",
+    "orderId",
+    "buyerId",
+    "warehouseId",
+    "carrier",
+    "trackingCode",
+    "status",
+    "historyId",
+    "shipmentVersion",
+    "source",
+    "carrierEventId",
+    "actorId",
+    "changedAt",
+    "reason"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "shipmentId": "00000000-0000-4000-8000-000000000040",
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "warehouseId": "00000000-0000-4000-8000-000000000010",
+  "carrier": "GHN",
+  "trackingCode": "GHN-12345",
+  "status": "DELIVERED",
+  "historyId": "00000000-0000-4000-8000-000000000041",
+  "shipmentVersion": 1,
+  "source": "CARRIER_WEBHOOK",
+  "carrierEventId": "GHN:evt-123",
+  "actorId": "00000000-0000-0000-0000-000000000000",
+  "changedAt": "2026-11-20T10:00:00Z",
+  "reason": null
+}
+```
+
+#203 normalizes a verified carrier webhook, poller result or authorized manual update to DELIVERED. Commit status/version/history/outbox together; a duplicate or no-op produces no event. #204 uses only accepted forward transitions, through #116 and its own IdempotentConsumer. A late ShipmentCreated or lower shipmentVersion cannot reverse a completed order. Other Shipment* types are logged without inventing order statuses. Validate signatures before effects; store provider deduplication identities, and retain durable retry for missing prerequisites. A manual override needs permission and a nonempty reason even when the schema allows null for automated changes.
+
+### ShipmentFailed
+
+- Topic: `nexus.shipment.events`.
+- Publisher: [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203).
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log only; no additional order state is defined in #116; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `shipmentId` | Shipment UUID; one shipment per seller order. |
+| `orderId` | Canonical paid seller order, not the group UUID. |
+| `buyerId` | Buyer from the trusted shipping snapshot. |
+| `warehouseId` | Dispatch warehouse UUID; no FK/read into inventory_db. |
+| `carrier` | Persisted carrier namespace. |
+| `trackingCode` | Carrier tracking code for this shipment. |
+| `status` | Normalized internal target state; event name is not a new enum value. |
+| `historyId` | History row written with this accepted transition. |
+| `shipmentVersion` | Committed shipment version; detect stale transitions and correlate history. |
+| `source` | Verified origin of the accepted change. |
+| `carrierEventId` | Stable namespaced provider delivery identity when available. |
+| `actorId` | Authenticated action actor UUID, or the fixed system UUID for a job/consumer; never a viewer-supplied actor. |
+| `changedAt` | Persisted accepted business transition time; not arbitrary consumer receipt time. |
+| `reason` | Sanitized failure reason; exclude full recipient contact details. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ShipmentFailedPayload",
+  "type": "object",
+  "properties": {
+    "shipmentId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "buyerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "warehouseId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "carrier": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 40
+    },
+    "trackingCode": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 80
+    },
+    "status": {
+      "const": "DELIVERY_FAILED"
+    },
+    "historyId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "shipmentVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "SYSTEM",
+        "CARRIER_WEBHOOK",
+        "POLLER",
+        "MANUAL"
+      ]
+    },
+    "carrierEventId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 160
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "changedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 255
+    }
+  },
+  "required": [
+    "shipmentId",
+    "orderId",
+    "buyerId",
+    "warehouseId",
+    "carrier",
+    "trackingCode",
+    "status",
+    "historyId",
+    "shipmentVersion",
+    "source",
+    "carrierEventId",
+    "actorId",
+    "changedAt",
+    "reason"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "shipmentId": "00000000-0000-4000-8000-000000000040",
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "warehouseId": "00000000-0000-4000-8000-000000000010",
+  "carrier": "GHN",
+  "trackingCode": "GHN-12345",
+  "status": "DELIVERY_FAILED",
+  "historyId": "00000000-0000-4000-8000-000000000041",
+  "shipmentVersion": 1,
+  "source": "CARRIER_WEBHOOK",
+  "carrierEventId": "GHN:evt-123",
+  "actorId": "00000000-0000-0000-0000-000000000000",
+  "changedAt": "2026-11-20T10:00:00Z",
+  "reason": "Delivery recipient unavailable"
+}
+```
+
+#203 normalizes a verified carrier webhook, poller result or authorized manual update to DELIVERY_FAILED. Commit status/version/history/outbox together; a duplicate or no-op produces no event. #204 uses only accepted forward transitions, through #116 and its own IdempotentConsumer. A late ShipmentCreated or lower shipmentVersion cannot reverse a completed order. Other Shipment* types are logged without inventing order statuses. Validate signatures before effects; store provider deduplication identities, and retain durable retry for missing prerequisites. A manual override needs permission and a nonempty reason even when the schema allows null for automated changes.
+
+### ShipmentReturned
+
+- Topic: `nexus.shipment.events`.
+- Publisher: [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203).
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log only; no additional order state is defined in #116; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `shipmentId` | Shipment UUID; one shipment per seller order. |
+| `orderId` | Canonical paid seller order, not the group UUID. |
+| `buyerId` | Buyer from the trusted shipping snapshot. |
+| `warehouseId` | Dispatch warehouse UUID; no FK/read into inventory_db. |
+| `carrier` | Persisted carrier namespace. |
+| `trackingCode` | Carrier tracking code for this shipment. |
+| `status` | Normalized internal target state; event name is not a new enum value. |
+| `historyId` | History row written with this accepted transition. |
+| `shipmentVersion` | Committed shipment version; detect stale transitions and correlate history. |
+| `source` | Verified origin of the accepted change. |
+| `carrierEventId` | Stable namespaced provider delivery identity when available. |
+| `actorId` | Authenticated action actor UUID, or the fixed system UUID for a job/consumer; never a viewer-supplied actor. |
+| `changedAt` | Persisted accepted business transition time; not arbitrary consumer receipt time. |
+| `reason` | Sanitized manual/override reason when supplied. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ShipmentReturnedPayload",
+  "type": "object",
+  "properties": {
+    "shipmentId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "buyerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "warehouseId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "carrier": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 40
+    },
+    "trackingCode": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 80
+    },
+    "status": {
+      "const": "RETURNED"
+    },
+    "historyId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "shipmentVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "SYSTEM",
+        "CARRIER_WEBHOOK",
+        "POLLER",
+        "MANUAL"
+      ]
+    },
+    "carrierEventId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 160
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "changedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 255
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "shipmentId",
+    "orderId",
+    "buyerId",
+    "warehouseId",
+    "carrier",
+    "trackingCode",
+    "status",
+    "historyId",
+    "shipmentVersion",
+    "source",
+    "carrierEventId",
+    "actorId",
+    "changedAt",
+    "reason"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "shipmentId": "00000000-0000-4000-8000-000000000040",
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "warehouseId": "00000000-0000-4000-8000-000000000010",
+  "carrier": "GHN",
+  "trackingCode": "GHN-12345",
+  "status": "RETURNED",
+  "historyId": "00000000-0000-4000-8000-000000000041",
+  "shipmentVersion": 1,
+  "source": "CARRIER_WEBHOOK",
+  "carrierEventId": "GHN:evt-123",
+  "actorId": "00000000-0000-0000-0000-000000000000",
+  "changedAt": "2026-11-20T10:00:00Z",
+  "reason": null
+}
+```
+
+#203 normalizes a verified carrier webhook, poller result or authorized manual update to RETURNED. Commit status/version/history/outbox together; a duplicate or no-op produces no event. #204 uses only accepted forward transitions, through #116 and its own IdempotentConsumer. A late ShipmentCreated or lower shipmentVersion cannot reverse a completed order. Other Shipment* types are logged without inventing order statuses. Validate signatures before effects; store provider deduplication identities, and retain durable retry for missing prerequisites. A manual override needs permission and a nonempty reason even when the schema allows null for automated changes.
+
+### NotificationCreated
+
+- Topic: `none`.
+- Publisher: [#191](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/191).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log.
+- Envelope aggregateId: `notificationId`; Kafka key: `none` (non-Kafka recording).
+
+| Payload field | Meaning |
+| --- | --- |
+| `notificationId` | New rendered in-app notification UUID. |
+| `recipientId` | Recipient from the trusted source event. |
+| `notificationType` | Persisted notification type. |
+| `sourceEventId` | Original causal envelope eventId; resolve its event_logs.id separately for the notifications.event_id FK. |
+| `createdAt` | Persisted notification creation time. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NotificationCreatedPayload",
+  "type": "object",
+  "properties": {
+    "notificationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "recipientId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "notificationType": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 60
+    },
+    "sourceEventId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "notificationId",
+    "recipientId",
+    "notificationType",
+    "sourceEventId",
+    "createdAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "notificationId": "00000000-0000-4000-8000-000000000070",
+  "recipientId": "00000000-0000-4000-8000-000000000002",
+  "notificationType": "ORDER_CREATED",
+  "sourceEventId": "00000000-0000-4000-8000-000000000071",
+  "createdAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#191 integrates this recording point with #107's notification creation; #107 remains owner of the original business consumer. Record NotificationCreated through the #192 in-process recorder in the same notification_db transaction as the notification. This is a local EventEnvelope, with no Kafka send/topic/outbox row requiring a fabricated topic. Never confuse the causal envelope ID with event_logs.id. Do not include the rendered body, full email address or recipient name, and do not turn these log facts into new notifications recursively.
+
+### NotificationSent
+
+- Topic: `none`.
+- Publisher: [#191](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/191).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log.
+- Envelope aggregateId: `deliveryId`; Kafka key: `none` (non-Kafka recording).
+
+| Payload field | Meaning |
+| --- | --- |
+| `notificationId` | Notification being delivered. |
+| `deliveryId` | Channel delivery row. |
+| `attemptId` | Persisted delivery attempt UUID. |
+| `recipientId` | Notification recipient identity, not an email address. |
+| `channel` | Email channel delivered by #191; no new PUSH/SMS implementation is claimed. |
+| `attemptNumber` | Actual attempt_number; runtime retry budget remains configurable. |
+| `providerMessageId` | Non-sensitive provider message identity when returned. |
+| `sentAt` | Persisted attempt completion time. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NotificationSentPayload",
+  "type": "object",
+  "properties": {
+    "notificationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "deliveryId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "attemptId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "recipientId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "channel": {
+      "const": "EMAIL"
+    },
+    "attemptNumber": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "providerMessageId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 120
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sentAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "notificationId",
+    "deliveryId",
+    "attemptId",
+    "recipientId",
+    "channel",
+    "attemptNumber",
+    "providerMessageId",
+    "sentAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "notificationId": "00000000-0000-4000-8000-000000000070",
+  "deliveryId": "00000000-0000-4000-8000-000000000072",
+  "attemptId": "00000000-0000-4000-8000-000000000073",
+  "recipientId": "00000000-0000-4000-8000-000000000002",
+  "channel": "EMAIL",
+  "attemptNumber": 1,
+  "providerMessageId": "mailpit-123",
+  "sentAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#191 records a SUCCEEDED attempt and delivery SENT with this local log fact in one notification_db transaction after provider success. A duplicate completion adds no second fact; eventId remains stable on recorder retry. SMTP is outside the SQL transaction, so reconcile provider identity before resending after a crash. Clear the retry schedule; do not log email body/address/provider credentials.
+
+### NotificationFailed
+
+- Topic: `none`.
+- Publisher: [#191](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/191).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log.
+- Envelope aggregateId: `deliveryId`; Kafka key: `none` (non-Kafka recording).
+
+| Payload field | Meaning |
+| --- | --- |
+| `notificationId` | Notification being delivered. |
+| `deliveryId` | Channel delivery row. |
+| `attemptId` | Persisted delivery attempt UUID. |
+| `recipientId` | Notification recipient identity, not an email address. |
+| `channel` | Email channel delivered by #191; no new PUSH/SMS implementation is claimed. |
+| `attemptNumber` | Actual attempt_number; runtime retry budget remains configurable. |
+| `errorCode` | Sanitized machine error code. |
+| `retryable` | Provider error classification; does not alone imply remaining retry budget. |
+| `deliveryStatus` | PENDING if retry scheduled, FAILED on permanent error or exhausted budget. |
+| `nextAttemptAt` | Next durable retry time, or null if terminal. |
+| `failedAt` | Persisted failure completion time. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NotificationFailedPayload",
+  "type": "object",
+  "properties": {
+    "notificationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "deliveryId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "attemptId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "recipientId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "channel": {
+      "const": "EMAIL"
+    },
+    "attemptNumber": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "errorCode": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 60
+    },
+    "retryable": {
+      "type": "boolean"
+    },
+    "deliveryStatus": {
+      "type": "string",
+      "enum": [
+        "PENDING",
+        "FAILED"
+      ]
+    },
+    "nextAttemptAt": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "failedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "notificationId",
+    "deliveryId",
+    "attemptId",
+    "recipientId",
+    "channel",
+    "attemptNumber",
+    "errorCode",
+    "retryable",
+    "deliveryStatus",
+    "nextAttemptAt",
+    "failedAt"
+  ],
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "deliveryStatus": {
+            "const": "PENDING"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "retryable": {
+            "const": true
+          },
+          "nextAttemptAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "Z$"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "nextAttemptAt": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+**Payload example**
+
+```json
+{
+  "notificationId": "00000000-0000-4000-8000-000000000070",
+  "deliveryId": "00000000-0000-4000-8000-000000000072",
+  "attemptId": "00000000-0000-4000-8000-000000000073",
+  "recipientId": "00000000-0000-4000-8000-000000000002",
+  "channel": "EMAIL",
+  "attemptNumber": 1,
+  "errorCode": "SMTP_UNAVAILABLE",
+  "retryable": true,
+  "deliveryStatus": "PENDING",
+  "nextAttemptAt": "2026-11-20T10:30:00Z",
+  "failedAt": "2026-11-20T10:00:00Z"
+}
+```
+
+**Retry budget exhausted example**
+
+```json
+{
+  "notificationId": "00000000-0000-4000-8000-000000000070",
+  "deliveryId": "00000000-0000-4000-8000-000000000072",
+  "attemptId": "00000000-0000-4000-8000-000000000073",
+  "recipientId": "00000000-0000-4000-8000-000000000002",
+  "channel": "EMAIL",
+  "attemptNumber": 3,
+  "errorCode": "SMTP_UNAVAILABLE",
+  "retryable": true,
+  "deliveryStatus": "FAILED",
+  "nextAttemptAt": null,
+  "failedAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#191 records each completed FAILED attempt locally. If retryable and budget remains, deliveryStatus=PENDING and nextAttemptAt>failedAt; otherwise deliveryStatus=FAILED and nextAttemptAt=null. A terminal failure may still have retryable=true when the budget is exhausted. Do not represent a skipped preference as a failed send. attemptNumber is checked against the actual configured limit, not a fixed schema maximum.
+
+### UserRated
+
+- Topic: `nexus.rating.events`.
+- Publisher: [#212](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/212).
+- Consumer: rating-service [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213): update the rated user's effective rating inputs and score; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `ratingId`; Kafka key: `toUserId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `ratingId` | Stable original rating UUID. |
+| `orderId` | Completed canonical order from rating_eligibility. |
+| `auctionId` | Auction context for an AUCTION order; not a second rating opportunity. |
+| `fromUserId` | Authenticated rater, one permitted party of this order. |
+| `toUserId` | The other party whose score is updated. |
+| `score` | Original submitted rating, not the 0..100 reputation score. |
+| `sourceVersion` | Initial immutable rating revision; corrections belong to the dispute workflow. |
+| `actorId` | Same authenticated identity as fromUserId. |
+| `ratedAt` | Original persisted rating time. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "UserRatedPayload",
+  "type": "object",
+  "properties": {
+    "ratingId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "auctionId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "fromUserId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "toUserId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "sourceVersion": {
+      "const": 0
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "ratedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "ratingId",
+    "orderId",
+    "auctionId",
+    "fromUserId",
+    "toUserId",
+    "score",
+    "sourceVersion",
+    "actorId",
+    "ratedAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "ratingId": "00000000-0000-4000-8000-000000000050",
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "auctionId": null,
+  "fromUserId": "00000000-0000-4000-8000-000000000002",
+  "toUserId": "00000000-0000-4000-8000-000000000004",
+  "score": 5,
+  "sourceVersion": 0,
+  "actorId": "00000000-0000-4000-8000-000000000002",
+  "ratedAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#212 checks COMPLETED eligibility locally, forbids self-rating and enforces one rating per permitted party/order. actorId=fromUserId and fromUserId != toUserId. Do not publish a full name, email or free-form review text for a consumer that only needs IDs/score. #213 deduplicates by ratingId/toUserId/sourceVersion as well as eventId and atomically updates inputs/history/outbox/processed marker. Masked display names remain an API concern; a second envelope must not add the rating again.
+
+### ReputationScoreUpdated
+
+- Topic: `nexus.rating.events`.
+- Publisher: [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `userId`; Kafka key: `userId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `historyId` | Immutable reputation_history row. |
+| `userId` | Affected user, distinct from the executing actor. |
+| `operationId` | Stable business operation identity retained across retries. |
+| `sourceId` | Rating/order/auction source; null only for operations allowed by the history rules. |
+| `sourceVersion` | Business source revision; required for rating/dispute inputs. |
+| `changeType` | History change classification from #250. |
+| `policyVersion` | Version of the policy actually applied. |
+| `previousScore` | Stored score before this accepted change. |
+| `newScore` | Stored score after calculation/clamping. |
+| `delta` | Actual newScore - previousScore, including zero. |
+| `actorId` | Authenticated action actor UUID, or the fixed system UUID for a job/consumer; never a viewer-supplied actor. |
+| `changedAt` | Persisted history/change time. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ReputationScoreUpdatedPayload",
+  "type": "object",
+  "properties": {
+    "historyId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "userId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "operationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sourceId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sourceVersion": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "changeType": {
+      "type": "string",
+      "enum": [
+        "USER_RATED",
+        "ORDER_COMPLETED",
+        "AUCTION_OUTCOME",
+        "AUCTION_PAYMENT_TIMEOUT",
+        "ADMIN_ADJUSTMENT",
+        "DISPUTE_ADJUSTMENT",
+        "POLICY_RECALCULATED"
+      ]
+    },
+    "policyVersion": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 60
+    },
+    "previousScore": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "newScore": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "delta": {
+      "type": "integer",
+      "minimum": -100,
+      "maximum": 100
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "changedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "historyId",
+    "userId",
+    "operationId",
+    "sourceId",
+    "sourceVersion",
+    "changeType",
+    "policyVersion",
+    "previousScore",
+    "newScore",
+    "delta",
+    "actorId",
+    "changedAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "historyId": "00000000-0000-4000-8000-000000000051",
+  "userId": "00000000-0000-4000-8000-000000000004",
+  "operationId": "00000000-0000-4000-8000-000000000052",
+  "sourceId": "00000000-0000-4000-8000-000000000050",
+  "sourceVersion": 0,
+  "changeType": "USER_RATED",
+  "policyVersion": "reputation-policy-1",
+  "previousScore": 50,
+  "newScore": 55,
+  "delta": 5,
+  "actorId": "00000000-0000-0000-0000-000000000000",
+  "changedAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#213 commits aggregate/input counters, immutable history and outbox together. newScore=previousScore+delta and scores stay in 0..100. A zero delta is valid for counter/history-only changes. sourceId is required except permitted ADMIN_ADJUSTMENT/POLICY_RECALCULATED operations; rating/dispute sources require sourceVersion. Stable operation/source/revision prevents recounting even if eventId or policyVersion differs. This result event is logged; it must not recursively trigger another reputation calculation.
+
+### ReputationPenaltyApplied
+
+- Topic: `nexus.rating.events`.
+- Publisher: [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `userId`; Kafka key: `userId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `historyId` | Immutable reputation_history row. |
+| `userId` | Winner receiving the late-payment penalty. |
+| `operationId` | Stable business operation identity retained across retries. |
+| `sourceId` | Auction causing the one late-payment penalty. |
+| `sourceVersion` | Source auction revision when available. |
+| `changeType` | Penalty source classification. |
+| `policyVersion` | Version of the policy actually applied. |
+| `previousScore` | Stored score before this accepted change. |
+| `newScore` | Score after policy/clamping. |
+| `delta` | Actual nonpositive delta, possibly zero at the floor. |
+| `actorId` | Authenticated action actor UUID, or the fixed system UUID for a job/consumer; never a viewer-supplied actor. |
+| `changedAt` | Persisted history/change time. |
+| `penaltyPoints` | Policy penalty applied once; default 10 is configurable, not a schema constant. |
+| `reason` | Recorded penalty reason. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ReputationPenaltyAppliedPayload",
+  "type": "object",
+  "properties": {
+    "historyId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "userId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "operationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sourceId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sourceVersion": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "changeType": {
+      "const": "AUCTION_PAYMENT_TIMEOUT"
+    },
+    "policyVersion": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 60
+    },
+    "previousScore": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "newScore": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "delta": {
+      "type": "integer",
+      "minimum": -100,
+      "maximum": 0
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "changedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "penaltyPoints": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    }
+  },
+  "required": [
+    "historyId",
+    "userId",
+    "operationId",
+    "sourceId",
+    "sourceVersion",
+    "changeType",
+    "policyVersion",
+    "previousScore",
+    "newScore",
+    "delta",
+    "actorId",
+    "changedAt",
+    "penaltyPoints",
+    "reason"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "historyId": "00000000-0000-4000-8000-000000000051",
+  "userId": "00000000-0000-4000-8000-000000000002",
+  "operationId": "00000000-0000-4000-8000-000000000052",
+  "sourceId": "00000000-0000-4000-8000-000000000003",
+  "sourceVersion": 1,
+  "changeType": "AUCTION_PAYMENT_TIMEOUT",
+  "policyVersion": "reputation-policy-1",
+  "previousScore": 50,
+  "newScore": 40,
+  "delta": -10,
+  "actorId": "00000000-0000-0000-0000-000000000000",
+  "changedAt": "2026-11-20T10:00:00Z",
+  "penaltyPoints": 10,
+  "reason": "Auction payment deadline expired"
+}
+```
+
+#213 emits only after a real policy penalty is committed for AuctionPaymentTimeout.winnerId. Record the configured penalty and actual clamped score delta; do not assume they are numerically equal at score zero. One auction/order outcome may penalize its winner once. The seller and losing bidders are not penalized. Same operation/source identity on replay is a no-op; this log event is not itself another penalty command.
+
+### TrustLevelChanged
+
+- Topic: `nexus.rating.events`.
+- Publisher: [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `userId`; Kafka key: `userId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `historyId` | History explaining the accepted trust transition. |
+| `userId` | User whose level changed. |
+| `operationId` | Same stable business operation as the associated score update. |
+| `previousLevel` | Previously stored trust level. |
+| `newLevel` | New level under the policy actually used. |
+| `score` | Post-change reputation score. |
+| `policyVersion` | Applied thresholds/formula version. |
+| `actorId` | Authenticated action actor UUID, or the fixed system UUID for a job/consumer; never a viewer-supplied actor. |
+| `changedAt` | Committed history/change time. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TrustLevelChangedPayload",
+  "type": "object",
+  "properties": {
+    "historyId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "userId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "operationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "previousLevel": {
+      "type": "string",
+      "enum": [
+        "NEW",
+        "BASIC",
+        "TRUSTED",
+        "TOP"
+      ]
+    },
+    "newLevel": {
+      "type": "string",
+      "enum": [
+        "NEW",
+        "BASIC",
+        "TRUSTED",
+        "TOP"
+      ]
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "policyVersion": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 60
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "changedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "historyId",
+    "userId",
+    "operationId",
+    "previousLevel",
+    "newLevel",
+    "score",
+    "policyVersion",
+    "actorId",
+    "changedAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "historyId": "00000000-0000-4000-8000-000000000051",
+  "userId": "00000000-0000-4000-8000-000000000004",
+  "operationId": "00000000-0000-4000-8000-000000000052",
+  "previousLevel": "NEW",
+  "newLevel": "BASIC",
+  "score": 55,
+  "policyVersion": "reputation-policy-1",
+  "actorId": "00000000-0000-0000-0000-000000000000",
+  "changedAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#213 emits only when previousLevel != newLevel, in the transaction that updates the aggregate/history. Resolve TRUST_LEVEL_THRESHOLDS at runtime rather than hard-coding SQL/schema thresholds. The operation/history may also produce ReputationScoreUpdated with its own eventId; #192 stores both without treating them as two business score updates.
+
+### SystemConfigUpdated
+
+- Topic: `none`.
+- Publisher: [#217](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/217).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): audit through the proposed durable internal handoff; delivery/owner review below.
+- Envelope aggregateId: `configKey`; Kafka key: `none` (non-Kafka recording).
+- Review status: Record shape specified; #217 owner and durable non-Kafka delivery to #192 require lane sign-off (ADR-009 open question).
+
+| Payload field | Meaning |
+| --- | --- |
+| `configKey` | Validated SRS 2.6 key; never a secret/API-token key. |
+| `serviceName` | Service owning the changed Config Server key. |
+| `oldValue` | Previous typed configuration value; no credential material. |
+| `newValue` | Accepted typed new value; consumer must preserve its JSON type. |
+| `actorId` | Authenticated Admin performing the configuration change. |
+| `changedAt` | Time the runtime configuration change was accepted. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SystemConfigUpdatedPayload",
+  "type": "object",
+  "properties": {
+    "configKey": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 100
+    },
+    "serviceName": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 50
+    },
+    "oldValue": {
+      "type": [
+        "string",
+        "number",
+        "boolean",
+        "null"
+      ]
+    },
+    "newValue": {
+      "type": [
+        "string",
+        "number",
+        "boolean",
+        "null"
+      ]
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "changedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "configKey",
+    "serviceName",
+    "oldValue",
+    "newValue",
+    "actorId",
+    "changedAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "configKey": "NOTIFICATION_RETRY_LIMIT",
+  "serviceName": "notification-service",
+  "oldValue": 3,
+  "newValue": 4,
+  "actorId": "00000000-0000-4000-8000-000000000060",
+  "changedAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#217 requires old/new values and actor for #192 audit. Reject unknown keys/wrong types before changing configuration. Topic is none under ADR-009/#186, so do not assign a ninth topic or assume the recorder shares config-service's DB. Proposed delivery is an authenticated internal handoff to the #192 recorder with stable eventId and durable retry; the #217 service owner/route and durability boundary must be confirmed by both lanes. Do not acknowledge successful audit delivery until persisted, and do not claim a cross-service SQL transaction or an existing internal endpoint. This contract defines the record shape; the owning implementation supplies the durable handoff.
+
+### SystemHealthCheckFailed
+
+- Topic: `none`.
+- Publisher: [#193](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/193).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log; no Kafka dependency.
+- Envelope aggregateId: `environment:serviceName`; Kafka key: `none` (non-Kafka recording).
+
+| Payload field | Meaning |
+| --- | --- |
+| `serviceName` | Configured health target identity; never a credential-bearing connection URL. |
+| `environment` | Deployment environment used in the shared Redis health key. |
+| `previousStatus` | Previously confirmed shared target state; recovery follows a known DOWN state. |
+| `status` | New confirmed shared state. |
+| `healthVersion` | Monotonic target-state version held in shared Redis, used to identify one transition. |
+| `checkedAt` | Most recent confirmed check time. |
+| `lastFailureAt` | Confirmed last failure time. |
+| `lastRecoveredAt` | Most recent recovery time; null if none is known. |
+| `reasonCode` | Sanitized check failure code; no raw stacktrace/credentials. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SystemHealthCheckFailedPayload",
+  "type": "object",
+  "properties": {
+    "serviceName": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 50
+    },
+    "environment": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 32
+    },
+    "previousStatus": {
+      "type": "string",
+      "enum": [
+        "UNKNOWN",
+        "UP"
+      ]
+    },
+    "status": {
+      "const": "DOWN"
+    },
+    "healthVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "checkedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "lastFailureAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "lastRecoveredAt": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reasonCode": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 60
+    }
+  },
+  "required": [
+    "serviceName",
+    "environment",
+    "previousStatus",
+    "status",
+    "healthVersion",
+    "checkedAt",
+    "lastFailureAt",
+    "lastRecoveredAt",
+    "reasonCode"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "serviceName": "catalog-service",
+  "environment": "local",
+  "previousStatus": "UP",
+  "status": "DOWN",
+  "healthVersion": 1,
+  "checkedAt": "2026-11-20T10:00:00Z",
+  "lastFailureAt": "2026-11-20T10:00:00Z",
+  "lastRecoveredAt": null,
+  "reasonCode": "CONNECTION_FAILED"
+}
+```
+
+#193 emits one local log fact for a confirmed shared-state transition after its retry policy, not on every failed poll or cache refresh. Health state/timestamps/version live in durable shared Redis per #250; no PostgreSQL health table is added. Include payment/inventory/shipment/rating and Keycloak among configured checks. The #192 recorder writes locally even while Kafka is down, deduplicating stable eventId/target-transition identity. Redis and event_logs are not one SQL transaction: retain durable retry intent until the transition log is recorded. Do not create a notification/system topic or reset lastFailureAt on recovery. For these local events, aggregateId is environment + ":" + target name; key is not applicable.
+
+### SystemHealthCheckRecovered
+
+- Topic: `none`.
+- Publisher: [#193](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/193).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log; no Kafka dependency.
+- Envelope aggregateId: `environment:serviceName`; Kafka key: `none` (non-Kafka recording).
+
+| Payload field | Meaning |
+| --- | --- |
+| `serviceName` | Configured health target identity; never a credential-bearing connection URL. |
+| `environment` | Deployment environment used in the shared Redis health key. |
+| `previousStatus` | Previously confirmed shared target state; recovery follows a known DOWN state. |
+| `status` | New confirmed shared state. |
+| `healthVersion` | Monotonic target-state version held in shared Redis, used to identify one transition. |
+| `checkedAt` | Most recent confirmed check time. |
+| `lastFailureAt` | Confirmed last failure time. |
+| `lastRecoveredAt` | Time of this confirmed recovery. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SystemHealthCheckRecoveredPayload",
+  "type": "object",
+  "properties": {
+    "serviceName": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 50
+    },
+    "environment": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 32
+    },
+    "previousStatus": {
+      "type": "string",
+      "enum": [
+        "DOWN"
+      ]
+    },
+    "status": {
+      "const": "UP"
+    },
+    "healthVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "checkedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "lastFailureAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "lastRecoveredAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "serviceName",
+    "environment",
+    "previousStatus",
+    "status",
+    "healthVersion",
+    "checkedAt",
+    "lastFailureAt",
+    "lastRecoveredAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "serviceName": "catalog-service",
+  "environment": "local",
+  "previousStatus": "DOWN",
+  "status": "UP",
+  "healthVersion": 1,
+  "checkedAt": "2026-11-20T10:00:00Z",
+  "lastFailureAt": "2026-11-20T09:55:00Z",
+  "lastRecoveredAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#193 emits one local log fact for a confirmed shared-state transition after its retry policy, not on every failed poll or cache refresh. Health state/timestamps/version live in durable shared Redis per #250; no PostgreSQL health table is added. Include payment/inventory/shipment/rating and Keycloak among configured checks. The #192 recorder writes locally even while Kafka is down, deduplicating stable eventId/target-transition identity. Redis and event_logs are not one SQL transaction: retain durable retry intent until the transition log is recorded. Do not create a notification/system topic or reset lastFailureAt on recovery. For these local events, aggregateId is environment + ":" + target name; key is not applicable.
+
+### MessageBrokerUnavailable
+
+- Topic: `none`.
+- Publisher: [#193](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/193).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log; no Kafka dependency.
+- Envelope aggregateId: `environment:brokerName`; Kafka key: `none` (non-Kafka recording).
+
+| Payload field | Meaning |
+| --- | --- |
+| `brokerName` | Configured health target identity; never a credential-bearing connection URL. |
+| `environment` | Deployment environment used in the shared Redis health key. |
+| `previousStatus` | Previously confirmed shared target state; recovery follows a known DOWN state. |
+| `status` | New confirmed shared state. |
+| `healthVersion` | Monotonic target-state version held in shared Redis, used to identify one transition. |
+| `checkedAt` | Most recent confirmed check time. |
+| `lastFailureAt` | Confirmed last failure time. |
+| `lastRecoveredAt` | Most recent recovery time; null if none is known. |
+| `reasonCode` | Sanitized check failure code; no raw stacktrace/credentials. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MessageBrokerUnavailablePayload",
+  "type": "object",
+  "properties": {
+    "brokerName": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 50
+    },
+    "environment": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 32
+    },
+    "previousStatus": {
+      "type": "string",
+      "enum": [
+        "UNKNOWN",
+        "UP"
+      ]
+    },
+    "status": {
+      "const": "DOWN"
+    },
+    "healthVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "checkedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "lastFailureAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "lastRecoveredAt": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reasonCode": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 60
+    }
+  },
+  "required": [
+    "brokerName",
+    "environment",
+    "previousStatus",
+    "status",
+    "healthVersion",
+    "checkedAt",
+    "lastFailureAt",
+    "lastRecoveredAt",
+    "reasonCode"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "brokerName": "kafka",
+  "environment": "local",
+  "previousStatus": "UP",
+  "status": "DOWN",
+  "healthVersion": 1,
+  "checkedAt": "2026-11-20T10:00:00Z",
+  "lastFailureAt": "2026-11-20T10:00:00Z",
+  "lastRecoveredAt": null,
+  "reasonCode": "CONNECTION_FAILED"
+}
+```
+
+#193 emits one local log fact for a confirmed shared-state transition after its retry policy, not on every failed poll or cache refresh. Health state/timestamps/version live in durable shared Redis per #250; no PostgreSQL health table is added. Include payment/inventory/shipment/rating and Keycloak among configured checks. The #192 recorder writes locally even while Kafka is down, deduplicating stable eventId/target-transition identity. Redis and event_logs are not one SQL transaction: retain durable retry intent until the transition log is recorded. Do not create a notification/system topic or reset lastFailureAt on recovery. For these local events, aggregateId is environment + ":" + target name; key is not applicable.
+
+### MessageBrokerRecovered
+
+- Topic: `none`.
+- Publisher: [#193](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/193).
+- Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log; no Kafka dependency.
+- Envelope aggregateId: `environment:brokerName`; Kafka key: `none` (non-Kafka recording).
+
+| Payload field | Meaning |
+| --- | --- |
+| `brokerName` | Configured health target identity; never a credential-bearing connection URL. |
+| `environment` | Deployment environment used in the shared Redis health key. |
+| `previousStatus` | Previously confirmed shared target state; recovery follows a known DOWN state. |
+| `status` | New confirmed shared state. |
+| `healthVersion` | Monotonic target-state version held in shared Redis, used to identify one transition. |
+| `checkedAt` | Most recent confirmed check time. |
+| `lastFailureAt` | Confirmed last failure time. |
+| `lastRecoveredAt` | Time of this confirmed recovery. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MessageBrokerRecoveredPayload",
+  "type": "object",
+  "properties": {
+    "brokerName": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 50
+    },
+    "environment": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 32
+    },
+    "previousStatus": {
+      "type": "string",
+      "enum": [
+        "DOWN"
+      ]
+    },
+    "status": {
+      "const": "UP"
+    },
+    "healthVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "checkedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "lastFailureAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "lastRecoveredAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "brokerName",
+    "environment",
+    "previousStatus",
+    "status",
+    "healthVersion",
+    "checkedAt",
+    "lastFailureAt",
+    "lastRecoveredAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "brokerName": "kafka",
+  "environment": "local",
+  "previousStatus": "DOWN",
+  "status": "UP",
+  "healthVersion": 1,
+  "checkedAt": "2026-11-20T10:00:00Z",
+  "lastFailureAt": "2026-11-20T09:55:00Z",
+  "lastRecoveredAt": "2026-11-20T10:00:00Z"
+}
+```
+
+#193 emits one local log fact for a confirmed shared-state transition after its retry policy, not on every failed poll or cache refresh. Health state/timestamps/version live in durable shared Redis per #250; no PostgreSQL health table is added. Include payment/inventory/shipment/rating and Keycloak among configured checks. The #192 recorder writes locally even while Kafka is down, deduplicating stable eventId/target-transition identity. Redis and event_logs are not one SQL transaction: retain durable retry intent until the transition log is recorded. Do not create a notification/system topic or reset lastFailureAt on recovery. For these local events, aggregateId is environment + ":" + target name; key is not applicable.
+
+### PaymentConfirmed
+
+- Topic: `nexus.payment.events`.
+- Publisher: [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156).
+- Consumer: commerce-service [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156): compatibility contract only; group processing decision below; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log if published.
+- Envelope aggregateId: `sessionId`; Kafka key: `orderGroupId`.
+- Review status: Contract retained from #186; publication and compatibility-consumer role require leader confirmation. CheckoutPaymentConfirmed is authoritative for group payment.
+
+| Payload field | Meaning |
+| --- | --- |
+| `sessionId` | One session per order group. |
+| `orderGroupId` | Group owning the accepted receipt. |
+| `transactionId` | One NORMAL/SUCCESS incoming ledger record; not one copy per seller. |
+| `instructionId` | The funded seller-order instruction. |
+| `orderId` | Order owning this funded share. |
+| `buyerId` | Buyer from the verified plan. |
+| `amount` | This instruction's share, not the full bank receipt. |
+| `currency` | Currency of this persisted snapshot; R1 uses VND. |
+| `paidAt` | Verified accepted funding time. |
+| `sessionVersion` | Producer-local committed session version. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PaymentConfirmedPayload",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderGroupId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "transactionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "instructionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "buyerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "amount": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$"
+    },
+    "currency": {
+      "const": "VND"
+    },
+    "paidAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "sessionVersion": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "sessionId",
+    "orderGroupId",
+    "transactionId",
+    "instructionId",
+    "orderId",
+    "buyerId",
+    "amount",
+    "currency",
+    "paidAt",
+    "sessionVersion"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "sessionId": "00000000-0000-4000-8000-000000000021",
+  "orderGroupId": "00000000-0000-4000-8000-000000000020",
+  "transactionId": "00000000-0000-4000-8000-000000000023",
+  "instructionId": "00000000-0000-4000-8000-000000000022",
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "amount": "200000.50",
+  "currency": "VND",
+  "paidAt": "2026-11-20T10:00:00Z",
+  "sessionVersion": 1
+}
+```
+
+#186/#156 still name this event. The newer #250/#240/#118/#121 group design instead commits one CheckoutPaymentConfirmed containing all instructions. Default proposed behavior: only CheckoutPaymentConfirmed authorizes the group PAID transition and per-order OrderPaid. Do not independently apply PaymentConfirmed to pay a subset, generate a QR, emit duplicate OrderPaid, or clone the receipt per seller. This schema preserves the requested compatibility contract for review, not a promise that both confirmations are emitted. Leader must decide whether to remove this name from R1 or retain an explicitly non-authoritative compatibility publication before #156 merges.
+
+### PaymentUnreconciled
+
+- Topic: `nexus.payment.events`.
+- Publisher: [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157).
+- Consumer: commerce-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157): set buyer-readable paymentNote for affected orders without moving their status; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `sessionId`; Kafka key: `orderGroupId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `sessionId` | Matched immutable payment session; unknown memo creates no such event. |
+| `orderGroupId` | Group whose transfer needs reconciliation. |
+| `transactionId` | One matched UNRECONCILED ledger movement. |
+| `providerTransactionId` | Verified provider movement identifier stored as text. |
+| `buyerId` | Buyer from the matched session. |
+| `amount` | Actual received amount once, without allocating a failed receipt to sellers. |
+| `currency` | Actual verified receipt currency; preserve it even when it differs from the expected VND. |
+| `affectedOrderIds` | Complete planned order IDs affected by this session exception. |
+| `reasonCode` | Stable machine reason selected from verified payment/session state. |
+| `reason` | Buyer-readable reason; exclude provider secrets and account details. |
+| `receivedAt` | First verified server receipt time used for deadline comparison. |
+| `providerOccurredAt` | Provider occurrence time when verified; null when not supplied. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PaymentUnreconciledPayload",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderGroupId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "transactionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "providerTransactionId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 120
+    },
+    "buyerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "amount": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$",
+      "not": {
+        "pattern": "^0(?:\\.0{1,2})?$"
+      }
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "affectedOrderIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "reasonCode": {
+      "type": "string",
+      "enum": [
+        "LATE_PAYMENT",
+        "CANCELLED_ORDER_GROUP",
+        "CANCELLED_ORDER",
+        "AMOUNT_MISMATCH",
+        "CURRENCY_MISMATCH",
+        "ALREADY_PAID"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 500
+    },
+    "receivedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "providerOccurredAt": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "sessionId",
+    "orderGroupId",
+    "transactionId",
+    "providerTransactionId",
+    "buyerId",
+    "amount",
+    "currency",
+    "affectedOrderIds",
+    "reasonCode",
+    "reason",
+    "receivedAt",
+    "providerOccurredAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "sessionId": "00000000-0000-4000-8000-000000000021",
+  "orderGroupId": "00000000-0000-4000-8000-000000000020",
+  "transactionId": "00000000-0000-4000-8000-000000000023",
+  "providerTransactionId": "SEPAY-998877",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "amount": "350000.50",
+  "currency": "VND",
+  "affectedOrderIds": [
+    "00000000-0000-4000-8000-000000000001",
+    "00000000-0000-4000-8000-000000000011"
+  ],
+  "reasonCode": "LATE_PAYMENT",
+  "reason": "Payment arrived after the payment deadline.",
+  "receivedAt": "2026-11-20T10:30:00Z",
+  "providerOccurredAt": null
+}
+```
+
+#157 and the newer #250 exception rules write the matched UNRECONCILED transaction/outbox atomically. No CheckoutPaymentConfirmed, PaymentConfirmed or OrderPaid is produced for this movement. Keep prior successful receipts unchanged, including a distinct second transfer for an already-paid session. Same provider ID/content is a no-op; different content is a reconciliation conflict. Unknown memo returns 200/WARN without inventing a session or ledger/event. Commerce updates only the orders in its verified group membership; the group amount is not credited to each order. Wrong/late amounts are recorded, with no automatic partial-payment funding/resolution in R1.
+
+### CheckoutPaymentRequested
+
+- Topic: `nexus.commerce.events`.
+- Publisher: [#118](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/118).
+- Consumer: payment-service [#121](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/121), [#240](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/240): create the one immutable session and all seller instructions atomically; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `orderGroupId`; Kafka key: `orderGroupId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `orderGroupId` | Stored purchase group, not a new checkout entity. |
+| `buyerId` | Verified group buyer. |
+| `currency` | Currency of this persisted snapshot; R1 uses VND. |
+| `totalAmount` | Exact positive sum of finalized seller-order amounts. |
+| `dueAt` | Group deadline, no later than any child paymentDueAt. |
+| `occurredAt` | Manifest creation time; required by #118, equal to the envelope occurredAt. |
+| `orderCount` | Complete expected child count, checked against stored group membership and orders length. |
+| `orders` | Full trusted manifest: one unique order per seller, each amount and deadline/version from the stored order. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CheckoutPaymentRequestedPayload",
+  "type": "object",
+  "properties": {
+    "orderGroupId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "buyerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "currency": {
+      "const": "VND"
+    },
+    "totalAmount": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$",
+      "not": {
+        "pattern": "^0(?:\\.0{1,2})?$"
+      }
+    },
+    "dueAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "orderCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "orders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sellerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$"
+          },
+          "paymentDueAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "Z$"
+          },
+          "orderVersion": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "orderId",
+          "sellerId",
+          "amount",
+          "paymentDueAt",
+          "orderVersion"
+        ],
+        "additionalProperties": true
+      },
+      "minItems": 1
+    }
+  },
+  "required": [
+    "orderGroupId",
+    "buyerId",
+    "currency",
+    "totalAmount",
+    "dueAt",
+    "occurredAt",
+    "orderCount",
+    "orders"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "orderGroupId": "00000000-0000-4000-8000-000000000020",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "currency": "VND",
+  "totalAmount": "350000.50",
+  "dueAt": "2026-11-20T10:30:00Z",
+  "occurredAt": "2026-11-20T10:00:00Z",
+  "orderCount": 2,
+  "orders": [
+    {
+      "orderId": "00000000-0000-4000-8000-000000000001",
+      "sellerId": "00000000-0000-4000-8000-000000000004",
+      "amount": "200000.50",
+      "paymentDueAt": "2026-11-20T10:30:00Z",
+      "orderVersion": 0
+    },
+    {
+      "orderId": "00000000-0000-4000-8000-000000000011",
+      "sellerId": "00000000-0000-4000-8000-000000000012",
+      "amount": "150000.00",
+      "paymentDueAt": "2026-11-20T10:30:00Z",
+      "orderVersion": 0
+    }
+  ]
+}
+```
+
+#118 writes this complete manifest, one OrderCreated per seller order, the group/orders/items and cart change in the initial commerce transaction. Validate exact membership, unique orderId/sellerId, orderCount and Decimal sum, buyer/currency and deadline. #121 creates the session and every instruction/processed marker in one payment transaction; one OrderCreated cannot create a partial QR. Freeze the plan/memo/total: no replacement session, plan revision or unpaid-child repricing. Missing prerequisites use durable retry. This payload deliberately repeats occurredAt because the current #118 manifest requires it; traceId/eventId remain only in the envelope. This is an additional contract outside the 64-name SRS table and the 32-row expansion set.
+
+### CheckoutPaymentConfirmed
+
+- Topic: `nexus.payment.events`.
+- Publisher: [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156).
+- Consumer: commerce-service [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156), [#116](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/116): validate the whole group and commit valid child PAID/history/OrderPaid atomically; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `sessionId`; Kafka key: `orderGroupId`.
+- Review status: Authoritative group-payment contract selected for this catalogue; #156/PaymentConfirmed wording requires leader confirmation.
+
+| Payload field | Meaning |
+| --- | --- |
+| `sessionId` | Unique authoritative session for the group. |
+| `orderGroupId` | Stored order group whose complete plan was funded. |
+| `transactionId` | One NORMAL/SUCCESS provider movement funding every listed share. |
+| `buyerId` | Verified session buyer. |
+| `currency` | Currency of this persisted snapshot; R1 uses VND. |
+| `totalAmount` | Whole receipt/session total, equal to all instruction shares. |
+| `paidAt` | Verified accepted session funding time. |
+| `sessionVersion` | Payment producer-local transition version; never commerce group.version. |
+| `instructions` | Complete funded plan; instructionId/orderId are unique and membership/amounts must match stored commerce orders. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CheckoutPaymentConfirmedPayload",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderGroupId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "transactionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "buyerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "currency": {
+      "const": "VND"
+    },
+    "totalAmount": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$",
+      "not": {
+        "pattern": "^0(?:\\.0{1,2})?$"
+      }
+    },
+    "paidAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "sessionVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "instructions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "instructionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "orderId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$"
+          }
+        },
+        "required": [
+          "instructionId",
+          "orderId",
+          "amount"
+        ],
+        "additionalProperties": true
+      },
+      "minItems": 1
+    }
+  },
+  "required": [
+    "sessionId",
+    "orderGroupId",
+    "transactionId",
+    "buyerId",
+    "currency",
+    "totalAmount",
+    "paidAt",
+    "sessionVersion",
+    "instructions"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "sessionId": "00000000-0000-4000-8000-000000000021",
+  "orderGroupId": "00000000-0000-4000-8000-000000000020",
+  "transactionId": "00000000-0000-4000-8000-000000000023",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "currency": "VND",
+  "totalAmount": "350000.50",
+  "paidAt": "2026-11-20T10:00:00Z",
+  "sessionVersion": 1,
+  "instructions": [
+    {
+      "instructionId": "00000000-0000-4000-8000-000000000022",
+      "orderId": "00000000-0000-4000-8000-000000000001",
+      "amount": "200000.50"
+    },
+    {
+      "instructionId": "00000000-0000-4000-8000-000000000024",
+      "orderId": "00000000-0000-4000-8000-000000000011",
+      "amount": "150000.00"
+    }
+  ]
+}
+```
+
+#250/#240 require one accepted movement, funding all instructions and this single outbox event in one payment transaction. Commerce validates buyer/currency/session/group relationship, exact child set/amounts/total; deduplicates; locks group/children deterministically; commits group PAID/paid_at, eligible PENDING -> PAID children/history, individual OrderPaid rows and processed marker in one commerce transaction. Late confirmation never resurrects CANCELED group/children or emits OrderPaid for them. Preserve successful financial evidence and compensate cancelled funded children via #247. No subset payment or repeated group receipt per seller. #156's older per-order PaymentConfirmed prose must be reconciled before implementation merge.
+
+### OrderGroupCancelled
+
+- Topic: `nexus.commerce.events`.
+- Publisher: [#189](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/189), [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159).
+- Consumer: payment-service [#121](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/121), [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157), [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247): close the immutable unpaid session or compensate funded cancelled children; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `orderGroupId`; Kafka key: `orderGroupId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `orderGroupId` | Whole unpaid group cancelled/expired by commerce. |
+| `buyerId` | Stored group buyer. |
+| `groupVersion` | Committed commerce group.version; distinct from sessionVersion. |
+| `reason` | Stable expiry code or validated cancellation reason. |
+| `actorId` | Authenticated action actor UUID, or the fixed system UUID for a job/consumer; never a viewer-supplied actor. |
+| `cancelledAt` | Committed whole-group cancellation time. |
+| `orders` | Complete affected seller set with committed order versions; matching per-order OrderCancelled events are also written. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OrderGroupCancelledPayload",
+  "type": "object",
+  "properties": {
+    "orderGroupId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "buyerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "groupVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 500
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "cancelledAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "orders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "orderVersion": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "orderId",
+          "orderVersion"
+        ],
+        "additionalProperties": true
+      },
+      "minItems": 1
+    }
+  },
+  "required": [
+    "orderGroupId",
+    "buyerId",
+    "groupVersion",
+    "reason",
+    "actorId",
+    "cancelledAt",
+    "orders"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "orderGroupId": "00000000-0000-4000-8000-000000000020",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "groupVersion": 1,
+  "reason": "PAYMENT_DEADLINE_EXPIRED",
+  "actorId": "00000000-0000-0000-0000-000000000000",
+  "cancelledAt": "2026-11-20T10:00:00Z",
+  "orders": [
+    {
+      "orderId": "00000000-0000-4000-8000-000000000001",
+      "orderVersion": 2
+    },
+    {
+      "orderId": "00000000-0000-4000-8000-000000000011",
+      "orderVersion": 2
+    }
+  ]
+}
+```
+
+#113/#250 require group CANCELED, every still-PENDING child CANCELED/history, this group event and individual OrderCancelled events in one commerce transaction. #189 owns manual cancellation; #159 owns expiry and must adopt the group boundary. Payment serializes cancellation with webhook funding under session/instruction locks; missing manifest/session is durable retry, not a processed no-op. If funding already won, keep PAID/receipt evidence and create at most the one refund per cancelled funded instruction. No cancellation ACK wait, unpaid-child fence or replacement QR is introduced. Group cancellation does not replace the paid child shipment-handover coordination described in #250.
+
+## Review and implementation handoff
+
+The file is ready for contract review, with these decisions explicitly visible rather than marked approved:
+
+| Decision / owner | Required resolution |
+| --- | --- |
+| #156 / #186 / #250, both backend lanes | Confirm CheckoutPaymentConfirmed as authoritative. Remove PaymentConfirmed from publication scope or specify a non-authoritative compatibility use; do not implement two independent payment transitions. Current counts retain its schema for review. |
+| #217 / #192, both backend lanes | Confirm config write owner/route (ADR-009 leaves it open) and durable authenticated non-Kafka audit handoff. `none` cannot mean sending Kafka to a literal topic named none or using a nonexistent in-process shared DB. |
+| #202 / #203 / #241 | Approve trusted OrderPaid shippingInfo/warehouse and status mappings, preparation of missing parcel/pickup details, and ShipmentCreated's PENDING_TRACKING creation case. Historical messages need coordinated backfill/replay; never fake carrier measurements/locality codes. |
+| #189 / #203 / #250 | Specify paid-child cancellation request/ACK payloads in the owning follow-up before handover coordination is enabled. They are distinct from whole-group prepayment cancellation. |
+| #209 / #197 / #216 | Agree admission/no-stock 409 versus async AuctionCreated reservation behavior, and cancellation product-flag reconciliation. #216 names AuctionCreated/AuctionEnded, not a new AuctionCancelled subscriber. |
+| #171 / #172 | Retain the #103 image-source/quantity review and implement singleton auction group/manifest, without a second stock reservation. |
+
+The #186 table's consumers are all named here, including explicit filtering where #204 consumes a topic but only two shipment types move order state. New logging subscriptions in #192 replace the old six publisher-only classifications; they do not invent unrelated business handlers.
+
+Runtime implementation checks remain with their owning issues: business/outbox rollback and stable relay identity/per-aggregate order (#104/#106/#118); duplicate/concurrent consumer effects and marker rollback (#105); one canonical auction order after replay/crash (#172/#174); cancellation/expiry stock races (#159/#161/#175); and traced scheduler contexts (#102/#145/#159/#175). This document revision does not claim those integration checks were run.
 
 ### Document validation
 
-Validation reads the actual Markdown JSON blocks using Ajv Draft 7 and format checks:
+Recorded local validation on 2026-10-27 using Python 3.12 and jsonschema 4.25.1 with Draft 7, UUID, timestamp and URI format checks:
 
-- 64 unique SRS names in canonical order; exactly the 13 leader-approved R1 events and 51 R2 entries.
-- 13 valid JSON Schemas and 14 valid payload examples, including STANDARD and AUCTION OrderCreated.
-- 209 negative cases rejected: missing/null fields, invalid UUIDs/timestamps, invalid orderType/referenceId combinations, negative/excess-scale amounts and a zero BidPlaced amount.
-- Four decimal checks for 150000.50/0.29 passed. Additive fields are accepted; local links and anchors resolve.
+```text
+PASS inventory: 64 SRS names (43 R1 / 21 R2), 5 additions; 48 design contracts
+PASS scope: 32 #186 expansion contracts and 3 coordinated group contracts
+PASS JSON: 102 blocks; 48 Draft 7 schemas; 52 payload and 2 envelope examples
+PASS checks: 1456 rejected negatives; 48 additive-field cases; 4 exact-decimal cases
+PASS topics, publisher/consumer issue mappings, field tables, aggregate/key references, group-plan consistency and local anchors
+```
 
-These are document/schema checks, not DB/Kafka integration tests. Publisher-only labels are checked for consistency between the table and payload sections, not treated as implemented consumers or amended acceptance criteria.
+The local checks read this Markdown directly, parsed every JSON block with Decimal arithmetic, checked Draft 7 schemas and format assertions, validated every payload/envelope example, and verified the 64 SRS names plus five additions, 48 contract mappings and 21 R2 cells. Negative cases covered fields, UUIDs, timestamps, money, enums, group totals/membership, chronology, actors, shipments and retry constraints. Topic constants, source links and local anchors were also checked. These results do not claim DB/Kafka/provider integration or deployment verification.
 
-### Acceptance for #103
+### Acceptance evidence for this revision
 
-- [x] All 64 SRS names appear once in canonical order, including InventoryReservationExpired.
-- [x] The confirmed scope is exactly 13 R1 events and 51 entries containing only R2.
-- [x] Every R1 event has a topic, publishing issue, aggregate/key mapping, JSON Schema and example.
-- [x] OrderCancelled names publisher #159, stock consumer #161 and notification handling under #159/#107.
-- [x] Envelope/types/topics match the reviewed #102 source at ccbdd28; no extra publication or subscription scope is added.
-- [x] The six events without consuming issues are explicitly classified as publisher-only (R1).
-- [ ] Record reviewer acceptance of the publisher-only exception to the original consumer requirement in #103/#139.
-- [ ] Both backend lanes approve the payload MR in GitLab.
+- [x] All 32 names in #186 have a payload schema, example, named publishing issue and consuming issue.
+- [x] Original 64 SRS names retained; promoted names and the five additional names have consistent tables and counts.
+- [x] Group-manifest/confirmation/cancellation contracts are specified separately from the 32-event expansion.
+- [x] Current payment/shipment/rating/inventory topics and owners are used; non-Kafka events explicitly use none.
+- [x] InventoryReservationExpired retains its canonical spelling.
+- [ ] Leader resolves the PaymentConfirmed compatibility decision and the other listed owner decisions.
+- [ ] Both backend lanes approve the merge request; record the actual GitLab approvals before checking this item.
 
-The event scope is settled. Remaining MR review covers payload decisions and acceptance of publisher-only handling; the document does not claim runtime implementation or prior approval.
+These document/schema checks provide evidence for the examples and inventory. They do not complete the unchecked review decisions or assert that any Java publisher/consumer, carrier call, refund transfer or migration is implemented.
