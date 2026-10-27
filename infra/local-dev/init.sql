@@ -6,7 +6,7 @@ CREATE DATABASE commerce_db;
 
 CREATE DATABASE auction_db;
 
-CREATE DATABASE fulfillment_db;
+CREATE DATABASE inventory_db;
 
 CREATE DATABASE notification_db;
 
