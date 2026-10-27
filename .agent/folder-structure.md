@@ -143,14 +143,14 @@ large enough to become its own service, the folder moves as a unit.
 Each one maps 1:1 to a section of the SRS, so a folder name can always be traced back to a
 requirement.
 
-| Service | Features | SRS |
-|---|---|---|
-| `user-service` | `iam` · `reputation` | 3.1.1 · 3.1.2 |
+| Service                | Features | SRS |
+|------------------------|---|---|
+| `user-service`         | `iam` · `reputation` | 3.1.1 · 3.1.2 |
 | `notification-service` | `eventlog` · `health` · `notification` | 3.2.1 · 3.2.2 · 3.2.3 |
-| `catalog-service` | `product` · `category` · `search` | 3.3.1 · 3.3.2 · 3.3.3 |
-| `commerce-service` | `cart` · `checkout` · `order` | 3.4.1 · 3.4.2 · 3.4.3 |
-| `auction-service` | `auction` · `bidding` · `settlement` | 3.5.1 · 3.5.2 · 3.5.3 |
-| `fulfillment-service` | `inventory` · `shipping` | 3.6.1 · 3.6.2 |
+| `catalog-service`      | `product` · `category` · `search` | 3.3.1 · 3.3.2 · 3.3.3 |
+| `commerce-service`     | `cart` · `checkout` · `order` | 3.4.1 · 3.4.2 · 3.4.3 |
+| `auction-service`      | `auction` · `bidding` · `settlement` | 3.5.1 · 3.5.2 · 3.5.3 |
+| `inventory-service`    | `inventory` · `shipping` | 3.6.1 · 3.6.2 |
 
 ## 6. Naming
 

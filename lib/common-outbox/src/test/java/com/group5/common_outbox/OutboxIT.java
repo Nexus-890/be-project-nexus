@@ -124,7 +124,7 @@ class OutboxIT {
     @Test
     void allSixBaselinesHaveTheSameOutboxContract() throws Exception {
         String expected = outboxDdl("catalog");
-        for (String service : List.of("user", "commerce", "auction", "fulfillment", "notification")) {
+        for (String service : List.of("user", "commerce", "auction", "inventory", "notification")) {
             assertThat(outboxDdl(service)).as(service + " outbox DDL").isEqualTo(expected);
         }
     }
@@ -298,9 +298,10 @@ class OutboxIT {
     }
 
     private List<EventEnvelope<?>> writeEvents(int count) {
-        List<EventEnvelope<?>> events = IntStream.range(0, count).mapToObj(this::event).toList();
-        transaction.executeWithoutResult(status -> events.forEach(event -> writer.write("Product", topic, event)));
-        return events;
+        List<? extends EventEnvelope<?>> events = IntStream.range(0, count).mapToObj(this::event).toList();
+        transaction.executeWithoutResult(status -> events.forEach(event
+                -> writer.write("Product", topic, event)));
+        return (List<EventEnvelope<?>>) events;
     }
 
     private EventEnvelope<?> event(int sequence) {

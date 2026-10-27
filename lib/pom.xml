@@ -103,7 +103,6 @@
 
     <build>
         <plugins>
-
             <!-- Plugin build/run Spring Boot dùng chung -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
