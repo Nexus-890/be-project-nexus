@@ -1,4 +1,4 @@
-package com.group5.commerceservice.order.dto;
+package com.group5.commerceservice.order.dto.request;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;

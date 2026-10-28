@@ -1,8 +1,8 @@
 package com.group5.commerceservice.order.controller;
 
 import com.group5.commerceservice.order.service.OrderService;
-import com.group5.commerceservice.order.dto.CreateOrderRequest;
-import com.group5.commerceservice.order.dto.OrderGroupResponse;
+import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
+import com.group5.commerceservice.order.dto.response.OrderGroupResponse;
 import com.group5.common_security.CurrentUser;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

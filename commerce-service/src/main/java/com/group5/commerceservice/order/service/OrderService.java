@@ -7,10 +7,10 @@ import com.group5.commerceservice.cart.entity.Cart;
 import com.group5.commerceservice.cart.entity.CartItem;
 import com.group5.commerceservice.cart.repository.CartItemRepository;
 import com.group5.commerceservice.cart.repository.CartRepository;
-import com.group5.commerceservice.order.dto.CreateOrderRequest;
-import com.group5.commerceservice.order.dto.OrderGroupResponse;
-import com.group5.commerceservice.order.dto.OrderItemResponse;
-import com.group5.commerceservice.order.dto.OrderResponse;
+import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
+import com.group5.commerceservice.order.dto.response.OrderGroupResponse;
+import com.group5.commerceservice.order.dto.response.OrderItemResponse;
+import com.group5.commerceservice.order.dto.response.OrderResponse;
 import com.group5.commerceservice.order.entity.Order;
 import com.group5.commerceservice.order.entity.OrderGroup;
 import com.group5.commerceservice.order.entity.OrderItem;
@@ -72,8 +72,11 @@ public class OrderService {
     public record CreationResult(boolean created, OrderGroupResponse response) {
     }
 
+    //Create order form cart
     @Transactional
     public CreationResult create(CurrentUser user, String key, CreateOrderRequest request) {
+        log.info("Create order called: buyerId={}, idempotencyKey={}",
+                user != null ? user.id() : null, key);
         requireAccess(user);
         if (key == null || !key.matches("[\\x21-\\x7E]{1,100}")) {
             throw new DomainException(ErrorCode.DATA_INVALID, "Idempotency-Key must contain 1 to 100 visible ASCII characters");
@@ -163,8 +166,14 @@ public class OrderService {
             throw new DomainException(400, "SEPAY orders must have a positive total");
         }
         groupRepository.saveAndFlush(group);
+
+        log.info("Cart before checkout: id={}, status={}",
+                cart.getId(), cart.getStatus());
+
         cart.setStatus("CHECKED_OUT");
         cartRepository.saveAndFlush(cart);
+
+        log.info("Cart after checkout: id={}, status={}", cart.getId(), cart.getStatus());
         log.info("Order group created: groupId={}, buyerId={}, orders={}", group.getId(), user.id(), sellers.size());
         return new CreationResult(true, toResponse(group));
     }
@@ -206,6 +215,7 @@ public class OrderService {
         return product;
     }
 
+    // Chọn image
     private String firstImage(ProductResponse product) {
         if (product.images() == null) {
             return null;

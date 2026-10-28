@@ -1,4 +1,4 @@
-package com.group5.commerceservice.order.dto;
+package com.group5.commerceservice.order.dto.response;
 
 import java.math.BigDecimal;
 import java.util.UUID;
