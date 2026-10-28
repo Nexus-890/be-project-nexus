@@ -565,6 +565,20 @@ Under #216, has_order/in_auction are existing projections updated with processed
 - Payment owns exactly one session for this group under UNIQUE `payment_sessions.order_group_id` in payment_db; this is a logical cross-service relationship, not a commerce FK or a duplicate `payment_session_id`/`payment_state` projection on order_groups. There are no revision, replacement-session, fingerprint or producer-session-version fields in this R1 group.
 - Keep the stored order group and its orders as purchase evidence. The order-group FK uses NO ACTION, not a cascade deleting an entire paid group. `status = 'PAID'` preserves successful group payment even when a child is later canceled/refunded; shipment/refund status stays on child orders and the payment ledger.
 
+**Implementation in #113:** commerce migration `V3__order_groups.sql` introduces
+the thirteen group columns above, the order-group FK and seller uniqueness. Each
+legacy order receives a singleton group with the same UUID in the separate group
+table and the deterministic group key `legacy-order:{orderId}`; the historical
+order's own key, number, amounts and timestamps remain unchanged. Pending legacy
+orders without a recorded `payment_due_at` stop the migration with a diagnostic
+for reconciliation. No historical deadline or paid timestamp is fabricated.
+`order_number_seq` supplies new unique order suffixes across application instances
+and begins above any existing `NX-YYYYMMDD-N` suffix. New child keys use the
+canonical SHA-256 tuple described below. The normalized flat API shipping address
+and SEPAY method are retained in each child `shipping_info` snapshot for replay
+comparison, without a fingerprint or payment-method column on the group. The
+future carrier-code/warehouse shipping contract remains separate from this API.
+
 **Checkout operation, atomic seller split and request replay:**
 
 1. Authenticate the buyer, normalize the checkout request, and claim/lock its globally unique request key and source cart. On an existing key, compare the caller and normalized request against the stored group, complete child list, item/quantity/price snapshots, shipping selection and voucher/pricing snapshots. Same key and same logical request return the same group, seller orders and IDs, even if current catalog prices, cart state or session state have since changed. A different body/buyer returns conflict. Resolve replay before recomputing mutable prices or requiring the already-checked-out cart to remain ACTIVE; no fingerprint column is required.

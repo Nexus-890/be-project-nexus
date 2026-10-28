@@ -4,6 +4,8 @@ import com.group5.commerceservice.cart.entity.Cart;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
@@ -12,6 +14,10 @@ import java.util.UUID;
 public interface CartRepository extends JpaRepository<Cart, UUID> {
 
     Optional<Cart> findByUserIdAndStatus(UUID userId, String status);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from Cart c where c.userId = :userId and c.status = 'ACTIVE'")
+    Optional<Cart> findActiveForUpdate(@Param("userId") UUID userId);
 
     // ON CONFLICT dựa trên partial unique index idx_carts_one_active
     // (user_id WHERE status='ACTIVE' AND user_id IS NOT NULL).

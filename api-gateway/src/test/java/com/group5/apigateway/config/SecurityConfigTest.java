@@ -323,7 +323,8 @@ class SecurityConfigTest {
         RouteLocator routes(RouteLocatorBuilder builder) {
             return builder.routes().route("fixture", route -> route
                     .path("/api/v1/auth/**", "/api/v1/users/**", "/api/v1/products/**",
-                            "/api/v1/categories/**", "/api/v1/skus/**","/api/v1/carts/**", "/.well-known/**")
+                            "/api/v1/categories/**", "/api/v1/skus/**", "/api/v1/carts/**",
+                            "/api/v1/orders/**", "/.well-known/**")
                     .uri("http://127.0.0.1:" + DOWNSTREAM.getAddress().getPort())).build();
         }
     }
