@@ -3,6 +3,7 @@ package com.group5.commerceservice.cart;
 import com.group5.commerceservice.cart.entity.Cart;
 import com.group5.commerceservice.cart.repository.CartItemRepository;
 import com.group5.commerceservice.cart.repository.CartRepository;
+import com.group5.commerceservice.shared.config.CartProperties;
 import com.group5.common_security.CurrentUser;
 import com.group5.common_security.CurrentUserAuditor;
 import jakarta.persistence.EntityManagerFactory;
@@ -117,6 +118,47 @@ class CartPersistenceTest {
         assertThat(item.getUnitPrice()).isEqualByComparingTo("12.00");
         assertThat(item.getCreatedBy()).isEqualTo(creator);
         assertThat(item.getUpdatedBy()).isEqualTo(modifier);
+    }
+
+    @Test
+    void expiryJobRecordsSystemActorAndOnlyExpiresInactiveActiveCarts() {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        UUID creator = UUID.randomUUID();
+        UUID editor = UUID.randomUUID();
+        UUID expiredId = UUID.randomUUID();
+        UUID recentId = UUID.randomUUID();
+        UUID checkedOutId = UUID.randomUUID();
+        UUID mergedId = UUID.randomUUID();
+        for (UUID id : List.of(expiredId, recentId, checkedOutId, mergedId)) {
+            jdbc.update("""
+                    INSERT INTO carts (id, guest_token, updated_at, created_by, updated_by)
+                    VALUES (?, ?, now() - interval '8 days', ?, ?)
+                    """, id, id.toString(), creator, editor);
+        }
+        jdbc.update("UPDATE carts SET updated_at = now() WHERE id = ?", recentId);
+        jdbc.update("UPDATE carts SET status = 'CHECKED_OUT' WHERE id = ?", checkedOutId);
+        jdbc.update("UPDATE carts SET status = 'MERGED' WHERE id = ?", mergedId);
+
+        CartProperties properties = new CartProperties();
+        properties.setExpirationDays(7);
+        CartExpiryJob job = new CartExpiryJob(carts, properties);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> job.expireInactiveCarts());
+
+        Cart expired = carts.findById(expiredId).orElseThrow();
+        assertThat(expired.getStatus()).isEqualTo(CartStatus.EXPIRED);
+        assertThat(expired.getCreatedBy()).isEqualTo(creator);
+        assertThat(expired.getUpdatedBy()).isEqualTo(CurrentUserAuditor.SYSTEM_ID);
+        assertThat(jdbc.queryForObject(
+                "SELECT updated_at > now() - interval '1 minute' FROM carts WHERE id = ?",
+                Boolean.class, expiredId)).isTrue();
+        assertThat(carts.findById(recentId).orElseThrow().getStatus()).isEqualTo(CartStatus.ACTIVE);
+        assertThat(carts.findById(checkedOutId).orElseThrow().getStatus()).isEqualTo(CartStatus.CHECKED_OUT);
+        assertThat(carts.findById(mergedId).orElseThrow().getStatus()).isEqualTo(CartStatus.MERGED);
+        for (UUID id : List.of(recentId, checkedOutId, mergedId)) {
+            assertThat(carts.findById(id).orElseThrow().getUpdatedBy()).isEqualTo(editor);
+        }
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                assertThat(carts.expireInactiveActiveCarts(7, CurrentUserAuditor.SYSTEM_ID)).isZero());
     }
 
     @Test

@@ -61,10 +61,10 @@ class SchemaMigrationTest {
                         "notification_delivery_attempts.status", "notification_preferences.channel"),
                         List.of("event_logs", "notification_templates", "notifications", "notification_deliveries",
                                 "notification_delivery_attempts", "notification_preferences")),
-                new Service("fulfillment-service", "2", List.of("warehouses.status", "inventory_reservations.status",
-                        "inventory_movements.movement_type", "shipments.shipment_status", "shipment_history.shipment_status"),
+                new Service("inventory-service", "3", List.of("warehouses.status", "inventory_reservations.status",
+                        "inventory_movements.movement_type"),
                         List.of("warehouses", "inventory_balances", "inventory_reservations",
-                                "inventory_movements", "shipments", "shipment_history")));
+                                "inventory_movements")));
     }
 
     @BeforeAll static void startPostgres() { POSTGRES.start(); }
@@ -99,6 +99,14 @@ class SchemaMigrationTest {
     }
 
     private void verifyContract(Connection connection, Service service) throws SQLException {
+        if (service.name().equals("inventory-service")) {
+            try (var statement = connection.createStatement(); var rows = statement.executeQuery(
+                    "SELECT to_regclass('public.shipments'), to_regclass('public.shipment_history')")) {
+                rows.next();
+                assertThat(rows.getString(1)).as("inventory no longer owns shipments").isNull();
+                assertThat(rows.getString(2)).as("inventory no longer owns shipment history").isNull();
+            }
+        }
         for (String qualified : service.enums()) {
             String[] parts = qualified.split("\\.");
             try (var query = connection.prepareStatement("""
@@ -260,18 +268,13 @@ class SchemaMigrationTest {
                     VALUES (uuidv7(), 'ORDER', 'SMS');
                     INSERT INTO event_logs (event_id, event_type, occurred_at) VALUES (uuidv7(), 'legacy', now());
                     """;
-            case "fulfillment-service" -> """
+            case "inventory-service" -> """
                     INSERT INTO inventory_balances (sku_id, warehouse_id)
                     SELECT uuidv7(), id FROM warehouses LIMIT 1;
                     INSERT INTO inventory_reservations (sku_id, warehouse_id, quantity, expires_at, status)
                     SELECT uuidv7(), id, 1, now() + interval '1 day', 'CONFIRMED' FROM warehouses LIMIT 1;
                     INSERT INTO inventory_movements (sku_id, warehouse_id, movement_type, quantity)
                     SELECT uuidv7(), id, 'ADJUSTMENT', 1 FROM warehouses LIMIT 1;
-                    INSERT INTO shipments (id, order_id, warehouse_id, carrier, shipment_status)
-                    SELECT '30000000-0000-0000-0000-000000000001', uuidv7(), id, 'test', 'SHIPPED'
-                    FROM warehouses LIMIT 1;
-                    INSERT INTO shipment_history (shipment_id, shipment_status)
-                    VALUES ('30000000-0000-0000-0000-000000000001', 'PICKING');
                     """;
             default -> "SELECT 1"; // User/catalog production migrations already contain the demo seed.
         };

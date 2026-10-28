@@ -1,6 +1,6 @@
 # PostgreSQL enums and actor auditing
 
-The six business databases use native PostgreSQL enums for 31 status/type columns.
+The six business databases use native PostgreSQL enums for 29 status/type columns.
 The changes ship as new Flyway migrations; previously applied migrations are unchanged.
 
 | Service | Enum migration | Audit migration |
@@ -10,12 +10,16 @@ The changes ship as new Flyway migrations; previously applied migrations are unc
 | commerce | V3 | V4 |
 | auction | V3 | V4 |
 | notification | V2 | V3 |
-| fulfillment | V3 | V4 |
+| inventory | V4 | V5 |
+
+Inventory retains the existing `V3__drop_shipment_tables.sql` migration from the service
+split. Its new enum and audit migrations cover only warehouse and inventory tables;
+the shipment tables removed by V3 are not recreated or altered.
 
 Recheck the next available version per service when merging concurrent schema work.
 Enums cover users and reputation, products and SKUs, carts/orders/order history/payments,
 the six promotion statuses, auctions/bids/visibility, notification channels/delivery
-statuses, and fulfillment status/movement columns. Unrestricted names, event types,
+statuses, and inventory status/movement columns. Unrestricted names, event types,
 provider names and promotion configuration strings remain text.
 
 The promotion status catalogue was not defined by the old schema or Java code.
@@ -25,12 +29,14 @@ silently rewritten. Future allowed values must be added in a new migration.
 
 ## Actor semantics
 
-All 39 business tables have non-null UUID `created_by` and `updated_by` columns.
+All 37 business tables have non-null UUID `created_by` and `updated_by` columns.
 `AuditedEntity` supplies `@CreatedBy`/`@LastModifiedBy` and the JPA entity listener.
 `JpaAuditingAutoConfiguration` enables auditing for services with an entity manager.
 `CurrentUserAuditor` resolves the authenticated `CurrentUser` or resource-server JWT.
 Anonymous writes and background consumers use `00000000-0000-0000-0000-000000000000`.
 The database defaults use the same UUID for raw JDBC consumer inserts.
+Notification consumer JPA writes use `NotificationAuditingConfiguration` with the same
+system actor. The cart expiry job explicitly records that actor in its native update.
 
 Historical actors that were not recorded use the system UUID. Existing promotion
 authors are preserved, and existing product creators are backfilled from `seller_id`.
@@ -54,13 +60,13 @@ Run with Java 21, Maven and Docker available, from the repository root:
 
 ```powershell
 mvn -f be-project-nexus/lib/pom.xml install
-mvn -f be-project-nexus/user-service/pom.xml test
-mvn -f be-project-nexus/catalog-service/pom.xml test
-mvn -f be-project-nexus/commerce-service/pom.xml test
-mvn -f be-project-nexus/auction-service/pom.xml test
-mvn -f be-project-nexus/notification-service/pom.xml test
-mvn -f be-project-nexus/fulfillment-service/pom.xml test
-mvn -f be-project-nexus/infra/db-verification/pom.xml test
+mvn -f be-project-nexus/user-service/pom.xml verify
+mvn -f be-project-nexus/catalog-service/pom.xml verify
+mvn -f be-project-nexus/commerce-service/pom.xml verify
+mvn -f be-project-nexus/auction-service/pom.xml verify
+mvn -f be-project-nexus/notification-service/pom.xml verify
+mvn -f be-project-nexus/inventory-service/pom.xml verify
+mvn -f be-project-nexus/infra/db-verification/pom.xml verify
 ```
 
 The integration suites create disposable PostgreSQL 18 containers. They verify fresh
@@ -70,17 +76,28 @@ seller creation with `created_by = 68000000-0000-4000-8000-000000000002`.
 The user-service database tests now use PostgreSQL Testcontainers instead of H2.
 The registration HTTP suite also checks production auditing auto-configuration.
 
-Validation on 2026-10-23 completed 345 tests: 343 passed, no failures/errors, and two
+Before the inventory service split, validation on 2026-10-23 completed 345 tests:
+343 passed, no failures/errors, and two
 existing provider-dependent webhook tests were skipped. The user HTTP integration
 suite starts the complete application with validation enabled. The other five actual
 applications also started against isolated PostgreSQL 18.6 databases with
 `ddl-auto=validate`; each returned HTTP 200 and `UP` from `/actuator/health`.
 Temporary application processes and containers were stopped after verification.
 
+Merge verification on 2026-10-28 completed the commands above against the latest
+`develop`, including the inventory service split and notification consumer. Across
+the shared library tests and service/schema suites, 381 tests were reported:
+372 passed, no failures/errors, and nine were skipped (two provider-dependent
+webhook tests and seven environment-gated idempotent-consumer tests). All builds
+succeeded. PostgreSQL regression tests also cover the cart expiry system actor,
+notification insert/update auditing, and inventory upgrades from V3 to V5.
+
 `infra/db-verification` checks every expected enum/audit column across all six schemas,
 compares business rows before and after upgrading, and checks outbox relay plans.
 It includes connected legacy fixtures for all commerce promotion workflows,
-auction/bid records, notification delivery attempts, and fulfillment records.
+auction/bid records, notification delivery attempts, and inventory records. Inventory
+upgrades start from V3, preserving the existing warehouse, balance, reservation and
+movement rows while keeping the removed shipment tables absent.
 
 EXPLAIN checks confirm that the existing `idx_products_category`,
 `idx_carts_one_active`, and `idx_outbox_unpublished` indexes support the requested queries.
