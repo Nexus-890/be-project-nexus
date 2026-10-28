@@ -16,6 +16,12 @@ nexus:
       group-id: nexus.notification.kafka-demo.v1
       client-id: notification-demo
       processing-delay-ms: 0
+  notification:
+    email-enabled: ${EMAIL_NOTIFICATION_ENABLED:false}
+    group-id: nexus.notification.domain-events.v1
+  outbox:
+    relay:
+      enabled: false
 
 springdoc:
   api-docs:
