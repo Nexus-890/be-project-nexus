@@ -1,19 +1,20 @@
 # Event catalogue — #103 / #186
 
-Updated 2026-10-27 against branch `fsa_ANNT_25/docs/186-event-catalogue`, baseline `fc0a982`. This is the proposed R1 event contract for backend review; a schema does not claim that its publisher/consumer is implemented or that both lanes have approved it.
+Updated 2026-10-28 against branch `fsa_ANNT_25/docs/186-event-catalogue`, baseline `fc0a982`, incorporating the MR !82 review. This is the proposed R1 event contract for backend review; a schema does not claim that its publisher/consumer is implemented or that both lanes have approved it.
 
 ## Scope and source precedence
 
-The original #103 catalogue contained 64 SRS names: 13 R1 contracts and 51 R2 entries. #186 now promotes **30 of those R2 entries**, adds **PaymentConfirmed and PaymentUnreconciled**, and requires schemas/examples and publisher/consumer mappings for that **32-event expansion set**. Its overview still says 30; the current table contains 32 names after the payment additions.
+The original #103 catalogue contained 64 SRS names: 13 R1 contracts and 51 R2 entries. The current #186 table, including its 2026-10-28 decision, promotes **30 of those R2 entries**, adds **CheckoutPaymentConfirmed and PaymentUnreconciled**, and requires schemas/examples and publisher/consumer mappings for that **32-event R1 expansion set**. Its overview still says 30; the current table contains 32 names after the payment additions. PaymentConfirmed is no longer in that R1 expansion set.
 
-The newer group-payment requirements in #113/#118/#121/#240/#250 add **CheckoutPaymentRequested, CheckoutPaymentConfirmed and OrderGroupCancelled**. These three coordinated additions have contracts here and are counted separately from the #186 expansion set. The complete inventory is **69 names: 48 R1 design contracts and 21 R2 entries**. Within the original 64 SRS names the split is **43 R1 / 21 R2**; five additional names have contracts. R2 means publication is outside current R1 scope, without a delivery-date commitment. HTTP feature scope and Kafka-event scope differ.
+The group-payment requirements in #113/#118/#121/#240/#250 also require **CheckoutPaymentRequested and OrderGroupCancelled**. These two coordinated R1 additions have contracts here and are counted separately from the current #186 expansion set; CheckoutPaymentConfirmed is already counted in its 32 events. With PaymentConfirmed deferred to R2, the complete inventory is **69 names: 47 R1 design contracts and 22 R2 entries**. Within the original 64 SRS names the split remains **43 R1 / 21 R2**; the five additional names comprise four R1 contracts and one R2 reference. There are **48 documented schemas: 47 R1 contracts and the retained PaymentConfirmed R2 schema**. R2 means publication is outside current R1 scope, without a delivery-date commitment. HTTP feature scope and Kafka-event scope differ.
 
-PaymentConfirmed is retained to expose a source conflict, not to authorize two payment paths: **CheckoutPaymentConfirmed is the authoritative group-payment contract in this proposal**. Whether PaymentConfirmed is removed from R1 or retained as non-authoritative compatibility output requires leader confirmation. The count includes its reviewable contract, not an approved publication obligation. UserPasswordChanged, UserPasswordReset and UserLoggedIn remain R2 here; Keycloak owns their authentication events (#210/ADR-009).
+**CheckoutPaymentConfirmed is the authoritative payment confirmation event for R1**, using one immutable session per order group under #250. **PaymentConfirmed is deferred to R2 and must not be published or consumed as an alternative payment-state event during R1.** Its schema, example and historical #186 ownership references are retained only for traceability, not as an R1 compatibility publication. UserPasswordChanged, UserPasswordReset and UserLoggedIn remain R2 here; Keycloak owns their authentication events (#210/ADR-009).
 
 | Source | Use in this revision |
 | --- | --- |
 | #103 / MR !55 | Preserve the 64-name SRS 2.8 inventory and existing thirteen payload contracts, extending fields only for explicit new consumers. The six publisher-only exceptions were accepted for that earlier scope. |
-| #186, read 2026-10-27 | 32-event expansion list, topic/publisher/consumer assignments, schema/example validation and both-lane review. |
+| #186, including the 2026-10-28 decision | Current 32-event R1 expansion list, topic/publisher/consumer assignments, schema/example validation and both-lane review. CheckoutPaymentConfirmed replaces PaymentConfirmed in that list. |
+| MR !82 review, applied 2026-10-28 | Unify money as decimal strings with exactly two fractional digits; select CheckoutPaymentConfirmed for R1 and defer PaymentConfirmed to R2. Other handoff decisions and both-lane approvals remain open. |
 | #234 / ADR-009; #244 / #246 | Eight domain topics, independent payment/shipment/rating/inventory owners, no notification/system topic. |
 | #113 / #118 / #121 / #240; #250 design in `../database/schema-after-service-split.md` | Complete group manifest, one immutable session/QR, one instruction and shipping/refund lifecycle per seller order. These newer explicit group rules supersede older per-order memo/payment prose in #155–#157 and ADR-009. |
 | #204 / #212 / #213 / #242 | Order completion, local rating eligibility, reputation inputs/results. |
@@ -112,7 +113,7 @@ Complete group manifest envelope example for a hand-published contract test (syn
 - Consumers use IdempotentConsumer (#105) with `(eventId, consumer)`. The marker and business effects commit together; missing prerequisites/failed effects roll back or remain in durable retry. Domain uniqueness/version guards also prevent the same operation arriving under another eventId. The eight-topic #192 logger is a real consuming issue for every domain event; an event with no business handler is now **log-only**, rather than the old publisher-only classification.
 - Kafka keys are explicit per contract. A shared key only orders one partition/topic; it does not order commerce versus payment/shipment/auction topics. Version/business membership checks remain necessary. Event schema version, orderVersion, groupVersion, sessionVersion and instructionVersion are distinct concepts.
 - All properties listed in a schema are required; null is allowed only explicitly. Draft 7, `additionalProperties=true`, UUID strings and UTC ISO-8601 timestamps ending in Z follow #103. Consumers dispatch by envelope.eventType and validate before effects. Breaking new required snapshots need coordinated producer/consumer rollout and historical replay/backfill; additive-property tolerance alone does not make missing required fields compatible.
-- Existing #103 money fields remain JSON numbers with `multipleOf: 0.01`. New financial contracts use plain decimal strings (at most 17 integer and 2 fractional digits), following #118's manifest requirement, to preserve numeric(19,2) without JSON binary-float loss. Parse both with BigDecimal/Decimal; never calculate money through float/double. Amounts, membership, chronology, actor authority and state transitions also need semantic checks beyond JSON Schema.
+- All money fields use JSON decimal strings with exactly two fractional digits and pattern `^\d+\.\d{2}$`, matching the commerce OpenAPI convention (for example, `"1500000.00"`). This includes BidPlaced.amount and AuctionWon.finalPrice; neither event has a publisher yet per MR !82 review. Parse with BigDecimal/Decimal; never calculate money through float/double. The wire pattern does not restrict integer length or leading zeros; producers and consumers must still enforce numeric(19,2) storage bounds and business amount rules. Amounts, membership, chronology, actor authority and state transitions also need semantic checks beyond JSON Schema.
 - **Non-Kafka records:** NotificationCreated/Sent/Failed and the four health transitions have topic `none`. #191/#193 create EventEnvelope records via the #192 in-process recorder, without a Kafka outbox row or extra topic; local effects/logs can share notification_db transactions. A broker outage must not prevent its own health failure/recovery log. Redis health state and PostgreSQL logs still need durable handoff/retry; they are not one atomic transaction. The `none` topic on SystemConfigUpdated requires a separate durable internal handoff from the #217 owner to #192, explicitly pending review below.
 - #192 stores the original logical envelope payload once by eventId; JSONB is not byte-for-byte HTTP evidence. Derive operator_id from payload.actorId for user/role/refund/config audit and derive aggregate type/producer from this catalogue. Never overwrite a duplicate eventId with different content. Actor IDs describe the original action, not the viewer or technical recorder. Passwords/tokens/provider keys and full notification bodies/addresses are excluded from these audit/delivery contracts.
 
@@ -193,15 +194,15 @@ The contract cell contains only `R2` for out-of-scope names. Each R1 link resolv
 
 | Event | Source | Contract |
 | --- | --- | --- |
-| `PaymentConfirmed` | #186 payment addition | [R1 — payload](#paymentconfirmed) |
+| `PaymentConfirmed` | Historical #186 payment addition; deferred by the 2026-10-28 decision | [R2 — retained reference](#paymentconfirmed) |
 | `PaymentUnreconciled` | #186 payment addition | [R1 — payload](#paymentunreconciled) |
 | `CheckoutPaymentRequested` | #113/#118/#121/#240/#250 group design | [R1 — payload](#checkoutpaymentrequested) |
-| `CheckoutPaymentConfirmed` | #113/#118/#121/#240/#250 group design | [R1 — payload](#checkoutpaymentconfirmed) |
+| `CheckoutPaymentConfirmed` | #186 current table; #113/#118/#121/#240/#250 group design | [R1 — payload](#checkoutpaymentconfirmed) |
 | `OrderGroupCancelled` | #113/#118/#121/#240/#250 group design | [R1 — payload](#ordergroupcancelled) |
 
 ## Publishers and consumers
 
-Issue numbers identify implementation ownership, not completed runtime behavior. See each payload section for log-only handling and review conditions.
+Issue numbers identify implementation ownership, not completed runtime behavior. The table covers 47 R1 contracts plus the deferred PaymentConfirmed R2 reference; its historical topic and issue links do not authorize R1 publication or consumption. See each payload section for log-only handling and review conditions.
 
 | Event | Topic | Publishing issue | Consuming issue / handling |
 | --- | --- | --- | --- |
@@ -248,7 +249,7 @@ Issue numbers identify implementation ownership, not completed runtime behavior.
 | `SystemHealthCheckRecovered` | `none` | [#193](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/193) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log; no Kafka dependency |
 | `MessageBrokerUnavailable` | `none` | [#193](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/193) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log; no Kafka dependency |
 | `MessageBrokerRecovered` | `none` | [#193](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/193) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log; no Kafka dependency |
-| `PaymentConfirmed` | `nexus.payment.events` | [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156) | commerce-service [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156): compatibility contract only; group processing decision below; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log if published |
+| `PaymentConfirmed` (R2; deferred) | `nexus.payment.events` | [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156): historical #186 reference; R2 only, no R1 publication | commerce-service [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156), notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): historical #186 references; R2 only, no R1 handler |
 | `PaymentUnreconciled` | `nexus.payment.events` | [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157) | commerce-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157): set buyer-readable paymentNote for affected orders without moving their status; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `CheckoutPaymentRequested` | `nexus.commerce.events` | [#118](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/118) | payment-service [#121](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/121), [#240](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/240): create the one immutable session and all seller instructions atomically; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `CheckoutPaymentConfirmed` | `nexus.payment.events` | [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156) | commerce-service [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156), [#116](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/116): validate the whole group and commit valid child PAID/history/OrderPaid atomically; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
@@ -256,7 +257,7 @@ Issue numbers identify implementation ownership, not completed runtime behavior.
 
 ## Integration flows and compatibility
 
-1. **Purchase/group payment:** #113/#118 commit one group, seller orders, OrderCreated per child and the complete CheckoutPaymentRequested. #121 creates one immutable payment session and all instructions. #156 accepts one exact on-time movement, funds the whole plan and writes CheckoutPaymentConfirmed; commerce validates/commits group and eligible child PAID/history plus OrderPaid per child. The first OrderCreated never issues a partial-group QR, and the compatibility PaymentConfirmed must not independently pay a subset.
+1. **Purchase/group payment:** #113/#118 commit one group, seller orders, OrderCreated per child and the complete CheckoutPaymentRequested. #121 creates one immutable payment session and all instructions. #156 accepts one exact on-time movement, funds the whole plan and writes CheckoutPaymentConfirmed; commerce validates/commits group and eligible child PAID/history plus OrderPaid per child. The first OrderCreated never issues a partial-group QR. PaymentConfirmed is R2; do not publish it or enable a payment-state handler for it in R1.
 2. **Delivery/completion:** #202 consumes per-order OrderPaid with the trusted buyer/warehouse/shipping snapshot. #203 publishes normalized Shipment* changes. #204 applies ShipmentPickedUp -> SHIPPED and ShipmentDelivered -> DELIVERED -> COMPLETED, then emits OrderCompleted. Other shipment types are recognized/logged without inventing order states. #242/#212 populate eligibility; #213 applies the unique canonical outcome and later UserRated inputs.
 3. **Unpaid cancellation:** #189/#159 cancel the complete group and its still-PENDING children atomically in commerce, publishing OrderGroupCancelled and OrderCancelled per child. Payment closes the immutable unpaid session/instructions. A raced successful receipt remains successful financial evidence; a late confirmation cannot resurrect cancelled orders, and #247 compensates each funded cancelled child's own share.
 4. **Paid child cancellation/refund:** #250 requires shipment handover/cancellation coordination before #189's final OrderCancelled. The paid-child request/ACK contracts (OrderCancellationRequested and ShipmentCancellationConfirmed/Rejected) are not added to the 32-event #186 set here; the owning #189/#203 follow-up must specify them before that coordinated flow is implemented. OrderRefundRequested/Completed identify one child/instruction/refund; never refund the entire multi-seller receipt for each child.
@@ -936,7 +937,7 @@ Publish only the categoryId of the deleted record after successful deletion. A c
     },
     "paidAmount": {
       "type": "string",
-      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$"
+      "pattern": "^\\d+\\.\\d{2}$"
     },
     "currency": {
       "const": "VND"
@@ -1130,7 +1131,7 @@ Publish only the categoryId of the deleted record after successful deletion. A c
     },
     "paidAmount": {
       "type": "string",
-      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$"
+      "pattern": "^\\d+\\.\\d{2}$"
     },
     "currency": {
       "const": "VND"
@@ -1141,7 +1142,7 @@ Publish only the categoryId of the deleted record after successful deletion. A c
     },
     "shippingFee": {
       "type": "string",
-      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$"
+      "pattern": "^\\d+\\.\\d{2}$"
     },
     "shippingInfo": {
       "type": "object",
@@ -1602,9 +1603,9 @@ Publish only the categoryId of the deleted record after successful deletion. A c
     },
     "amount": {
       "type": "string",
-      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$",
+      "pattern": "^\\d+\\.\\d{2}$",
       "not": {
-        "pattern": "^0(?:\\.0{1,2})?$"
+        "pattern": "^0+\\.00$"
       }
     },
     "currency": {
@@ -1739,9 +1740,9 @@ Publish only the categoryId of the deleted record after successful deletion. A c
     },
     "amount": {
       "type": "string",
-      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$",
+      "pattern": "^\\d+\\.\\d{2}$",
       "not": {
-        "pattern": "^0(?:\\.0{1,2})?$"
+        "pattern": "^0+\\.00$"
       }
     },
     "currency": {
@@ -2026,7 +2027,7 @@ Publish only the categoryId of the deleted record after successful deletion. A c
 | `auctionId` | UUID of the auction receiving the accepted bid. |
 | `bidId` | Persisted bid UUID. |
 | `bidderId` | UUID of the accepted bidder. |
-| `amount` | Positive VND amount with at most two decimal places; parse/serialize with BigDecimal in Java. |
+| `amount` | Positive VND decimal string with exactly two fractional digits; parse/serialize with BigDecimal in Java. |
 | `currency` | VND. |
 | `placedAt` | Persisted bid timestamp in UTC. |
 
@@ -2051,9 +2052,11 @@ Publish only the categoryId of the deleted record after successful deletion. A c
       "format": "uuid"
     },
     "amount": {
-      "type": "number",
-      "exclusiveMinimum": 0,
-      "multipleOf": 0.01
+      "type": "string",
+      "pattern": "^\\d+\\.\\d{2}$",
+      "not": {
+        "pattern": "^0+\\.00$"
+      }
     },
     "currency": {
       "const": "VND"
@@ -2083,7 +2086,7 @@ Publish only the categoryId of the deleted record after successful deletion. A c
   "auctionId": "00000000-0000-4000-8000-000000000003",
   "bidId": "00000000-0000-4000-8000-000000000008",
   "bidderId": "00000000-0000-4000-8000-000000000002",
-  "amount": 1500000,
+  "amount": "1500000.00",
   "currency": "VND",
   "placedAt": "2026-11-20T10:00:00Z"
 }
@@ -2294,7 +2297,7 @@ Publish only the categoryId of the deleted record after successful deletion. A c
 | `productId` | Product UUID from the auction snapshot. |
 | `skuId` | SKU UUID from the auction snapshot. |
 | `winnerId` | Winning bidder UUID; becomes orders.user_id. |
-| `finalPrice` | Winning VND amount with at most two decimal places; BigDecimal under #66/#67. |
+| `finalPrice` | Nonnegative winning VND decimal string with exactly two fractional digits; BigDecimal under #66/#67. |
 | `currency` | VND. |
 | `title` | Product title captured at auction creation; becomes order_items.product_name. |
 | `imageUrl` | Snapshot image URI; required and non-null under #139/#171. The nullable database source needs an image policy before publication. |
@@ -2331,9 +2334,8 @@ Publish only the categoryId of the deleted record after successful deletion. A c
       "format": "uuid"
     },
     "finalPrice": {
-      "type": "number",
-      "minimum": 0,
-      "multipleOf": 0.01
+      "type": "string",
+      "pattern": "^\\d+\\.\\d{2}$"
     },
     "currency": {
       "const": "VND"
@@ -2390,7 +2392,7 @@ Publish only the categoryId of the deleted record after successful deletion. A c
   "productId": "00000000-0000-4000-8000-000000000006",
   "skuId": "00000000-0000-4000-8000-000000000005",
   "winnerId": "00000000-0000-4000-8000-000000000002",
-  "finalPrice": 1500000,
+  "finalPrice": "1500000.00",
   "currency": "VND",
   "title": "Auction item",
   "imageUrl": "https://example.com/product.jpg",
@@ -5301,111 +5303,6 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 
 #193 emits one local log fact for a confirmed shared-state transition after its retry policy, not on every failed poll or cache refresh. Health state/timestamps/version live in durable shared Redis per #250; no PostgreSQL health table is added. Include payment/inventory/shipment/rating and Keycloak among configured checks. The #192 recorder writes locally even while Kafka is down, deduplicating stable eventId/target-transition identity. Redis and event_logs are not one SQL transaction: retain durable retry intent until the transition log is recorded. Do not create a notification/system topic or reset lastFailureAt on recovery. For these local events, aggregateId is environment + ":" + target name; key is not applicable.
 
-### PaymentConfirmed
-
-- Topic: `nexus.payment.events`.
-- Publisher: [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156).
-- Consumer: commerce-service [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156): compatibility contract only; group processing decision below; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log if published.
-- Envelope aggregateId: `sessionId`; Kafka key: `orderGroupId`.
-- Review status: Contract retained from #186; publication and compatibility-consumer role require leader confirmation. CheckoutPaymentConfirmed is authoritative for group payment.
-
-| Payload field | Meaning |
-| --- | --- |
-| `sessionId` | One session per order group. |
-| `orderGroupId` | Group owning the accepted receipt. |
-| `transactionId` | One NORMAL/SUCCESS incoming ledger record; not one copy per seller. |
-| `instructionId` | The funded seller-order instruction. |
-| `orderId` | Order owning this funded share. |
-| `buyerId` | Buyer from the verified plan. |
-| `amount` | This instruction's share, not the full bank receipt. |
-| `currency` | Currency of this persisted snapshot; R1 uses VND. |
-| `paidAt` | Verified accepted funding time. |
-| `sessionVersion` | Producer-local committed session version. |
-
-**Payload schema**
-
-```json
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "PaymentConfirmedPayload",
-  "type": "object",
-  "properties": {
-    "sessionId": {
-      "type": "string",
-      "format": "uuid"
-    },
-    "orderGroupId": {
-      "type": "string",
-      "format": "uuid"
-    },
-    "transactionId": {
-      "type": "string",
-      "format": "uuid"
-    },
-    "instructionId": {
-      "type": "string",
-      "format": "uuid"
-    },
-    "orderId": {
-      "type": "string",
-      "format": "uuid"
-    },
-    "buyerId": {
-      "type": "string",
-      "format": "uuid"
-    },
-    "amount": {
-      "type": "string",
-      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$"
-    },
-    "currency": {
-      "const": "VND"
-    },
-    "paidAt": {
-      "type": "string",
-      "format": "date-time",
-      "pattern": "Z$"
-    },
-    "sessionVersion": {
-      "type": "integer",
-      "minimum": 0
-    }
-  },
-  "required": [
-    "sessionId",
-    "orderGroupId",
-    "transactionId",
-    "instructionId",
-    "orderId",
-    "buyerId",
-    "amount",
-    "currency",
-    "paidAt",
-    "sessionVersion"
-  ],
-  "additionalProperties": true
-}
-```
-
-**Payload example**
-
-```json
-{
-  "sessionId": "00000000-0000-4000-8000-000000000021",
-  "orderGroupId": "00000000-0000-4000-8000-000000000020",
-  "transactionId": "00000000-0000-4000-8000-000000000023",
-  "instructionId": "00000000-0000-4000-8000-000000000022",
-  "orderId": "00000000-0000-4000-8000-000000000001",
-  "buyerId": "00000000-0000-4000-8000-000000000002",
-  "amount": "200000.50",
-  "currency": "VND",
-  "paidAt": "2026-11-20T10:00:00Z",
-  "sessionVersion": 1
-}
-```
-
-#186/#156 still name this event. The newer #250/#240/#118/#121 group design instead commits one CheckoutPaymentConfirmed containing all instructions. Default proposed behavior: only CheckoutPaymentConfirmed authorizes the group PAID transition and per-order OrderPaid. Do not independently apply PaymentConfirmed to pay a subset, generate a QR, emit duplicate OrderPaid, or clone the receipt per seller. This schema preserves the requested compatibility contract for review, not a promise that both confirmations are emitted. Leader must decide whether to remove this name from R1 or retain an explicitly non-authoritative compatibility publication before #156 merges.
-
 ### PaymentUnreconciled
 
 - Topic: `nexus.payment.events`.
@@ -5460,9 +5357,9 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
     },
     "amount": {
       "type": "string",
-      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$",
+      "pattern": "^\\d+\\.\\d{2}$",
       "not": {
-        "pattern": "^0(?:\\.0{1,2})?$"
+        "pattern": "^0+\\.00$"
       }
     },
     "currency": {
@@ -5594,9 +5491,9 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
     },
     "totalAmount": {
       "type": "string",
-      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$",
+      "pattern": "^\\d+\\.\\d{2}$",
       "not": {
-        "pattern": "^0(?:\\.0{1,2})?$"
+        "pattern": "^0+\\.00$"
       }
     },
     "dueAt": {
@@ -5628,7 +5525,7 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
           },
           "amount": {
             "type": "string",
-            "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$"
+            "pattern": "^\\d+\\.\\d{2}$"
           },
           "paymentDueAt": {
             "type": "string",
@@ -5704,7 +5601,7 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 - Publisher: [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156).
 - Consumer: commerce-service [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156), [#116](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/116): validate the whole group and commit valid child PAID/history/OrderPaid atomically; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `sessionId`; Kafka key: `orderGroupId`.
-- Review status: Authoritative group-payment contract selected for this catalogue; #156/PaymentConfirmed wording requires leader confirmation.
+- Review status: Authoritative R1 group-payment contract confirmed by MR !82 review under #250 (one immutable session per order group). PaymentConfirmed is deferred to R2, not an alternative R1 confirmation.
 
 | Payload field | Meaning |
 | --- | --- |
@@ -5747,9 +5644,9 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
     },
     "totalAmount": {
       "type": "string",
-      "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$",
+      "pattern": "^\\d+\\.\\d{2}$",
       "not": {
-        "pattern": "^0(?:\\.0{1,2})?$"
+        "pattern": "^0+\\.00$"
       }
     },
     "paidAt": {
@@ -5776,7 +5673,7 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
           },
           "amount": {
             "type": "string",
-            "pattern": "^(?:0|[1-9][0-9]{0,16})(?:\\.[0-9]{1,2})?$"
+            "pattern": "^\\d+\\.\\d{2}$"
           }
         },
         "required": [
@@ -5831,7 +5728,7 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 }
 ```
 
-#250/#240 require one accepted movement, funding all instructions and this single outbox event in one payment transaction. Commerce validates buyer/currency/session/group relationship, exact child set/amounts/total; deduplicates; locks group/children deterministically; commits group PAID/paid_at, eligible PENDING -> PAID children/history, individual OrderPaid rows and processed marker in one commerce transaction. Late confirmation never resurrects CANCELED group/children or emits OrderPaid for them. Preserve successful financial evidence and compensate cancelled funded children via #247. No subset payment or repeated group receipt per seller. #156's older per-order PaymentConfirmed prose must be reconciled before implementation merge.
+#250/#240 require one accepted movement, funding all instructions and this single outbox event in one payment transaction. Commerce validates buyer/currency/session/group relationship, exact child set/amounts/total; deduplicates; locks group/children deterministically; commits group PAID/paid_at, eligible PENDING -> PAID children/history, individual OrderPaid rows and processed marker in one commerce transaction. Late confirmation never resurrects CANCELED group/children or emits OrderPaid for them. Preserve successful financial evidence and compensate cancelled funded children via #247. No subset payment or repeated group receipt per seller. Implement #156 against this group contract; its older per-order PaymentConfirmed wording is superseded for R1 by MR !82 review.
 
 ### OrderGroupCancelled
 
@@ -5946,13 +5843,124 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 
 #113/#250 require group CANCELED, every still-PENDING child CANCELED/history, this group event and individual OrderCancelled events in one commerce transaction. #189 owns manual cancellation; #159 owns expiry and must adopt the group boundary. Payment serializes cancellation with webhook funding under session/instruction locks; missing manifest/session is durable retry, not a processed no-op. If funding already won, keep PAID/receipt evidence and create at most the one refund per cancelled funded instruction. No cancellation ACK wait, unpaid-child fence or replacement QR is introduced. Group cancellation does not replace the paid child shipment-handover coordination described in #250.
 
+## Deferred R2 payload reference
+
+This retained #186 schema/example is outside R1 publication and consumption scope. The other 21 R2 names remain inventory-only entries without payload contracts.
+
+### PaymentConfirmed
+
+- Topic: `nexus.payment.events`.
+- Publisher: [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156): historical #186 reference; R2 only, no R1 publication.
+- Consumer: commerce-service [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156), notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): historical #186 references; R2 only, no R1 handler.
+- Envelope aggregateId: `sessionId`; Kafka key: `orderGroupId`.
+- Scope: R2; no R1 publication or payment-state handler.
+- Review status: Deferred by MR !82 review. Schema/example and historical #186 references are retained for traceability only; CheckoutPaymentConfirmed is authoritative for R1 group payment.
+
+| Payload field | Meaning |
+| --- | --- |
+| `sessionId` | One session per order group. |
+| `orderGroupId` | Group owning the accepted receipt. |
+| `transactionId` | One NORMAL/SUCCESS incoming ledger record; not one copy per seller. |
+| `instructionId` | The funded seller-order instruction. |
+| `orderId` | Order owning this funded share. |
+| `buyerId` | Buyer from the verified plan. |
+| `amount` | This instruction's share, not the full bank receipt. |
+| `currency` | VND in this retained reference; future R2 scope requires review. |
+| `paidAt` | Verified accepted funding time. |
+| `sessionVersion` | Producer-local committed session version. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PaymentConfirmedPayload",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderGroupId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "transactionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "instructionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "buyerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "amount": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d{2}$"
+    },
+    "currency": {
+      "const": "VND"
+    },
+    "paidAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "sessionVersion": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "sessionId",
+    "orderGroupId",
+    "transactionId",
+    "instructionId",
+    "orderId",
+    "buyerId",
+    "amount",
+    "currency",
+    "paidAt",
+    "sessionVersion"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "sessionId": "00000000-0000-4000-8000-000000000021",
+  "orderGroupId": "00000000-0000-4000-8000-000000000020",
+  "transactionId": "00000000-0000-4000-8000-000000000023",
+  "instructionId": "00000000-0000-4000-8000-000000000022",
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "amount": "200000.50",
+  "currency": "VND",
+  "paidAt": "2026-11-20T10:00:00Z",
+  "sessionVersion": 1
+}
+```
+
+#186/#156 originally named this event. MR !82 review resolves the R1 path in favor of #250/#240/#118/#121: one CheckoutPaymentConfirmed containing all instructions authorizes the group PAID transition and per-order OrderPaid. PaymentConfirmed is R2, with no R1 publication or payment-state handler, including compatibility output. Do not apply it to pay a subset, generate a QR, emit duplicate OrderPaid, or clone the receipt per seller. This retained schema/example satisfies #186 traceability only; any future R2 publication or consumption requires a separate contract review.
+
 ## Review and implementation handoff
 
-The file is ready for contract review, with these decisions explicitly visible rather than marked approved:
+MR !82 review resolved the payment-event choice: CheckoutPaymentConfirmed is authoritative for R1, and PaymentConfirmed is R2. #156 implementation follows the one-session-per-group #250 contract; no compatibility publication or second payment-state handler is part of R1. This decision does not imply both backend lanes have approved the merge request.
+
+The file is ready for contract review, with these remaining decisions explicitly visible rather than marked approved:
 
 | Decision / owner | Required resolution |
 | --- | --- |
-| #156 / #186 / #250, both backend lanes | Confirm CheckoutPaymentConfirmed as authoritative. Remove PaymentConfirmed from publication scope or specify a non-authoritative compatibility use; do not implement two independent payment transitions. Current counts retain its schema for review. |
 | #217 / #192, both backend lanes | Confirm config write owner/route (ADR-009 leaves it open) and durable authenticated non-Kafka audit handoff. `none` cannot mean sending Kafka to a literal topic named none or using a nonexistent in-process shared DB. |
 | #202 / #203 / #241 | Approve trusted OrderPaid shippingInfo/warehouse and status mappings, preparation of missing parcel/pickup details, and ShipmentCreated's PENDING_TRACKING creation case. Historical messages need coordinated backfill/replay; never fake carrier measurements/locality codes. |
 | #189 / #203 / #250 | Specify paid-child cancellation request/ACK payloads in the owning follow-up before handover coordination is enabled. They are distinct from whole-group prepayment cancellation. |
@@ -5965,26 +5973,28 @@ Runtime implementation checks remain with their owning issues: business/outbox r
 
 ### Document validation
 
-Recorded local validation on 2026-10-27 using Python 3.12 and jsonschema 4.25.1 with Draft 7, UUID, timestamp and URI format checks:
+Recorded local validation on 2026-10-28 using Python 3.12 and jsonschema 4.10.3 with Draft 7, UUID checking and explicit standard-library UTC timestamp/URI checks:
 
 ```text
-PASS inventory: 64 SRS names (43 R1 / 21 R2), 5 additions; 48 design contracts
-PASS scope: 32 #186 expansion contracts and 3 coordinated group contracts
+PASS inventory: 64 SRS names (43 R1 / 21 R2), 5 additions (4 R1 / 1 R2); 69 names (47 R1 / 22 R2)
+PASS scope: 32 current #186 R1 contracts, 2 additional coordinated R1 contracts, 1 retained R2 schema
 PASS JSON: 102 blocks; 48 Draft 7 schemas; 52 payload and 2 envelope examples
-PASS checks: 1456 rejected negatives; 48 additive-field cases; 4 exact-decimal cases
-PASS topics, publisher/consumer issue mappings, field tables, aggregate/key references, group-plan consistency and local anchors
+PASS checks: 433 required-field negatives; 341 UUID/UTC/URI negatives; 48 additive-field cases; 3 exact-decimal group plans
+PASS money: 13 string fields; 174 rejected and 72 accepted money cases; exact two-decimal pattern
+PASS topic/publisher/consumer table-to-section mappings and local anchors
 ```
 
-The local checks read this Markdown directly, parsed every JSON block with Decimal arithmetic, checked Draft 7 schemas and format assertions, validated every payload/envelope example, and verified the 64 SRS names plus five additions, 48 contract mappings and 21 R2 cells. Negative cases covered fields, UUIDs, timestamps, money, enums, group totals/membership, chronology, actors, shipments and retry constraints. Topic constants, source links and local anchors were also checked. These results do not claim DB/Kafka/provider integration or deployment verification.
+The local checks read this Markdown directly, parsed every JSON block with Decimal arithmetic, checked Draft 7 schemas and format assertions, validated every payload/envelope example, and verified the 64 SRS names plus five additions, 47 R1 payload sections and 22 R2 inventory entries. All 32 names in the current #186 table have topic/publisher/consumer mappings. The retained PaymentConfirmed schema is counted among the 48 documented schemas, not among the R1 contracts. Negative cases covered missing required fields, malformed UUIDs/timestamps/URIs, numeric money and strings without exactly two fractional digits; positive money cases and rejection of zero for positive-only amounts were also checked. Group-plan totals and unique order membership were checked using exact Decimal arithmetic. Table-to-section topic/issue references and local anchors matched. These results do not claim DB/Kafka/provider integration or deployment verification.
 
 ### Acceptance evidence for this revision
 
 - [x] All 32 names in #186 have a payload schema, example, named publishing issue and consuming issue.
 - [x] Original 64 SRS names retained; promoted names and the five additional names have consistent tables and counts.
-- [x] Group-manifest/confirmation/cancellation contracts are specified separately from the 32-event expansion.
+- [x] CheckoutPaymentConfirmed is included in the current 32-event #186 expansion; coordinated CheckoutPaymentRequested/OrderGroupCancelled contracts and the retained PaymentConfirmed R2 reference are counted separately.
 - [x] Current payment/shipment/rating/inventory topics and owners are used; non-Kafka events explicitly use none.
 - [x] InventoryReservationExpired retains its canonical spelling.
-- [ ] Leader resolves the PaymentConfirmed compatibility decision and the other listed owner decisions.
+- [x] MR !82 payment-event decision applied: CheckoutPaymentConfirmed is authoritative for R1; PaymentConfirmed is deferred to R2 with no R1 compatibility publication.
+- [ ] Owners resolve the other decisions listed in the handoff table.
 - [ ] Both backend lanes approve the merge request; record the actual GitLab approvals before checking this item.
 
 These document/schema checks provide evidence for the examples and inventory. They do not complete the unchecked review decisions or assert that any Java publisher/consumer, carrier call, refund transfer or migration is implemented.
