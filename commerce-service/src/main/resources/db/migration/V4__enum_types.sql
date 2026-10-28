@@ -5,8 +5,6 @@ CREATE TYPE order_status AS ENUM (
     'REFUND_REQUESTED', 'REFUNDED'
 );
 CREATE TYPE order_type AS ENUM ('STANDARD', 'AUCTION');
-CREATE TYPE payment_transaction_status AS ENUM ('PENDING', 'SUCCESS', 'FAILED');
-CREATE TYPE payment_transaction_type AS ENUM ('NORMAL', 'REFUND');
 
 -- Promotion workflows have no Java entities yet. Keep their status contracts
 -- explicit here; future workflow changes must add labels in a new migration.
@@ -37,12 +35,6 @@ ALTER TABLE orders ALTER COLUMN order_type TYPE order_type USING order_type::ord
 ALTER TABLE order_status_history
     ALTER COLUMN previous_status TYPE order_status USING previous_status::order_status,
     ALTER COLUMN new_status TYPE order_status USING new_status::order_status;
-
-ALTER TABLE payment_transactions DROP CONSTRAINT payment_transactions_status_check;
-ALTER TABLE payment_transactions DROP CONSTRAINT payment_transactions_type_check;
-ALTER TABLE payment_transactions
-    ALTER COLUMN status TYPE payment_transaction_status USING status::payment_transaction_status,
-    ALTER COLUMN type TYPE payment_transaction_type USING type::payment_transaction_type;
 
 ALTER TABLE promo_mega_sale_events ALTER COLUMN status TYPE promo_mega_sale_event_status
     USING status::promo_mega_sale_event_status;

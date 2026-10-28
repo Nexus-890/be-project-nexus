@@ -42,6 +42,8 @@ independently, as required by ADR-006.
 | `/api/v1/skus/{id}` | PUT | PRODUCT.UPDATE | #86 — SKU create, update and read                       |
 | `/api/v1/carts/me` | GET | CART.VIEW | #110 — Cart: get-or-create and add item                 |
 | `/api/v1/carts/me/items` | POST | CART.UPDATE | #110 — Cart: get-or-create and add item                 |
+| `/api/v1/notifications` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
+| `/api/v1/notifications/unread-count` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
 | Any other path | Any other method/path pair | Token required; add the SRS privilege before exposing a new endpoint | Gateway JWT filter and permit list; future owning issue |
 
 `GET /api/v1/users/{id}` (#76) has no row on purpose: a caller may read their own
@@ -106,8 +108,9 @@ References: [ADR-006](../adr/ADR-006-service-authentication-RS256.md),
 These **14 method/path contracts are fixed for callers**, while DTO field names
 remain drafts (`0.1.0-draft`). This section is the permission handoff for the
 [commerce contract](commerce-service.yaml) and
-[notification contract](notification-service.yaml), not an assertion that the
-runtime gateway already enforces them. The active table above is unchanged.
+[notification contract](notification-service.yaml). The active table above
+includes the two GET notification endpoints implemented by #108. Other draft
+rows do not assert that their runtime endpoints exist.
 Each method/path appears exactly once in the draft table; none is public.
 
 The gateway dependency is present in the branch history: merge commit `f67e7a3`
@@ -117,8 +120,9 @@ and falls back to authentication for unlisted routes. The columns below separate
 the proposed gateway registration from the complete downstream requirement.
 Endpoint-owning implementation MRs must register the gateway column in
 `config-service/src/main/resources/config/api-gateway.yml` and enforce **all**
-service privileges and ownership checks before exposing these APIs. This draft
-changes neither that configuration nor runtime authorization.
+service privileges and ownership checks before exposing these APIs. The #108
+GET rows are now registered in that configuration; other draft rows do not
+change runtime authorization.
 
 **Privilege-first:** when SRS defines a privilege, check privileges, not an extra
 hard-coded role allowlist. Actor roles below are SRS reference metadata, not a

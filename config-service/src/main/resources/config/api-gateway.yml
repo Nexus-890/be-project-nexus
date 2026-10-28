@@ -116,6 +116,12 @@ nexus:
       - method: POST
         path: /api/v1/carts/me/items
         privilege: CART.UPDATE
+      - method: GET
+        path: /api/v1/notifications
+        privilege: NOTIFICATION.VIEW
+      - method: GET
+        path: /api/v1/notifications/unread-count
+        privilege: NOTIFICATION.VIEW
   gateway:
     rate-limit:
       # Có thể đổi qua Config Server và /actuator/refresh; đủ cho polling 2 giây.

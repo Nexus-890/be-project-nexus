@@ -10,6 +10,8 @@ import jakarta.persistence.EntityManagerFactory;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -167,19 +169,24 @@ class CartPersistenceTest {
         assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM information_schema.columns
                 WHERE table_schema = current_schema() AND data_type = 'USER-DEFINED'
-                """, Integer.class)).isEqualTo(13);
+                """, Integer.class)).isEqualTo(11);
         assertThatThrownBy(() -> jdbc.update(
                 "INSERT INTO carts (guest_token, status) VALUES ('invalid-status', 'UNKNOWN_STATUS')"))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .rootCause().hasMessageContaining("invalid input value for enum cart_status");
     }
 
-    @Test
-    void upgradePreservesExistingStatusValuesAndPromotionAuthors() {
-        DataSource upgrade = source("commerce_upgrade");
-        Flyway.configure().dataSource(upgrade).schemas("commerce_upgrade")
-                .defaultSchema("commerce_upgrade").target("2").load().migrate();
+    @ParameterizedTest(name = "upgrade preserves commerce data with payment moved: {0}")
+    @ValueSource(booleans = {false, true})
+    void upgradePreservesExistingStatusValuesAndPromotionAuthors(boolean paymentMoved) {
+        String schema = paymentMoved ? "commerce_upgrade_payment_moved" : "commerce_upgrade";
+        DataSource upgrade = source(schema);
+        // Include the split's V3 when available; '?' also permits the reserved gap.
+        Flyway.configure().dataSource(upgrade).schemas(schema)
+                .defaultSchema(schema).target("3?").load().migrate();
         JdbcTemplate jdbc = new JdbcTemplate(upgrade);
+        // The pending service split removes this table before enum/audit migrations run.
+        if (paymentMoved) jdbc.execute("DROP TABLE IF EXISTS payment_transactions");
         for (CartStatus status : CartStatus.values()) {
             jdbc.update("INSERT INTO carts (guest_token, status) VALUES (?, ?)", status.name(), status.name());
         }
@@ -190,14 +197,31 @@ class CartPersistenceTest {
                 VALUES ('Sale', now(), now() + interval '1 day', now() + interval '2 days',
                         now() + interval '3 days', 'DRAFT', ?)
                 """, author);
-        Flyway.configure().dataSource(upgrade).schemas("commerce_upgrade")
-                .defaultSchema("commerce_upgrade").load().migrate();
+        Flyway.configure().dataSource(upgrade).schemas(schema)
+                .defaultSchema(schema).load().migrate();
         assertThat(jdbc.queryForList("SELECT status::text FROM carts ORDER BY status::text", String.class))
                 .containsExactly("ACTIVE", "CHECKED_OUT", "EXPIRED", "MERGED");
         assertThat(jdbc.queryForObject("SELECT status::text FROM promo_mega_sale_events", String.class))
                 .isEqualTo("DRAFT");
         assertThat(jdbc.queryForObject("SELECT created_by FROM promo_mega_sale_events", UUID.class)).isEqualTo(author);
         assertThat(jdbc.queryForObject("SELECT updated_by FROM promo_mega_sale_events", UUID.class)).isEqualTo(author);
+        assertThat(jdbc.queryForList("""
+                SELECT version FROM flyway_schema_history
+                WHERE success AND version IS NOT NULL ORDER BY installed_rank
+                """, String.class)).containsSubsequence("1", "2", "4", "5");
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
+                WHERE n.nspname = current_schema()
+                  AND t.typname IN ('payment_transaction_status', 'payment_transaction_type')
+                """, Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM information_schema.columns
+                WHERE table_schema = current_schema() AND table_name = 'payment_transactions'
+                  AND column_name IN ('created_by', 'updated_by')
+                """, Integer.class)).isZero();
+        if (paymentMoved) {
+            assertThat(jdbc.queryForObject("SELECT to_regclass('payment_transactions')::text", String.class)).isNull();
+        }
     }
 
     @Test

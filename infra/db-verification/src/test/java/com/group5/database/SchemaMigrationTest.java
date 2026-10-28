@@ -43,13 +43,13 @@ class SchemaMigrationTest {
                         List.of("users", "refresh_tokens", "password_reset_tokens", "user_reputations", "ratings")),
                 new Service("catalog-service", "4", List.of("products.status", "skus.status"),
                         List.of("categories", "products", "skus", "product_images", "product_stats")),
-                new Service("commerce-service", "2", List.of("carts.status", "orders.status", "orders.order_type",
+                // Optional V3 applies the payment split before fixtures when that migration is available.
+                new Service("commerce-service", "3?", List.of("carts.status", "orders.status", "orders.order_type",
                         "order_status_history.previous_status", "order_status_history.new_status",
-                        "payment_transactions.status", "payment_transactions.type",
                         "promo_mega_sale_events.status", "promo_vouchers.status",
                         "promo_event_sellers.status", "promo_customer_vouchers.status",
                         "promo_voucher_sellers.status", "promo_voucher_usages.status"),
-                        List.of("carts", "cart_items", "orders", "order_items", "order_status_history", "payment_transactions",
+                        List.of("carts", "cart_items", "orders", "order_items", "order_status_history",
                                 "promo_mega_sale_events", "promo_vouchers", "promo_event_sellers",
                                 "promo_customer_vouchers", "promo_voucher_products", "promo_voucher_sellers",
                                 "promo_voucher_usages", "promo_voucher_usage_allocations")),
@@ -213,8 +213,6 @@ class SchemaMigrationTest {
                         VALUES (item, purchase, uuidv7(), uuidv7(), 'Legacy', 1, 100, 100);
                         INSERT INTO order_status_history (order_id, previous_status, new_status)
                         VALUES (purchase, 'REFUND_REQUESTED', 'REFUNDED');
-                        INSERT INTO payment_transactions (order_id, provider, amount, status, type, idempotency_key)
-                        VALUES (purchase, 'test', 100, 'SUCCESS', 'REFUND', 'legacy-payment');
                         INSERT INTO promo_mega_sale_events (id, name, registration_start_at,
                             registration_end_at, start_at, end_at, status, created_by)
                         VALUES (sale, 'Legacy sale', now(), now() + interval '1 day',

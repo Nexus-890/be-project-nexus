@@ -1,11 +1,17 @@
 # Commerce persistence
 
-`V3__enum_types.sql` converts cart, order, order-history, payment and the six
-promotion status columns to PostgreSQL enums. `V4__audit_columns.sql` adds actor
-UUIDs to all business tables and preserves existing promotion authors. Historical
-rows use the system actor `00000000-0000-0000-0000-000000000000` where no author was
-stored. Infrastructure tables (`outbox`, `processed_events`, `shedlock`) are excluded.
-Recheck the next available Flyway version when merging other schema changes.
+`V4__enum_types.sql` converts cart, order, order-history and the six promotion
+status columns to PostgreSQL enums. `V5__audit_columns.sql` adds actor UUIDs to
+the 13 cart, order and promotion business tables and preserves existing promotion
+authors. Historical rows use the system actor `00000000-0000-0000-0000-000000000000`
+where no author was stored. Infrastructure tables (`outbox`, `processed_events`,
+`shedlock`) are excluded.
+
+V1 and V2 are unchanged. Flyway V3 is reserved for the payment-service split in a
+separate change; its `V3__payment_moved.sql` is not included here. These enum and
+audit migrations do not alter `payment_transactions`, create payment enums, or
+move payment data. Until the split is applied, the legacy payment table created
+by V1 remains with its existing schema.
 
 V1 defined promotion statuses as unrestricted text and this checkout contains no
 promotion Java enums or canonical status catalogue. The migration establishes these

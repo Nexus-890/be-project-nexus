@@ -6,7 +6,7 @@ DECLARE
 BEGIN
     FOREACH business_table IN ARRAY ARRAY[
         'carts', 'cart_items', 'orders', 'order_items', 'order_status_history',
-        'payment_transactions', 'promo_mega_sale_events', 'promo_vouchers',
+        'promo_mega_sale_events', 'promo_vouchers',
         'promo_event_sellers', 'promo_customer_vouchers', 'promo_voucher_products',
         'promo_voucher_sellers', 'promo_voucher_usages', 'promo_voucher_usage_allocations'
     ] LOOP
