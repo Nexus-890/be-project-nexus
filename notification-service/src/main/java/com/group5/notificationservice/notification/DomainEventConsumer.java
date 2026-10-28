@@ -12,10 +12,21 @@ import org.springframework.stereotype.Component;
 
 import tools.jackson.databind.JsonNode;
 
+import java.util.List;
+import java.util.Optional;
+
 @Component
 public class DomainEventConsumer {
 
     private static final Logger log = LoggerFactory.getLogger(DomainEventConsumer.class);
+
+    private final NotificationRepository notificationRepository;
+    private final List<NotificationChannel> channels;
+
+    public DomainEventConsumer(NotificationRepository notificationRepository, List<NotificationChannel> channels) {
+        this.notificationRepository = notificationRepository;
+        this.channels = channels;
+    }
 
     @KafkaListener(
             topics = {Topics.COMMERCE, Topics.CATALOG},
@@ -24,7 +35,16 @@ public class DomainEventConsumer {
     )
     public void receive(ConsumerRecord<String, EventEnvelope<JsonNode>> record) {
         EventEnvelope<JsonNode> envelope = record.value();
-        log.debug("EVENT_RECEIVED eventId={} eventType={} topic={}",
-                envelope.eventId(), envelope.eventType(), record.topic());
+        Optional<NotificationTemplate> template = NotificationTemplate.forEventType(envelope.eventType());
+        if (template.isEmpty()) {
+            log.debug("NOTIFICATION_SKIPPED eventId={} eventType={} topic={} reason=no-template",
+                    envelope.eventId(), envelope.eventType(), record.topic());
+            return;
+        }
+
+        Notification notification = notificationRepository.save(template.get().render(envelope.payload()));
+        channels.forEach(channel -> channel.send(notification));
+        log.info("NOTIFICATION_CREATED eventId={} eventType={} aggregateId={}",
+                envelope.eventId(), envelope.eventType(), envelope.aggregateId());
     }
 }
