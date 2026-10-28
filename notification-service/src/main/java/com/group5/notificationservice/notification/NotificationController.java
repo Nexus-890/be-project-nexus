@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 @RestController
 @RequestMapping("/api/v1/notifications")
@@ -20,11 +21,12 @@ public class NotificationController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAuthority('NOTIFICATION.VIEW')")
     public NotificationResponse.Page list(
             CurrentUser currentUser,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
-        requireViewPrivilege(currentUser);
+
         if (page < 0 || size < 1 || size > 100) {
             throw new DomainException(ErrorCode.DATA_INVALID);
         }
@@ -32,17 +34,8 @@ public class NotificationController {
     }
 
     @GetMapping("/unread-count")
+    @PreAuthorize("hasAuthority('NOTIFICATION.VIEW')")
     public NotificationResponse.UnreadCount unreadCount(CurrentUser currentUser) {
-        requireViewPrivilege(currentUser);
         return new NotificationResponse.UnreadCount(service.unreadCount(currentUser));
-    }
-
-    private void requireViewPrivilege(CurrentUser currentUser) {
-        if (currentUser == null || currentUser.id() == null) {
-            throw new DomainException(ErrorCode.UNAUTHENTICATED);
-        }
-        if (!currentUser.hasPrivilege("NOTIFICATION.VIEW")) {
-            throw new DomainException(ErrorCode.UNAUTHORIZED);
-        }
     }
 }
