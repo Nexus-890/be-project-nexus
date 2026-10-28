@@ -3,6 +3,7 @@ package com.group5.notificationservice.notification;
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.EventKafka;
 import com.group5.common_events.Topics;
+import com.group5.common_outbox.IdempotentConsumer;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
@@ -18,12 +19,18 @@ import java.util.Optional;
 @Component
 public class DomainEventConsumer {
 
+    static final String CONSUMER = "notification-domain-events";
+
     private static final Logger log = LoggerFactory.getLogger(DomainEventConsumer.class);
 
+    private final IdempotentConsumer idempotentConsumer;
     private final NotificationRepository notificationRepository;
     private final List<NotificationChannel> channels;
 
-    public DomainEventConsumer(NotificationRepository notificationRepository, List<NotificationChannel> channels) {
+    public DomainEventConsumer(IdempotentConsumer idempotentConsumer,
+                               NotificationRepository notificationRepository,
+                               List<NotificationChannel> channels) {
+        this.idempotentConsumer = idempotentConsumer;
         this.notificationRepository = notificationRepository;
         this.channels = channels;
     }
@@ -42,9 +49,13 @@ public class DomainEventConsumer {
             return;
         }
 
-        Notification notification = notificationRepository.save(template.get().render(envelope.payload()));
-        channels.forEach(channel -> channel.send(notification));
-        log.info("NOTIFICATION_CREATED eventId={} eventType={} aggregateId={}",
-                envelope.eventId(), envelope.eventType(), envelope.aggregateId());
+        boolean handled = idempotentConsumer.handle(CONSUMER, envelope, event -> {
+            Notification notification = notificationRepository.save(template.get().render(event.payload()));
+            channels.forEach(channel -> channel.send(notification));
+        });
+        if (handled) {
+            log.info("NOTIFICATION_CREATED eventId={} eventType={} aggregateId={}",
+                    envelope.eventId(), envelope.eventType(), envelope.aggregateId());
+        }
     }
 }
