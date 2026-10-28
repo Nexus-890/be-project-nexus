@@ -39,4 +39,6 @@ public interface CartItemRepository
             @Param("quantity") Integer quantity,
             @Param("price") BigDecimal price
     );
+
+
 }
