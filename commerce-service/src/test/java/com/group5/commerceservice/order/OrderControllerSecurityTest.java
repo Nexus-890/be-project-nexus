@@ -22,6 +22,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -66,6 +67,24 @@ class OrderControllerSecurityTest {
         assertThatThrownBy(() -> controller.statusHistory(caller, UUID.randomUUID()))
                 .isInstanceOf(AccessDeniedException.class);
         verify(orderService, never()).statusHistory(any(), any());
+    }
+
+    @Test
+    void readingOneOrderNeedsOrderView() {
+        CurrentUser caller = authenticate(Set.of("BUYER"), "ROLE_BUYER", "ORDER.LIST");
+
+        assertThatThrownBy(() -> controller.getOrder(caller, UUID.randomUUID()))
+                .isInstanceOf(AccessDeniedException.class);
+        verify(orderService, never()).getOrder(any(), any());
+    }
+
+    @Test
+    void listingOrdersNeedsOrderList() {
+        CurrentUser caller = authenticate(Set.of("BUYER"), "ROLE_BUYER", "ORDER.VIEW");
+
+        assertThatThrownBy(() -> controller.listOwn(caller, null, 0, 10))
+                .isInstanceOf(AccessDeniedException.class);
+        verify(orderService, never()).listOwn(any(), any(), anyInt(), anyInt());
     }
 
     private static CurrentUser authenticate(Set<String> roles, String... authorities) {
