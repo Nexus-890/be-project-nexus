@@ -13,6 +13,7 @@ import com.group5.commerceservice.order.service.InventoryClient;
 import com.group5.commerceservice.order.service.OrderService;
 import com.group5.commerceservice.order.service.OrderStateMachine;
 import com.group5.common_core.exception.DomainException;
+import com.group5.common_core.model.ApiResponse;
 import com.group5.common_security.CurrentUser;
 import com.group5.common_security.CurrentUserAuditor;
 import jakarta.persistence.EntityManagerFactory;
@@ -185,9 +186,9 @@ class OrderStatusFlowTest {
         sku.setSkuCode("SKU-" + skuId.toString().substring(0, 8));
         sku.setPrice(new BigDecimal("150000.00"));
         sku.setStatus("ACTIVE");
-        when(catalogClient.getSkuById(skuId)).thenReturn(sku);
-        when(catalogClient.getProductById(productId)).thenReturn(new CatalogClient.ProductResponse(
-                productId, UUID.randomUUID(), "Phone", "ACTIVE", List.of()));
+        when(catalogClient.getSkuById(skuId)).thenReturn(ApiResponse.of(sku));
+        when(catalogClient.getProductById(productId)).thenReturn(ApiResponse.of(new CatalogClient.ProductResponse(
+                productId, UUID.randomUUID(), "Phone", "ACTIVE", List.of())));
         when(inventoryClient.reserve(any(), any(), anyInt())).thenReturn(true);
 
         CreateOrderRequest request = new CreateOrderRequest(new CreateOrderRequest.ShippingAddress(

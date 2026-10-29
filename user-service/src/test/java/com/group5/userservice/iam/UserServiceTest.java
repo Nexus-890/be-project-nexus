@@ -177,6 +177,7 @@ class UserServiceTest {
                 () -> userService.register(validRequest()));
 
         assertThat(rejected.getCode()).isEqualTo(409);
+        assertThat(rejected.getErrorCode()).isEqualTo("USER_EMAIL_ALREADY_USED");
         verify(userRepository, never()).saveAndFlush(any());
     }
 
@@ -189,6 +190,7 @@ class UserServiceTest {
                 () -> userService.register(validRequest()));
 
         assertThat(rejected.getCode()).isEqualTo(409);
+        assertThat(rejected.getErrorCode()).isEqualTo("USER_PHONE_ALREADY_USED");
         verify(userRepository, never()).saveAndFlush(any());
     }
 
@@ -203,6 +205,7 @@ class UserServiceTest {
                 () -> userService.register(validRequest()));
 
         assertThat(rejected.getCode()).isEqualTo(409);
+        assertThat(rejected.getErrorCode()).isEqualTo("USER_IDENTITY_NUMBER_ALREADY_USED");
         verify(userRepository, never()).saveAndFlush(any());
     }
 

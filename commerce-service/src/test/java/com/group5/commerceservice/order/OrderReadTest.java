@@ -7,13 +7,13 @@ import com.group5.commerceservice.cart.repository.CartRepository;
 import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
 import com.group5.commerceservice.order.dto.response.OrderItemResponse;
 import com.group5.commerceservice.order.dto.response.OrderResponse;
-import com.group5.commerceservice.order.dto.response.PageResponse;
 import com.group5.commerceservice.order.entity.Order;
 import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.service.InventoryClient;
 import com.group5.commerceservice.order.service.OrderService;
 import com.group5.commerceservice.order.service.OrderStateMachine;
 import com.group5.common_core.exception.DomainException;
+import com.group5.common_core.model.ApiResponse;
 import com.group5.common_security.CurrentUser;
 import com.group5.common_security.CurrentUserAuditor;
 import jakarta.persistence.EntityManagerFactory;
@@ -25,6 +25,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.AuditorAware;
+import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -90,10 +91,10 @@ class OrderReadTest {
 
         assertThatThrownBy(() -> orderService.getOrder(buyer(), orderId))
                 .isInstanceOf(DomainException.class)
-                .extracting("code").isEqualTo(403);
+                .extracting("code", "errorCode").containsExactly(403, "COMMERCE_FORBIDDEN");
         assertThatThrownBy(() -> orderService.getOrder(buyer(), UUID.randomUUID()))
                 .isInstanceOf(DomainException.class)
-                .extracting("code").isEqualTo(404);
+                .extracting("code", "errorCode").containsExactly(404, "COMMERCE_ORDER_NOT_FOUND");
     }
 
     @Test
@@ -110,18 +111,18 @@ class OrderReadTest {
         UUID newer = insertOrder(buyer.id(), OrderStatus.PAID, 10);
         UUID foreign = insertOrder(UUID.randomUUID(), OrderStatus.PENDING, 5);
 
-        PageResponse<OrderResponse> page = orderService.listOwn(buyer, null, 0, 10);
+        Page<OrderResponse> page = orderService.listOwn(buyer, null, 0, 10);
 
-        assertThat(page.content()).extracting(OrderResponse::orderId).containsExactly(newer, older);
-        assertThat(page.content()).extracting(OrderResponse::orderId).doesNotContain(foreign);
-        assertThat(page.totalElements()).isEqualTo(2);
+        assertThat(page.getContent()).extracting(OrderResponse::orderId).containsExactly(newer, older);
+        assertThat(page.getContent()).extracting(OrderResponse::orderId).doesNotContain(foreign);
+        assertThat(page.getTotalElements()).isEqualTo(2);
     }
 
     @Test
     void anAdminAlsoListsOnlyTheirOwnOrders() {
         UUID foreign = insertOrder(UUID.randomUUID(), OrderStatus.PENDING, 5);
 
-        assertThat(orderService.listOwn(ADMIN, null, 0, 100).content())
+        assertThat(orderService.listOwn(ADMIN, null, 0, 100).getContent())
                 .extracting(OrderResponse::orderId).doesNotContain(foreign);
     }
 
@@ -133,10 +134,10 @@ class OrderReadTest {
         insertOrder(buyer.id(), OrderStatus.CANCELED, 20);
         UUID second = insertOrder(buyer.id(), OrderStatus.PENDING, 10);
 
-        PageResponse<OrderResponse> page = orderService.listOwn(buyer, OrderStatus.PENDING, 0, 10);
+        Page<OrderResponse> page = orderService.listOwn(buyer, OrderStatus.PENDING, 0, 10);
 
-        assertThat(page.content()).extracting(OrderResponse::orderId).containsExactly(second, first);
-        assertThat(page.content()).extracting(OrderResponse::status).containsOnly(OrderStatus.PENDING);
+        assertThat(page.getContent()).extracting(OrderResponse::orderId).containsExactly(second, first);
+        assertThat(page.getContent()).extracting(OrderResponse::status).containsOnly(OrderStatus.PENDING);
     }
 
     @Test
@@ -146,16 +147,16 @@ class OrderReadTest {
         UUID middle = insertOrder(buyer.id(), OrderStatus.PENDING, 20);
         UUID newest = insertOrder(buyer.id(), OrderStatus.PENDING, 10);
 
-        PageResponse<OrderResponse> first = orderService.listOwn(buyer, null, 0, 2);
-        PageResponse<OrderResponse> second = orderService.listOwn(buyer, null, 1, 2);
+        Page<OrderResponse> first = orderService.listOwn(buyer, null, 0, 2);
+        Page<OrderResponse> second = orderService.listOwn(buyer, null, 1, 2);
 
-        assertThat(first.content()).extracting(OrderResponse::orderId).containsExactly(newest, middle);
-        assertThat(second.content()).extracting(OrderResponse::orderId).containsExactly(oldest);
-        assertThat(first.totalPages()).isEqualTo(2);
+        assertThat(first.getContent()).extracting(OrderResponse::orderId).containsExactly(newest, middle);
+        assertThat(second.getContent()).extracting(OrderResponse::orderId).containsExactly(oldest);
+        assertThat(first.getTotalPages()).isEqualTo(2);
         for (int[] invalid : new int[][]{{0, 0}, {0, 101}, {-1, 10}}) {
             assertThatThrownBy(() -> orderService.listOwn(buyer, null, invalid[0], invalid[1]))
                     .isInstanceOf(DomainException.class)
-                    .extracting("code").isEqualTo(400);
+                    .extracting("code", "errorCode").containsExactly(400, "INVALID_PARAMETER");
         }
     }
 
@@ -178,9 +179,9 @@ class OrderReadTest {
             sku.setSkuCode("SKU-" + skuId.toString().substring(0, 8));
             sku.setPrice(price);
             sku.setStatus("ACTIVE");
-            when(catalogClient.getSkuById(skuId)).thenReturn(sku);
-            when(catalogClient.getProductById(productId)).thenReturn(new CatalogClient.ProductResponse(
-                    productId, sellerId, "Product " + price, "ACTIVE", List.of()));
+            when(catalogClient.getSkuById(skuId)).thenReturn(ApiResponse.of(sku));
+            when(catalogClient.getProductById(productId)).thenReturn(ApiResponse.of(new CatalogClient.ProductResponse(
+                    productId, sellerId, "Product " + price, "ACTIVE", List.of())));
         }
         when(inventoryClient.reserve(any(), any(), anyInt())).thenReturn(true);
 

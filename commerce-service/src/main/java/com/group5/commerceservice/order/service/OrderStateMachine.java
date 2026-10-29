@@ -4,7 +4,7 @@ import com.group5.commerceservice.order.OrderStatus;
 import com.group5.commerceservice.order.entity.OrderStatusHistory;
 import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.repository.OrderStatusHistoryRepository;
-import com.group5.common_core.constant.ErrorCode;
+import com.group5.commerceservice.shared.exception.CommerceErrorCode;
 import com.group5.common_core.exception.DomainException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,11 +27,12 @@ public class OrderStateMachine {
     @Transactional
     public OrderStatusHistory move(UUID orderId, OrderStatus target, UUID actor, String reason) {
         OrderStatus current = orderRepository.findStatusById(orderId)
-                .orElseThrow(() -> new DomainException(ErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
         if (!current.canMoveTo(target)
                 || orderRepository.moveStatus(orderId, current.name(), target.name(), actor) == 0) {
             log.info("Order transition refused: orderId={}, from={}, to={}", orderId, current, target);
-            throw new DomainException(409, "ILLEGAL_TRANSITION: order cannot move from " + current + " to " + target);
+            throw new DomainException(CommerceErrorCode.ILLEGAL_TRANSITION,
+                    "ILLEGAL_TRANSITION: order cannot move from " + current + " to " + target);
         }
         log.info("Order transition accepted: orderId={}, from={}, to={}, actor={}", orderId, current, target, actor);
         return historyRepository.save(entry(orderId, current, target, actor, reason));

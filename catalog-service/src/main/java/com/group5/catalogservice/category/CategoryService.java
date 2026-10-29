@@ -6,7 +6,7 @@ import com.group5.catalogservice.category.dto.CategoryTreeResponse;
 import com.group5.catalogservice.category.dto.CategoryUpdateRequest;
 import com.group5.catalogservice.shared.config.CatalogProperties;
 import com.group5.catalogservice.shared.validation.SlugValidation;
-import com.group5.common_core.constant.ErrorCode;
+import com.group5.catalogservice.shared.exception.CatalogErrorCode;
 import com.group5.common_core.exception.DomainException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,7 +48,7 @@ public class CategoryService {
         if (categoryRepository.existsBySlug(slug)) {
             log.warn("Slug is exists: slug={}", slug);
             throw new DomainException(
-                    ErrorCode.SLUG_DUPLICATED);
+                    CatalogErrorCode.SLUG_DUPLICATED);
         }
 
         Category parent = null;
@@ -58,7 +58,7 @@ public class CategoryService {
             parent = categoryRepository
                     .findByIdAndDeletedAtIsNull(request.getParentId())
                     .orElseThrow(() -> new DomainException(
-                            ErrorCode.NOT_FOUND));
+                            CatalogErrorCode.NOT_FOUND));
 
             level = (short) ((short) parent.getLevel() + 1);
 
@@ -72,7 +72,7 @@ public class CategoryService {
                     request.getParentId()
             );
 
-            throw new DomainException(ErrorCode.CATEGORY_LEVEL_MAX);
+            throw new DomainException(CatalogErrorCode.CATEGORY_LEVEL_MAX);
         }
 
 // Tạo category ở ngoài if
@@ -113,7 +113,7 @@ public class CategoryService {
     @Transactional
     public CategoryResponse update(UUID id, CategoryUpdateRequest request) {
         Category category = categoryRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new DomainException(ErrorCode.CATEGORY_NOT_FOUND));
+                .orElseThrow(() -> new DomainException(CatalogErrorCode.CATEGORY_NOT_FOUND));
 
         String name = request.hasName() ? request.getName() : category.getName();
         String slug = request.hasSlug() ? request.getSlug() : category.getSlug();
@@ -124,7 +124,7 @@ public class CategoryService {
         boolean slugChanged = !Objects.equals(category.getSlug(), slug);//nếu thay đổi -> True
         boolean parentChanged = !Objects.equals(category.getParentId(), parentId);//nếu thay đổi -> True
         if (slugChanged && categoryRepository.existsBySlugAndIdNot(slug, id)) {
-            throw new DomainException(ErrorCode.SLUG_DUPLICATED);//này so sánh slug mới có trùng slug khác trong hệ thống không ( né ID chính nó rùi )
+            throw new DomainException(CatalogErrorCode.SLUG_DUPLICATED);//này so sánh slug mới có trùng slug khác trong hệ thống không ( né ID chính nó rùi )
         }
 
         //nếu 1 trong 2 change
@@ -133,12 +133,12 @@ public class CategoryService {
             Category parent = null;
             if (parentId != null) {
                 if (parentId.equals(id)) {//k làm con chính nó
-                    throw new DomainException(ErrorCode.INVALID_PARENT);
+                    throw new DomainException(CatalogErrorCode.INVALID_PARENT);
                 }
                 parent = categoryRepository.findByIdAndDeletedAtIsNull(parentId)//tìm Id cha xem có tồn tại k
-                        .orElseThrow(() -> new DomainException(ErrorCode.NOT_FOUND));
+                        .orElseThrow(() -> new DomainException(CatalogErrorCode.NOT_FOUND));
                 if (parent.getPath().startsWith(oldPath)) {//kiểm tra xem có chuyển trong nhánh đó không ( dựa theo path cũ )
-                    throw new DomainException(ErrorCode.DATA_INVALID);
+                    throw new DomainException(CatalogErrorCode.DATA_INVALID);
                 }
             }
 
@@ -187,10 +187,10 @@ public class CategoryService {
     }
     private void validateTreePosition(int level, String path) {
         if (level > catalogProperties.getCategoryMaxLevel()) {
-            throw new DomainException(ErrorCode.CATEGORY_LEVEL_MAX);
+            throw new DomainException(CatalogErrorCode.CATEGORY_LEVEL_MAX);
         }
         if (path.length() > 500) {
-            throw new DomainException(ErrorCode.DATA_INVALID);
+            throw new DomainException(CatalogErrorCode.DATA_INVALID);
         }
     }
 
@@ -204,7 +204,7 @@ public class CategoryService {
                     log.warn("Category not found: id={}", id);
 
                     return new DomainException(
-                            ErrorCode.CATEGORY_NOT_FOUND);
+                            CatalogErrorCode.CATEGORY_NOT_FOUND);
                 });
 
         log.debug(
@@ -254,7 +254,7 @@ public class CategoryService {
                 log.error("Invalid category parent: categoryId={}, parentId={}", category.getId(), parentId);
 
                 throw new DomainException(
-                        ErrorCode.CATEGORY_NOT_FOUND);
+                        CatalogErrorCode.CATEGORY_NOT_FOUND);
             }
         }
 
@@ -267,7 +267,7 @@ public class CategoryService {
                 if (!visited.add(current.getId())) {
                     log.error("Circular category relationship detected: categoryId={}", category.getId());
 
-                    throw new DomainException(ErrorCode.RELATIONSHIP_ERROR);
+                    throw new DomainException(CatalogErrorCode.RELATIONSHIP_ERROR);
                 }
 
                 UUID parentId = current.getParentId();
@@ -369,11 +369,11 @@ public class CategoryService {
         Category category = categoryRepository
                 .findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() ->
-                        new DomainException(ErrorCode.CATEGORY_NOT_FOUND)
+                        new DomainException(CatalogErrorCode.CATEGORY_NOT_FOUND)
                 );
 
         if (categoryRepository.existsByParentIdAndDeletedAtIsNull(id)) {
-            throw new DomainException(ErrorCode.CATEGORY_HAS_CHILDREN);
+            throw new DomainException(CatalogErrorCode.CATEGORY_HAS_CHILDREN);
         }
 
         boolean hasProducts =
@@ -381,7 +381,7 @@ public class CategoryService {
 
         if (hasProducts) {
             if (!catalogProperties.isAllowCategoryDeleteWithProduct()) {
-                throw new DomainException(ErrorCode.CATEGORY_HAS_PRODUCTS);
+                throw new DomainException(CatalogErrorCode.CATEGORY_HAS_PRODUCTS);
             }
 
             // Xóa mềm category tại đây.
