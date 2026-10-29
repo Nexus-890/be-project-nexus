@@ -1,5 +1,6 @@
 package com.group5.commerceservice.order.service;
 
+import com.group5.commerceservice.cart.CartStatus;
 import com.group5.commerceservice.cart.dto.CatalogClient;
 import com.group5.commerceservice.cart.dto.CatalogClient.ProductResponse;
 import com.group5.commerceservice.cart.dto.CatalogSkuResponse;
@@ -170,7 +171,7 @@ public class OrderService {
         log.info("Cart before checkout: id={}, status={}",
                 cart.getId(), cart.getStatus());
 
-        cart.setStatus("CHECKED_OUT");
+        cart.setStatus(CartStatus.CHECKED_OUT);
         cartRepository.saveAndFlush(cart);
 
         log.info("Cart after checkout: id={}, status={}", cart.getId(), cart.getStatus());

@@ -116,12 +116,16 @@ nexus:
       - method: POST
         path: /api/v1/carts/me/items
         privilege: CART.UPDATE
+<<<<<<< be-project-nexus/config-service/src/main/resources/config/api-gateway.yml
       - method: PUT
         path: /api/v1/carts/me/items/{id}
         privilege: CART.UPDATE
       - method: DELETE
         path: /api/v1/carts/me/items/{id}
         privilege: CART.REMOVE_ITEM
+      - method: POST
+        path: /api/v1/orders
+        privilege: ORDER.CREATE
       - method: GET
         path: /api/v1/notifications
         privilege: NOTIFICATION.VIEW
