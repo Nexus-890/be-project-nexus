@@ -1,5 +1,6 @@
 package com.group5.userservice.iam.entity;
 
+import com.group5.common_core.persistence.AuditedEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -22,7 +23,7 @@ import java.util.UUID;
 @Getter
 @Setter
 @NoArgsConstructor
-public class RefreshToken {
+public class RefreshToken extends AuditedEntity {
 
     @Id
     @GeneratedValue

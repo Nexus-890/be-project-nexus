@@ -1,0 +1,305 @@
+package com.group5.commerceservice.order.service;
+
+import com.group5.commerceservice.cart.dto.CatalogClient;
+import com.group5.commerceservice.cart.dto.CatalogClient.ProductResponse;
+import com.group5.commerceservice.cart.dto.CatalogSkuResponse;
+import com.group5.commerceservice.cart.entity.Cart;
+import com.group5.commerceservice.cart.entity.CartItem;
+import com.group5.commerceservice.cart.repository.CartItemRepository;
+import com.group5.commerceservice.cart.repository.CartRepository;
+import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
+import com.group5.commerceservice.order.dto.response.OrderGroupResponse;
+import com.group5.commerceservice.order.dto.response.OrderItemResponse;
+import com.group5.commerceservice.order.dto.response.OrderResponse;
+import com.group5.commerceservice.order.entity.Order;
+import com.group5.commerceservice.order.entity.OrderGroup;
+import com.group5.commerceservice.order.entity.OrderItem;
+import com.group5.commerceservice.order.repository.OrderGroupRepository;
+import com.group5.commerceservice.order.repository.OrderRepository;
+import com.group5.common_core.constant.ErrorCode;
+import com.group5.common_core.exception.DomainException;
+import com.group5.common_security.CurrentUser;
+import feign.FeignException;
+import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.TreeMap;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class OrderService {
+
+    private final OrderGroupRepository groupRepository;
+    private final OrderRepository orderRepository;
+    private final CartRepository cartRepository;
+    private final CartItemRepository cartItemRepository;
+    private final CatalogClient catalogClient;
+    private final InventoryClient inventoryClient;
+
+    @Value("${nexus.order.payment-timeout-minutes:15}")
+    private long paymentTimeoutMinutes = 15;
+
+    @PostConstruct
+    void validateConfiguration() {
+        if (paymentTimeoutMinutes < 1) {
+            throw new IllegalStateException("Order payment timeout must be positive");
+        }
+    }
+
+    public record CreationResult(boolean created, OrderGroupResponse response) {
+    }
+
+    //Create order form cart
+    @Transactional
+    public CreationResult create(CurrentUser user, String key, CreateOrderRequest request) {
+        log.info("Create order called: buyerId={}, idempotencyKey={}",
+                user != null ? user.id() : null, key);
+        requireAccess(user);
+        if (key == null || !key.matches("[\\x21-\\x7E]{1,100}")) {
+            throw new DomainException(ErrorCode.DATA_INVALID, "Idempotency-Key must contain 1 to 100 visible ASCII characters");
+        }
+        if (request == null || request.shippingAddress() == null || !"SEPAY".equals(request.paymentMethod())) {
+            throw new DomainException(ErrorCode.DATA_INVALID, "Shipping address and SEPAY payment method are required");
+        }
+        Map<String, Object> snapshot = request.snapshot();
+        groupRepository.lockKey("order-key:" + key);
+        Optional<OrderGroup> previous = groupRepository.findByIdempotencyKey(key);
+        if (previous.isPresent()) {
+            OrderGroup group = previous.get();
+            if (!group.getBuyerId().equals(user.id()) || group.getOrders().isEmpty()
+                    || group.getOrders().stream().anyMatch(order -> !snapshot.equals(order.getShippingInfo()))) {
+                throw new DomainException(409, "Idempotency-Key was already used for another request");
+            }
+            return new CreationResult(false, toResponse(group));
+        }
+
+        groupRepository.lockKey("order-buyer:" + user.id());
+        Cart cart = cartRepository.findActiveForUpdate(user.id())
+                .orElseThrow(() -> new DomainException(ErrorCode.DATA_INVALID, "Cart is empty"));
+        List<CartItem> lines = cartItemRepository.findByCart_Id(cart.getId());
+        if (lines.isEmpty()) {
+            throw new DomainException(ErrorCode.DATA_INVALID, "Cart is empty");
+        }
+        // Promotion pricing is a separate issue; never silently drop an already selected voucher.
+        if (cart.getPromoCode() != null && !cart.getPromoCode().isBlank()) {
+            throw new DomainException(409, "Remove the promotion code before placing this order");
+        }
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
+        OrderGroup group = new OrderGroup();
+        group.setBuyerId(user.id());
+        group.setIdempotencyKey(key);
+        group.setDueAt(now.plusMinutes(paymentTimeoutMinutes));
+        group.setCreatedAt(now);
+        group.setUpdatedAt(now);
+        group.setCreatedBy(user.id());
+        group.setUpdatedBy(user.id());
+        Map<UUID, Order> sellers = new TreeMap<>();
+        Map<UUID, ProductResponse> products = new HashMap<>();
+        for (CartItem line : lines.stream().sorted(Comparator.comparing(CartItem::getId)).toList()) {
+            CatalogSkuResponse sku = readSku(line);
+            ProductResponse product = products.computeIfAbsent(line.getProductId(), this::readProduct);
+            if (line.getQuantity() == null || line.getQuantity() <= 0) {
+                throw new DomainException(ErrorCode.INVALID_QUANTITY);
+            }
+            if (!inventoryClient.reserve(line.getProductId(), line.getSkuId(), line.getQuantity())) {
+                throw new DomainException(409, "An item is unavailable");
+            }
+            Order order = sellers.computeIfAbsent(product.sellerId(), sellerId -> {
+                Order child = new Order();
+                child.setOrderGroup(group);
+                child.setUserId(user.id());
+                child.setSellerId(sellerId);
+                child.setOrderNumber(nextOrderNumber(now));
+                child.setIdempotencyKey(childKey(user.id(), key, sellerId));
+                child.setShippingInfo(snapshot);
+                child.setPaymentDueAt(group.getDueAt());
+                child.setCreatedAt(now);
+                child.setUpdatedAt(now);
+                return child;
+            });
+            OrderItem item = new OrderItem();
+            item.setOrder(order);
+            item.setProductId(line.getProductId());
+            item.setSkuId(line.getSkuId());
+            item.setProductName(product.name());
+            item.setSkuCode(sku.getSkuCode());
+            item.setImageUrl(firstImage(product));
+            item.setQuantity(line.getQuantity());
+            item.setUnitPrice(money(sku.getPrice()));
+            item.setTotalPrice(money(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity()))));
+            order.getItems().add(item);
+        }
+        for (Order order : sellers.values()) {
+            BigDecimal subtotal = order.getItems().stream().map(OrderItem::getTotalPrice)
+                    .reduce(new BigDecimal("0.00"), BigDecimal::add);
+            order.setSubtotal(money(subtotal));
+            order.setTotalAmount(order.getSubtotal());
+            group.getOrders().add(order);
+        }
+        group.setTotalAmount(money(group.getOrders().stream().map(Order::getTotalAmount)
+                .reduce(new BigDecimal("0.00"), BigDecimal::add)));
+        if (group.getTotalAmount().signum() <= 0) {
+            throw new DomainException(400, "SEPAY orders must have a positive total");
+        }
+        groupRepository.saveAndFlush(group);
+
+        log.info("Cart before checkout: id={}, status={}",
+                cart.getId(), cart.getStatus());
+
+        cart.setStatus("CHECKED_OUT");
+        cartRepository.saveAndFlush(cart);
+
+        log.info("Cart after checkout: id={}, status={}", cart.getId(), cart.getStatus());
+        log.info("Order group created: groupId={}, buyerId={}, orders={}", group.getId(), user.id(), sellers.size());
+        return new CreationResult(true, toResponse(group));
+    }
+
+    @Transactional(readOnly = true)
+    public boolean hasProductReferences(UUID productId) {
+        return orderRepository.hasProductReferences(productId);
+    }
+
+    private CatalogSkuResponse readSku(CartItem line) {
+        CatalogSkuResponse sku;
+        try {
+            sku = catalogClient.getSkuById(line.getSkuId());
+        } catch (FeignException.NotFound exception) {
+            throw new DomainException(409, "A cart item is no longer available");
+        } catch (FeignException exception) {
+            throw new DomainException(503, "Catalog is unavailable; retry placing the order later");
+        }
+        if (sku == null || !line.getSkuId().equals(sku.getId()) || !line.getProductId().equals(sku.getProductId())
+                || !"ACTIVE".equals(sku.getStatus()) || sku.getPrice() == null || sku.getPrice().signum() < 0) {
+            throw new DomainException(409, "A cart item is no longer available");
+        }
+        return sku;
+    }
+
+    private ProductResponse readProduct(UUID id) {
+        ProductResponse product;
+        try {
+            product = catalogClient.getProductById(id);
+        } catch (FeignException.NotFound exception) {
+            throw new DomainException(409, "A cart product is no longer available");
+        } catch (FeignException exception) {
+            throw new DomainException(503, "Catalog is unavailable; retry placing the order later");
+        }
+        if (product == null || !id.equals(product.id()) || product.sellerId() == null
+                || product.name() == null || product.name().isBlank() || !"ACTIVE".equals(product.status())) {
+            throw new DomainException(409, "A cart product is no longer available");
+        }
+        return product;
+    }
+
+    // Chọn image
+    private String firstImage(ProductResponse product) {
+        if (product.images() == null) {
+            return null;
+        }
+        return product.images().stream().filter(Objects::nonNull)
+                .filter(image -> image.imageUrl() != null)
+                .min(Comparator.comparing(CatalogClient.ImageResponse::sortOrder,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
+                .map(CatalogClient.ImageResponse::imageUrl).orElse(null);
+    }
+
+    private BigDecimal money(BigDecimal value) {
+        try {
+            BigDecimal result = value.setScale(2, RoundingMode.UNNECESSARY);
+            if (result.precision() > 19) {
+                throw new ArithmeticException("Money overflow");
+            }
+            return result;
+        } catch (ArithmeticException exception) {
+            throw new DomainException(409, "An item price or order total cannot be represented as numeric(19,2)");
+        }
+    }
+
+    private void requireAccess(CurrentUser user) {
+        if (user == null || user.id() == null) {
+            throw new DomainException(ErrorCode.UNAUTHENTICATED);
+        }
+        if (!user.hasPrivilege("CHECKOUT.START") || !user.hasPrivilege("ORDER.CREATE")) {
+            throw new DomainException(ErrorCode.UNAUTHORIZED, "CHECKOUT.START and ORDER.CREATE are required");
+        }
+    }
+
+    private String nextOrderNumber(OffsetDateTime now) {
+        return "NX-" + now.toLocalDate().format(DateTimeFormatter.BASIC_ISO_DATE)
+                + "-" + String.format(Locale.ROOT, "%08d", orderRepository.nextOrderSequence());
+    }
+
+    private String childKey(UUID buyerId, String groupKey, UUID sellerId) {
+        StringBuilder tuple = new StringBuilder();
+        for (String value : new String[]{buyerId.toString(), groupKey, sellerId.toString()}) {
+            tuple.append(value.length()).append(':').append(value);
+        }
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256")
+                    .digest(tuple.toString().getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 unavailable", exception);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderGroupResponse> history(CurrentUser user) {
+        if (user == null || user.id() == null) {
+            throw new DomainException(ErrorCode.UNAUTHENTICATED);
+        }
+
+        return groupRepository.findByBuyerIdOrderByCreatedAtDesc(user.id())
+                .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    private OrderGroupResponse toResponse(OrderGroup group) {
+        List<OrderResponse> orders = group.getOrders().stream()
+                .sorted(Comparator.comparing(Order::getOrderNumber))
+                .map(this::toOrderResponse)
+                .toList();
+        return new OrderGroupResponse(group.getId(), group.getStatus(), group.getTotalAmount(),
+                group.getCurrency(), group.getDueAt(), orders);
+    }
+
+    private OrderResponse toOrderResponse(Order order) {
+        List<OrderItemResponse> items = order.getItems().stream()
+                .sorted(Comparator.comparing(OrderItem::getId))
+                .map(this::toItemResponse)
+                .toList();
+        return new OrderResponse(order.getId(), order.getOrderNumber(), order.getSellerId(),
+                order.getStatus(), order.getTotalAmount(), items);
+    }
+
+    private OrderItemResponse toItemResponse(OrderItem item) {
+        return new OrderItemResponse(item.getId(), item.getProductId(), item.getSkuId(),
+                item.getProductName(), item.getSkuCode(), item.getImageUrl(), item.getQuantity(),
+                item.getUnitPrice(), item.getTotalPrice());
+    }
+}

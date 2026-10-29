@@ -5,6 +5,7 @@ import com.group5.commerceservice.cart.repository.CartRepository;
 import com.group5.commerceservice.shared.config.CartProperties;
 import com.group5.common_core.constant.ErrorCode;
 import com.group5.common_core.exception.DomainException;
+import com.group5.common_security.CurrentUserAuditor;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,7 +32,7 @@ public class CartExpiryJob {
         if (expirationDays < 1) {
             throw new DomainException(ErrorCode.INVALID_CONFIGURATION);
         }
-        int expiredCount = cartRepository.expireInactiveActiveCarts(expirationDays);
+        int expiredCount = cartRepository.expireInactiveActiveCarts(expirationDays, CurrentUserAuditor.SYSTEM_ID);
         log.info(
                 "Cart expiry job completed. expirationDays={}, expiredCount={}",
                 expirationDays,

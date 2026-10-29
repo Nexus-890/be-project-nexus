@@ -1,5 +1,6 @@
 package com.group5.notificationservice.notification;
 
+import com.group5.common_core.persistence.AuditedEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -19,7 +20,7 @@ import java.util.UUID;
 @Setter
 @Entity
 @Table(name = "notifications")
-public class Notification {
+public class Notification extends AuditedEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

@@ -1,5 +1,6 @@
 package com.group5.catalogservice.category;
 
+import com.group5.common_core.persistence.AuditedEntity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -18,7 +19,7 @@ import java.util.UUID;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class Category {
+public class Category extends AuditedEntity {
 
     @Id
     private UUID id;
