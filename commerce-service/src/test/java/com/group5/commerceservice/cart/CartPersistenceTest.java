@@ -10,8 +10,6 @@ import jakarta.persistence.EntityManagerFactory;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -176,17 +174,14 @@ class CartPersistenceTest {
                 .rootCause().hasMessageContaining("invalid input value for enum cart_status");
     }
 
-    @ParameterizedTest(name = "upgrade preserves commerce data with payment moved: {0}")
-    @ValueSource(booleans = {false, true})
-    void upgradePreservesExistingStatusValuesAndPromotionAuthors(boolean paymentMoved) {
-        String schema = paymentMoved ? "commerce_upgrade_payment_moved" : "commerce_upgrade";
+    @Test
+    void upgradePreservesExistingStatusValuesAndPromotionAuthors() {
+        String schema = "commerce_upgrade";
         DataSource upgrade = source(schema);
         // Include the split's V3 when available; '?' also permits the reserved gap.
         Flyway.configure().dataSource(upgrade).schemas(schema)
                 .defaultSchema(schema).target("3?").load().migrate();
         JdbcTemplate jdbc = new JdbcTemplate(upgrade);
-        // The pending service split removes this table before enum/audit migrations run.
-        if (paymentMoved) jdbc.execute("DROP TABLE IF EXISTS payment_transactions");
         for (CartStatus status : CartStatus.values()) {
             jdbc.update("INSERT INTO carts (guest_token, status) VALUES (?, ?)", status.name(), status.name());
         }
@@ -208,7 +203,7 @@ class CartPersistenceTest {
         assertThat(jdbc.queryForList("""
                 SELECT version FROM flyway_schema_history
                 WHERE success AND version IS NOT NULL ORDER BY installed_rank
-                """, String.class)).containsSubsequence("1", "2", "4", "5");
+                """, String.class)).containsSubsequence("1", "2", "3", "4", "5", "6");
         assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
                 WHERE n.nspname = current_schema()
@@ -219,9 +214,7 @@ class CartPersistenceTest {
                 WHERE table_schema = current_schema() AND table_name = 'payment_transactions'
                   AND column_name IN ('created_by', 'updated_by')
                 """, Integer.class)).isZero();
-        if (paymentMoved) {
-            assertThat(jdbc.queryForObject("SELECT to_regclass('payment_transactions')::text", String.class)).isNull();
-        }
+        assertThat(jdbc.queryForObject("SELECT to_regclass('payment_transactions')::text", String.class)).isNull();
     }
 
     @Test
