@@ -1,5 +1,6 @@
 package com.group5.commerceservice.order.entity;
 
+import com.group5.commerceservice.order.OrderStatus;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -41,8 +42,10 @@ public class Order {
     @Column(name = "reference_id")
     private UUID referenceId;
 
-    @Column(nullable = false, length = 30)
-    private String status = "PENDING";
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "status", nullable = false, columnDefinition = "order_status")
+    private OrderStatus status = OrderStatus.PENDING;
 
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal subtotal;
