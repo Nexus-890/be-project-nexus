@@ -44,6 +44,7 @@ independently, as required by ADR-006.
 | `/api/v1/carts/me/items` | POST | CART.UPDATE | #110 — Cart: get-or-create and add item                 |
 | `/api/v1/notifications` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
 | `/api/v1/notifications/unread-count` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
+| `/api/v1/orders` | POST | ORDER.CREATE | #113 — Order creation from a cart; service also requires CHECKOUT.START |
 | Any other path | Any other method/path pair | Token required; add the SRS privilege before exposing a new endpoint | Gateway JWT filter and permit list; future owning issue |
 
 `GET /api/v1/users/{id}` (#76) has no row on purpose: a caller may read their own
@@ -120,9 +121,8 @@ and falls back to authentication for unlisted routes. The columns below separate
 the proposed gateway registration from the complete downstream requirement.
 Endpoint-owning implementation MRs must register the gateway column in
 `config-service/src/main/resources/config/api-gateway.yml` and enforce **all**
-service privileges and ownership checks before exposing these APIs. The #108
-GET rows are now registered in that configuration; other draft rows do not
-change runtime authorization.
+service privileges and ownership checks before exposing these APIs. This draft
+changes neither that configuration nor runtime authorization.
 
 **Privilege-first:** when SRS defines a privilege, check privileges, not an extra
 hard-coded role allowlist. Actor roles below are SRS reference metadata, not a
