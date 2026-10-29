@@ -10,6 +10,10 @@ New order/notification controllers and their callers use the shared envelope;
 new domain failures use service-owned symbolic codes. The former fulfillment
 architecture check now follows the renamed inventory service.
 
+Develop advanced to `0baed9b` during verification; its shipment scaffold also
+merged cleanly after reconciliation, with no application HTTP endpoints added.
+Shipment `package -DskipTests` passed against the merged shared libraries.
+
 Shared-library `clean install` and service `verify` runs passed:
 
 | Module | Tests | Failures/errors | Skipped |
