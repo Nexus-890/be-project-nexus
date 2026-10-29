@@ -1,5 +1,6 @@
 package com.group5.userservice.reputation;
 
+import com.group5.common_core.persistence.AuditedEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -12,8 +13,10 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.annotations.UuidGenerator;
+import org.hibernate.type.SqlTypes;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -23,7 +26,7 @@ import java.util.UUID;
 @Getter
 @Setter
 @NoArgsConstructor
-public class UserReputation {
+public class UserReputation extends AuditedEntity {
 
     @Id
     @GeneratedValue
@@ -37,7 +40,8 @@ public class UserReputation {
     private short score = 50;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "trust_level", nullable = false, length = 20)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "trust_level", nullable = false, columnDefinition = "trust_level")
     private TrustLevel trustLevel = TrustLevel.NEW;
 
     @Column(name = "total_transaction", nullable = false)

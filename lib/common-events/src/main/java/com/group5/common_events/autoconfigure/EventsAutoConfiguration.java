@@ -37,7 +37,7 @@ import java.time.Clock;
  *  - Sau đó eventKafkaTemplate sẽ serialize EventEnvelope thành JSON
  *  - Apache Kafka lưu và phân phối message dựa theo topic mình đã chốt với nhau
  *  - eventListenerContainerFactory deserialize JSON thành EventEnvelope có payload kiểu JsonNode
- *  - Cuối cùng là thằng Microservice nhận lại event (eg. fulfillment Service)
+ *  - Cuối cùng là thằng Microservice nhận lại event (eg. Inventory Service)
  *
  * */
 

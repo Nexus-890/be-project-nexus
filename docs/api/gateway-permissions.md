@@ -44,6 +44,9 @@ independently, as required by ADR-006.
 | `/api/v1/carts/me/items` | POST | CART.UPDATE | #110 — Cart: get-or-create and add item                 |
 | `/api/v1/carts/me/items/{id}` | PUT | CART.UPDATE | #111 — Cart: update and remove item                     |
 | `/api/v1/carts/me/items/{id}` | DELETE | CART.REMOVE_ITEM | #111 — Cart: update and remove item                     |
+| `/api/v1/notifications` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
+| `/api/v1/notifications/unread-count` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
+| `/api/v1/orders` | POST | ORDER.CREATE | #113 — Order creation from a cart; service also requires CHECKOUT.START |
 | Any other path | Any other method/path pair | Token required; add the SRS privilege before exposing a new endpoint | Gateway JWT filter and permit list; future owning issue |
 
 `GET /api/v1/users/{id}` (#76) has no row on purpose: a caller may read their own
@@ -108,8 +111,9 @@ References: [ADR-006](../adr/ADR-006-service-authentication-RS256.md),
 These **14 method/path contracts are fixed for callers**, while DTO field names
 remain drafts (`0.1.0-draft`). This section is the permission handoff for the
 [commerce contract](commerce-service.yaml) and
-[notification contract](notification-service.yaml), not an assertion that the
-runtime gateway already enforces them. The active table above is unchanged.
+[notification contract](notification-service.yaml). The active table above
+includes the two GET notification endpoints implemented by #108. Other draft
+rows do not assert that their runtime endpoints exist.
 Each method/path appears exactly once in the draft table; none is public.
 
 The gateway dependency is present in the branch history: merge commit `f67e7a3`

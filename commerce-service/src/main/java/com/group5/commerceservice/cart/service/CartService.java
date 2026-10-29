@@ -1,6 +1,7 @@
 package com.group5.commerceservice.cart.service;
 
 import com.group5.commerceservice.cart.dto.CatalogClient;
+import com.group5.commerceservice.cart.CartStatus;
 import com.group5.commerceservice.cart.dto.CatalogSkuResponse;
 import com.group5.commerceservice.cart.dto.request.UpdateCartItemRequest;
 import com.group5.commerceservice.cart.entity.Cart;
@@ -26,8 +27,6 @@ import java.util.UUID;
 @Slf4j
 @RequiredArgsConstructor
 public class CartService {
-
-    private static final String ACTIVE = "ACTIVE";
 
     private final CartRepository cartRepository;
     private final CartItemRepository cartItemRepository;
@@ -75,9 +74,9 @@ public class CartService {
 
         // touchActiveCart cập nhật updated_at và trả về số row ảnh hưởng.
         // Nếu trả về 0, cart vừa bị expire trong khoảng thời gian ngắn → tạo lại.
-        if (cartRepository.touchActiveCart(cart.getId()) == 0) {
+        if (cartRepository.touchActiveCart(cart.getId(), userId) == 0) {
             cart = getOrCreateActiveCart(userId);
-            if (cartRepository.touchActiveCart(cart.getId()) == 0) {
+            if (cartRepository.touchActiveCart(cart.getId(), userId) == 0) {
                 log.error(
                         "Failed to update active cart after retry. userId={}, cartId={}",
                         userId,
@@ -95,7 +94,8 @@ public class CartService {
                 sku.getProductId(),
                 sku.getId(),
                 request.getQuantity(),
-                sku.getPrice()
+                sku.getPrice(),
+                userId
         );
 
         // clearAutomatically = true trên addOrIncreaseQuantity đảm bảo
@@ -164,8 +164,8 @@ public class CartService {
     // không bao giờ có hai cart ACTIVE cho cùng một user,
     // kể cả khi nhiều request chạy đồng thời.
     private Cart getOrCreateActiveCart(UUID userId) {
-        cartRepository.createActiveCartIfAbsent(UUID.randomUUID(), userId);
-        return cartRepository.findByUserIdAndStatus(userId, ACTIVE).orElseThrow(() -> {
+        cartRepository.createActiveCartIfAbsent(UUID.randomUUID(), userId, userId);
+        return cartRepository.findByUserIdAndStatus(userId, CartStatus.ACTIVE).orElseThrow(() -> {
                     log.error(
                             "Active cart not found after create-or-get. userId={}", userId);
                 throw new  DomainException(ErrorCode.DB_ERROR);
@@ -182,7 +182,7 @@ public class CartService {
         return new CartResponse(
                 cart.getId(),
                 cart.getUserId(),
-                cart.getStatus(),
+                cart.getStatus().name(),
                 items
         );
     }

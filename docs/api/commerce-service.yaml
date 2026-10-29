@@ -4,7 +4,7 @@ info:
   title: Project Nexus — Commerce API shapes (#88)
   version: 0.1.0-draft
   description: |+
-    Draft for frontend mocks, not an implementation or proof of gateway enforcement. SRS privileges are authoritative when defined: x-required-privileges is the service ALL-of requirement; x-gateway-privilege is the single privilege to register in the existing gateway policy. x-actor-roles is descriptive SRS actor metadata, not an additional role gate. Only the privilege-less order-status operation uses x-required-roles (ADMIN). ADMIN has no implicit privilege bypass. Ownership is independently enforced by the owning service using validated JWT sub; do not accept a caller userId in a request. UUIDs and UTC ISO-8601 timestamps are used. Lists are newest first unless specified. Scope: CRT-01..04, ORD-01/03..06, PAY-01 in the endpoint catalogue. Cart validation occurs inside order creation; no standalone checkout, refund or Sepay webhook in this draft. CRT-04 returns catalogue 204 No Content; refetch the cart to refresh UI state. The original issue #88 nonempty-body criterion needs an explicit exception for catalogue 204 operations. Money is serialized as decimal-safe JSON strings with exactly two fractional digits, matching the #92 convention confirmed in review !40; storage remains numeric(19,2). This file does not create backend controllers. Errors mirror lib/common-core ErrorCode/DomainException, lib/common-web GlobalExceptionHandler, lib/common-security SecurityProblemAdvice and api-gateway SecurityConfig. No top-level symbolic code; optional service traceId; validation errors contain field/message only. 409/503 details are draft business messages supported by DomainException(int, String), not new ErrorCode enum entries.
+    Draft for frontend mocks, not an implementation or proof of gateway enforcement. SRS privileges are authoritative when defined: x-required-privileges is the service ALL-of requirement; x-gateway-privilege is the single privilege to register in the existing gateway policy. x-actor-roles is descriptive SRS actor metadata, not an additional role gate. Only the privilege-less order-status operation uses x-required-roles (ADMIN). ADMIN has no implicit privilege bypass. Ownership is independently enforced by the owning service using validated JWT sub; do not accept a caller userId in a request. UUIDs and UTC ISO-8601 timestamps are used. Lists are newest first unless specified. Scope: CRT-01..04, ORD-01/03..06, PAY-01 in the endpoint catalogue. Cart validation occurs inside order creation; no standalone checkout, refund or Sepay webhook in this draft. CRT-04 returns catalogue 204 No Content; refetch the cart to refresh UI state. The original issue #88 nonempty-body criterion needs an explicit exception for catalogue 204 operations. Legacy #88 mock money fields use decimal-safe JSON strings with exactly two fractional digits, matching review !40. The updated #113 POST /orders group contract uses JSON numbers, BigDecimal and numeric(19,2); it supersedes the older single-order creation fixture and does not change unrelated read/payment drafts. POST /api/v1/orders is implemented under #113; the remaining read/payment operations retain their draft status. Errors mirror lib/common-core ErrorCode/DomainException, lib/common-web GlobalExceptionHandler, lib/common-security SecurityProblemAdvice and api-gateway SecurityConfig. No top-level symbolic code; optional service traceId; validation errors contain field/message only. 409/503 details are draft business messages supported by DomainException(int, String), not new ErrorCode enum entries.
 
     ## Frontend quick start — hướng dẫn bàn giao
 
@@ -754,15 +754,22 @@ paths:
       tags:
       - Order
       operationId: createOrderFromMyCart
-      summary: Create an order from my active cart
-      description: The checkout entry point; there is no separate checkout resource in this draft. Revalidate availability
-        and prices, snapshot items and server-computed totals, then create PENDING and check out the cart atomically.
-        Return 201 for a new order and 200 on an identical idempotent retry. Reject an empty cart or missing/malformed
-        Idempotency-Key with 400. A key owned by another caller returns 400 without disclosing an order; same key
-        with changed payload returns 409. Changed prices require the buyer to refetch GET /api/v1/carts/me and reconfirm;
-        the shared handler does not emit structured SKU/price fields in errors. Stock reservation integration is
-        staged by its owning issue; no order is created when a required reservation service is unavailable. Client
-        cannot set owner, status, amount or memo.
+      summary: Create one order group from my active cart
+      description: >-
+        Implemented by #113. POST /api/v1/orders is the only transactional checkout entry point.
+        Revalidate current catalog unit prices, snapshot names, SKU codes, images and prices, split the cart by seller,
+        and create one PENDING order group containing one STANDARD order per seller. Commit the group,
+        orders, items and cart CHECKED_OUT status together. Return 201 for a new group and 200 for an
+        identical caller/request replay with the same group and order IDs. Resolve replay before reading
+        the current cart or catalog. Empty carts and missing/invalid keys return 400; reuse by a different
+        buyer or normalized body returns 409 without disclosing another buyer's purchase. The key is
+        globally unique, 1..100 visible ASCII characters with no surrounding whitespace. This sprint
+        selects StubInventoryClient by configuration; no real stock is held. Every new order reads
+        the current catalog prices again; price revalidation has no disable toggle. Real reservations
+        and outbox publication remain #138 and #118. New group amounts are JSON
+        numbers backed by BigDecimal/numeric(19,2), following the updated issue example. Client cannot
+        set owner, seller, status, prices or totals. No memo or QR is generated here; payment-service
+        owns the group's single payment session under #121/#240. Older GET/payment shapes below remain drafts.
       security:
       - bearerAuth: []
       x-required-privileges:
@@ -770,23 +777,23 @@ paths:
       - ORDER.CREATE
       responses:
         '201':
-          description: A newly created order
+          description: A newly created purchase group with one order per seller
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Order'
+                $ref: '#/components/schemas/OrderGroup'
               examples:
                 default:
-                  $ref: '#/components/examples/OrderDefault'
+                  $ref: '#/components/examples/OrderGroupCreated'
         '200':
-          description: The existing order for an identical idempotent retry
+          description: The same group and seller orders for an identical idempotent retry
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Order'
+                $ref: '#/components/schemas/OrderGroup'
               examples:
                 default:
-                  $ref: '#/components/examples/OrderDefault'
+                  $ref: '#/components/examples/OrderGroupCreated'
         '400':
           description: Invalid data
           content:
@@ -818,12 +825,12 @@ paths:
                     errors:
                     - field: shippingAddress.city
                       message: cannot be blank!
-                invalidParameter:
+                invalidKey:
                   value:
-                    type: urn:problem:invalid-parameter
-                    title: Invalid Parameter
+                    type: urn:problem:domain-error
+                    title: Bad Request
                     status: 400
-                    detail: Value 'abc' is not a valid UUID for parameter 'Idempotency-Key'
+                    detail: Idempotency-Key must contain 1..100 visible ASCII characters without surrounding whitespace
                     instance: /api/v1/orders
         '401':
           description: A valid bearer token is required
@@ -938,12 +945,15 @@ paths:
       - name: Idempotency-Key
         in: header
         required: true
-        description: 'Required client-generated UUID. Scope to caller and request payload: a retry returns the same
-          order; a different payload with an already-used key conflicts. A key belonging to another caller must
-          never disclose that caller''s order.'
+        description: >-
+          Required client-generated operation key, globally unique across order groups. Identical caller
+          and normalized payload return the same order group; a different caller or payload returns 409.
+          Use 1..100 visible ASCII characters without surrounding whitespace. UUIDs are supported.
         schema:
           type: string
-          format: uuid
+          minLength: 1
+          maxLength: 100
+          pattern: '^[!-~]+$'
         example: 70000000-1111-4111-8111-111111111111
       requestBody:
         required: true
@@ -1931,6 +1941,115 @@ components:
           type: string
           enum:
           - SEPAY
+    OrderGroup:
+      type: object
+      additionalProperties: false
+      required:
+      - orderGroupId
+      - status
+      - totalAmount
+      - currency
+      - dueAt
+      - orders
+      properties:
+        orderGroupId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [PENDING, PAID, CANCELED, EXPIRED]
+        totalAmount:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+          description: Sum of the seller orders, calculated with BigDecimal and stored as numeric(19,2).
+        currency:
+          type: string
+          enum: [VND]
+        dueAt:
+          type: string
+          format: date-time
+        orders:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/CreatedSellerOrder'
+    CreatedSellerOrder:
+      type: object
+      additionalProperties: false
+      required:
+      - orderId
+      - orderNumber
+      - sellerId
+      - status
+      - totalAmount
+      - items
+      properties:
+        orderId:
+          type: string
+          format: uuid
+        orderNumber:
+          type: string
+          pattern: '^NX-[0-9]{8}-[0-9]+$'
+        sellerId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [PENDING, PAID, CANCELED, SHIPPED, DELIVERED, COMPLETED, REFUND_REQUESTED, REFUNDED]
+        totalAmount:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/CreatedOrderItem'
+    CreatedOrderItem:
+      type: object
+      additionalProperties: false
+      required:
+      - orderItemId
+      - productId
+      - skuId
+      - productName
+      - skuCode
+      - imageUrl
+      - quantity
+      - unitPrice
+      - totalPrice
+      properties:
+        orderItemId:
+          type: string
+          format: uuid
+        productId:
+          type: string
+          format: uuid
+        skuId:
+          type: string
+          format: uuid
+        productName:
+          type: string
+        skuCode:
+          type: string
+          nullable: true
+        imageUrl:
+          type: string
+          format: uri
+          nullable: true
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+        unitPrice:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+        totalPrice:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
     OrderItem:
       type: object
       additionalProperties: false
@@ -2262,6 +2381,44 @@ components:
         subtotal: '500000.00'
         currency: VND
         updatedAt: '2026-10-15T08:00:00Z'
+    OrderGroupCreated:
+      value:
+        orderGroupId: 70000000-1111-4111-8111-111111111112
+        status: PENDING
+        totalAmount: 350000.00
+        currency: VND
+        dueAt: '2026-10-28T08:15:00Z'
+        orders:
+        - orderId: 70000000-1111-4111-8111-111111111113
+          orderNumber: NX-20261028-0001
+          sellerId: 11111111-1111-4111-8111-111111111111
+          status: PENDING
+          totalAmount: 200000.00
+          items:
+          - orderItemId: 70000000-1111-4111-8111-111111111114
+            productId: 00000004-1111-4111-8111-111111111111
+            skuId: 00000003-1111-4111-8111-111111111111
+            productName: Nexus Mechanical Keyboard
+            skuCode: KB-001
+            imageUrl: https://example.com/keyboard.png
+            quantity: 2
+            unitPrice: 100000.00
+            totalPrice: 200000.00
+        - orderId: 70000000-1111-4111-8111-111111111115
+          orderNumber: NX-20261028-0002
+          sellerId: 22222222-2222-4222-8222-222222222222
+          status: PENDING
+          totalAmount: 150000.00
+          items:
+          - orderItemId: 70000000-1111-4111-8111-111111111116
+            productId: 00000004-2222-4222-8222-222222222222
+            skuId: 00000003-2222-4222-8222-222222222222
+            productName: Nexus Mouse
+            skuCode: MS-001
+            imageUrl: null
+            quantity: 1
+            unitPrice: 150000.00
+            totalPrice: 150000.00
     OrderDefault:
       value:
         id: 00000005-1111-4111-8111-111111111111

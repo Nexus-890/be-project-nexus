@@ -25,15 +25,16 @@ public interface CartItemRepository
     @Modifying(clearAutomatically = true)
     @Query(value = """
             INSERT INTO cart_items (
-                id, cart_id, product_id, sku_id, quantity, price
+                id, cart_id, product_id, sku_id, quantity, price, created_by, updated_by
             )
             VALUES (
-                :id, :cartId, :productId, :skuId, :quantity, :price
+                :id, :cartId, :productId, :skuId, :quantity, :price, :actorId, :actorId
             )
             ON CONFLICT (cart_id, sku_id)
             DO UPDATE SET
                 quantity = cart_items.quantity + EXCLUDED.quantity,
-                price    = EXCLUDED.price
+                price    = EXCLUDED.price,
+                updated_by = EXCLUDED.updated_by
             """, nativeQuery = true)
     void addOrIncreaseQuantity(
             @Param("id") UUID id,
@@ -41,6 +42,7 @@ public interface CartItemRepository
             @Param("productId") UUID productId,
             @Param("skuId") UUID skuId,
             @Param("quantity") Integer quantity,
-            @Param("price") BigDecimal price
+            @Param("price") BigDecimal price,
+            @Param("actorId") UUID actorId
     );
 }
