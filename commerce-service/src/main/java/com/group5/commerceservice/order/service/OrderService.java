@@ -231,7 +231,7 @@ public class OrderService {
         }
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new DomainException(ErrorCode.NOT_FOUND));
-        if (!order.getUserId().equals(user.id())) {
+        if (!order.getUserId().equals(user.id()) && !user.hasRole("ADMIN")) {
             throw new DomainException(ErrorCode.UNAUTHORIZED);
         }
         return toOrderResponse(order);
