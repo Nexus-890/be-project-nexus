@@ -4,10 +4,14 @@ import com.group5.catalogservice.category.dto.CategoryRequest;
 import com.group5.catalogservice.category.dto.CategoryResponse;
 import com.group5.catalogservice.category.dto.CategoryTreeResponse;
 import com.group5.catalogservice.category.dto.CategoryUpdateRequest;
+import com.group5.catalogservice.category.event.CategoryCreatedPayload;
 import com.group5.catalogservice.shared.config.CatalogProperties;
 import com.group5.catalogservice.shared.validation.SlugValidation;
 import com.group5.catalogservice.shared.exception.CatalogErrorCode;
 import com.group5.common_core.exception.DomainException;
+import com.group5.common_events.EventEnvelopeFactory;
+import com.group5.common_events.Topics;
+import com.group5.common_outbox.OutboxWriter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -38,6 +42,9 @@ public class CategoryService {
     private final CategoryRepository categoryRepository;
     private final CatalogProperties catalogProperties;
     private final SlugValidation slugValidation;
+
+    private final OutboxWriter outboxWriter;
+    private final EventEnvelopeFactory envelopeFactory;
 
     @Transactional
     public CategoryResponse create(CategoryRequest request) {
@@ -104,6 +111,9 @@ public class CategoryService {
         );
 
         Category saved = categoryRepository.saveAndFlush(category);
+
+        writeCategoryEvent("CategoryCreated", saved.getId(), new CategoryCreatedPayload(
+                saved.getId(), saved.getName(), saved.getSlug(), saved.getParentId()));
 
         log.info("Finished creating category: id={}", saved.getId());
 
@@ -393,5 +403,19 @@ public class CategoryService {
 
         categoryRepository.delete(category);
         categoryRepository.flush();
+    }
+
+    private <T> void writeCategoryEvent(
+            String eventType,
+            UUID categoryId,
+            T payload
+    ) {
+        var envelope = envelopeFactory.create(
+                eventType,
+                categoryId.toString(),
+                payload
+        );
+
+        outboxWriter.write("Category", Topics.CATALOG, envelope);
     }
 }
