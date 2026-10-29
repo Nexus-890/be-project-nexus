@@ -5,6 +5,7 @@ import com.group5.catalogservice.category.dto.CategoryResponse;
 import com.group5.catalogservice.category.dto.CategoryTreeResponse;
 import com.group5.catalogservice.category.dto.CategoryUpdateRequest;
 import com.group5.catalogservice.category.event.CategoryCreatedPayload;
+import com.group5.catalogservice.category.event.CategoryUpdatedPayload;
 import com.group5.catalogservice.shared.config.CatalogProperties;
 import com.group5.catalogservice.shared.validation.SlugValidation;
 import com.group5.catalogservice.shared.exception.CatalogErrorCode;
@@ -190,6 +191,9 @@ public class CategoryService {
         category.setDescription(description);
 
         Category saved = categoryRepository.saveAndFlush(category);
+
+        writeCategoryEvent("CategoryUpdated", saved.getId(), new CategoryUpdatedPayload(
+                saved.getId(), saved.getName(), saved.getSlug(), saved.getParentId()));
 
         log.info("Finished updating category: id={}", saved.getId());
 
