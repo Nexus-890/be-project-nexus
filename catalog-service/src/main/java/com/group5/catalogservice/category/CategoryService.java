@@ -5,6 +5,7 @@ import com.group5.catalogservice.category.dto.CategoryResponse;
 import com.group5.catalogservice.category.dto.CategoryTreeResponse;
 import com.group5.catalogservice.category.dto.CategoryUpdateRequest;
 import com.group5.catalogservice.category.event.CategoryCreatedPayload;
+import com.group5.catalogservice.category.event.CategoryDeletedPayload;
 import com.group5.catalogservice.category.event.CategoryUpdatedPayload;
 import com.group5.catalogservice.shared.config.CatalogProperties;
 import com.group5.catalogservice.shared.validation.SlugValidation;
@@ -401,12 +402,13 @@ public class CategoryService {
             // Xóa mềm category tại đây.
             // Giữ nguyên products.category_id để không phá khóa ngoại.
             category.setDeletedAt(OffsetDateTime.now());
-            categoryRepository.save(category);
-            return;
+            categoryRepository.saveAndFlush(category);
+        } else {
+            categoryRepository.delete(category);
+            categoryRepository.flush();
         }
 
-        categoryRepository.delete(category);
-        categoryRepository.flush();
+        writeCategoryEvent("CategoryDeleted", id, new CategoryDeletedPayload(id));
     }
 
     private <T> void writeCategoryEvent(
