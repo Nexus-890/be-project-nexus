@@ -28,7 +28,7 @@ scrape_configs:
           application: auction-service
       - targets: ["host.docker.internal:8085"]
         labels:
-          application: fulfillment-service
+          application: inventory-service
       - targets: ["host.docker.internal:8086"]
         labels:
           application: notification-service

@@ -42,7 +42,10 @@ Tất cả topic trong manifest local dùng cùng default:
 | `nexus.catalog.events` | `catalog-service` | `productId` | proposed | Catalog domain events |
 | `nexus.commerce.events` | `commerce-service` | `orderId` | proposed | Commerce domain events |
 | `nexus.auction.events` | `auction-service` | `auctionId` | proposed | Auction domain events |
-| `nexus.fulfillment.events` | `fulfillment-service` | `orderId` | proposed | Fulfillment domain events |
+| `nexus.inventory.events` | `inventory-service` | `orderId` | proposed | Inventory domain events |
+| `nexus.payment.events` | `payment-service` | `orderId` | proposed | Payment domain events |
+| `nexus.shipment.events` | `shipment-service` | `orderId` | proposed | Shipment domain events |
+| `nexus.rating.events` | `rating-service` | `userId` | proposed | Rating and reputation domain events |
 | `nexus.training.integration.v1` | `commerce-service -> notification-service` | request key / `aggregateId` | demo | Smoke topic đang dùng để trace producer -> consumer |
 
 Quy ước đặt topic:

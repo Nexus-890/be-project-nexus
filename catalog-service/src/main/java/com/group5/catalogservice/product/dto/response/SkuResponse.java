@@ -1,5 +1,6 @@
 package com.group5.catalogservice.product.dto.response;
 
+import com.group5.catalogservice.product.enums.SkuStatus;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -20,6 +21,6 @@ public class SkuResponse {
     private String color;
     private String size;
     private BigDecimal price;
-    private String status;
+    private SkuStatus status;
 
 }

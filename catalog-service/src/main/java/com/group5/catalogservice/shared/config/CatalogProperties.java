@@ -1,6 +1,9 @@
 package com.group5.catalogservice.shared.config;
 
 import jakarta.validation.constraints.Min;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -26,5 +29,24 @@ public class CatalogProperties {
 
     private boolean allowCategoryDeleteWithProduct = false;
     private boolean allowProductDeleteWithOrder = false;
+
+    @Valid
+    private OrderReferences orderReferences = new OrderReferences();
+
+    @Getter
+    @Setter
+    public static class OrderReferences {
+        @Pattern(regexp = "http|stub")
+        private String mode = "http";
+
+        @NotBlank
+        private String baseUrl = "http://localhost:8083";
+
+        @Min(1)
+        private int connectTimeoutMillis = 1000;
+
+        @Min(1)
+        private int readTimeoutMillis = 3000;
+    }
 }
 

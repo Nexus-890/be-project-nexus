@@ -1,5 +1,6 @@
 package com.group5.catalogservice.product.entity;
 
+import com.group5.common_core.persistence.AuditedEntity;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -17,7 +18,7 @@ import java.util.UUID;
 @Entity
 @Table(name = "product_images", indexes = {@Index(name = "idx_product_images_product",
         columnList = "product_id, sort_order")})
-public class ProductImage {
+public class ProductImage extends AuditedEntity {
     @Id
     @ColumnDefault("uuidv7()")
     @GeneratedValue(strategy = GenerationType.UUID)

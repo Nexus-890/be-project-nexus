@@ -53,7 +53,11 @@ try {
             throw "Missing real HTTP request $path with status $($expected[$suffix]); see $requestLog"
         }
     }
-    Write-Host "Verified wrapped SKU, 404, 503 and missing-data paths over HTTP. Log: $requestLog"
+    $productPath = '/api/v1/products/c8000000-0000-4000-8000-000000000002'
+    if (-not ($requests | Where-Object { $_.method -eq 'GET' -and $_.path -eq $productPath -and $_.statusCode -eq 200 })) {
+        throw "Missing real HTTP product request $productPath; see $requestLog"
+    }
+    Write-Host "Verified wrapped SKU/product, 404, 503 and missing-data paths over HTTP. Log: $requestLog"
 }
 finally {
     $env:CATALOG_CONTRACT_SIMULATION_URL = $originalSimulationUrl

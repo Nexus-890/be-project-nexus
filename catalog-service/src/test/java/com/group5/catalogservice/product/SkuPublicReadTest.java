@@ -77,7 +77,8 @@ class SkuPublicReadTest {
                 .andExpect(jsonPath("$.data[0].productId").value(product.getId().toString()))
                 .andExpect(jsonPath("$.page.totalElements").value(1));
         mvc.perform(get("/api/v1/skus/{id}", sku.getId()))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.data.price").value(150000));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.price").value(150000))
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"));
     }
 
     @ParameterizedTest

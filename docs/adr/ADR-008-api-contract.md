@@ -15,7 +15,10 @@ the three decisions below for explicit review rather than claiming earlier appro
 
 The six controllers named in #248 contain **24 method/path operations**: Auth 2,
 User 4, Category 5, Product 7, SKU 4 and Cart 2. The issue's figure of 25 differs
-from the current implementation. JWKS is a protocol endpoint and is deliberately
+from the original implementation. The develop integration adds four order operations
+(including the direct internal product-reference check) and two notification reads,
+bringing the delivered inventory to **30 operations across eight controllers**.
+JWKS is a protocol endpoint and is deliberately
 excluded; adding it would break consumers of the standard JWK Set format.
 
 ## Decisions and the three open design topics
@@ -82,7 +85,7 @@ shape remains usable by generic HTTP tooling.
 ### 3. Explicit frontend cutover and executable contract
 
 The canonical delivered-endpoint specs are
-[`docs/api/openapi/*.yaml`](../api/openapi/). They describe all 24 operations,
+[`docs/api/openapi/*.yaml`](../api/openapi/). They describe all 30 operations,
 request constraints, success envelopes, status-specific error codes, access rules
 and examples. [`style-guide.md`](../api/style-guide.md) governs future endpoints.
 The older `docs/api/commerce-service.yaml` and `notification-service.yaml` remain
@@ -117,7 +120,7 @@ cannot parse.
 - From `be-project-nexus`, run
   `node docs/api/check-contract.mjs` and
   `npx --yes @redocly/cli@2.63.0 lint docs/api/openapi/*.yaml`.
-  On shells that do not expand wildcards, pass the three YAML filenames explicitly.
+  On shells that do not expand wildcards, pass the four YAML filenames explicitly.
 - Existing service tests remain responsible for authorization, ownership and
   domain behavior; static OpenAPI validation does not prove runtime security.
 
@@ -126,7 +129,8 @@ cannot parse.
 Application controllers now have a uniform response type and FE gets one success
 parser. Removing the legacy success wrapper and both duplicate page classes is intentional;
 services and internal clients must rebuild against the updated shared libraries.
-The commerce-to-catalog client must unwrap the SKU envelope too. Catalog lookup
+The commerce-to-catalog client unwraps both SKU and product envelopes; the catalog
+order-reference client also unwraps the internal commerce response. Cart catalog lookup
 failures are explicit: missing SKU remains 404, invalid SKU response is 502
 `COMMERCE_INVALID_CATALOG_RESPONSE`, and other Feign failures are 503
 `COMMERCE_CATALOG_UNAVAILABLE`. Previously malformed/missing SKU data was treated

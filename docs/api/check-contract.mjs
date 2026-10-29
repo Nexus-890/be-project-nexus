@@ -17,6 +17,10 @@ const services = {
   ],
   'commerce-service': [
     'src/main/java/com/group5/commerceservice/cart/controller/CartController.java',
+    'src/main/java/com/group5/commerceservice/order/controller/OrderController.java',
+  ],
+  'notification-service': [
+    'src/main/java/com/group5/notificationservice/notification/NotificationController.java',
   ],
 };
 const normalize = (route) => route.replace(/\{[^}]+\}/g, '{}');
@@ -26,8 +30,7 @@ for (const [service, controllers] of Object.entries(services)) {
   const actual = new Set();
   for (const controller of controllers) {
     const source = readFileSync(resolve(root, service, controller), 'utf8');
-    const base = source.match(/@RequestMapping\("([^"]+)"\)/)?.[1];
-    if (!base) throw new Error(`Class request mapping missing: ${controller}`);
+    const base = source.match(/@RequestMapping\("([^"]+)"\)/)?.[1] ?? '';
     const methods = source.matchAll(/@(Get|Post|Put|Patch|Delete)Mapping(?:\("([^"]*)"\))?/g);
     for (const method of methods) {
       const key = `${method[1].toUpperCase()} ${normalize(base + (method[2] ?? ''))}`;

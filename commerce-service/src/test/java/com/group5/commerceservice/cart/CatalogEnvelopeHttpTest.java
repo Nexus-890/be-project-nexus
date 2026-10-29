@@ -58,9 +58,9 @@ class CatalogEnvelopeHttpTest {
             Cart cart = new Cart();
             cart.setId(UUID.randomUUID());
             cart.setUserId(USER);
-            cart.setStatus("ACTIVE");
-            when(carts.findByUserIdAndStatus(USER, "ACTIVE")).thenReturn(Optional.of(cart));
-            when(carts.touchActiveCart(cart.getId())).thenReturn(1);
+            cart.setStatus(CartStatus.ACTIVE);
+            when(carts.findByUserIdAndStatus(USER, CartStatus.ACTIVE)).thenReturn(Optional.of(cart));
+            when(carts.touchActiveCart(cart.getId(), USER)).thenReturn(1);
             // Capture the actual write and expose its result to the service's readback.
             doAnswer(invocation -> {
                 CartItem item = new CartItem();
@@ -71,19 +71,31 @@ class CatalogEnvelopeHttpTest {
                 item.setUnitPrice(invocation.getArgument(5));
                 when(items.findByCart_Id(cart.getId())).thenReturn(List.of(item));
                 return null;
-            }).when(items).addOrIncreaseQuantity(any(), any(), any(), any(), anyInt(), any());
+            }).when(items).addOrIncreaseQuantity(any(), any(), any(), any(), anyInt(), any(), any());
 
             var result = new CartService(carts, items, client).addItem(user(), request(SKU));
 
             assertThat(result.getItems()).hasSize(1);
             assertThat(result.getItems().getFirst().getSkuId()).isEqualTo(SKU);
             assertThat(result.getItems().getFirst().getUnitPrice()).isEqualByComparingTo(PRICE);
-            verify(items).addOrIncreaseQuantity(any(), eq(cart.getId()), eq(PRODUCT), eq(SKU), eq(2), eq(PRICE));
+            verify(items).addOrIncreaseQuantity(any(), eq(cart.getId()), eq(PRODUCT), eq(SKU), eq(2), eq(PRICE), eq(USER));
         });
     }
 
     @Test void catalog404BecomesNamedSkuNotFoundWithoutCartWrites() {
         assertFailure("c8000000-0000-4000-8000-000000000004", "COMMERCE_SKU_NOT_FOUND", 404);
+    }
+
+    @Test void wrappedProductForCheckoutDecodesThroughRealFeign() {
+        contextRunner.run(context -> {
+            assertThat(context).hasNotFailed();
+            var response = context.getBean(CatalogClient.class).getProductById(PRODUCT);
+            assertThat(response.code()).isZero();
+            assertThat(response.message()).isEqualTo("response success");
+            assertThat(response.data().id()).isEqualTo(PRODUCT);
+            assertThat(response.data().sellerId()).isEqualTo(USER);
+            assertThat(response.data().status()).isEqualTo("ACTIVE");
+        });
     }
 
     @Test void catalog503BecomesNamedUnavailableWithoutCartWrites() {

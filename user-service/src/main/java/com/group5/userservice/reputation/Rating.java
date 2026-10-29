@@ -1,5 +1,6 @@
 package com.group5.userservice.reputation;
 
+import com.group5.common_core.persistence.AuditedEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -20,7 +21,7 @@ import java.util.UUID;
 @Getter
 @Setter
 @NoArgsConstructor
-public class Rating {
+public class Rating extends AuditedEntity {
 
     @Id
     @GeneratedValue

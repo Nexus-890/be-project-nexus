@@ -108,7 +108,7 @@ The first successful capture is intentionally immutable: later valid callbacks r
 
 ## Local capture and replay procedure (Windows PowerShell)
 
-Keep this repeatable procedure for maintainers. Use **Windows PowerShell 5.1 or PowerShell 7**, **JDK 21**, the project's Maven wrapper, and `cloudflared.exe` on the **same Windows machine**. No running Commerce application, Config Service, database, or staging endpoint is required for this temporary receiver.
+Keep this repeatable procedure for maintainers. Use **Windows PowerShell 5.1 or PowerShell 7**, **JDK 21**, the project's Maven wrapper, and `cloudflared.exe` on the **same Windows machine**. Under #240 the verifier and its tests live in `payment-service`; no running payment application, Config Service, database, or staging endpoint is required for this temporary receiver.
 
 ### 1. Start the receiver in the first PowerShell window
 
@@ -117,7 +117,7 @@ Choose your actual repository checkout and JDK 21 installation. The receiver lis
 ```powershell
 $ErrorActionPreference = 'Stop'
 $repo = Read-Host 'Absolute path to your repository checkout'
-Set-Location (Join-Path $repo 'be-project-nexus\commerce-service')
+Set-Location (Join-Path $repo 'be-project-nexus\payment-service')
 $env:JAVA_HOME = Read-Host 'Absolute path to your installed JDK 21'
 $java = Join-Path $env:JAVA_HOME 'bin\java.exe'
 $javac = Join-Path $env:JAVA_HOME 'bin\javac.exe'
@@ -152,7 +152,7 @@ try {
 }
 if ([string]::IsNullOrWhiteSpace($env:SEPAY_WEBHOOK_SECRET)) { throw 'HMAC secret is required' }
 $source = @'
-import com.group5.commerceservice.payment.WebhookSignatureVerifier;
+import com.group5.paymentservice.payment.WebhookSignatureVerifier;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.net.InetSocketAddress;
@@ -243,7 +243,7 @@ A later valid request returns 409 to avoid overwriting evidence. Confirm the SeP
 
 ### 4. Copy unchanged bytes and run the captured-delivery tests
 
-Run in `be-project-nexus/commerce-service`, preferably in the **first** PowerShell session so its original `SEPAY_WEBHOOK_SECRET` and capture directory remain available. If another terminal is used, load the **same** secret again with a masked prompt; do not generate a new one.
+Run in `be-project-nexus/payment-service`, preferably in the **first** PowerShell session so its original `SEPAY_WEBHOOK_SECRET` and capture directory remain available. If another terminal is used, load the **same** secret again with a masked prompt; do not generate a new one.
 
 ```powershell
 New-Item -ItemType Directory -Path '..\docs\api' -Force | Out-Null
@@ -308,13 +308,13 @@ SePay Test Mode permits repeatable future regression without real payments. Stil
 
 ### Existing local and CI-style validation
 
-From `be-project-nexus/commerce-service`, using Java 21:
+From `be-project-nexus/payment-service`, using Java 21. Confirm the Maven runtime with `./mvnw.cmd -v`; setting only the IDE project SDK does not select the terminal's JDK:
 
 ```powershell
 .\mvnw.cmd '-Dtest=WebhookSignatureVerifierTest' test
 if ($LASTEXITCODE -ne 0) { throw 'Verifier unit tests failed' }
 .\mvnw.cmd verify
-if ($LASTEXITCODE -ne 0) { throw 'Commerce verification failed' }
+if ($LASTEXITCODE -ne 0) { throw 'Payment verification failed' }
 ```
 
 `WebhookCapturedDeliveryTest` is **opt-in** through `SEPAY_CAPTURE_TEST=true`. Its two tests are **skipped** in an ordinary build without this flag; that is not a successful real-capture test. When enabled, missing sample, signature, timestamp, or secret must **fail** rather than silently skip. Tests read original fixture bytes and must **never** regenerate or re-sign the fixture.

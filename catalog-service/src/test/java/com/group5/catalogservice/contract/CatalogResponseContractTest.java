@@ -10,6 +10,7 @@ import com.group5.catalogservice.product.dto.response.ProductDetailResponse;
 import com.group5.catalogservice.product.dto.response.ProductResponse;
 import com.group5.catalogservice.product.dto.response.SkuResponse;
 import com.group5.catalogservice.product.enums.ProductStatus;
+import com.group5.catalogservice.product.enums.SkuStatus;
 import com.group5.catalogservice.product.service.ProductService;
 import com.group5.catalogservice.product.service.SkuService;
 import com.group5.catalogservice.shared.exception.CatalogErrorCode;
@@ -134,7 +135,7 @@ class CatalogResponseContractTest {
 
     @Test
     void skuRoutesUseDataEnvelopeForObjectsAndLists() throws Exception {
-        SkuResponse sku = new SkuResponse(id, id, "SHIRT-M", "Black", "M", BigDecimal.TEN, "ACTIVE");
+        SkuResponse sku = new SkuResponse(id, id, "SHIRT-M", "Black", "M", BigDecimal.TEN, SkuStatus.ACTIVE);
         when(skus.create(eq(id), any(), eq(actor))).thenReturn(sku);
         when(skus.update(eq(id), any(), eq(actor))).thenReturn(sku);
         when(skus.getById(id)).thenReturn(sku);

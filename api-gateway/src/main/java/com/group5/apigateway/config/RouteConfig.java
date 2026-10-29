@@ -45,13 +45,22 @@ public class RouteConfig {
 
                 .route("commerce-service", route -> route
                         .path(
-                                "/api/v1/carts/**"
+                                "/api/v1/carts/**",
+                                "/api/v1/orders/**"
                         )
                         .filters(filters -> filters.requestRateLimiter(config ->
                                 config.setRateLimiter(limiter)
                                         .setKeyResolver(resolver)
                                         .setThrowOnLimit(true)))
                         .uri("lb://commerce-service"))
+
+                .route("notification-service", route -> route
+                        .path("/api/v1/notifications", "/api/v1/notifications/**")
+                        .filters(filters -> filters.requestRateLimiter(config ->
+                                config.setRateLimiter(limiter)
+                                        .setKeyResolver(resolver)
+                                        .setThrowOnLimit(true)))
+                        .uri("lb://notification-service"))
 
                 .build();
     }

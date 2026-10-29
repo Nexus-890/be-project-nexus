@@ -16,8 +16,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import com.group5.userservice.shared.PostgresTestDatabase;
+import com.group5.userservice.shared.PostgresAuditingTestConfiguration;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.SharedEntityManagerCreator;
@@ -142,17 +144,13 @@ class UserListQueryTest {
     }
 
     @TestConfiguration(proxyBeanMethods = false)
+    @Import(PostgresAuditingTestConfiguration.class)
     @EnableJpaRepositories(basePackageClasses = UserRepository.class)
     static class JpaTestConfig {
 
         @Bean
         DataSource dataSource() {
-            DriverManagerDataSource source = new DriverManagerDataSource();
-            source.setDriverClassName("org.h2.Driver");
-            source.setUrl("jdbc:h2:mem:user-list;DB_CLOSE_DELAY=-1");
-            source.setUsername("sa");
-            source.setPassword("");
-            return source;
+            return PostgresTestDatabase.migratedDataSource("user_list");
         }
 
         @Bean
@@ -162,7 +160,7 @@ class UserListQueryTest {
             factory.setPackagesToScan(User.class.getPackageName());
             factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
             factory.setJpaPropertyMap(Map.of(
-                    "hibernate.hbm2ddl.auto", "create-drop",
+                    "hibernate.hbm2ddl.auto", "validate",
                     "hibernate.session_factory.statement_inspector", (StatementInspector) sql -> {
                         STATEMENTS.add(sql);
                         return sql;

@@ -1,5 +1,33 @@
 # Issue #248 verification
 
+## Merge with develop — 2026-10-29
+
+Integrated develop `9104245` while retaining the #248 response contract. The
+README keeps both API and database documentation, SKU checks retain enum status
+inside `data`, the catalog Feign client preserves both SKU and product routes,
+and user tests retain PostgreSQL Testcontainers plus architecture enforcement.
+New order/notification controllers and their callers use the shared envelope;
+new domain failures use service-owned symbolic codes. The former fulfillment
+architecture check now follows the renamed inventory service.
+
+Shared-library `clean install` and service `verify` runs passed:
+
+| Module | Tests | Failures/errors | Skipped |
+| --- | ---: | ---: | ---: |
+| common-web / security / events / outbox | 79 | 0 | 0 |
+| user-service | 191 | 0 | 0 |
+| catalog-service | 45 | 0 | 0 |
+| commerce-service | 163 | 0 | 4 opt-in HTTP cases |
+| notification-service | 33 | 0 | 0 |
+| api-gateway | 40 | 0 | 0 |
+
+The relocated inventory architecture test passed separately. Commerce's opt-in
+Postman simulation then passed all five HTTP cases, including wrapped SKU and
+product decoding, upstream 404/503 handling and rejection of a bare SKU body.
+PostgreSQL persistence/state tests ran against disposable containers; the HTTP
+simulation does not establish deployed-service interoperability. All 30 delivered
+routes match the four specifications, which passed Redocly CLI 2.63.0 lint.
+
 ## Success metadata follow-up — 2026-10-29
 
 The success envelope defaults omitted/null `code` to `0` and omitted/null

@@ -2,7 +2,7 @@
 
 Status: **Proposed for #248 review; approval and FE cutover date pending**.
 Decisions and scope are recorded in [ADR-008](../adr/ADR-008-api-contract.md).
-The three [OpenAPI files](openapi/) describe delivered behavior; the older #88
+The four [OpenAPI files](openapi/) describe delivered behavior; the older #88
 commerce/notification drafts describe future contracts and require migration
 before implementation.
 
@@ -125,12 +125,12 @@ From `be-project-nexus` run:
 
 ```powershell
 node docs/api/check-contract.mjs
-npx --yes @redocly/cli@2.63.0 lint docs/api/openapi/user-service.yaml docs/api/openapi/catalog-service.yaml docs/api/openapi/commerce-service.yaml
+npx --yes @redocly/cli@2.63.0 lint docs/api/openapi/user-service.yaml docs/api/openapi/catalog-service.yaml docs/api/openapi/commerce-service.yaml docs/api/openapi/notification-service.yaml
 ```
 
 Redocly uses `redocly.yaml`. Only absent project-license metadata and local server
 URL advisories are disabled; no project license or public production URL is
-invented. Endpoint inventory verification compares these specs with the six
+invented. Endpoint inventory verification compares these specs with the eight
 controllers, normalizing only path-variable names. Service tests and ArchUnit
 cover runtime serialization and architecture; lint cannot replace those tests.
 The recorded execution evidence is in [verification-248.md](verification-248.md).
@@ -148,7 +148,7 @@ must include these concrete parser updates:
 | `lib/api-client.ts` success handling | Read the resource from the wire body's `data`; retain sibling `page` for list consumers; accept numeric `code` (default `0`) and `message` (default `"response success"`); handle 204 before JSON parsing. |
 | `lib/api-client.ts` error handling | Preserve top-level `code`; validate field entries as `{field, code, detail}` and display `detail` instead of the previous field message property. |
 | `types/common/response/type.ts` | Represent success `code`/`message`, `PageInfo.number/size/totalElements/totalPages` and the new error fields. |
-| Auth, profile, catalog and cart parsers | Consume the shared envelope once; remove endpoint-specific assumptions about bare DTOs, bare arrays and nested page content. |
+| Auth, profile, catalog, cart, order and notification parsers | Consume the shared envelope once; remove endpoint-specific assumptions about bare DTOs, bare arrays and nested page content. |
 
 Before release, the BE and FE owners record ADR/style-guide approval and an agreed
 merge date in #248 or its MR, run login/profile/category/SKU/cart and empty-list
