@@ -34,10 +34,4 @@ public class OrderController {
     public Map<String, Boolean> hasProductReferences(@PathVariable UUID productId) {
         return Map.of("hasOrders", orderService.hasProductReferences(productId));
     }
-
-    @GetMapping("/api/v1/orders")
-    @PreAuthorize("hasAuthority('ORDER.VIEW')")
-    public ResponseEntity<List<OrderGroupResponse>> history(CurrentUser user) {
-        return ResponseEntity.ok(orderService.history(user));
-    }
 }
