@@ -1,6 +1,7 @@
 package com.group5.commerceservice.order.entity;
 
 import com.group5.commerceservice.order.OrderStatus;
+import com.group5.commerceservice.order.OrderType;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -36,8 +37,10 @@ public class Order {
     @Column(name = "order_number", nullable = false, length = 40, unique = true)
     private String orderNumber;
 
-    @Column(name = "order_type", nullable = false, length = 20)
-    private String orderType = "STANDARD";
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "order_type", nullable = false, columnDefinition = "order_type")
+    private OrderType orderType = OrderType.STANDARD;
 
     @Column(name = "reference_id")
     private UUID referenceId;

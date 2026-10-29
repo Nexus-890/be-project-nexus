@@ -37,6 +37,11 @@ public class OrderStateMachine {
         return historyRepository.save(entry(orderId, current, target, actor, reason));
     }
 
+    @Transactional
+    public OrderStatusHistory recordCreated(UUID orderId, UUID actor) {
+        return historyRepository.save(entry(orderId, null, OrderStatus.PENDING, actor, "Order created from cart"));
+    }
+
     private OrderStatusHistory entry(UUID orderId, OrderStatus previous, OrderStatus next, UUID actor, String reason) {
         OrderStatusHistory entry = new OrderStatusHistory();
         entry.setOrderId(orderId);

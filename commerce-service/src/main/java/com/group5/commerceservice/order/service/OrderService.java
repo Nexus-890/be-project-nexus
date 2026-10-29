@@ -173,6 +173,7 @@ public class OrderService {
             throw new DomainException(400, "SEPAY orders must have a positive total");
         }
         groupRepository.saveAndFlush(group);
+        group.getOrders().forEach(order -> stateMachine.recordCreated(order.getId(), user.id()));
 
         log.info("Cart before checkout: id={}, status={}",
                 cart.getId(), cart.getStatus());
