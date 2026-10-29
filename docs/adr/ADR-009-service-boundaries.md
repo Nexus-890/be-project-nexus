@@ -2,7 +2,7 @@
 
 **Status:** Proposed. Merge requires both backend lanes to approve.
 **Scope:** Which service owns which data, topic, gateway path and synchronous call.
-**References:** ADR-006 (service authentication), ADR-007 (payment provider), `docs/api/events.md`, `docs/api/gateway-permissions.md`, the endpoint catalogue `nexus-api-endpoints.xlsx`.
+**References:** ADR-006 (service authentication), ADR-007 (payment provider), `docs/database/schema-after-service-split.md` (#250, payment/order-group design), the repository README (#240 startup and migration limits), `docs/api/events.md`, `docs/api/gateway-permissions.md`, the endpoint catalogue `nexus-api-endpoints.xlsx`.
 
 ---
 
@@ -11,7 +11,7 @@
 Three services each do more than one job today:
 
 - `user-service` issues tokens (`JwtIssuer`, JWKS, login, lockout), stores profiles and computes reputation.
-- `commerce-service` owns carts and orders, and will own payment and refunds.
+- `commerce-service` owns carts and orders and contains the original payment transaction schema and webhook verification utility. Payment and refunds move to their own service.
 - `fulfillment-service` owns stock and shipping.
 
 A change to one job redeploys the others, and the data of one job is reachable from code that belongs to another. Each service gets one responsibility.
@@ -25,11 +25,11 @@ A change to one job redeploys the others, and the data of one job is reachable f
 | **auth: Keycloak** | Sign-in, tokens, refresh, sign-out, lockout, passwords, roles and privileges | `keycloak_db` | `KEYCLOAK_PORT` | none |
 | user-service | Profiles; registration and admin user management through the Keycloak Admin API | `user_db` | 8081 | `nexus.user.events` |
 | catalog-service | Categories, products, SKUs, images | `catalog_db` | 8082 | `nexus.catalog.events` |
-| commerce-service | Carts, orders, order status, promotions | `commerce_db` | 8083 | `nexus.commerce.events` |
+| commerce-service | Carts, order groups, seller orders, order status, promotions | `commerce_db` | 8083 | `nexus.commerce.events` |
 | auction-service | Auctions, bids, watchers | `auction_db` | 8084 | `nexus.auction.events` |
 | inventory-service | Warehouses, stock, reservations, stock movements | `inventory_db` | 8085 | `nexus.inventory.events` |
 | notification-service | Notifications, templates, preferences, event log, audit log, health | `notification_db` | 8086 | none |
-| payment-service | Payment instructions, transactions, Sepay webhook, reconciliation, refunds | `payment_db` | 8087 | `nexus.payment.events` |
+| payment-service | One payment session/QR per order group, per-order instructions, transactions, Sepay webhook, reconciliation, refunds | `payment_db` | 8087 | `nexus.payment.events` |
 | shipment-service | Shipments, tracking, carriers, carrier webhook | `shipment_db` | 8088 | `nexus.shipment.events` |
 | rating-service | Ratings, reputation, trust level, eligibility | `rating_db` | 8089 | `nexus.rating.events` |
 
@@ -68,13 +68,17 @@ No service reads or writes the database of another service. A column that holds 
 | notification | `event_logs`, `notification_templates`, `notifications`, `notification_deliveries`, `notification_delivery_attempts`, `notification_preferences` | notification-service | — |
 | notification | `outbox`, `processed_events`, `shedlock` | notification-service | — |
 
-Columns that move: `orders.memo_code` (commerce V2) becomes `payment_instructions.memo_code` in `payment_db` (#240). `orders.payment_due_at` stays in commerce, because the order expiry job reads it.
+Columns that move: `orders.memo_code` (commerce V2) becomes `payment_sessions.memo_code` in `payment_db` (#240/#250). The session owns the group's one QR/memo; instructions do not hold another authoritative memo. `orders.payment_due_at` stays in commerce, because the order expiry job reads it.
+
+The #250 target adds `commerce_db.order_groups` and `orders.order_group_id` through #113: one buyer purchase groups the seller-specific orders. Payment stores only the logical `order_group_id`, with no cross-database FK. `UNIQUE(payment_sessions.order_group_id)` permits one session over the group's entire lifetime, including cancelled/expired states. `payment_instructions.order_id` is unique, while `session_id` and `funded_transaction_id` are nonunique local FKs so sibling instructions can share the session and one accepted incoming movement. `payment_transactions.session_id` replaces direct commerce order ownership. A provider movement is recorded once; there is no separate `payment_allocations` table.
+
+Existing applied Flyway files remain immutable. The #240 commerce V3 cutover only supports verified empty `orders` and `payment_transactions`; it aborts on either nonempty source. A populated source needs a controlled, reconciled backfill under #250, including the #113 order-group prerequisites. The scaffold does not implement that populated-database cutover; its startup and migration limits are recorded in the repository README.
 
 ### 3.2 Schemas of the new services
 
 | Database | Tables | Issue |
 |---|---|---|
-| `payment_db` | `payment_instructions`, `payment_transactions`, `outbox`, `processed_events` | #240 |
+| `payment_db` | `payment_sessions`, `payment_instructions`, `payment_transactions`, `outbox`, `processed_events`; `refunds` is added by its owning feature | #240 scaffold; #247 refunds |
 | `shipment_db` | `shipments`, `shipment_history`, `outbox`, `processed_events` | #241 |
 | `rating_db` | `ratings`, `user_reputations`, `rating_eligibility`, `outbox`, `processed_events` | #242 |
 | `keycloak_db` | managed by Keycloak | #235 |
@@ -135,13 +139,15 @@ Eight domain topics, one per publishing service (#244): `nexus.user.events`, `ne
 
 | Flow | Events |
 |---|---|
-| Payment | commerce `OrderCreated` → payment creates the instruction. Sepay webhook → payment `PaymentConfirmed` → commerce moves the order to `PAID` and publishes `OrderPaid` → inventory confirms the stock, shipment creates the shipment, notification tells the buyer |
+| Payment | commerce commits the order group, seller orders and complete `CheckoutPaymentRequested` manifest → payment atomically creates one session and all seller-order instructions (#121). A verified exact, on-time Sepay receipt → payment writes one incoming transaction, funds the instructions and publishes `CheckoutPaymentConfirmed` → commerce applies valid child transitions and publishes one `OrderPaid` per seller order → inventory confirms stock, shipment creates that order's shipment, notification tells the buyer |
 | Late or wrong payment | payment `PaymentUnreconciled` → commerce puts a reason on the order; the status does not change |
 | Delivery | shipment `ShipmentPickedUp`, `ShipmentDelivered` → commerce `SHIPPED`, `DELIVERED`, `COMPLETED` and `OrderCompleted` → rating stores eligibility and updates reputation |
-| Cancellation and refund | commerce `OrderCancelled` → inventory releases the stock, payment stops accepting the transfer. payment `OrderRefundRequested`, `OrderRefundCompleted` → commerce `REFUND_REQUESTED`, `REFUNDED` |
+| Cancellation and refund | Before payment, cancel the entire group (`OrderGroupCancelled`) or let its one QR expire; no unpaid-child removal, replacement session or QR recalculation in R1. After payment, each child keeps its own shipment/handover cancellation coordination and `OrderCancelled` flow. #247 requests at most one refund for that child's funded instruction amount and publishes `OrderRefundRequested` / `OrderRefundCompleted`; commerce projects the refund state without erasing funding evidence |
 | Auction | auction `AuctionWon` → commerce creates the order. `AuctionCreated`, `AuctionFailed`, `AuctionCancelled`, `AuctionSettled` → inventory holds, releases or commits the stock. `AuctionPaymentTimeout` → rating applies the penalty |
 
-Payloads are in `docs/api/events.md` (#186).
+The payment rows describe the #250 target contract. Payloads use `orderGroupId`; event names containing `Checkout` do not introduce another persisted aggregate. An individual `OrderCreated` must not create a partial-group QR. Missing snapshots use durable retry rather than reads of commerce's database. #118/#186/#246 must align event publishers, complete manifests and contract documentation; the old single-order `PaymentConfirmed` description is superseded for this flow.
+
+#240 delivers the schema/service foundation and moves the verifier/tests. #120 owns provider configuration; #121 owns session/instruction creation and QR initiation; #155-#157 own webhook matching, payment acceptance/reconciliation; #207 owns reads; #247 owns refund persistence and behavior. These event/API implementations are not claimed complete by the scaffold. Gateway integration remains #245.
 
 ---
 
