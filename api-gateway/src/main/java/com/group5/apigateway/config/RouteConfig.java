@@ -54,6 +54,14 @@ public class RouteConfig {
                                         .setThrowOnLimit(true)))
                         .uri("lb://commerce-service"))
 
+                .route("notification-service", route -> route
+                        .path("/api/v1/notifications", "/api/v1/notifications/**")
+                        .filters(filters -> filters.requestRateLimiter(config ->
+                                config.setRateLimiter(limiter)
+                                        .setKeyResolver(resolver)
+                                        .setThrowOnLimit(true)))
+                        .uri("lb://notification-service"))
+
                 .build();
     }
 

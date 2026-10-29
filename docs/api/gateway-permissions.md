@@ -42,6 +42,8 @@ independently, as required by ADR-006.
 | `/api/v1/skus/{id}` | PUT | PRODUCT.UPDATE | #86 — SKU create, update and read                       |
 | `/api/v1/carts/me` | GET | CART.VIEW | #110 — Cart: get-or-create and add item                 |
 | `/api/v1/carts/me/items` | POST | CART.UPDATE | #110 — Cart: get-or-create and add item                 |
+| `/api/v1/notifications` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
+| `/api/v1/notifications/unread-count` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
 | `/api/v1/orders` | POST | ORDER.CREATE | #113 — Order creation from a cart; service also requires CHECKOUT.START |
 | Any other path | Any other method/path pair | Token required; add the SRS privilege before exposing a new endpoint | Gateway JWT filter and permit list; future owning issue |
 
@@ -101,39 +103,15 @@ References: [ADR-006](../adr/ADR-006-service-authentication-RS256.md),
 [endpoint catalogue](https://docs.google.com/spreadsheets/d/1KIJsr87F-6TWieBbie9CVzgCBTPsM4Zk/edit),
 [Spring Security reactive JWT](https://docs.spring.io/spring-security/reference/reactive/oauth2/resource-server/jwt.html).
 
-## Order creation (#113)
-
-`POST /api/v1/orders` is registered in the active gateway policy with `ORDER.CREATE`.
-The commerce route includes `/api/v1/orders/**`; commerce independently requires
-both `CHECKOUT.START` and `ORDER.CREATE` using the validated JWT caller. The Buyer
-actor in the SRS describes the intended role assignment, without adding a second
-role gate or an ADMIN bypass.
-
-Creation returns 201 with an `orderGroupId` and `orders[]`, one seller order per
-shop. An identical normalized body/key/caller replay returns 200 with the same
-group and child IDs. The key is globally unique across `order_groups`, contains
-1..100 visible ASCII characters, and must have no surrounding whitespace. A
-different body or buyer with that key returns 409 without disclosing the purchase.
-This replaces the older #88 single-order checkout shape and its caller-key/400
-wording. The response's monetary values are JSON numbers backed by BigDecimal
-and `numeric(19,2)`, as in the updated #113 example; the unrelated legacy mock
-money fields below retain their earlier string convention.
-
-No checkout resource or memo/QR is created. Inventory is selected through the
-configured stub for this sprint. Every new order revalidates the current catalog
-prices, without a disable toggle. Real reservations and outbox publication remain
-their owning issues (#138, #118). Payment initiation/read
-shapes below remain drafts and require the group/session contract under #121/#240.
-
 
 ## API shapes draft (#88) — commerce and notifications
 
 These **14 method/path contracts are fixed for callers**, while DTO field names
 remain drafts (`0.1.0-draft`). This section is the permission handoff for the
 [commerce contract](commerce-service.yaml) and
-[notification contract](notification-service.yaml), not an assertion that the
-runtime gateway already enforces all of them. ORD-01 is now registered as described
-above; the remaining rows are implementation handoff contracts.
+[notification contract](notification-service.yaml). The active table above
+includes the two GET notification endpoints implemented by #108. Other draft
+rows do not assert that their runtime endpoints exist.
 Each method/path appears exactly once in the draft table; none is public.
 
 The gateway dependency is present in the branch history: merge commit `f67e7a3`
@@ -173,7 +151,7 @@ Preserve the nine public method/path pairs above; none of these 14 paths is publ
 | POST | `/api/v1/carts/me/items` | BUYER | CART.UPDATE | CART.UPDATE | Own active cart | #110 |
 | PUT | `/api/v1/carts/me/items/{id}` | BUYER | CART.UPDATE | CART.UPDATE | Own cart item; inaccessible item returns 404 | #111 |
 | DELETE | `/api/v1/carts/me/items/{id}` | BUYER | CART.REMOVE_ITEM | CART.REMOVE_ITEM | Own cart item; inaccessible item returns 404 | #111 |
-| POST | `/api/v1/orders` | BUYER | ORDER.CREATE | CHECKOUT.START AND ORDER.CREATE | Own cart; globally unique group key bound to buyer and normalized body | #113, #114, #115 |
+| POST | `/api/v1/orders` | BUYER | ORDER.CREATE | CHECKOUT.START AND ORDER.CREATE | Own cart; caller-scoped idempotency key | #113, #114, #115 |
 | GET | `/api/v1/orders` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.LIST | ORDER.LIST | Own orders only, including for ADMIN; not a global admin list | #117 |
 | GET | `/api/v1/orders/{id}` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #117 |
 | GET | `/api/v1/orders/{id}/history` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #116 |
@@ -212,17 +190,17 @@ Prism cannot prove any of these runtime security properties.
   Issue #88's original "every path, no empty body" criterion is incompatible with
   these 204 operations and needs an explicit exception; validation here does not
   imply that the issue acceptance text has already been updated.
-- **Legacy #88 money:** the older mock commerce/payment fields use JSON **strings**, with
+- **Money:** all 11 commerce/payment monetary fields use JSON **strings**, with
   pattern `^\d+\.\d{2}$`, for example `"150000.50"` or `"0.00"`. This follows
   #92's decimal-safe convention confirmed by review !40 and the frontend's
   [string-valued price formatter](../../../fe-project-nexus/lib/format-price.ts). SQL `numeric(19,2)` describes storage, not a JSON
   number requirement. Preserve both fractional digits on the wire; never convert
   these values to JavaScript `Number` for authoritative money calculations.
   Shipping, tax, discounts and totals are server supplied.
-- **Idempotency:** order creation follows the #113 group/key contract above: a new
-  group is 201, an identical caller/payload retry is 200 with the same group and
-  orders, and a changed payload or buyer with the same key is 409. No other caller's
-  purchase is disclosed. Payment initiation in the legacy draft repeats the same
+- **Idempotency:** order creation requires UUID `Idempotency-Key`; a new order is
+  201, an identical caller/payload retry is 200 with the same order, and a changed
+  payload with the same key is 409. A key belonging to another caller returns
+  400 and never discloses that caller's order. Payment initiation repeats the same
   201 instructions; marking an already-read notification preserves `readAt`.
 - **Pagination:** zero-based `page`, `size` defaults to 10 (1..100), matching
   [product lists](../../catalog-service/src/main/java/com/group5/catalogservice/product/controller/ProductController.java).
