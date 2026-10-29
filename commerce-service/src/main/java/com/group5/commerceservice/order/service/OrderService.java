@@ -8,15 +8,19 @@ import com.group5.commerceservice.cart.entity.Cart;
 import com.group5.commerceservice.cart.entity.CartItem;
 import com.group5.commerceservice.cart.repository.CartItemRepository;
 import com.group5.commerceservice.cart.repository.CartRepository;
+import com.group5.commerceservice.order.dto.request.ChangeOrderStatusRequest;
 import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
 import com.group5.commerceservice.order.dto.response.OrderGroupResponse;
 import com.group5.commerceservice.order.dto.response.OrderItemResponse;
 import com.group5.commerceservice.order.dto.response.OrderResponse;
+import com.group5.commerceservice.order.dto.response.OrderStatusHistoryResponse;
 import com.group5.commerceservice.order.entity.Order;
 import com.group5.commerceservice.order.entity.OrderGroup;
 import com.group5.commerceservice.order.entity.OrderItem;
+import com.group5.commerceservice.order.entity.OrderStatusHistory;
 import com.group5.commerceservice.order.repository.OrderGroupRepository;
 import com.group5.commerceservice.order.repository.OrderRepository;
+import com.group5.commerceservice.order.repository.OrderStatusHistoryRepository;
 import com.group5.common_core.constant.ErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
@@ -59,6 +63,8 @@ public class OrderService {
     private final CartItemRepository cartItemRepository;
     private final CatalogClient catalogClient;
     private final InventoryClient inventoryClient;
+    private final OrderStateMachine stateMachine;
+    private final OrderStatusHistoryRepository historyRepository;
 
     @Value("${nexus.order.payment-timeout-minutes:15}")
     private long paymentTimeoutMinutes = 15;
@@ -184,6 +190,34 @@ public class OrderService {
         return orderRepository.hasProductReferences(productId);
     }
 
+    @Transactional
+    public OrderResponse changeStatus(CurrentUser user, UUID orderId, ChangeOrderStatusRequest request) {
+        if (user == null || user.id() == null) {
+            throw new DomainException(ErrorCode.UNAUTHENTICATED);
+        }
+        if (!user.hasRole("ADMIN")) {
+            throw new DomainException(ErrorCode.UNAUTHORIZED);
+        }
+        stateMachine.move(orderId, request.status(), user.id(), request.reason());
+        return orderRepository.findById(orderId).map(this::toOrderResponse)
+                .orElseThrow(() -> new DomainException(ErrorCode.NOT_FOUND));
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderStatusHistoryResponse> statusHistory(CurrentUser user, UUID orderId) {
+        if (user == null || user.id() == null) {
+            throw new DomainException(ErrorCode.UNAUTHENTICATED);
+        }
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new DomainException(ErrorCode.NOT_FOUND));
+        if (!order.getUserId().equals(user.id()) && !user.hasRole("ADMIN")) {
+            throw new DomainException(ErrorCode.UNAUTHORIZED);
+        }
+        return historyRepository.findByOrderIdOrderByCreatedAtAscIdAsc(orderId).stream()
+                .map(this::toHistoryResponse)
+                .toList();
+    }
+
     private CatalogSkuResponse readSku(CartItem line) {
         CatalogSkuResponse sku;
         try {
@@ -296,6 +330,11 @@ public class OrderService {
                 .toList();
         return new OrderResponse(order.getId(), order.getOrderNumber(), order.getSellerId(),
                 order.getStatus(), order.getTotalAmount(), items);
+    }
+
+    private OrderStatusHistoryResponse toHistoryResponse(OrderStatusHistory entry) {
+        return new OrderStatusHistoryResponse(entry.getId(), entry.getPreviousStatus(), entry.getNewStatus(),
+                entry.getReason(), entry.getChangedBy(), entry.getCreatedAt());
     }
 
     private OrderItemResponse toItemResponse(OrderItem item) {

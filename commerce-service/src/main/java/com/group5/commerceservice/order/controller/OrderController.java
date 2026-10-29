@@ -1,8 +1,11 @@
 package com.group5.commerceservice.order.controller;
 
 import com.group5.commerceservice.order.service.OrderService;
+import com.group5.commerceservice.order.dto.request.ChangeOrderStatusRequest;
 import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
 import com.group5.commerceservice.order.dto.response.OrderGroupResponse;
+import com.group5.commerceservice.order.dto.response.OrderResponse;
+import com.group5.commerceservice.order.dto.response.OrderStatusHistoryResponse;
 import com.group5.common_security.CurrentUser;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +30,19 @@ public class OrderController {
             @Valid @RequestBody CreateOrderRequest request) {
         OrderService.CreationResult result = orderService.create(user, idempotencyKey, request);
         return ResponseEntity.status(result.created() ? 201 : 200).body(result.response());
+    }
+
+    @PatchMapping("/api/v1/orders/{id}/status")
+    @PreAuthorize("hasRole('ADMIN')")
+    public OrderResponse changeStatus(CurrentUser user, @PathVariable UUID id,
+            @Valid @RequestBody ChangeOrderStatusRequest request) {
+        return orderService.changeStatus(user, id, request);
+    }
+
+    @GetMapping("/api/v1/orders/{id}/history")
+    @PreAuthorize("hasAuthority('ORDER.VIEW')")
+    public List<OrderStatusHistoryResponse> statusHistory(CurrentUser user, @PathVariable UUID id) {
+        return orderService.statusHistory(user, id);
     }
 
     @GetMapping("/internal/order-references/products/{productId}")
