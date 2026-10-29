@@ -3,7 +3,7 @@ openapi: "3.0.3"
 info:
   title: "Nexus commerce-service delivered API"
   version: "1.0.0"
-  description: "Issue #248 response-envelope and Problem Details contract. Covers delivered operations only. All 2xx JSON has top-level data; paginated lists also have page. 204 has no body. Bearer permissions are exact JWT privileges; ownership is enforced downstream. ADR/style-guide approval and coordinated FE merge date are pending human agreement. Legacy docs/api/*.yaml are separate #88 drafts, not this contract."
+  description: "Issue #248 response-envelope and Problem Details contract. Covers delivered operations only. All 2xx JSON has top-level data, numeric code (default 0), and message (default response success); paginated lists also have page. 204 has no body. Bearer permissions are exact JWT privileges; ownership is enforced downstream. ADR/style-guide approval and coordinated FE merge date are pending human agreement. Legacy docs/api/*.yaml are separate #88 drafts, not this contract."
 servers:
   -
     url: "http://localhost:8080"
@@ -64,6 +64,8 @@ paths:
                 success:
                   summary: "Success"
                   value:
+                    code: 0
+                    message: "response success"
                     data:
                       id: "c8000000-0000-4000-8000-000000000004"
                       userId: "68000000-0000-4000-8000-000000000002"
@@ -434,6 +436,8 @@ paths:
                 success:
                   summary: "Success"
                   value:
+                    code: 0
+                    message: "response success"
                     data:
                       id: "c8000000-0000-4000-8000-000000000004"
                       userId: "68000000-0000-4000-8000-000000000002"
@@ -1006,16 +1010,36 @@ components:
     GetOwnCartResponse:
       type: "object"
       required:
+        - "code"
+        - "message"
         - "data"
       properties:
+        code:
+          type: "integer"
+          default: 0
+          description: "Numeric success code; omitted or null values default to 0 during response construction. Explicit values are preserved."
+        message:
+          type: "string"
+          default: "response success"
+          description: "Omitted or null values default to response success during response construction. Explicit messages are preserved."
         data:
           $ref: "#/components/schemas/Cart"
       additionalProperties: false
     AddCartItemResponse:
       type: "object"
       required:
+        - "code"
+        - "message"
         - "data"
       properties:
+        code:
+          type: "integer"
+          default: 0
+          description: "Numeric success code; omitted or null values default to 0 during response construction. Explicit values are preserved."
+        message:
+          type: "string"
+          default: "response success"
+          description: "Omitted or null values default to response success during response construction. Explicit messages are preserved."
         data:
           $ref: "#/components/schemas/Cart"
       additionalProperties: false

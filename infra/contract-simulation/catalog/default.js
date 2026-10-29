@@ -33,6 +33,8 @@ http.createServer((req, res) => {
     return problem(404, 'Not Found', 'CATALOG_SKU_NOT_FOUND', 'SKU not found');
   }
   return json(200, {
+    code: 0,
+    message: 'response success',
     data: {
       id: knownSku,
       productId: 'c8000000-0000-4000-8000-000000000002',

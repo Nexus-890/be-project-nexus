@@ -1,5 +1,17 @@
 # Issue #248 verification
 
+## Success metadata follow-up — 2026-10-29
+
+The success envelope defaults omitted/null `code` to `0` and omitted/null
+`message` to `"response success"`, while preserving explicit values. Targeted
+`ApiProblemContractTest` and `ApiContractRulesTest` verification passed all nine
+tests, including HTTP serialization and JSON decoding of missing/null metadata.
+The inventory check passed for all 24 routes, Redocly CLI 2.63.0 lint passed all
+three delivered specifications, and the catalog simulation fixture syntax check
+passed. This follow-up did not rerun the full service builds recorded below.
+
+## Original verification — 2026-10-23
+
 Verified on 2026-10-23 with Java 21, Maven and the local Postman CLI 1.73.0.
 
 ## Build and runtime contracts

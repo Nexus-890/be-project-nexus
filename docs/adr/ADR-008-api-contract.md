@@ -22,13 +22,17 @@ excluded; adding it would break consumers of the standard JWK Set format.
 
 ### 1. One success envelope, including arrays and pages
 
-Every application 2xx JSON response uses `ApiResponse<T>(T data, PageInfo page)`.
-`data` is always present; `page` is omitted for a single resource. A collection
-is an array in `data`, including `[]` for an empty result. Every list operation
+Every application 2xx JSON response uses `ApiResponse<T>` with `data`, `page`,
+numeric `code` and string `message`. `data`, `code` and `message` are always present;
+`page` is omitted for a single resource. Response construction defaults omitted
+or `null` `code` to `0` and omitted or `null` `message` to `"response success"`.
+Explicit codes and messages are preserved. The numeric success code is separate
+from the symbolic string `code` on Problem Details errors. A collection is an
+array in `data`, including `[]` for an empty result. Every list operation
 puts page metadata beside that array:
 
 ```json
-{"data":[],"page":{"number":0,"size":10,"totalElements":0,"totalPages":0}}
+{"code":0,"message":"response success","data":[],"page":{"number":0,"size":10,"totalElements":0,"totalPages":0}}
 ```
 
 `PageInfo` contains zero-based `number`, requested `size`, `totalElements` and
@@ -86,9 +90,10 @@ the #88 draft for future operations; they are not the delivered contract and
 their old response/error shapes must not be copied into new implementations.
 
 This is a breaking JSON change. FE must update `lib/api-client.ts` and endpoint
-parsers on the agreed merge day: unwrap `data`, consume sibling `page`, handle
-Problem Details by `code`, and skip JSON parsing for 204. Do not introduce a
-permanent parser accepting both shapes or claim that coordination happened merely
+parsers on the agreed merge day: unwrap `data`, consume sibling `page`, accept
+success metadata `code` (default `0`) and `message` (default `"response success"`),
+handle Problem Details by symbolic `code`, and skip JSON parsing for 204. Do not
+introduce a permanent parser accepting both shapes or claim that coordination happened merely
 because this plan is committed.
 
 **Pending human actions:** ADR/style-guide approval and the named BE/FE owners'

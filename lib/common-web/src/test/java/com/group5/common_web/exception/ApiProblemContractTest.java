@@ -3,6 +3,7 @@ package com.group5.common_web.exception;
 import com.group5.common_core.constant.ErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_core.model.ApiResponse;
+import com.group5.common_core.model.PageInfo;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -14,12 +15,14 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.*;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -32,10 +35,36 @@ class ApiProblemContractTest {
 
     @Test void successHasDataAndAllListsHavePageIncludingEmpty() throws Exception {
         mvc.perform(get("/single")).andExpect(status().isOk()).andExpect(jsonPath("$.data.id").value("one"))
+                .andExpect(jsonPath("$.code").value(0)).andExpect(jsonPath("$.message").value("response success"))
                 .andExpect(jsonPath("$.page").doesNotExist()).andExpect(jsonPath("$.result").doesNotExist());
         mvc.perform(get("/list")).andExpect(jsonPath("$.data").isArray()).andExpect(jsonPath("$.page.number").value(0))
+                .andExpect(jsonPath("$.code").value(0)).andExpect(jsonPath("$.message").value("response success"))
                 .andExpect(jsonPath("$.page.size").value(1)).andExpect(jsonPath("$.page.totalElements").value(0))
                 .andExpect(jsonPath("$.page.totalPages").value(0));
+    }
+
+    @Test void successMetadataDefaultsForOmittedOrNullValuesAndPreservesExplicitValues() {
+        var mapper = JsonMapper.builder().build();
+        for (String json : List.of("{\"data\":null}", "{\"code\":null,\"message\":null,\"data\":null}")) {
+            var response = mapper.readValue(json, ApiResponse.class);
+            var body = mapper.readTree(mapper.writeValueAsString(response));
+            assertThat(body.get("code").intValue()).isZero();
+            assertThat(body.get("message").stringValue()).isEqualTo("response success");
+            assertThat(body.has("data")).isTrue();
+            assertThat(body.get("data").isNull()).isTrue();
+            assertThat(body.has("page")).isFalse();
+        }
+        var explicit = mapper.readValue("{\"code\":7,\"message\":\"Created\",\"data\":\"one\"}", ApiResponse.class);
+        assertThat(explicit.code()).isEqualTo(7);
+        assertThat(explicit.message()).isEqualTo("Created");
+
+        var page = new PageInfo(0, 1, 0, 0);
+        for (var response : List.of(ApiResponse.of("one", "Created"), ApiResponse.list(List.of(), "Created"),
+                ApiResponse.page(List.of(), page, "Created"))) {
+            var body = mapper.readTree(mapper.writeValueAsString(response));
+            assertThat(body.get("code").intValue()).isZero();
+            assertThat(body.get("message").stringValue()).isEqualTo("Created");
+        }
     }
 
     @Test void validationReportsEveryFailedFieldWithCodesAndDetails() throws Exception {

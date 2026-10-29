@@ -31,15 +31,21 @@ Every application controller returns `ApiResponse<T>`, optionally inside
 once, in the controller boundary. Never return a bare DTO, a bare array, or a
 Spring `Page`. Services may return DTOs or `Page<T>` internally.
 
+The success envelope always includes numeric `code` and string `message`. When a caller
+omits either value, or supplies `null`, response construction defaults `code` to
+`0` and `message` to `"response success"`. Explicitly supplied codes and messages
+are preserved. This numeric success code does not replace the symbolic string `code`
+used by Problem Details errors below.
+
 ```json
-{"data":{"id":"68000000-0000-4000-8000-000000000002"}}
+{"code":0,"message":"response success","data":{"id":"68000000-0000-4000-8000-000000000002"}}
 ```
 
 Lists have arrays in `data`; empty lists have `data: []`. All list operations have
 `page`, including category tree and a product's SKU list. Paged responses have:
 
 ```json
-{"data":[],"page":{"number":0,"size":10,"totalElements":0,"totalPages":0}}
+{"code":0,"message":"response success","data":[],"page":{"number":0,"size":10,"totalElements":0,"totalPages":0}}
 ```
 
 The top-level `page` is omitted for a single-resource response. It is never nested
@@ -139,9 +145,9 @@ must include these concrete parser updates:
 
 | FE area | Required change on the cutover day |
 | --- | --- |
-| `lib/api-client.ts` success handling | Read the resource from the wire body's `data`; retain sibling `page` for list consumers; handle 204 before JSON parsing. |
+| `lib/api-client.ts` success handling | Read the resource from the wire body's `data`; retain sibling `page` for list consumers; accept numeric `code` (default `0`) and `message` (default `"response success"`); handle 204 before JSON parsing. |
 | `lib/api-client.ts` error handling | Preserve top-level `code`; validate field entries as `{field, code, detail}` and display `detail` instead of the previous field message property. |
-| `types/common/response/type.ts` | Represent `PageInfo.number/size/totalElements/totalPages` and the new error fields. |
+| `types/common/response/type.ts` | Represent success `code`/`message`, `PageInfo.number/size/totalElements/totalPages` and the new error fields. |
 | Auth, profile, catalog and cart parsers | Consume the shared envelope once; remove endpoint-specific assumptions about bare DTOs, bare arrays and nested page content. |
 
 Before release, the BE and FE owners record ADR/style-guide approval and an agreed
