@@ -3,6 +3,8 @@ package com.group5.commerceservice.order.repository;
 import com.group5.commerceservice.order.OrderStatus;
 import com.group5.commerceservice.order.entity.Order;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -10,6 +12,11 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface OrderRepository extends JpaRepository<Order, UUID> {
+
+    Page<Order> findByUserIdOrderByCreatedAtDescOrderNumberDesc(UUID userId, Pageable pageable);
+
+    Page<Order> findByUserIdAndStatusOrderByCreatedAtDescOrderNumberDesc(UUID userId, OrderStatus status,
+            Pageable pageable);
 
     @Query(value = "SELECT nextval('order_number_seq')", nativeQuery = true)
     long nextOrderSequence();

@@ -1,11 +1,13 @@
 package com.group5.commerceservice.order.controller;
 
+import com.group5.commerceservice.order.OrderStatus;
 import com.group5.commerceservice.order.service.OrderService;
 import com.group5.commerceservice.order.dto.request.ChangeOrderStatusRequest;
 import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
 import com.group5.commerceservice.order.dto.response.OrderGroupResponse;
 import com.group5.commerceservice.order.dto.response.OrderResponse;
 import com.group5.commerceservice.order.dto.response.OrderStatusHistoryResponse;
+import com.group5.commerceservice.order.dto.response.PageResponse;
 import com.group5.common_security.CurrentUser;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +38,15 @@ public class OrderController {
     @PreAuthorize("hasAuthority('ORDER.VIEW')")
     public OrderResponse getOrder(CurrentUser user, @PathVariable UUID id) {
         return orderService.getOrder(user, id);
+    }
+
+    @GetMapping("/api/v1/orders")
+    @PreAuthorize("hasAuthority('ORDER.LIST')")
+    public PageResponse<OrderResponse> listOwn(CurrentUser user,
+            @RequestParam(required = false) OrderStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return orderService.listOwn(user, status, page, size);
     }
 
     @PatchMapping("/api/v1/orders/{id}/status")

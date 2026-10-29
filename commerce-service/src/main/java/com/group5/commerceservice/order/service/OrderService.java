@@ -8,12 +8,14 @@ import com.group5.commerceservice.cart.entity.Cart;
 import com.group5.commerceservice.cart.entity.CartItem;
 import com.group5.commerceservice.cart.repository.CartItemRepository;
 import com.group5.commerceservice.cart.repository.CartRepository;
+import com.group5.commerceservice.order.OrderStatus;
 import com.group5.commerceservice.order.dto.request.ChangeOrderStatusRequest;
 import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
 import com.group5.commerceservice.order.dto.response.OrderGroupResponse;
 import com.group5.commerceservice.order.dto.response.OrderItemResponse;
 import com.group5.commerceservice.order.dto.response.OrderResponse;
 import com.group5.commerceservice.order.dto.response.OrderStatusHistoryResponse;
+import com.group5.commerceservice.order.dto.response.PageResponse;
 import com.group5.commerceservice.order.entity.Order;
 import com.group5.commerceservice.order.entity.OrderGroup;
 import com.group5.commerceservice.order.entity.OrderItem;
@@ -29,6 +31,9 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -230,6 +235,21 @@ public class OrderService {
             throw new DomainException(ErrorCode.UNAUTHORIZED);
         }
         return toOrderResponse(order);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<OrderResponse> listOwn(CurrentUser user, OrderStatus status, int page, int size) {
+        if (user == null || user.id() == null) {
+            throw new DomainException(ErrorCode.UNAUTHENTICATED);
+        }
+        if (page < 0 || size < 1 || size > 100) {
+            throw new DomainException(ErrorCode.DATA_INVALID, "page must be 0 or more and size between 1 and 100");
+        }
+        Pageable pageable = PageRequest.of(page, size);
+        Page<Order> orders = status == null
+                ? orderRepository.findByUserIdOrderByCreatedAtDescOrderNumberDesc(user.id(), pageable)
+                : orderRepository.findByUserIdAndStatusOrderByCreatedAtDescOrderNumberDesc(user.id(), status, pageable);
+        return PageResponse.from(orders.map(this::toOrderResponse));
     }
 
     private CatalogSkuResponse readSku(CartItem line) {
