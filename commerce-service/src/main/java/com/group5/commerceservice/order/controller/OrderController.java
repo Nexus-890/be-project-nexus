@@ -32,6 +32,12 @@ public class OrderController {
         return ResponseEntity.status(result.created() ? 201 : 200).body(result.response());
     }
 
+    @GetMapping("/api/v1/orders/{id}")
+    @PreAuthorize("hasAuthority('ORDER.VIEW')")
+    public OrderResponse getOrder(CurrentUser user, @PathVariable UUID id) {
+        return orderService.getOrder(user, id);
+    }
+
     @PatchMapping("/api/v1/orders/{id}/status")
     @PreAuthorize("hasRole('ADMIN')")
     public OrderResponse changeStatus(CurrentUser user, @PathVariable UUID id,

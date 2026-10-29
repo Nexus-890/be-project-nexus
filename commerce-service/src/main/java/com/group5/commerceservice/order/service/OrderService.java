@@ -219,6 +219,19 @@ public class OrderService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public OrderResponse getOrder(CurrentUser user, UUID orderId) {
+        if (user == null || user.id() == null) {
+            throw new DomainException(ErrorCode.UNAUTHENTICATED);
+        }
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new DomainException(ErrorCode.NOT_FOUND));
+        if (!order.getUserId().equals(user.id())) {
+            throw new DomainException(ErrorCode.UNAUTHORIZED);
+        }
+        return toOrderResponse(order);
+    }
+
     private CatalogSkuResponse readSku(CartItem line) {
         CatalogSkuResponse sku;
         try {
