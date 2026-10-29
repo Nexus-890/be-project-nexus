@@ -1,6 +1,6 @@
 package com.group5.userservice.iam;
 
-import com.group5.common_core.constant.ErrorCode;
+import com.group5.userservice.shared.exception.UserErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_web.filter.TraceIdFilter;
 import com.group5.userservice.iam.dto.LoginRequest;
@@ -61,7 +61,7 @@ class AuthTracingHttpTest {
                 Span span = tracer.currentSpan();
                 assertThat(span).as("HTTP observation must create an active tracing span").isNotNull();
                 requestTraceId.set(span.context().traceId());
-                throw new DomainException(ErrorCode.ACCOUNT_LOCKED);
+                throw new DomainException(UserErrorCode.USER_ACCOUNT_LOCKED);
             });
 
             int port = context.getEnvironment().getRequiredProperty("local.server.port", Integer.class);
@@ -86,6 +86,7 @@ class AuthTracingHttpTest {
                 assertThat(problem.read("$.type", String.class)).isEqualTo("urn:problem:domain-error");
                 assertThat(problem.read("$.title", String.class)).isEqualTo("Locked");
                 assertThat(problem.read("$.status", Integer.class)).isEqualTo(423);
+                assertThat(problem.read("$.code", String.class)).isEqualTo("USER_ACCOUNT_LOCKED");
                 assertThat(problem.read("$.detail", String.class)).isEqualTo("Account is locked");
                 assertThat(problem.read("$.instance", String.class)).isEqualTo("/api/v1/auth/login");
                 assertThat(requestTraceId.get()).matches("[0-9a-f]{32}");

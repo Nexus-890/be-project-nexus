@@ -8,16 +8,20 @@ import com.group5.commerceservice.cart.entity.Cart;
 import com.group5.commerceservice.cart.entity.CartItem;
 import com.group5.commerceservice.cart.repository.CartItemRepository;
 import com.group5.commerceservice.cart.repository.CartRepository;
+import com.group5.commerceservice.order.dto.request.ChangeOrderStatusRequest;
 import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
 import com.group5.commerceservice.order.dto.response.OrderGroupResponse;
 import com.group5.commerceservice.order.dto.response.OrderItemResponse;
 import com.group5.commerceservice.order.dto.response.OrderResponse;
+import com.group5.commerceservice.order.dto.response.OrderStatusHistoryResponse;
 import com.group5.commerceservice.order.entity.Order;
 import com.group5.commerceservice.order.entity.OrderGroup;
 import com.group5.commerceservice.order.entity.OrderItem;
+import com.group5.commerceservice.order.entity.OrderStatusHistory;
 import com.group5.commerceservice.order.repository.OrderGroupRepository;
 import com.group5.commerceservice.order.repository.OrderRepository;
-import com.group5.common_core.constant.ErrorCode;
+import com.group5.commerceservice.order.repository.OrderStatusHistoryRepository;
+import com.group5.commerceservice.shared.exception.CommerceErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
 import feign.FeignException;
@@ -59,6 +63,8 @@ public class OrderService {
     private final CartItemRepository cartItemRepository;
     private final CatalogClient catalogClient;
     private final InventoryClient inventoryClient;
+    private final OrderStateMachine stateMachine;
+    private final OrderStatusHistoryRepository historyRepository;
 
     @Value("${nexus.order.payment-timeout-minutes:15}")
     private long paymentTimeoutMinutes = 15;
@@ -80,10 +86,10 @@ public class OrderService {
                 user != null ? user.id() : null, key);
         requireAccess(user);
         if (key == null || !key.matches("[\\x21-\\x7E]{1,100}")) {
-            throw new DomainException(ErrorCode.DATA_INVALID, "Idempotency-Key must contain 1 to 100 visible ASCII characters");
+            throw new DomainException(CommerceErrorCode.INVALID_ORDER_REQUEST, "Idempotency-Key must contain 1 to 100 visible ASCII characters");
         }
         if (request == null || request.shippingAddress() == null || !"SEPAY".equals(request.paymentMethod())) {
-            throw new DomainException(ErrorCode.DATA_INVALID, "Shipping address and SEPAY payment method are required");
+            throw new DomainException(CommerceErrorCode.INVALID_ORDER_REQUEST, "Shipping address and SEPAY payment method are required");
         }
         Map<String, Object> snapshot = request.snapshot();
         groupRepository.lockKey("order-key:" + key);
@@ -92,21 +98,21 @@ public class OrderService {
             OrderGroup group = previous.get();
             if (!group.getBuyerId().equals(user.id()) || group.getOrders().isEmpty()
                     || group.getOrders().stream().anyMatch(order -> !snapshot.equals(order.getShippingInfo()))) {
-                throw new DomainException(409, "Idempotency-Key was already used for another request");
+                throw new DomainException(CommerceErrorCode.IDEMPOTENCY_CONFLICT);
             }
             return new CreationResult(false, toResponse(group));
         }
 
         groupRepository.lockKey("order-buyer:" + user.id());
         Cart cart = cartRepository.findActiveForUpdate(user.id())
-                .orElseThrow(() -> new DomainException(ErrorCode.DATA_INVALID, "Cart is empty"));
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.CART_EMPTY));
         List<CartItem> lines = cartItemRepository.findByCart_Id(cart.getId());
         if (lines.isEmpty()) {
-            throw new DomainException(ErrorCode.DATA_INVALID, "Cart is empty");
+            throw new DomainException(CommerceErrorCode.CART_EMPTY);
         }
         // Promotion pricing is a separate issue; never silently drop an already selected voucher.
         if (cart.getPromoCode() != null && !cart.getPromoCode().isBlank()) {
-            throw new DomainException(409, "Remove the promotion code before placing this order");
+            throw new DomainException(CommerceErrorCode.PROMOTION_NOT_SUPPORTED);
         }
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
@@ -124,10 +130,10 @@ public class OrderService {
             CatalogSkuResponse sku = readSku(line);
             ProductResponse product = products.computeIfAbsent(line.getProductId(), this::readProduct);
             if (line.getQuantity() == null || line.getQuantity() <= 0) {
-                throw new DomainException(ErrorCode.INVALID_QUANTITY);
+                throw new DomainException(CommerceErrorCode.INVALID_QUANTITY);
             }
             if (!inventoryClient.reserve(line.getProductId(), line.getSkuId(), line.getQuantity())) {
-                throw new DomainException(409, "An item is unavailable");
+                throw new DomainException(CommerceErrorCode.ITEM_UNAVAILABLE);
             }
             Order order = sellers.computeIfAbsent(product.sellerId(), sellerId -> {
                 Order child = new Order();
@@ -164,9 +170,10 @@ public class OrderService {
         group.setTotalAmount(money(group.getOrders().stream().map(Order::getTotalAmount)
                 .reduce(new BigDecimal("0.00"), BigDecimal::add)));
         if (group.getTotalAmount().signum() <= 0) {
-            throw new DomainException(400, "SEPAY orders must have a positive total");
+            throw new DomainException(CommerceErrorCode.INVALID_ORDER_REQUEST, "SEPAY orders must have a positive total");
         }
         groupRepository.saveAndFlush(group);
+        group.getOrders().forEach(order -> stateMachine.recordCreated(order.getId(), user.id()));
 
         log.info("Cart before checkout: id={}, status={}",
                 cart.getId(), cart.getStatus());
@@ -184,18 +191,47 @@ public class OrderService {
         return orderRepository.hasProductReferences(productId);
     }
 
+    @Transactional
+    public OrderResponse changeStatus(CurrentUser user, UUID orderId, ChangeOrderStatusRequest request) {
+        if (user == null || user.id() == null) {
+            throw new DomainException(CommerceErrorCode.UNAUTHENTICATED);
+        }
+        if (!user.hasRole("ADMIN")) {
+            throw new DomainException(CommerceErrorCode.FORBIDDEN);
+        }
+        stateMachine.move(orderId, request.status(), user.id(), request.reason());
+        return orderRepository.findById(orderId).map(this::toOrderResponse)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderStatusHistoryResponse> statusHistory(CurrentUser user, UUID orderId) {
+        if (user == null || user.id() == null) {
+            throw new DomainException(CommerceErrorCode.UNAUTHENTICATED);
+        }
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
+        if (!order.getUserId().equals(user.id()) && !user.hasRole("ADMIN")) {
+            throw new DomainException(CommerceErrorCode.FORBIDDEN);
+        }
+        return historyRepository.findByOrderIdOrderByCreatedAtAscIdAsc(orderId).stream()
+                .map(this::toHistoryResponse)
+                .toList();
+    }
+
     private CatalogSkuResponse readSku(CartItem line) {
         CatalogSkuResponse sku;
         try {
-            sku = catalogClient.getSkuById(line.getSkuId());
+            var response = catalogClient.getSkuById(line.getSkuId());
+            sku = response == null ? null : response.data();
         } catch (FeignException.NotFound exception) {
-            throw new DomainException(409, "A cart item is no longer available");
+            throw new DomainException(CommerceErrorCode.ITEM_UNAVAILABLE, "A cart item is no longer available");
         } catch (FeignException exception) {
-            throw new DomainException(503, "Catalog is unavailable; retry placing the order later");
+            throw new DomainException(CommerceErrorCode.CATALOG_UNAVAILABLE, "Catalog is unavailable; retry placing the order later");
         }
         if (sku == null || !line.getSkuId().equals(sku.getId()) || !line.getProductId().equals(sku.getProductId())
                 || !"ACTIVE".equals(sku.getStatus()) || sku.getPrice() == null || sku.getPrice().signum() < 0) {
-            throw new DomainException(409, "A cart item is no longer available");
+            throw new DomainException(CommerceErrorCode.ITEM_UNAVAILABLE, "A cart item is no longer available");
         }
         return sku;
     }
@@ -203,15 +239,16 @@ public class OrderService {
     private ProductResponse readProduct(UUID id) {
         ProductResponse product;
         try {
-            product = catalogClient.getProductById(id);
+            var response = catalogClient.getProductById(id);
+            product = response == null ? null : response.data();
         } catch (FeignException.NotFound exception) {
-            throw new DomainException(409, "A cart product is no longer available");
+            throw new DomainException(CommerceErrorCode.ITEM_UNAVAILABLE, "A cart product is no longer available");
         } catch (FeignException exception) {
-            throw new DomainException(503, "Catalog is unavailable; retry placing the order later");
+            throw new DomainException(CommerceErrorCode.CATALOG_UNAVAILABLE, "Catalog is unavailable; retry placing the order later");
         }
         if (product == null || !id.equals(product.id()) || product.sellerId() == null
                 || product.name() == null || product.name().isBlank() || !"ACTIVE".equals(product.status())) {
-            throw new DomainException(409, "A cart product is no longer available");
+            throw new DomainException(CommerceErrorCode.ITEM_UNAVAILABLE, "A cart product is no longer available");
         }
         return product;
     }
@@ -236,16 +273,16 @@ public class OrderService {
             }
             return result;
         } catch (ArithmeticException exception) {
-            throw new DomainException(409, "An item price or order total cannot be represented as numeric(19,2)");
+            throw new DomainException(CommerceErrorCode.INVALID_ORDER_AMOUNT);
         }
     }
 
     private void requireAccess(CurrentUser user) {
         if (user == null || user.id() == null) {
-            throw new DomainException(ErrorCode.UNAUTHENTICATED);
+            throw new DomainException(CommerceErrorCode.UNAUTHENTICATED);
         }
         if (!user.hasPrivilege("CHECKOUT.START") || !user.hasPrivilege("ORDER.CREATE")) {
-            throw new DomainException(ErrorCode.UNAUTHORIZED, "CHECKOUT.START and ORDER.CREATE are required");
+            throw new DomainException(CommerceErrorCode.FORBIDDEN, "CHECKOUT.START and ORDER.CREATE are required");
         }
     }
 
@@ -271,7 +308,7 @@ public class OrderService {
     @Transactional(readOnly = true)
     public List<OrderGroupResponse> history(CurrentUser user) {
         if (user == null || user.id() == null) {
-            throw new DomainException(ErrorCode.UNAUTHENTICATED);
+            throw new DomainException(CommerceErrorCode.UNAUTHENTICATED);
         }
 
         return groupRepository.findByBuyerIdOrderByCreatedAtDesc(user.id())
@@ -296,6 +333,11 @@ public class OrderService {
                 .toList();
         return new OrderResponse(order.getId(), order.getOrderNumber(), order.getSellerId(),
                 order.getStatus(), order.getTotalAmount(), items);
+    }
+
+    private OrderStatusHistoryResponse toHistoryResponse(OrderStatusHistory entry) {
+        return new OrderStatusHistoryResponse(entry.getId(), entry.getPreviousStatus(), entry.getNewStatus(),
+                entry.getReason(), entry.getChangedBy(), entry.getCreatedAt());
     }
 
     private OrderItemResponse toItemResponse(OrderItem item) {

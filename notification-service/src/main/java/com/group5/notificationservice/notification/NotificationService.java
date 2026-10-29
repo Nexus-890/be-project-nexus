@@ -1,9 +1,9 @@
 package com.group5.notificationservice.notification;
 
-import com.group5.common_core.constant.ErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
 import com.group5.notificationservice.notification.dto.NotificationResponse;
+import com.group5.notificationservice.shared.exception.NotificationErrorCode;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -22,13 +22,11 @@ public class NotificationService {
     }
 
     @Transactional(readOnly = true)
-    public NotificationResponse.Page list(CurrentUser currentUser, int page, int size) {
+    public Page<NotificationResponse> list(CurrentUser currentUser, int page, int size) {
         Page<Notification> result = repository.findByUserId(
                 requireUserId(currentUser),
                 PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id")));
-        return new NotificationResponse.Page(
-                result.map(NotificationService::toResponse).getContent(),
-                page, size, result.getTotalElements(), result.getTotalPages());
+        return result.map(NotificationService::toResponse);
     }
 
     @Transactional(readOnly = true)
@@ -48,7 +46,7 @@ public class NotificationService {
 
     private UUID requireUserId(CurrentUser currentUser) {
         if (currentUser == null || currentUser.id() == null) {
-            throw new DomainException(ErrorCode.UNAUTHENTICATED);
+            throw new DomainException(NotificationErrorCode.UNAUTHENTICATED);
         }
         return currentUser.id();
     }

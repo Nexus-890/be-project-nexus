@@ -12,7 +12,10 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import com.group5.catalogservice.product.dto.request.ChangeStatusRequest;
-import com.group5.catalogservice.product.dto.response.PageResponse;
+import com.group5.common_core.model.ApiResponse;
+import com.group5.common_core.model.PageInfo;
+import org.springframework.data.domain.Page;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -34,52 +37,57 @@ public class ProductController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAuthority('PRODUCT.CREATE')")
-    public ProductResponse create(
+    public ApiResponse<ProductResponse> create(
             @Valid @RequestBody ProductRequest request, CurrentUser currentUser) {
 
-        return productService.create(request, currentUser);
+        return ApiResponse.of(productService.create(request, currentUser));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('PRODUCT.UPDATE')")
-    public ProductResponse update(
+    public ApiResponse<ProductResponse> update(
             @PathVariable UUID id,
             @Validated({Default.class, ProductRequest.Update.class}) @RequestBody ProductRequest request,
             CurrentUser currentUser) {
-        return productService.update(id, request, currentUser);
+        return ApiResponse.of(productService.update(id, request, currentUser));
     }
 
     @GetMapping("/{id}")
-    public ProductDetailResponse getById(@PathVariable UUID id) {
-        return productService.getById(id);
+    public ApiResponse<ProductDetailResponse> getById(@PathVariable UUID id) {
+        return ApiResponse.of(productService.getById(id));
     }
     @GetMapping
-    public PageResponse<ProductResponse> getProductsByCategory(
+    public ApiResponse<List<ProductResponse>> getProductsByCategory(
             @RequestParam(required = false) UUID categoryId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
-        return PageResponse.from(productService.getProductsByCategory(categoryId, page, size));
+        return pageResponse(productService.getProductsByCategory(categoryId, page, size));
     }
 
     @GetMapping("/mine")
     @PreAuthorize("hasRole('SELLER') and hasAuthority('PRODUCT.LIST')")
-    public PageResponse<ProductResponse> getMyProducts(
+    public ApiResponse<List<ProductResponse>> getMyProducts(
             CurrentUser currentUser,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
-        return PageResponse.from(productService.getMyProducts(currentUser, page, size));
+        return pageResponse(productService.getMyProducts(currentUser, page, size));
     }
     @PreAuthorize(
             "hasAnyRole('SELLER', 'ADMIN') and hasAuthority('PRODUCT.UPDATE')"
     )
     @PatchMapping("/{id}/status")
-    public ProductResponse changeStatusProduct(
+    public ApiResponse<ProductResponse> changeStatusProduct(
             @PathVariable UUID id,
             @Valid @RequestBody ChangeStatusRequest request,
             CurrentUser currentUser
     ) {
-        return productService.changeStatusProduct(id, request, currentUser);
+        return ApiResponse.of(productService.changeStatusProduct(id, request, currentUser));
+    }
+
+    private ApiResponse<List<ProductResponse>> pageResponse(Page<ProductResponse> products) {
+        return ApiResponse.page(products.getContent(), new PageInfo(
+                products.getNumber(), products.getSize(), products.getTotalElements(), products.getTotalPages()));
     }
 }
