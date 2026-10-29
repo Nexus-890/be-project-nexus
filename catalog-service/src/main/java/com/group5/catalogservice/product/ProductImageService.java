@@ -53,7 +53,7 @@ public class ProductImageService {
         if (nextOrder > Short.MAX_VALUE) {
             throw new DomainException(400, "Product image sort order limit reached");
         }
-        String url = storage.upload(file);
+        String url = storage.upload(productId, file);
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCompletion(int status) {

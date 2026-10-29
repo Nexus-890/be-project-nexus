@@ -31,7 +31,7 @@ public class ImageStorageClient {
         this.properties = properties;
     }
 
-    public String upload(MultipartFile file) {
+    public String upload(UUID productId, MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new DomainException(400, "An image file is required");
         }
@@ -54,7 +54,7 @@ public class ImageStorageClient {
         if (extension == null) {
             throw new DomainException(400, "Only JPEG, PNG and WebP images are supported");
         }
-        String objectName = UUID.randomUUID() + "." + extension;
+        String objectName = "products/" + productId + "/" + UUID.randomUUID() + "." + extension;
         HttpRequest request = request(objectUrl(objectName))
                 .header("Content-Type", mimeType)
                 .header("x-upsert", "false")

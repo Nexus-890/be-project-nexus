@@ -128,6 +128,8 @@ class ProductImageUploadTest {
         var saved = captor.getValue();
         assertThat(saved.getProduct()).isSameAs(product);
         assertThat(saved.getCreatedAt()).isNotNull();
+        assertThat(URI.create(saved.getImageUrl()).getPath()).matches(
+                "/storage/v1/object/public/product-images/products/" + product.getId() + "/[0-9a-f-]{36}\\.jpg");
         assertThat(json).contains(saved.getImageUrl()).doesNotContain("test-service-key");
         var response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(saved.getImageUrl()))
                 .GET().build(), HttpResponse.BodyHandlers.ofByteArray());
@@ -142,7 +144,9 @@ class ProductImageUploadTest {
         byte[] bytes = format.equals("webp")
                 ? Base64.getDecoder().decode("UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA")
                 : image(format);
-        String url = storage.upload(new MockMultipartFile("file", "file.txt", "text/plain", bytes));
+        String url = storage.upload(product.getId(),
+                new MockMultipartFile("file", "file.txt", "text/plain", bytes));
+        assertThat(url).contains("/product-images/products/" + product.getId() + "/");
         assertThat(url).endsWith("." + format);
         assertThat(objects).hasSize(1);
     }
