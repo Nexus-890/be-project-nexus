@@ -49,6 +49,11 @@
 
 	<dependencies>
         <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-core</artifactId>
+            <version>3.2.3</version>
+        </dependency>
+        <dependency>
             <groupId>com.group5</groupId>
             <artifactId>common-security</artifactId>
             <version>${project.version}</version>
