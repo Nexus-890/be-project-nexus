@@ -1285,7 +1285,7 @@ paths:
         - "Orders"
       operationId: "createOrder"
       summary: "Place an order from the current cart"
-      description: "Requires CHECKOUT.START AND ORDER.CREATE. Splits the active cart by seller, snapshots current catalog prices and reserves inventory. A matching replay of the same Idempotency-Key, buyer and shipping/payment payload returns the original group with 200; a new order returns 201. Unsupported promotion, unavailable item, changed payload/key ownership and unrepresentable money fail before checkout completes. Payment method is SEPAY; the current reservation implementation may reject unavailable inventory. Gateway checks ORDER.CREATE; downstream additionally checks CHECKOUT.START."
+      description: "Requires CHECKOUT.START AND ORDER.CREATE and a UUID Idempotency-Key. Splits the active cart by seller, snapshots current catalog prices and reserves inventory. With nexus.order.idempotency-enabled=true (ORDER_IDEMPOTENCY_ENABLED, default true), a matching replay of the same key, buyer and shipping/payment payload returns the original order group and seller order IDs with 200 and creates no new rows; a fresh key returns 201. UUID letter case is normalized, so uppercase and lowercase forms are the same key. Concurrent requests for one key leave one group and one order per seller; the losing request returns the committed winner's group. A missing or invalid key returns 400 COMMERCE_INVALID_ORDER_REQUEST. A key owned by another buyer returns 400 COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED without that buyer's order data. The same buyer reusing a key with changed shipping/payment data returns 409 COMMERCE_IDEMPOTENCY_CONFLICT. When idempotency is disabled, the UUID header remains required but each successful checkout uses a fresh internal key and does not replay the supplied key. Cart ownership and checkout guards still apply. Unsupported promotion, unavailable item and unrepresentable money fail before checkout completes. Payment method is SEPAY; the current reservation implementation may reject unavailable inventory. Gateway checks ORDER.CREATE; downstream additionally checks CHECKOUT.START."
       security:
         -
           bearerAuth: []
@@ -1297,7 +1297,7 @@ paths:
       x-ownership: "See operation description."
       responses:
         "200":
-          description: "Successful response."
+          description: "Idempotent replay: the original order group and seller order IDs, with no new order rows."
           content:
             application/json:
               schema:
@@ -1324,7 +1324,7 @@ paths:
                           items: []
 
         "201":
-          description: "Successful response."
+          description: "A new order group and one order for each seller in the cart were created."
           content:
             application/json:
               schema:
@@ -1351,7 +1351,7 @@ paths:
                           items: []
 
         "400":
-          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `COMMERCE_INVALID_ORDER_REQUEST`, `COMMERCE_INVALID_QUANTITY`, `COMMERCE_CART_EMPTY`."
+          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `COMMERCE_INVALID_ORDER_REQUEST`, `COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED`, `COMMERCE_INVALID_QUANTITY`, `COMMERCE_CART_EMPTY`. Missing or invalid Idempotency-Key writes no order. A key owned by another buyer returns no order data."
           content:
             application/problem+json:
               schema:
@@ -1374,6 +1374,7 @@ paths:
                           - "VALIDATION_FAILED"
                           - "INVALID_REQUEST_BODY"
                           - "COMMERCE_INVALID_ORDER_REQUEST"
+                          - "COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED"
                           - "COMMERCE_INVALID_QUANTITY"
                           - "COMMERCE_CART_EMPTY"
 
@@ -1414,6 +1415,33 @@ paths:
                     detail: "The order request is invalid"
                     instance: "/api/v1/orders"
                     code: "COMMERCE_INVALID_ORDER_REQUEST"
+                MISSING_IDEMPOTENCY_KEY:
+                  summary: "The required Idempotency-Key header is missing; no order is created"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "Idempotency-Key must be a UUID"
+                    instance: "/api/v1/orders"
+                    code: "COMMERCE_INVALID_ORDER_REQUEST"
+                INVALID_IDEMPOTENCY_KEY:
+                  summary: "The Idempotency-Key header is not a UUID; no order is created"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "Idempotency-Key must be a UUID"
+                    instance: "/api/v1/orders"
+                    code: "COMMERCE_INVALID_ORDER_REQUEST"
+                COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED:
+                  summary: "Another buyer's key is rejected without returning their order data"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "Idempotency-Key cannot be used for this request"
+                    instance: "/api/v1/orders"
+                    code: "COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED"
                 COMMERCE_INVALID_QUANTITY:
                   summary: "COMMERCE_INVALID_QUANTITY"
                   value:
@@ -1587,7 +1615,7 @@ paths:
                     instance: "/api/v1/orders"
                     code: "NOT_ACCEPTABLE"
         "409":
-          description: "Conflict. Codes: `COMMERCE_IDEMPOTENCY_CONFLICT`, `COMMERCE_PROMOTION_NOT_SUPPORTED`, `COMMERCE_ITEM_UNAVAILABLE`, `COMMERCE_INVALID_ORDER_AMOUNT`."
+          description: "Conflict. Codes: `COMMERCE_IDEMPOTENCY_CONFLICT`, `COMMERCE_PROMOTION_NOT_SUPPORTED`, `COMMERCE_ITEM_UNAVAILABLE`, `COMMERCE_INVALID_ORDER_AMOUNT`. IDEMPOTENCY_CONFLICT applies when the same buyer reuses a key with changed shipping/payment data; a key belonging to another buyer returns 400 instead."
           content:
             application/problem+json:
               schema:
@@ -1829,12 +1857,14 @@ paths:
           name: "Idempotency-Key"
           in: "header"
           required: true
-          description: "1 to 100 visible ASCII characters. Reuse only for the same buyer and shipping/payment payload."
+          description: "Required UUID in 8-4-4-4-12 form. UUID letter case is normalized to lowercase. Reuse only for the same buyer and shipping/payment payload. Missing or malformed values return 400 COMMERCE_INVALID_ORDER_REQUEST. The header remains required when ORDER_IDEMPOTENCY_ENABLED=false."
           schema:
             type: "string"
-            minLength: 1
-            maxLength: 100
-            pattern: "^[\\x21-\\x7E]{1,100}$"
+            format: "uuid"
+            minLength: 36
+            maxLength: 36
+            pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+            example: "c8000000-0000-4000-8000-000000000007"
 
       requestBody:
         required: true
@@ -3943,6 +3973,9 @@ x-business-error-codes:
   COMMERCE_IDEMPOTENCY_CONFLICT:
     status: 409
     detail: "Idempotency-Key was already used for another request"
+  COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED:
+    status: 400
+    detail: "Idempotency-Key cannot be used for this request"
   COMMERCE_PROMOTION_NOT_SUPPORTED:
     status: 409
     detail: "Remove the promotion code before placing this order"
