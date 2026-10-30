@@ -14,10 +14,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import com.group5.userservice.shared.PostgresTestDatabase;
+import com.group5.userservice.shared.PostgresAuditingTestConfiguration;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
@@ -51,7 +53,7 @@ import static org.mockito.Mockito.mock;
 
 /**
  * Real JPA transactions and SQL constraints, without an enclosing test transaction.
- * H2 verifies persisted data, rollback and races; it does not validate PostgreSQL migrations.
+ * Runs the production Flyway migrations and validates mappings against PostgreSQL 18.
  */
 @ExtendWith(SpringExtension.class)
 @ContextConfiguration(classes = ProfileTransactionTest.JpaTestConfig.class)
@@ -357,17 +359,13 @@ class ProfileTransactionTest {
     }
 
     @TestConfiguration(proxyBeanMethods = false)
+    @Import(PostgresAuditingTestConfiguration.class)
     @EnableJpaRepositories(basePackageClasses = UserRepository.class)
     static class JpaTestConfig {
 
         @Bean
         DataSource dataSource() {
-            DriverManagerDataSource source = new DriverManagerDataSource();
-            source.setDriverClassName("org.h2.Driver");
-            source.setUrl("jdbc:h2:mem:own-profile;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000");
-            source.setUsername("sa");
-            source.setPassword("");
-            return source;
+            return PostgresTestDatabase.migratedDataSource("own_profile");
         }
 
         @Bean
@@ -376,7 +374,7 @@ class ProfileTransactionTest {
             factory.setDataSource(dataSource);
             factory.setPackagesToScan(User.class.getPackageName());
             factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
-            factory.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto", "create-drop"));
+            factory.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto", "validate"));
             return factory;
         }
 

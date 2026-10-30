@@ -2,6 +2,7 @@ package com.group5.catalogservice.product.entity;
 
 import com.group5.catalogservice.category.Category;
 import com.group5.catalogservice.product.enums.ProductStatus;
+import com.group5.common_core.persistence.AuditedEntity;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -10,6 +11,8 @@ import lombok.Setter;
 import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.OffsetDateTime;
 import java.util.LinkedHashSet;
@@ -27,7 +30,7 @@ import java.util.UUID;
         @Index(name = "idx_products_status",
                 columnList = "status, deleted_at")}, uniqueConstraints = {@UniqueConstraint(name = "products_slug_key",
         columnNames = {"slug"})})
-public class Product {
+public class Product extends AuditedEntity {
     @Id
     @ColumnDefault("uuidv7()")
     @Column(name = "id", nullable = false)
@@ -57,8 +60,9 @@ public class Product {
 
     @NotNull
     @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @ColumnDefault("'DRAFT'")
-    @Column(name = "status", nullable = false, length = 20)
+    @Column(name = "status", nullable = false, columnDefinition = "product_status")
     private ProductStatus status = ProductStatus.DRAFT;
 
     @NotNull

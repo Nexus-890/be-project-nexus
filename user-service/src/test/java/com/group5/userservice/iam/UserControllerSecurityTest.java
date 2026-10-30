@@ -1,6 +1,7 @@
 package com.group5.userservice.iam;
 
 import com.group5.common_core.exception.DomainException;
+import com.group5.userservice.shared.exception.UserErrorCode;
 import com.group5.userservice.iam.dto.UpdateProfileRequest;
 import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.enums.Gender;
@@ -153,11 +154,11 @@ class UserControllerSecurityTest {
         perform(withToken(get(ME).param("id", OTHER_ID.toString())))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.id").value(USER_ID.toString()))
-                .andExpect(jsonPath("$.email").value("owner@nexus.local"))
-                .andExpect(jsonPath("$.password").doesNotExist())
-                .andExpect(jsonPath("$.passwordHash").doesNotExist())
-                .andExpect(jsonPath("$.password_hash").doesNotExist());
+                .andExpect(jsonPath("$.data.id").value(USER_ID.toString()))
+                .andExpect(jsonPath("$.data.email").value("owner@nexus.local"))
+                .andExpect(jsonPath("$.data.password").doesNotExist())
+                .andExpect(jsonPath("$.data.passwordHash").doesNotExist())
+                .andExpect(jsonPath("$.data.password_hash").doesNotExist());
 
         verify(userService).getOwnProfile(USER_ID);
     }
@@ -173,13 +174,13 @@ class UserControllerSecurityTest {
                                 {"fullName":"X","email":"x@nexus.local","address":"HCM"}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(USER_ID.toString()))
-                .andExpect(jsonPath("$.fullName").value("X"))
-                .andExpect(jsonPath("$.email").value("x@nexus.local"))
-                .andExpect(jsonPath("$.address").value("HCM"))
-                .andExpect(jsonPath("$.password").doesNotExist())
-                .andExpect(jsonPath("$.passwordHash").doesNotExist())
-                .andExpect(jsonPath("$.password_hash").doesNotExist());
+                .andExpect(jsonPath("$.data.id").value(USER_ID.toString()))
+                .andExpect(jsonPath("$.data.fullName").value("X"))
+                .andExpect(jsonPath("$.data.email").value("x@nexus.local"))
+                .andExpect(jsonPath("$.data.address").value("HCM"))
+                .andExpect(jsonPath("$.data.password").doesNotExist())
+                .andExpect(jsonPath("$.data.passwordHash").doesNotExist())
+                .andExpect(jsonPath("$.data.password_hash").doesNotExist());
 
         verify(userService).updateOwnProfile(USER_ID,
                 new UpdateProfileRequest("X", null, null, "HCM", "x@nexus.local"));
@@ -207,11 +208,11 @@ class UserControllerSecurityTest {
                                 }
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(USER_ID.toString()))
-                .andExpect(jsonPath("$.phone").value("0900000001"))
-                .andExpect(jsonPath("$.status").value("ACTIVE"))
-                .andExpect(jsonPath("$.roles[0]").value("BUYER"))
-                .andExpect(jsonPath("$.passwordHash").doesNotExist());
+                .andExpect(jsonPath("$.data.id").value(USER_ID.toString()))
+                .andExpect(jsonPath("$.data.phone").value("0900000001"))
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.data.roles[0]").value("BUYER"))
+                .andExpect(jsonPath("$.data.passwordHash").doesNotExist());
 
         ArgumentCaptor<UpdateProfileRequest> request = ArgumentCaptor.forClass(UpdateProfileRequest.class);
         verify(userService).updateOwnProfile(eq(USER_ID), request.capture());
@@ -246,7 +247,10 @@ class UserControllerSecurityTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.type").value("urn:problem:validation-error"))
                 .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.errors").isNotEmpty())
+                .andExpect(jsonPath("$.errors[0].code").isNotEmpty())
+                .andExpect(jsonPath("$.errors[0].detail").isNotEmpty())
                 .andExpect(jsonPath("$.traceId").value(traceId));
         verifyNoInteractions(userService);
     }
@@ -265,7 +269,7 @@ class UserControllerSecurityTest {
     @Test
     void aDuplicateEmailErrorUsesTheCommon409ProblemFormat() throws Exception {
         when(userService.updateOwnProfile(eq(USER_ID), any(UpdateProfileRequest.class)))
-                .thenThrow(new DomainException(409, "email is already used"));
+                .thenThrow(new DomainException(UserErrorCode.USER_EMAIL_ALREADY_USED));
 
         perform(withToken(put(ME))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -275,6 +279,7 @@ class UserControllerSecurityTest {
                 .andExpect(jsonPath("$.type").value("urn:problem:domain-error"))
                 .andExpect(jsonPath("$.title").value("Conflict"))
                 .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.code").value("USER_EMAIL_ALREADY_USED"))
                 .andExpect(jsonPath("$.detail").value("email is already used"))
                 .andExpect(jsonPath("$.instance").value(ME))
                 .andExpect(jsonPath("$.traceId").value(traceId));

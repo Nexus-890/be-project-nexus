@@ -1,0 +1,23 @@
+-- Categories are managed by administrators; no historical actor was recorded.
+ALTER TABLE categories
+    ADD COLUMN created_by uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+    ADD COLUMN updated_by uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+
+ALTER TABLE products
+    ADD COLUMN created_by uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+    ADD COLUMN updated_by uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+
+-- Existing products belong to their recorded seller. The last editor is unknown.
+UPDATE products SET created_by = seller_id;
+
+ALTER TABLE skus
+    ADD COLUMN created_by uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+    ADD COLUMN updated_by uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+
+ALTER TABLE product_images
+    ADD COLUMN created_by uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+    ADD COLUMN updated_by uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+
+ALTER TABLE product_stats
+    ADD COLUMN created_by uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+    ADD COLUMN updated_by uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';

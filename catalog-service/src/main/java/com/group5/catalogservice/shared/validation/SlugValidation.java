@@ -1,9 +1,8 @@
 package com.group5.catalogservice.shared.validation;
 
+import com.group5.catalogservice.shared.exception.CatalogErrorCode;
+import com.group5.common_core.exception.DomainException;
 import org.springframework.stereotype.Component;
-
-import java.text.Normalizer;
-import java.util.Locale;
 
 @Component
 public class SlugValidation {
@@ -24,15 +23,13 @@ public class SlugValidation {
     public String normalizeAndValidate(String slug) {
 
         if (slug == null) {
-            throw new IllegalArgumentException("Slug is required");
+            throw new DomainException(CatalogErrorCode.INVALID_SLUG, "Slug is required");
         }
 
         String normalizedSlug = slug.trim();
 
         if (!isValid(normalizedSlug)) {
-            throw new IllegalArgumentException(
-                    "Invalid slug format"
-            );
+            throw new DomainException(CatalogErrorCode.INVALID_SLUG);
         }
 
         return normalizedSlug;

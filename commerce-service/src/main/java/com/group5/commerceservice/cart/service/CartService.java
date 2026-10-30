@@ -1,6 +1,7 @@
 package com.group5.commerceservice.cart.service;
 
 import com.group5.commerceservice.cart.dto.CatalogClient;
+import com.group5.commerceservice.cart.CartStatus;
 import com.group5.commerceservice.cart.dto.CatalogSkuResponse;
 import com.group5.commerceservice.cart.entity.Cart;
 import com.group5.commerceservice.cart.entity.CartItem;
@@ -9,7 +10,7 @@ import com.group5.commerceservice.cart.repository.CartRepository;
 import com.group5.commerceservice.cart.request.CartItemRequest;
 import com.group5.commerceservice.cart.response.CartItemResponse;
 import com.group5.commerceservice.cart.response.CartResponse;
-import com.group5.common_core.constant.ErrorCode;
+import com.group5.commerceservice.shared.exception.CommerceErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
 import feign.FeignException;
@@ -25,8 +26,6 @@ import java.util.UUID;
 @Slf4j
 @RequiredArgsConstructor
 public class CartService {
-
-    private static final String ACTIVE = "ACTIVE";
 
     private final CartRepository cartRepository;
     private final CartItemRepository cartItemRepository;
@@ -49,16 +48,19 @@ public class CartService {
                 || request.getSkuId() == null
                 || request.getQuantity() == null
                 || request.getQuantity() <= 0) {
-            throw new DomainException(ErrorCode.INVALID_QUANTITY);
+            throw new DomainException(CommerceErrorCode.INVALID_QUANTITY);
         }
 
         // Lấy thông tin SKU từ catalog-service qua Feign.
         // FeignException.NotFound → 404; các lỗi khác để GlobalExceptionHandler xử lý.
         CatalogSkuResponse sku;
         try {
-            sku = catalogClient.getSkuById(request.getSkuId());
+            var response = catalogClient.getSkuById(request.getSkuId());
+            sku = response == null ? null : response.data();
         } catch (FeignException.NotFound ex) {
-            throw new DomainException(ErrorCode.SKU_NOT_FOUND);
+            throw new DomainException(CommerceErrorCode.SKU_NOT_FOUND);
+        } catch (FeignException ex) {
+            throw new DomainException(CommerceErrorCode.CATALOG_UNAVAILABLE);
         }
 
         // Validate response SKU: phải có id, productId, và price không âm.
@@ -67,22 +69,22 @@ public class CartService {
                 || sku.getProductId() == null
                 || sku.getPrice() == null
                 || sku.getPrice().signum() < 0) {
-            throw new DomainException(ErrorCode.SKU_NOT_FOUND);
+            throw new DomainException(CommerceErrorCode.INVALID_CATALOG_RESPONSE);
         }
 
         Cart cart = getOrCreateActiveCart(userId);
 
         // touchActiveCart cập nhật updated_at và trả về số row ảnh hưởng.
         // Nếu trả về 0, cart vừa bị expire trong khoảng thời gian ngắn → tạo lại.
-        if (cartRepository.touchActiveCart(cart.getId()) == 0) {
+        if (cartRepository.touchActiveCart(cart.getId(), userId) == 0) {
             cart = getOrCreateActiveCart(userId);
-            if (cartRepository.touchActiveCart(cart.getId()) == 0) {
+            if (cartRepository.touchActiveCart(cart.getId(), userId) == 0) {
                 log.error(
                         "Failed to update active cart after retry. userId={}, cartId={}",
                         userId,
                         cart.getId()
                 );
-                throw new DomainException(ErrorCode.DB_ERROR);
+                throw new DomainException(CommerceErrorCode.DB_ERROR);
             }
         }
 
@@ -94,7 +96,8 @@ public class CartService {
                 sku.getProductId(),
                 sku.getId(),
                 request.getQuantity(),
-                sku.getPrice()
+                sku.getPrice(),
+                userId
         );
 
         // clearAutomatically = true trên addOrIncreaseQuantity đảm bảo
@@ -105,7 +108,7 @@ public class CartService {
     // Đảm bảo user đã đăng nhập (guest cart không được hỗ trợ trong R1).
     private UUID requireUserId(CurrentUser currentUser) {
         if (currentUser == null || currentUser.id() == null) {
-            throw new DomainException(ErrorCode.UNAUTHENTICATED);
+            throw new DomainException(CommerceErrorCode.UNAUTHENTICATED);
         }
         return currentUser.id();
     }
@@ -115,11 +118,11 @@ public class CartService {
     // không bao giờ có hai cart ACTIVE cho cùng một user,
     // kể cả khi nhiều request chạy đồng thời.
     private Cart getOrCreateActiveCart(UUID userId) {
-        cartRepository.createActiveCartIfAbsent(UUID.randomUUID(), userId);
-        return cartRepository.findByUserIdAndStatus(userId, ACTIVE).orElseThrow(() -> {
+        cartRepository.createActiveCartIfAbsent(UUID.randomUUID(), userId, userId);
+        return cartRepository.findByUserIdAndStatus(userId, CartStatus.ACTIVE).orElseThrow(() -> {
                     log.error(
                             "Active cart not found after create-or-get. userId={}", userId);
-                throw new  DomainException(ErrorCode.DB_ERROR);
+                throw new  DomainException(CommerceErrorCode.DB_ERROR);
                 });
     }
 
@@ -133,7 +136,7 @@ public class CartService {
         return new CartResponse(
                 cart.getId(),
                 cart.getUserId(),
-                cart.getStatus(),
+                cart.getStatus().name(),
                 items
         );
     }

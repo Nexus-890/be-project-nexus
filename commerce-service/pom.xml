@@ -50,6 +50,20 @@
 
 	<dependencies>
 		<dependency>
+			<groupId>com.group5</groupId>
+			<artifactId>common-web</artifactId>
+			<version>1.0.0</version>
+			<classifier>tests</classifier>
+			<type>test-jar</type>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>com.tngtech.archunit</groupId>
+			<artifactId>archunit-junit5</artifactId>
+			<version>1.4.1</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
@@ -84,6 +98,11 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-postgresql</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
@@ -131,6 +150,17 @@
 			<artifactId>common-core</artifactId>
 			<version>1.0.0</version>
 		</dependency>
+		<!-- ShedLock integration with Spring -->
+		<dependency>
+			<groupId>net.javacrumbs.shedlock</groupId>
+			<artifactId>shedlock-spring</artifactId>
+			<version>7.10.1</version>
+		</dependency>
+		<!-- ShedLock lock provider for JDBC / PostgreSQL -->
+		<dependency>
+			<groupId>net.javacrumbs.shedlock</groupId>
+			<artifactId>shedlock-provider-jdbc-template</artifactId>
+			<version>7.10.1</version>
+		</dependency>
 	</dependencies>
-
 </project>

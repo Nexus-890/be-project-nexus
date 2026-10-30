@@ -1,0 +1,7 @@
+extends:
+  - recommended
+rules:
+  # The repository does not declare a project license; do not invent one.
+  info-license: off
+  # These checked-in contracts intentionally target the real local gateway.
+  no-server-example.com: off
