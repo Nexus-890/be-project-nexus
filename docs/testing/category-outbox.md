@@ -57,6 +57,11 @@ control the outage/recovery assertions. This is not a security or gateway test.
 
 ## Verified run
 
+Fresh audit on 2026-10-30, Java 21 and UTC: `mvnw.cmd verify` passed again:
+**55 tests, 0 failures, 0 errors, 0 skipped**, including all 10 real PostgreSQL/
+Kafka category outbox integration cases. No production code change was needed.
+The branch was checked in an isolated Git worktree to preserve other issue files.
+
 On 2026-10-29 with Java 21 and Docker Desktop:
 
 - `catalog-service/mvnw.cmd verify`: **55 tests, 0 failures, 0 errors, 0 skipped**,
