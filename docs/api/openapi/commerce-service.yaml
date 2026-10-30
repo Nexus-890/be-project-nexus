@@ -2754,7 +2754,7 @@ paths:
         - "Orders"
       operationId: "cancelOrder"
       summary: "Cancel an order"
-      description: "Requires ORDER.CANCEL. The buyer who owns the order, ADMIN or SUPPORT_STAFF may cancel it. A PENDING order cancels its whole unpaid order group in one transaction: the group and every still-PENDING order become CANCELED, each with a history row, and the outbox gets one OrderGroupCancelled and one OrderCancelled per order. A PAID order is cancelled on its own: its OrderCancelled carries the amount paid, and the other orders and the group stay PAID. Any other status returns 409. PAYMENT_DEADLINE_EXPIRED is reserved for payment expiry."
+      description: "Requires ORDER.CANCEL. The buyer who owns the order, ADMIN or SUPPORT_STAFF may cancel it. A PENDING order cancels its whole unpaid order group in one transaction: the group and every still-PENDING order become CANCELED, each with a history row, and the outbox gets one OrderGroupCancelled and one OrderCancelled per order. The items of the other orders go back to the buyer's ACTIVE cart, added to the same SKU if it is already there, so the buyer can place them again as a new group; the items of the cancelled order are not returned. A PAID order is cancelled on its own: its OrderCancelled carries the amount paid, and the other orders and the group stay PAID. Any other status returns 409. PAYMENT_DEADLINE_EXPIRED is reserved for payment expiry."
       security:
         -
           bearerAuth: []

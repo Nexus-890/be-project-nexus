@@ -268,10 +268,30 @@ public class OrderService {
 
         entityManager.flush();
         entityManager.clear();
+        if (current == OrderStatus.PENDING) {
+            returnToCart(order.getUserId(), cancelled.stream().filter(id -> !id.equals(orderId)).toList(), user.id());
+        }
         OrderGroup group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
         publishCancellation(group, cancelled, current, user.id(), reason, cancelledAt.toInstant().toString());
         return toResponse(group);
+    }
+
+    private void returnToCart(UUID buyerId, List<UUID> orderIds, UUID actor) {
+        List<OrderItem> items = orderIds.isEmpty() ? List.of() : orderRepository.findItemsByOrderIds(orderIds);
+        if (items.isEmpty()) {
+            return;
+        }
+        cartRepository.createActiveCartIfAbsent(UUID.randomUUID(), buyerId, actor);
+        Cart cart = cartRepository.findActiveForUpdate(buyerId)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.DB_ERROR));
+        cartRepository.touchActiveCart(cart.getId(), actor);
+        for (OrderItem item : items) {
+            cartItemRepository.addOrIncreaseQuantity(UUID.randomUUID(), cart.getId(), item.getProductId(),
+                    item.getSkuId(), item.getQuantity(), item.getUnitPrice(), actor);
+        }
+        log.info("Items of the other cancelled orders returned to the cart: buyerId={}, cartId={}, orders={}",
+                buyerId, cart.getId(), orderIds);
     }
 
     private List<UUID> cancelPendingGroup(UUID groupId, String groupStatus, UUID actor, String reason) {

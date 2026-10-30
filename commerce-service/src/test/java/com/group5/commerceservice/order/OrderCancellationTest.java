@@ -71,11 +71,13 @@ class OrderCancellationTest {
         CurrentUser buyer = buyer();
         UUID groupId = insertGroup(buyer.id(), "PENDING");
         UUID orderId = insertOrder(groupId, buyer.id(), OrderStatus.PENDING, "150000.00");
+        insertItem(orderId, 1, "150000.00");
 
         OrderGroupResponse group = orderService.cancel(buyer, orderId, CHANGED_MIND);
 
         assertThat(group.status()).isEqualTo("CANCELED");
         assertThat(group.orders()).extracting(OrderResponse::status).containsExactly(OrderStatus.CANCELED);
+        assertThat(cartLines(buyer.id())).isEmpty();
         assertThat(status(orderId)).isEqualTo("CANCELED");
         assertThat(historyRows(orderId)).containsExactly("PENDING -> CANCELED: Changed my mind");
         List<JsonNode> cancelled = events("OrderCancelled", orderId);
@@ -123,11 +125,44 @@ class OrderCancellationTest {
     }
 
     @Test
+    void theOtherShopsItemsGoBackToTheBuyersCart() {
+        CurrentUser buyer = buyer();
+        UUID groupId = insertGroup(buyer.id(), "PENDING");
+        UUID first = insertOrder(groupId, buyer.id(), OrderStatus.PENDING, "200000.00");
+        UUID second = insertOrder(groupId, buyer.id(), OrderStatus.PENDING, "150000.00");
+        insertItem(first, 1, "200000.00");
+        UUID cup = insertItem(second, 2, "50000.00");
+        UUID pen = insertItem(second, 1, "50000.00");
+
+        orderService.cancel(buyer, first, CHANGED_MIND);
+
+        assertThat(cartLines(buyer.id()))
+                .containsExactlyInAnyOrder(cup + " x2 @ 50000.00", pen + " x1 @ 50000.00");
+    }
+
+    @Test
+    void aReturnedItemAddsUpWithTheSameSkuAlreadyInTheCart() {
+        CurrentUser buyer = buyer();
+        UUID groupId = insertGroup(buyer.id(), "PENDING");
+        UUID first = insertOrder(groupId, buyer.id(), OrderStatus.PENDING, "200000.00");
+        UUID second = insertOrder(groupId, buyer.id(), OrderStatus.PENDING, "150000.00");
+        insertItem(first, 1, "200000.00");
+        UUID cup = insertItem(second, 2, "75000.00");
+        UUID cartId = insertActiveCart(buyer.id(), cup, 1, "70000.00");
+
+        orderService.cancel(buyer, first, CHANGED_MIND);
+
+        assertThat(cartLines(buyer.id())).containsExactly(cup + " x3 @ 75000.00");
+        assertThat(activeCartId(buyer.id())).isEqualTo(cartId);
+    }
+
+    @Test
     void cancellingAPaidOrderCarriesTheAmountPaidAndKeepsItsSiblingPaid() {
         CurrentUser buyer = buyer();
         UUID groupId = insertGroup(buyer.id(), "PAID");
         UUID paid = insertOrder(groupId, buyer.id(), OrderStatus.PAID, "200000.50");
         UUID sibling = insertOrder(groupId, buyer.id(), OrderStatus.PAID, "150000.00");
+        insertItem(paid, 1, "200000.50");
 
         OrderGroupResponse group = orderService.cancel(buyer, paid,
                 new CancelOrderRequest("Buyer requested cancellation before carrier handover"));
@@ -144,6 +179,7 @@ class OrderCancellationTest {
         assertThat(cancelled.getFirst().get("payload").get("paidAmount").asString()).isEqualTo("200000.50");
         assertThat(events("OrderCancelled", sibling)).isEmpty();
         assertThat(events("OrderGroupCancelled", groupId)).isEmpty();
+        assertThat(cartLines(buyer.id())).isEmpty();
     }
 
     @Test
@@ -185,6 +221,8 @@ class OrderCancellationTest {
         CurrentUser owner = buyer();
         UUID groupId = insertGroup(owner.id(), "PENDING");
         UUID orderId = insertOrder(groupId, owner.id(), OrderStatus.PENDING, "150000.00");
+        UUID other = insertOrder(groupId, owner.id(), OrderStatus.PENDING, "200000.00");
+        UUID cup = insertItem(other, 1, "200000.00");
         CurrentUser support = new CurrentUser(UUID.randomUUID(), Set.of("SUPPORT_STAFF"), Set.of("ORDER.CANCEL"));
 
         orderService.cancel(support, orderId, new CancelOrderRequest("Buyer asked by phone"));
@@ -192,6 +230,8 @@ class OrderCancellationTest {
         assertThat(status(orderId)).isEqualTo("CANCELED");
         assertThat(events("OrderCancelled", orderId).getFirst().get("payload").get("actorId").asString())
                 .isEqualTo(support.id().toString());
+        assertThat(cartLines(owner.id())).containsExactly(cup + " x1 @ 200000.00");
+        assertThat(cartLines(support.id())).isEmpty();
     }
 
     @Test
@@ -229,6 +269,38 @@ class OrderCancellationTest {
                 """, UUID.class, groupId, buyerId, UUID.randomUUID(),
                 "NX-CANCEL-%08d".formatted(ORDER_NUMBERS.incrementAndGet()), status.name(), total, total,
                 UUID.randomUUID().toString());
+    }
+
+    private UUID insertItem(UUID orderId, int quantity, String unitPrice) {
+        UUID skuId = UUID.randomUUID();
+        jdbc().update("""
+                INSERT INTO order_items (order_id, product_id, sku_id, product_name, quantity, unit_price, total_price)
+                VALUES (?, ?, ?, 'Item', ?, CAST(? AS numeric), CAST(? AS numeric) * ?)
+                """, orderId, UUID.randomUUID(), skuId, quantity, unitPrice, unitPrice, quantity);
+        return skuId;
+    }
+
+    private UUID insertActiveCart(UUID buyerId, UUID skuId, int quantity, String price) {
+        UUID cartId = jdbc().queryForObject(
+                "INSERT INTO carts (user_id, status) VALUES (?, 'ACTIVE') RETURNING id", UUID.class, buyerId);
+        jdbc().update("""
+                INSERT INTO cart_items (cart_id, product_id, sku_id, quantity, price)
+                VALUES (?, ?, ?, ?, CAST(? AS numeric))
+                """, cartId, UUID.randomUUID(), skuId, quantity, price);
+        return cartId;
+    }
+
+    private List<String> cartLines(UUID buyerId) {
+        return jdbc().queryForList("""
+                SELECT i.sku_id || ' x' || i.quantity || ' @ ' || i.price
+                FROM cart_items i JOIN carts c ON c.id = i.cart_id
+                WHERE c.user_id = ? AND c.status = 'ACTIVE'
+                """, String.class, buyerId);
+    }
+
+    private UUID activeCartId(UUID buyerId) {
+        return jdbc().queryForObject("SELECT id FROM carts WHERE user_id = ? AND status = 'ACTIVE'",
+                UUID.class, buyerId);
     }
 
     private String status(UUID orderId) {

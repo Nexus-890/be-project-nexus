@@ -2,6 +2,7 @@ package com.group5.commerceservice.order.repository;
 
 import com.group5.commerceservice.order.OrderStatus;
 import com.group5.commerceservice.order.entity.Order;
+import com.group5.commerceservice.order.entity.OrderItem;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -33,6 +34,9 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     @Query("select o.id from Order o where o.orderGroup.id = :groupId and o.status = :status order by o.id")
     List<UUID> findIdsByGroupAndStatus(UUID groupId, OrderStatus status);
+
+    @Query("select i from OrderItem i where i.order.id in :orderIds order by i.id")
+    List<OrderItem> findItemsByOrderIds(List<UUID> orderIds);
 
     @Modifying
     @Query(value = """
