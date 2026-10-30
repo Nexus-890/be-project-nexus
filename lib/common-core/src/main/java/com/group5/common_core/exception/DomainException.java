@@ -1,30 +1,27 @@
 package com.group5.common_core.exception;
 
+import com.group5.common_core.constant.CommonErrorCode;
 import com.group5.common_core.constant.ErrorCode;
-import lombok.Getter;
-import lombok.experimental.FieldDefaults;
+import java.util.Objects;
 
-@Getter
-@FieldDefaults(level = lombok.AccessLevel.PRIVATE)
 public class DomainException extends RuntimeException {
-
-    Integer code;
-
-    public DomainException(int code, String message) {
-        super(message);
-        this.code = code;
+    private final int status;
+    private final String errorCode;
+    public DomainException(ErrorCode code) { this(code, code.message()); }
+    public DomainException(ErrorCode code, String detail) {
+        super(detail);
+        Objects.requireNonNull(code);
+        this.status = code.status().value();
+        this.errorCode = code.code();
     }
-
-    public DomainException(ErrorCode errorCode) {
-        super(errorCode.getMessage());
-        this.code = errorCode.getCode();
+    /** Compatibility for infrastructure callers; business code uses a named enum. */
+    public DomainException(int status, String detail) {
+        super(detail);
+        if (status < 400 || status > 599) throw new IllegalArgumentException("Expected an error HTTP status");
+        this.status = status;
+        this.errorCode = CommonErrorCode.forStatus(status).code();
     }
-
-    public DomainException(ErrorCode errorCode, String customMessage) {
-        super(customMessage);
-        this.code = errorCode.getCode();
-    }
-    public DomainException(String message) {
-        super(message);
-    }
+    public DomainException(String detail) { this(CommonErrorCode.INTERNAL_ERROR, detail); }
+    public Integer getCode() { return status; }
+    public String getErrorCode() { return errorCode; }
 }

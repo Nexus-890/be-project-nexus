@@ -1,6 +1,6 @@
 package com.group5.userservice.iam;
 
-import com.group5.userservice.iam.dto.PageResponse;
+import org.springframework.data.domain.Page;
 import com.group5.userservice.iam.dto.UserListRequest;
 import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.entity.Role;
@@ -72,16 +72,16 @@ class UserListQueryTest {
 
     @Test
     void fiveUsersPagedByTwoGiveTwoRowsAndTheTotalSortedByFullName() {
-        PageResponse<UserResponse> page = userService.listUsers(request(null, null, null, 0, 2, null, null));
+        Page<UserResponse> page = userService.listUsers(request(null, null, null, 0, 2, null, null));
 
-        assertThat(page.content()).extracting(UserResponse::fullName).containsExactly("An Nguyen", "Binh Tran");
-        assertThat(page.totalElements()).isEqualTo(5);
-        assertThat(page.totalPages()).isEqualTo(3);
+        assertThat(page.getContent()).extracting(UserResponse::fullName).containsExactly("An Nguyen", "Binh Tran");
+        assertThat(page.getTotalElements()).isEqualTo(5);
+        assertThat(page.getTotalPages()).isEqualTo(3);
     }
 
     @Test
     void aDeletedUserIsNeverListed() {
-        assertThat(userService.listUsers(request(null, null, null, 0, 20, null, null)).content())
+        assertThat(userService.listUsers(request(null, null, null, 0, 20, null, null)).getContent())
                 .extracting(UserResponse::email)
                 .doesNotContain("deleted@nexus.test");
     }
@@ -107,14 +107,14 @@ class UserListQueryTest {
 
     @Test
     void rolesOfAWholePageAreLoadedWithoutOneQueryPerUser() {
-        PageResponse<UserResponse> page = userService.listUsers(request(null, null, null, 0, 20, null, null));
+        Page<UserResponse> page = userService.listUsers(request(null, null, null, 0, 20, null, null));
 
-        assertThat(page.content()).allSatisfy(user -> assertThat(user.roles()).isNotEmpty());
+        assertThat(page.getContent()).allSatisfy(user -> assertThat(user.roles()).isNotEmpty());
         assertThat(STATEMENTS).hasSizeLessThanOrEqualTo(3);
     }
 
     private List<String> names(UserListRequest request) {
-        return userService.listUsers(request).content().stream().map(UserResponse::fullName).toList();
+        return userService.listUsers(request).getContent().stream().map(UserResponse::fullName).toList();
     }
 
     private static UserListRequest request(String q, UserStatus status, String role, int page, int size,

@@ -1412,7 +1412,9 @@ paths:
       operationId: changeOrderStatus
       summary: Change order status as an administrator
       description: ADMIN only; SRS defines no dedicated privilege for this path, so do not invent ORDER.UPDATE.
-        This draft allows PENDING -> PAID or PENDING -> CANCELED only. Record actor, reason and status history.
+        Moves follow the order transition table (PENDING -> PAID or CANCELED, PAID -> CANCELED or SHIPPED,
+        SHIPPED -> DELIVERED, DELIVERED -> COMPLETED, CANCELED -> REFUND_REQUESTED, REFUND_REQUESTED -> REFUNDED).
+        Record actor, reason and status history.
         Other transitions return 409 with a domain-error ProblemDetail. This is the manual payment-reconciliation
         demo fallback, not a buyer-controlled payment confirmation. System transitions are internal service/consumer
         actions and do not grant a public system-user role.
@@ -2102,8 +2104,13 @@ components:
       enum:
       - PENDING
       - PAID
+      - SHIPPED
+      - DELIVERED
+      - COMPLETED
       - CANCELED
-      description: 'Exposed lifecycle for #88 only. Other database statuses are outside this contract.'
+      - REFUND_REQUESTED
+      - REFUNDED
+      description: 'Order lifecycle. Moves follow the transition table of #116.'
     Order:
       type: object
       additionalProperties: false
@@ -2243,10 +2250,7 @@ components:
       - reason
       properties:
         status:
-          type: string
-          enum:
-          - PAID
-          - CANCELED
+          $ref: '#/components/schemas/OrderStatus'
         reason:
           type: string
           minLength: 1
@@ -2270,7 +2274,12 @@ components:
           enum:
           - PENDING
           - PAID
+          - SHIPPED
+          - DELIVERED
+          - COMPLETED
           - CANCELED
+          - REFUND_REQUESTED
+          - REFUNDED
           - null
           nullable: true
         newStatus:

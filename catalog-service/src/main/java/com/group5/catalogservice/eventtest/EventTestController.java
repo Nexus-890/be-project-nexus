@@ -2,6 +2,7 @@ package com.group5.catalogservice.eventtest;
 
 import com.group5.catalogservice.eventtest.dto.EventTestRequest;
 import com.group5.catalogservice.eventtest.dto.EventTestResponse;
+import com.group5.common_core.model.ApiResponse;
 import jakarta.validation.Valid;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
@@ -24,7 +25,7 @@ public class EventTestController {
 
     @PostMapping("/test")
     @ResponseStatus(HttpStatus.CREATED)
-    public EventTestResponse publish(@Valid @RequestBody EventTestRequest request) {
-        return eventTestService.publish(request);
+    public ApiResponse<EventTestResponse> publish(@Valid @RequestBody EventTestRequest request) {
+        return ApiResponse.of(eventTestService.publish(request));
     }
 }

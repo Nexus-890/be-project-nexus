@@ -4,6 +4,7 @@ import com.group5.catalogservice.category.dto.CategoryRequest;
 import com.group5.catalogservice.category.dto.CategoryResponse;
 import com.group5.catalogservice.category.dto.CategoryUpdateRequest;
 import com.group5.catalogservice.category.dto.CategoryTreeResponse;
+import com.group5.common_core.model.ApiResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -23,29 +24,29 @@ public class CategoryController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public CategoryResponse create(
+    public ApiResponse<CategoryResponse> create(
             @Valid @RequestBody CategoryRequest request) {
 
-        return categoryService.create(request);
+        return ApiResponse.of(categoryService.create(request));
     }
 
     @PatchMapping("/{id}")
-    public CategoryResponse update(
+    public ApiResponse<CategoryResponse> update(
             @PathVariable UUID id,
             @Valid @RequestBody CategoryUpdateRequest request) {
 
-        return categoryService.update(id, request);
+        return ApiResponse.of(categoryService.update(id, request));
     }
     @GetMapping("/tree")
-    public List<CategoryTreeResponse> getCategoryTree() {
-        return categoryService.getCategoryTree();
+    public ApiResponse<List<CategoryTreeResponse>> getCategoryTree() {
+        return ApiResponse.list(categoryService.getCategoryTree());
     }
 
     @GetMapping("/{id}")
-    public CategoryResponse getById(
+    public ApiResponse<CategoryResponse> getById(
             @PathVariable UUID id) {
 
-        return categoryService.getById(id);
+        return ApiResponse.of(categoryService.getById(id));
     }
 
     @DeleteMapping("/{id}")

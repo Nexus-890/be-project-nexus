@@ -415,19 +415,20 @@ No manual `@Import(GlobalExceptionHandler.class)` or component-scan expansion sh
 
 ### 3.3.5 Throwing a domain exception
 
-The project uses the shared `ErrorCode` enum to avoid hard-coding the HTTP status/message at every throw site.
+The shared `ErrorCode` interface defines `code()`, `status()` and `message()`.
+Each service owns its business enum; `CommonErrorCode` covers shared transport failures.
 
 Example:
 
 ```java
-throw new DomainException(ErrorCode.NOT_FOUND);
+throw new DomainException(UserErrorCode.USER_NOT_FOUND);
 ```
 
 or, when a dynamic message is intentionally needed:
 
 ```java
 throw new DomainException(
-        ErrorCode.INVALID_QUANTITY,
+        CommerceErrorCode.INVALID_QUANTITY,
         "Quantity must be greater than zero"
 );
 ```
@@ -444,24 +445,26 @@ DomainException
 GlobalExceptionHandler
    |
    v
-RFC 7807 ProblemDetail response
+RFC 9457 ProblemDetail response
 ```
 
 The shared handler is responsible for translating the exception into the HTTP response. Business code should not build the error response manually.
 
 ### 3.3.6 Error response contract
 
-Shared web exceptions use Spring `ProblemDetail` rather than the normal success `APIResponse<T>` wrapper.
+Shared web exceptions use Spring `ProblemDetail` rather than the normal success `ApiResponse<T>` wrapper.
 
-A domain error response should contain the RFC 7807 fields and the current tracing identifier:
+A domain error response contains the RFC 9457 fields, a stable symbolic `code`, and
+the current tracing identifier when available. See `docs/api/style-guide.md`.
 
 ```json
 {
   "type": "urn:problem:domain-error",
   "title": "Not Found",
   "status": 404,
-  "detail": "Not found!",
+  "detail": "User not found",
   "instance": "/api/example/123",
+  "code": "USER_NOT_FOUND",
   "traceId": "<current-trace-id>"
 }
 ```
@@ -471,15 +474,17 @@ Validation failures return HTTP `400` and an `errors` array. Each field should a
 ```json
 {
   "type": "urn:problem:validation-error",
-  "title": "Validation Failed",
+  "title": "Bad Request",
   "status": 400,
-  "detail": "Dữ liệu không hợp lệ",
+  "detail": "The request data is invalid",
   "instance": "/api/example",
+  "code": "VALIDATION_FAILED",
   "traceId": "<current-trace-id>",
   "errors": [
     {
       "field": "email",
-      "message": "Invalid email address!"
+      "code": "VALIDATION_EMAIL",
+      "detail": "Invalid email address!"
     }
   ]
 }
