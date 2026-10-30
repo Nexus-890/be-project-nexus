@@ -229,7 +229,7 @@ class SecurityConfigTest {
             if (endpoint.isPublic()) {
                 continue;
             }
-            String path = endpoint.path().replace("{id}", ID);
+            String path = endpoint.path().replace("{id}", ID).replace("{imageId}", ID);
             int requests = SERVICE_LOG.size();
             client.method(endpoint.method()).uri(path)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY, c -> { }))

@@ -60,6 +60,7 @@ class ProductImagePersistenceTest {
     private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18");
     private static final Map<String, byte[]> OBJECTS = new ConcurrentHashMap<>();
     private static final AtomicInteger UPLOADS = new AtomicInteger();
+    private static final AtomicInteger DELETE_STATUS = new AtomicInteger(200);
     private static final HttpServer STORAGE = startStorage();
     private static final boolean LIVE = Boolean.getBoolean("catalog.supabase.live");
     private static final JsonMapper JSON = JsonMapper.shared();
@@ -87,7 +88,7 @@ class ProductImagePersistenceTest {
 
     @BeforeEach
     void setup() {
-        OBJECTS.clear(); UPLOADS.set(0);
+        OBJECTS.clear(); UPLOADS.set(0); DELETE_STATUS.set(200);
         properties.setMaxFileSize(org.springframework.util.unit.DataSize.ofMegabytes(5));
         productId = UUID.randomUUID();
         jdbc.update("""
@@ -96,11 +97,14 @@ class ProductImagePersistenceTest {
                 """, productId, SELLER, "image-test-" + productId);
         when(decoder.decode("seller")).thenReturn(token("seller", SELLER));
         when(decoder.decode("other-seller")).thenReturn(token("other-seller", UUID.randomUUID()));
+        when(decoder.decode("no-privilege")).thenReturn(Jwt.withTokenValue("no-privilege").header("alg", "RS256")
+                .subject(SELLER.toString()).claim("roles", List.of("SELLER")).claim("privileges", List.of()).build());
         mvc = webAppContextSetup(context).addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
     }
 
     @AfterEach
     void cleanup() {
+        DELETE_STATUS.set(200);
         jdbc.queryForList("SELECT image_url FROM product_images WHERE product_id = ?", String.class, productId)
                 .forEach(storage::discard);
         jdbc.update("DELETE FROM product_images WHERE product_id = ?", productId);
@@ -167,6 +171,133 @@ class ProductImagePersistenceTest {
         assertThat(UPLOADS).hasValue(0);
     }
 
+    @Test
+    void deleteRemovesRowAndPublicObject() throws Exception {
+        var image = JSON.readTree(upload(jpeg()).andReturn().getResponse().getContentAsString()).path("data");
+        String imageId = image.path("id").asString();
+        String url = image.path("imageUrl").asString();
+        mvc.perform(delete("/api/v1/products/{id}/images/{imageId}", productId, imageId)
+                        .header("Authorization", "Bearer seller"))
+                .andExpect(status().isNoContent()).andExpect(content().string(""));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM product_images WHERE id = ?",
+                Integer.class, UUID.fromString(imageId))).isZero();
+        var deleted = HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(url)).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        if (LIVE && Boolean.getBoolean("catalog.supabase.legacyNotFound")) {
+            // Explicit provider diagnostic, not evidence that the issue's HTTP 404 criterion passes.
+            assertThat(deleted.statusCode()).isEqualTo(400);
+            assertThat(JSON.readTree(deleted.body()).path("statusCode").asString()).isEqualTo("404");
+        } else {
+            assertThat(deleted.statusCode()).isEqualTo(404);
+        }
+    }
+
+    @Test
+    void reorderSwapsBothDatabaseAndProductDetailOrder() throws Exception {
+        upload(jpeg()).andExpect(status().isCreated()); upload(jpeg()).andExpect(status().isCreated());
+        List<UUID> ids = jdbc.queryForList("SELECT id FROM product_images WHERE product_id = ? ORDER BY sort_order",
+                UUID.class, productId);
+        mvc.perform(put("/api/v1/products/{id}/images/order", productId).header("Authorization", "Bearer seller")
+                        .contentType("application/json").content(JSON.writeValueAsString(Map.of("imageIds", List.of(ids.get(1), ids.get(0))))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].id").value(ids.get(1).toString()))
+                .andExpect(jsonPath("$.data[0].sortOrder").value(0)).andExpect(jsonPath("$.page.totalElements").value(2));
+        mvc.perform(get("/api/v1/products/{id}", productId).header("Authorization", "Bearer seller"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.images[0].id").value(ids.get(1).toString()));
+        assertThat(jdbc.queryForList("SELECT id FROM product_images WHERE product_id = ? ORDER BY sort_order",
+                UUID.class, productId)).containsExactly(ids.get(1), ids.get(0));
+    }
+
+    @Test
+    void incompleteDuplicateAndForeignReorderListsChangeNothing() throws Exception {
+        upload(jpeg()); upload(jpeg());
+        List<UUID> ids = jdbc.queryForList("SELECT id FROM product_images WHERE product_id = ? ORDER BY sort_order",
+                UUID.class, productId);
+        var before = jdbc.queryForList("SELECT * FROM product_images WHERE product_id = ? ORDER BY id", productId);
+        for (List<UUID> invalid : List.of(List.of(ids.get(0)), List.of(ids.get(0), ids.get(0)),
+                List.of(ids.get(0), UUID.randomUUID()))) {
+            mvc.perform(put("/api/v1/products/{id}/images/order", productId).header("Authorization", "Bearer seller")
+                            .contentType("application/json").content(JSON.writeValueAsString(Map.of("imageIds", invalid))))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("CATALOG_IMAGE_ORDER_INVALID"));
+            assertThat(jdbc.queryForList("SELECT * FROM product_images WHERE product_id = ? ORDER BY id", productId))
+                    .isEqualTo(before);
+        }
+    }
+
+    @Test
+    void otherSellerCannotDeleteAndStorageFailureRollsBackTheRow() throws Exception {
+        var image = JSON.readTree(upload(jpeg()).andReturn().getResponse().getContentAsString()).path("data");
+        String imageId = image.path("id").asString();
+        mvc.perform(delete("/api/v1/products/{id}/images/{imageId}", productId, imageId)
+                        .header("Authorization", "Bearer other-seller"))
+                .andExpect(status().isForbidden());
+        DELETE_STATUS.set(500);
+        mvc.perform(delete("/api/v1/products/{id}/images/{imageId}", productId, imageId)
+                        .header("Authorization", "Bearer seller"))
+                .andExpect(status().isServiceUnavailable());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM product_images WHERE id = ?",
+                Integer.class, UUID.fromString(imageId))).isEqualTo(1);
+    }
+
+    @Test
+    void missingImageAndImageFromAnotherProductAreNotFound() throws Exception {
+        for (UUID imageId : List.of(UUID.randomUUID(), UUID.fromString("69000000-0000-4000-8000-000000000301"))) {
+            mvc.perform(delete("/api/v1/products/{id}/images/{imageId}", productId, imageId)
+                            .header("Authorization", "Bearer seller"))
+                    .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("CATALOG_IMAGE_NOT_FOUND"));
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM product_images WHERE id = '69000000-0000-4000-8000-000000000301'",
+                Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void mutationsRequireAuthenticationPrivilegeAndOwnership() throws Exception {
+        for (String bearer : List.of("", "Bearer no-privilege", "Bearer other-seller")) {
+            int expected = bearer.isEmpty() ? 401 : 403;
+            mvc.perform(delete("/api/v1/products/{id}/images/{imageId}", productId, UUID.randomUUID())
+                            .header("Authorization", bearer)).andExpect(status().is(expected));
+            mvc.perform(put("/api/v1/products/{id}/images/order", productId)
+                            .header("Authorization", bearer).contentType("application/json").content("{\"imageIds\":[]}"))
+                    .andExpect(status().is(expected));
+        }
+    }
+
+    @Test
+    void malformedOrderBodiesChangeNothingAndEmptyGalleryCanBeReordered() throws Exception {
+        for (String body : List.of("{}", "{\"imageIds\":null}", "{\"imageIds\":[null]}", "{\"imageIds\":[\"bad-uuid\"]}")) {
+            mvc.perform(put("/api/v1/products/{id}/images/order", productId).header("Authorization", "Bearer seller")
+                            .contentType("application/json").content(body)).andExpect(status().isBadRequest());
+        }
+        mvc.perform(put("/api/v1/products/{id}/images/order", productId).header("Authorization", "Bearer seller")
+                        .contentType("application/json").content("{\"imageIds\":[]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
+    void foreignStorageUrlIsNeverDeletedAndDatabaseRowRemains() throws Exception {
+        var image = JSON.readTree(upload(jpeg()).andReturn().getResponse().getContentAsString()).path("data");
+        UUID imageId = UUID.fromString(image.path("id").asString());
+        jdbc.update("UPDATE product_images SET image_url = 'https://example.invalid/foreign.jpg' WHERE id = ?", imageId);
+        mvc.perform(delete("/api/v1/products/{id}/images/{imageId}", productId, imageId)
+                        .header("Authorization", "Bearer seller"))
+                .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value("CATALOG_IMAGE_STORAGE_PATH_INVALID"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM product_images WHERE id = ?", Integer.class, imageId)).isEqualTo(1);
+        assertThat(OBJECTS).hasSize(1);
+    }
+
+    @Test
+    void migrationSeedsExactlyOneImageForEveryDemoProduct() {
+        var counts = jdbc.queryForList("""
+                SELECT p.id, count(i.id) AS image_count, min(i.sort_order) AS first_order
+                FROM products p LEFT JOIN product_images i ON i.product_id = p.id
+                WHERE p.id BETWEEN '69000000-0000-4000-8000-000000000201' AND '69000000-0000-4000-8000-000000000205'
+                GROUP BY p.id ORDER BY p.id
+                """);
+        assertThat(counts).hasSize(5).allSatisfy(row -> {
+            assertThat(((Number) row.get("image_count")).intValue()).isEqualTo(1);
+            assertThat(((Number) row.get("first_order")).intValue()).isZero();
+        });
+    }
+
     private org.springframework.test.web.servlet.ResultActions upload(byte[] bytes) throws Exception {
         return mvc.perform(multipart("/api/v1/products/{id}/images", productId)
                 .file(new MockMultipartFile("file", "untrusted.exe", "application/octet-stream", bytes))
@@ -202,7 +333,8 @@ class ProductImagePersistenceTest {
                     UPLOADS.incrementAndGet();
                     OBJECTS.put(path.replace("/object/", "/object/public/"), exchange.getRequestBody().readAllBytes());
                 } else if (exchange.getRequestMethod().equals("DELETE")) {
-                    OBJECTS.remove(path.replace("/object/", "/object/public/"));
+                    status = DELETE_STATUS.get();
+                    if (status == 200) OBJECTS.remove(path.replace("/object/", "/object/public/"));
                 } else {
                     result = OBJECTS.get(path);
                     if (result == null) { result = new byte[0]; status = 404; }
