@@ -9,6 +9,7 @@ import com.group5.commerceservice.cart.entity.CartItem;
 import com.group5.commerceservice.cart.repository.CartItemRepository;
 import com.group5.commerceservice.cart.repository.CartRepository;
 import com.group5.commerceservice.order.OrderStatus;
+import com.group5.commerceservice.order.dto.request.CancelOrderRequest;
 import com.group5.commerceservice.order.dto.request.ChangeOrderStatusRequest;
 import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
 import com.group5.commerceservice.order.dto.response.OrderGroupResponse;
@@ -19,6 +20,9 @@ import com.group5.commerceservice.order.entity.Order;
 import com.group5.commerceservice.order.entity.OrderGroup;
 import com.group5.commerceservice.order.entity.OrderItem;
 import com.group5.commerceservice.order.entity.OrderStatusHistory;
+import com.group5.commerceservice.order.event.OrderCancelled;
+import com.group5.commerceservice.order.event.OrderEventPublisher;
+import com.group5.commerceservice.order.event.OrderGroupCancelled;
 import com.group5.commerceservice.order.repository.OrderGroupRepository;
 import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.repository.OrderStatusHistoryRepository;
@@ -28,6 +32,7 @@ import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
 import feign.FeignException;
 import jakarta.annotation.PostConstruct;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -68,8 +73,12 @@ public class OrderService {
     private final CartItemRepository cartItemRepository;
     private final CatalogClient catalogClient;
     private final InventoryClient inventoryClient;
+    private static final String PAYMENT_DEADLINE_EXPIRED = "PAYMENT_DEADLINE_EXPIRED";
+
     private final OrderStateMachine stateMachine;
     private final OrderStatusHistoryRepository historyRepository;
+    private final OrderEventPublisher events;
+    private final EntityManager entityManager;
 
     @Value("${nexus.order.payment-timeout-minutes:15}")
     private long paymentTimeoutMinutes = 15;
@@ -222,6 +231,77 @@ public class OrderService {
         return historyRepository.findByOrderIdOrderByCreatedAtAscIdAsc(orderId).stream()
                 .map(this::toHistoryResponse)
                 .toList();
+    }
+
+    @Transactional
+    public OrderGroupResponse cancel(CurrentUser user, UUID orderId, CancelOrderRequest request) {
+        if (user == null || user.id() == null) {
+            throw new DomainException(CommerceErrorCode.UNAUTHENTICATED);
+        }
+        String reason = request.reason().strip();
+        if (PAYMENT_DEADLINE_EXPIRED.equals(reason)) {
+            throw new DomainException(CommerceErrorCode.RESERVED_CANCEL_REASON);
+        }
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
+        if (!order.getUserId().equals(user.id()) && !user.hasRole("ADMIN") && !user.hasRole("SUPPORT_STAFF")) {
+            throw new DomainException(CommerceErrorCode.FORBIDDEN);
+        }
+        UUID groupId = order.getOrderGroup().getId();
+        String groupStatus = groupRepository.lockStatus(groupId)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
+        orderRepository.lockGroupOrders(groupId);
+        OrderStatus current = orderRepository.findStatusById(orderId)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
+        OffsetDateTime cancelledAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
+
+        List<UUID> cancelled = switch (current) {
+            case PENDING -> cancelPendingGroup(groupId, groupStatus, user.id(), reason);
+            default -> throw notCancellable(order.getOrderNumber(), current.name());
+        };
+        log.info("Order cancellation accepted: orderId={}, from={}, cancelled={}, actor={}",
+                orderId, current, cancelled, user.id());
+
+        entityManager.flush();
+        entityManager.clear();
+        OrderGroup group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
+        publishCancellation(group, cancelled, user.id(), reason, cancelledAt.toInstant().toString());
+        return toResponse(group);
+    }
+
+    private List<UUID> cancelPendingGroup(UUID groupId, String groupStatus, UUID actor, String reason) {
+        if (!"PENDING".equals(groupStatus)) {
+            throw notCancellable("group " + groupId, groupStatus);
+        }
+        List<UUID> pending = orderRepository.findIdsByGroupAndStatus(groupId, OrderStatus.PENDING);
+        pending.forEach(id -> stateMachine.move(id, OrderStatus.CANCELED, actor, reason));
+        if (groupRepository.cancelPending(groupId, actor) == 0) {
+            throw notCancellable("group " + groupId, groupStatus);
+        }
+        return pending;
+    }
+
+    private void publishCancellation(OrderGroup group, List<UUID> cancelled, UUID actor, String reason,
+                                     String cancelledAt) {
+        List<Order> orders = group.getOrders().stream()
+                .filter(order -> cancelled.contains(order.getId()))
+                .sorted(Comparator.comparing(Order::getId))
+                .toList();
+        events.orderGroupCancelled(new OrderGroupCancelled(group.getId(), group.getBuyerId(), group.getVersion(),
+                reason, actor, cancelledAt, orders.stream()
+                        .map(order -> new OrderGroupCancelled.CancelledOrder(order.getId(), order.getVersion()))
+                        .toList()));
+        for (Order order : orders) {
+            events.orderCancelled(new OrderCancelled(order.getId(), order.getUserId(), order.getOrderNumber(),
+                    order.getOrderType(), order.getReferenceId(), cancelledAt, reason, group.getId(),
+                    order.getSellerId(), order.getVersion(), "0.00", group.getCurrency(), actor));
+        }
+    }
+
+    private static DomainException notCancellable(String subject, String status) {
+        return new DomainException(CommerceErrorCode.ORDER_NOT_CANCELLABLE,
+                subject + " is " + status + " and can no longer be cancelled");
     }
 
     @Transactional(readOnly = true)
