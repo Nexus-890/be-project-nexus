@@ -709,6 +709,382 @@ paths:
                     instance: "/api/v1/notifications/unread-count"
                     code: "GATEWAY_TIMEOUT"
       x-gateway-privilege: "NOTIFICATION.VIEW"
+  /api/v1/notifications/{id}/read:
+    patch:
+      tags: [Notifications]
+      operationId: markNotificationAsRead
+      summary: "Mark one own notification as read"
+      description: "Requires NOTIFICATION.VIEW and ownership by the JWT subject. Another owner returns 403; absent ID returns 404. Already-read rows are unchanged."
+      security:
+        - bearerAuth: []
+      x-required-privileges: [NOTIFICATION.VIEW]
+      x-required-roles: []
+      x-gateway-privilege: NOTIFICATION.VIEW
+      x-ownership: "Only notifications belonging to the JWT subject."
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+          description: Notification ID.
+      responses:
+        "204":
+          description: Read state recorded; no response body.
+        "400":
+          description: "Bad Request. Codes: INVALID_PARAMETER."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [400]}
+                      code:
+                        type: string
+                        enum: ["INVALID_PARAMETER"]
+              examples:
+                INVALID_PARAMETER:
+                  value:
+                    type: "urn:problem:invalid-parameter"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "A request parameter is invalid"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/read"
+                    code: "INVALID_PARAMETER"
+        "401":
+          description: "Unauthorized. Codes: UNAUTHENTICATED, NOTIFICATION_UNAUTHENTICATED."
+          headers:
+            WWW-Authenticate:
+              schema: {type: string}
+              description: Bearer challenge for security failures.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [401]}
+                      code:
+                        type: string
+                        enum: ["UNAUTHENTICATED","NOTIFICATION_UNAUTHENTICATED"]
+              examples:
+                UNAUTHENTICATED:
+                  value:
+                    type: "urn:problem:unauthenticated"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "A valid access token is required to access this resource"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/read"
+                    code: "UNAUTHENTICATED"
+                NOTIFICATION_UNAUTHENTICATED:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "Unauthenticated!"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/read"
+                    code: "NOTIFICATION_UNAUTHENTICATED"
+        "403":
+          description: "Forbidden. Codes: FORBIDDEN, NOTIFICATION_NOT_OWNER."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [403]}
+                      code:
+                        type: string
+                        enum: ["FORBIDDEN","NOTIFICATION_NOT_OWNER"]
+              examples:
+                FORBIDDEN:
+                  value:
+                    type: "urn:problem:forbidden"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission to access this resource"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/read"
+                    code: "FORBIDDEN"
+                NOTIFICATION_NOT_OWNER:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "Notification belongs to another user"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/read"
+                    code: "NOTIFICATION_NOT_OWNER"
+        "404":
+          description: "Not Found. Codes: NOTIFICATION_NOT_FOUND."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [404]}
+                      code:
+                        type: string
+                        enum: ["NOTIFICATION_NOT_FOUND"]
+              examples:
+                NOTIFICATION_NOT_FOUND:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Not Found"
+                    status: 404
+                    detail: "Notification not found"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/read"
+                    code: "NOTIFICATION_NOT_FOUND"
+        "405":
+          description: "Method Not Allowed. Codes: METHOD_NOT_ALLOWED."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [405]}
+                      code:
+                        type: string
+                        enum: ["METHOD_NOT_ALLOWED"]
+              examples:
+                METHOD_NOT_ALLOWED:
+                  value:
+                    type: "urn:problem:method-not-allowed"
+                    title: "Method Not Allowed"
+                    status: 405
+                    detail: "The HTTP method is not supported for this endpoint"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/read"
+                    code: "METHOD_NOT_ALLOWED"
+        "406":
+          description: "Not Acceptable. Codes: NOT_ACCEPTABLE."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [406]}
+                      code:
+                        type: string
+                        enum: ["NOT_ACCEPTABLE"]
+              examples:
+                NOT_ACCEPTABLE:
+                  value:
+                    type: "urn:problem:not-acceptable"
+                    title: "Not Acceptable"
+                    status: 406
+                    detail: "The requested response format is not supported"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/read"
+                    code: "NOT_ACCEPTABLE"
+        "429":
+          description: "Too Many Requests. Codes: RATE_LIMITED."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [429]}
+                      code:
+                        type: string
+                        enum: ["RATE_LIMITED"]
+              examples:
+                RATE_LIMITED:
+                  value:
+                    type: "urn:problem:rate-limited"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many requests; retry after the indicated delay"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/read"
+                    code: "RATE_LIMITED"
+        "500":
+          description: "Internal Server Error. Codes: INTERNAL_ERROR."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [500]}
+                      code:
+                        type: string
+                        enum: ["INTERNAL_ERROR"]
+              examples:
+                INTERNAL_ERROR:
+                  value:
+                    type: "urn:problem:internal-error"
+                    title: "Internal Server Error"
+                    status: 500
+                    detail: "An unexpected error occurred"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/read"
+                    code: "INTERNAL_ERROR"
+  /api/v1/notifications/read-all:
+    patch:
+      tags: [Notifications]
+      operationId: markAllNotificationsAsRead
+      summary: "Mark all of the current user's unread notifications as read"
+      description: "Requires NOTIFICATION.VIEW. One UPDATE scoped to the JWT subject and readAt IS NULL. Other users and already-read rows remain unchanged. Repeating the request is a no-op."
+      security:
+        - bearerAuth: []
+      x-required-privileges: [NOTIFICATION.VIEW]
+      x-required-roles: []
+      x-gateway-privilege: NOTIFICATION.VIEW
+      x-ownership: "Only notifications belonging to the JWT subject."
+      responses:
+        "204":
+          description: Read state recorded; no response body.
+        "401":
+          description: "Unauthorized. Codes: UNAUTHENTICATED, NOTIFICATION_UNAUTHENTICATED."
+          headers:
+            WWW-Authenticate:
+              schema: {type: string}
+              description: Bearer challenge for security failures.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [401]}
+                      code:
+                        type: string
+                        enum: ["UNAUTHENTICATED","NOTIFICATION_UNAUTHENTICATED"]
+              examples:
+                UNAUTHENTICATED:
+                  value:
+                    type: "urn:problem:unauthenticated"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "A valid access token is required to access this resource"
+                    instance: "/api/v1/notifications/read-all"
+                    code: "UNAUTHENTICATED"
+                NOTIFICATION_UNAUTHENTICATED:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "Unauthenticated!"
+                    instance: "/api/v1/notifications/read-all"
+                    code: "NOTIFICATION_UNAUTHENTICATED"
+        "403":
+          description: "Forbidden. Codes: FORBIDDEN."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [403]}
+                      code:
+                        type: string
+                        enum: ["FORBIDDEN"]
+              examples:
+                FORBIDDEN:
+                  value:
+                    type: "urn:problem:forbidden"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission to access this resource"
+                    instance: "/api/v1/notifications/read-all"
+                    code: "FORBIDDEN"
+        "405":
+          description: "Method Not Allowed. Codes: METHOD_NOT_ALLOWED."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [405]}
+                      code:
+                        type: string
+                        enum: ["METHOD_NOT_ALLOWED"]
+              examples:
+                METHOD_NOT_ALLOWED:
+                  value:
+                    type: "urn:problem:method-not-allowed"
+                    title: "Method Not Allowed"
+                    status: 405
+                    detail: "The HTTP method is not supported for this endpoint"
+                    instance: "/api/v1/notifications/read-all"
+                    code: "METHOD_NOT_ALLOWED"
+        "406":
+          description: "Not Acceptable. Codes: NOT_ACCEPTABLE."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [406]}
+                      code:
+                        type: string
+                        enum: ["NOT_ACCEPTABLE"]
+              examples:
+                NOT_ACCEPTABLE:
+                  value:
+                    type: "urn:problem:not-acceptable"
+                    title: "Not Acceptable"
+                    status: 406
+                    detail: "The requested response format is not supported"
+                    instance: "/api/v1/notifications/read-all"
+                    code: "NOT_ACCEPTABLE"
+        "429":
+          description: "Too Many Requests. Codes: RATE_LIMITED."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [429]}
+                      code:
+                        type: string
+                        enum: ["RATE_LIMITED"]
+              examples:
+                RATE_LIMITED:
+                  value:
+                    type: "urn:problem:rate-limited"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many requests; retry after the indicated delay"
+                    instance: "/api/v1/notifications/read-all"
+                    code: "RATE_LIMITED"
+        "500":
+          description: "Internal Server Error. Codes: INTERNAL_ERROR."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [500]}
+                      code:
+                        type: string
+                        enum: ["INTERNAL_ERROR"]
+              examples:
+                INTERNAL_ERROR:
+                  value:
+                    type: "urn:problem:internal-error"
+                    title: "Internal Server Error"
+                    status: 500
+                    detail: "An unexpected error occurred"
+                    instance: "/api/v1/notifications/read-all"
+                    code: "INTERNAL_ERROR"
 components:
   securitySchemes:
     bearerAuth:
@@ -870,3 +1246,9 @@ x-business-error-codes:
   NOTIFICATION_UNAUTHENTICATED:
     status: 401
     detail: "Unauthenticated!"
+  NOTIFICATION_NOT_FOUND:
+    status: 404
+    detail: "Notification not found"
+  NOTIFICATION_NOT_OWNER:
+    status: 403
+    detail: "Notification belongs to another user"

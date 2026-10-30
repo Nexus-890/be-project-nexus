@@ -134,6 +134,12 @@ nexus:
       - method: GET
         path: /api/v1/notifications/unread-count
         privilege: NOTIFICATION.VIEW
+      - method: PATCH
+        path: /api/v1/notifications/{id}/read
+        privilege: NOTIFICATION.VIEW
+      - method: PATCH
+        path: /api/v1/notifications/read-all
+        privilege: NOTIFICATION.VIEW
   gateway:
     rate-limit:
       # Có thể đổi qua Config Server và /actuator/refresh; đủ cho polling 2 giây.

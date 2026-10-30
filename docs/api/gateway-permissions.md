@@ -52,6 +52,8 @@ independently, as required by ADR-006.
 | `/api/v1/carts/me/items` | POST | CART.UPDATE | #110 — Cart: get-or-create and add item                 |
 | `/api/v1/notifications` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
 | `/api/v1/notifications/unread-count` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
+| `/api/v1/notifications/{id}/read` | PATCH | NOTIFICATION.VIEW | #109 — Mark own notification as read |
+| `/api/v1/notifications/read-all` | PATCH | NOTIFICATION.VIEW | #109 — Mark all own notifications as read |
 | `/api/v1/orders` | POST | ORDER.CREATE | #113 — Order creation from a cart; service also requires CHECKOUT.START |
 | `/api/v1/orders/{id}/history` | GET | ORDER.VIEW | #116 — Order state machine and status history |
 | `/api/v1/orders` | GET | ORDER.LIST | #117 — Order read endpoints; the caller's own orders only |
