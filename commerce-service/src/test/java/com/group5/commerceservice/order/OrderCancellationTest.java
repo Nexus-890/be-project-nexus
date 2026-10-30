@@ -123,6 +123,30 @@ class OrderCancellationTest {
     }
 
     @Test
+    void cancellingAPaidOrderCarriesTheAmountPaidAndKeepsItsSiblingPaid() {
+        CurrentUser buyer = buyer();
+        UUID groupId = insertGroup(buyer.id(), "PAID");
+        UUID paid = insertOrder(groupId, buyer.id(), OrderStatus.PAID, "200000.50");
+        UUID sibling = insertOrder(groupId, buyer.id(), OrderStatus.PAID, "150000.00");
+
+        OrderGroupResponse group = orderService.cancel(buyer, paid,
+                new CancelOrderRequest("Buyer requested cancellation before carrier handover"));
+
+        assertThat(group.status()).isEqualTo("PAID");
+        assertThat(status(paid)).isEqualTo("CANCELED");
+        assertThat(status(sibling)).isEqualTo("PAID");
+        assertThat(groupStatus(groupId)).isEqualTo("PAID");
+        assertThat(historyRows(paid)).containsExactly(
+                "PAID -> CANCELED: Buyer requested cancellation before carrier handover");
+        assertThat(historyRows(sibling)).isEmpty();
+        List<JsonNode> cancelled = events("OrderCancelled", paid);
+        assertThat(cancelled).hasSize(1);
+        assertThat(cancelled.getFirst().get("payload").get("paidAmount").asString()).isEqualTo("200000.50");
+        assertThat(events("OrderCancelled", sibling)).isEmpty();
+        assertThat(events("OrderGroupCancelled", groupId)).isEmpty();
+    }
+
+    @Test
     void anotherBuyerGets403AndNothingChanges() {
         CurrentUser owner = buyer();
         UUID groupId = insertGroup(owner.id(), "PENDING");

@@ -257,6 +257,10 @@ public class OrderService {
 
         List<UUID> cancelled = switch (current) {
             case PENDING -> cancelPendingGroup(groupId, groupStatus, user.id(), reason);
+            case PAID -> {
+                stateMachine.move(orderId, OrderStatus.CANCELED, user.id(), reason);
+                yield List.of(orderId);
+            }
             default -> throw notCancellable(order.getOrderNumber(), current.name());
         };
         log.info("Order cancellation accepted: orderId={}, from={}, cancelled={}, actor={}",
@@ -266,7 +270,7 @@ public class OrderService {
         entityManager.clear();
         OrderGroup group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
-        publishCancellation(group, cancelled, user.id(), reason, cancelledAt.toInstant().toString());
+        publishCancellation(group, cancelled, current, user.id(), reason, cancelledAt.toInstant().toString());
         return toResponse(group);
     }
 
@@ -282,20 +286,23 @@ public class OrderService {
         return pending;
     }
 
-    private void publishCancellation(OrderGroup group, List<UUID> cancelled, UUID actor, String reason,
-                                     String cancelledAt) {
+    private void publishCancellation(OrderGroup group, List<UUID> cancelled, OrderStatus from, UUID actor,
+                                     String reason, String cancelledAt) {
         List<Order> orders = group.getOrders().stream()
                 .filter(order -> cancelled.contains(order.getId()))
                 .sorted(Comparator.comparing(Order::getId))
                 .toList();
-        events.orderGroupCancelled(new OrderGroupCancelled(group.getId(), group.getBuyerId(), group.getVersion(),
-                reason, actor, cancelledAt, orders.stream()
-                        .map(order -> new OrderGroupCancelled.CancelledOrder(order.getId(), order.getVersion()))
-                        .toList()));
+        if (from == OrderStatus.PENDING) {
+            events.orderGroupCancelled(new OrderGroupCancelled(group.getId(), group.getBuyerId(), group.getVersion(),
+                    reason, actor, cancelledAt, orders.stream()
+                            .map(order -> new OrderGroupCancelled.CancelledOrder(order.getId(), order.getVersion()))
+                            .toList()));
+        }
         for (Order order : orders) {
+            String paidAmount = from == OrderStatus.PAID ? money(order.getTotalAmount()).toPlainString() : "0.00";
             events.orderCancelled(new OrderCancelled(order.getId(), order.getUserId(), order.getOrderNumber(),
                     order.getOrderType(), order.getReferenceId(), cancelledAt, reason, group.getId(),
-                    order.getSellerId(), order.getVersion(), "0.00", group.getCurrency(), actor));
+                    order.getSellerId(), order.getVersion(), paidAmount, group.getCurrency(), actor));
         }
     }
 
