@@ -134,6 +134,7 @@ services:
 
   # Package the rating JAR first; enable this service with --profile rating.
   rating-service:
+    container_name: nexus-rating-service
     profiles: ["rating"]
     image: eclipse-temurin:21-jre
     working_dir: /app
