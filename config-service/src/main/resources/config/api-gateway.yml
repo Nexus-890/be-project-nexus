@@ -134,6 +134,9 @@ nexus:
       - method: GET
         path: /api/v1/notifications/unread-count
         privilege: NOTIFICATION.VIEW
+      - method: POST
+        path: /api/v1/products/{id}/images
+        privilege: PRODUCT.UPDATE
   gateway:
     rate-limit:
       # Có thể đổi qua Config Server và /actuator/refresh; đủ cho polling 2 giây.
