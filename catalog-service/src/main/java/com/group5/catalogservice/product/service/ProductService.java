@@ -9,6 +9,9 @@ import com.group5.catalogservice.product.dto.response.SkuResponse;
 import com.group5.catalogservice.product.entity.ProductImage;
 import com.group5.catalogservice.product.entity.Skus;
 import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import java.time.OffsetDateTime;
 import com.group5.catalogservice.product.OrderReferenceChecker;
 import com.group5.catalogservice.shared.config.CatalogProperties;
@@ -134,17 +137,17 @@ public class ProductService {
 
 
         if (categoryId == null) {
-            return productRepository.findProductResponsesByStatus(
+            return attachImages(productRepository.findProductResponsesByStatus(
                     ProductStatus.ACTIVE,
                     pageable
-            );
+            ));
         }
 
-        return productRepository.findProductResponsesByCategory(
+        return attachImages(productRepository.findProductResponsesByCategory(
                 categoryId,
                 ProductStatus.ACTIVE,
                 pageable
-        );
+        ));
     }
 
     @Transactional(readOnly = true)
@@ -168,7 +171,20 @@ public class ProductService {
         log.debug("Finished getting seller products: sellerId={}, totalElements={}",
                 sellerId, responses.getTotalElements());
 
-        return responses;
+        return attachImages(responses);
+    }
+
+    private Page<ProductResponse> attachImages(Page<ProductResponse> page) {
+        if (!page.isEmpty()) {
+            Map<UUID, List<ImageResponse>> imagesByProduct = productRepository.findImagesForProducts(
+                            page.getContent().stream().map(ProductResponse::getId).toList()).stream()
+                    .collect(Collectors.groupingBy(image -> image.getProduct().getId(),
+                            Collectors.mapping(image -> new ImageResponse(image.getId(), image.getImageUrl(),
+                                    image.getSortOrder()), Collectors.toList())));
+            page.forEach(product -> product.setImages(List.copyOf(
+                    imagesByProduct.getOrDefault(product.getId(), List.of()))));
+        }
+        return page;
     }
 
     private void validatePagination(int page, int size) {

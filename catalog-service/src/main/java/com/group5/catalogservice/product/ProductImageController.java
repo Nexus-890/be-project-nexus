@@ -1,6 +1,8 @@
 package com.group5.catalogservice.product;
 
 import com.group5.catalogservice.product.dto.response.ImageResponse;
+import com.group5.catalogservice.shared.exception.CatalogErrorCode;
+import com.group5.common_core.model.ApiResponse;
 import com.group5.common_security.CurrentUser;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_web.exception.GlobalExceptionHandler;
@@ -29,9 +31,9 @@ public class ProductImageController {
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasRole('SELLER') and hasAuthority('PRODUCT.UPDATE')")
-    public ImageResponse upload(@PathVariable UUID id, @RequestPart("file") MultipartFile file,
+    public ApiResponse<ImageResponse> upload(@PathVariable UUID id, @RequestPart("file") MultipartFile file,
                                 CurrentUser user) {
-        return service.upload(id, file, user);
+        return ApiResponse.of(service.upload(id, file, user));
     }
 
     // Multipart parsing can fail before MVC has selected this controller.
@@ -44,15 +46,13 @@ public class ProductImageController {
         @ExceptionHandler(MaxUploadSizeExceededException.class)
         public ResponseEntity<ProblemDetail> tooLarge(MaxUploadSizeExceededException exception,
                                                      HttpServletRequest request) {
-            return errors.handleDomainException(new DomainException(413,
-                    "Image exceeds the maximum file size"), request);
+            return errors.handleDomainException(new DomainException(CatalogErrorCode.IMAGE_TOO_LARGE), request);
         }
 
         @ExceptionHandler(MissingServletRequestPartException.class)
         public ResponseEntity<ProblemDetail> missingFile(MissingServletRequestPartException exception,
                                                         HttpServletRequest request) {
-            return errors.handleDomainException(new DomainException(400,
-                    "An image file is required"), request);
+            return errors.handleDomainException(new DomainException(CatalogErrorCode.IMAGE_REQUIRED), request);
         }
     }
 }

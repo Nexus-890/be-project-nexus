@@ -1,6 +1,7 @@
 package com.group5.catalogservice.product.repository;
 import com.group5.catalogservice.product.dto.response.ProductResponse;
 import com.group5.catalogservice.product.entity.Product;
+import com.group5.catalogservice.product.entity.ProductImage;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -11,9 +12,17 @@ import org.springframework.stereotype.Repository;
 import com.group5.catalogservice.product.enums.ProductStatus;
 import java.util.UUID;
 import java.util.Optional;
+import java.util.Collection;
+import java.util.List;
 
 @Repository
 public interface ProductRepository extends JpaRepository<Product, UUID> {
+    @Query("""
+            SELECT image FROM ProductImage image WHERE image.product.id IN :productIds
+            ORDER BY image.product.id, image.sortOrder, image.id
+            """)
+    List<ProductImage> findImagesForProducts(@Param("productIds") Collection<UUID> productIds);
+
     Optional<Product> findByIdAndDeletedAtIsNull(UUID id);
 
     /**

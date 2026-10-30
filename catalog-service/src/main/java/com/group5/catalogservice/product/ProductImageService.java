@@ -2,7 +2,7 @@ package com.group5.catalogservice.product;
 
 import com.group5.catalogservice.product.dto.response.ImageResponse;
 import com.group5.catalogservice.product.entity.ProductImage;
-import com.group5.common_core.constant.ErrorCode;
+import com.group5.catalogservice.shared.exception.CatalogErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
 import org.springframework.beans.factory.annotation.Value;
@@ -34,24 +34,24 @@ public class ProductImageService {
     @Transactional
     public ImageResponse upload(UUID productId, MultipartFile file, CurrentUser user) {
         if (user == null) {
-            throw new DomainException(ErrorCode.UNAUTHENTICATED);
+            throw new DomainException(CatalogErrorCode.UNAUTHENTICATED);
         }
         if (!user.hasRole("SELLER") || !user.hasPrivilege("PRODUCT.UPDATE")) {
-            throw new DomainException(ErrorCode.UNAUTHORIZED);
+            throw new DomainException(CatalogErrorCode.UNAUTHORIZED);
         }
         // Serialize uploads for this product; counting alone races under concurrent requests.
         var product = images.findProductForUpload(productId)
-                .orElseThrow(() -> new DomainException(ErrorCode.PRODUCT_NOT_FOUND));
+                .orElseThrow(() -> new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND));
         if (!product.getSellerId().equals(user.id())) {
-            throw new DomainException(ErrorCode.UNAUTHORIZED);
+            throw new DomainException(CatalogErrorCode.UNAUTHORIZED);
         }
         var existing = images.findAllByProduct_IdOrderBySortOrderAscIdAsc(productId);
         if (existing.size() >= maxProductImages) {
-            throw new DomainException(400, "Product image limit reached");
+            throw new DomainException(CatalogErrorCode.IMAGE_LIMIT_REACHED);
         }
         int nextOrder = existing.stream().mapToInt(ProductImage::getSortOrder).max().orElse(-1) + 1;
         if (nextOrder > Short.MAX_VALUE) {
-            throw new DomainException(400, "Product image sort order limit reached");
+            throw new DomainException(CatalogErrorCode.IMAGE_SORT_LIMIT_REACHED);
         }
         String url = storage.upload(productId, file);
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {

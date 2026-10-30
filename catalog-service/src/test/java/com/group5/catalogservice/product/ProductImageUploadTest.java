@@ -120,8 +120,8 @@ class ProductImageUploadTest {
         String json = mvc.perform(multipart("/api/v1/products/{id}/images", product.getId())
                         .file(new MockMultipartFile("file", "untrusted.exe", "application/octet-stream", jpeg)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").isNotEmpty())
-                .andExpect(jsonPath("$.sortOrder").value(0))
+                .andExpect(jsonPath("$.data.id").isNotEmpty())
+                .andExpect(jsonPath("$.data.sortOrder").value(0))
                 .andReturn().getResponse().getContentAsString();
         var captor = org.mockito.ArgumentCaptor.forClass(ProductImage.class);
         verify(images).saveAndFlush(captor.capture());

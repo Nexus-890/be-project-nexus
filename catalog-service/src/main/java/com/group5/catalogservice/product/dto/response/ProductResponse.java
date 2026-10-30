@@ -7,6 +7,7 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.util.UUID;
+import java.util.List;
 
 @Getter
 @Setter
@@ -19,6 +20,7 @@ public class ProductResponse {
     private UUID categoryId;
     private UUID sellerId;
     private BigDecimal minPrice;
+    private List<ImageResponse> images = List.of();
 
     public ProductResponse(
             UUID id,

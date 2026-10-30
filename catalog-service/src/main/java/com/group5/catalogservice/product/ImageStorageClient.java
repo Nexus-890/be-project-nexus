@@ -1,6 +1,7 @@
 package com.group5.catalogservice.product;
 
 import com.group5.catalogservice.shared.config.StorageProperties;
+import com.group5.catalogservice.shared.exception.CatalogErrorCode;
 import com.group5.common_core.exception.DomainException;
 import org.apache.tika.Tika;
 import org.slf4j.Logger;
@@ -33,26 +34,26 @@ public class ImageStorageClient {
 
     public String upload(UUID productId, MultipartFile file) {
         if (file == null || file.isEmpty()) {
-            throw new DomainException(400, "An image file is required");
+            throw new DomainException(CatalogErrorCode.IMAGE_REQUIRED);
         }
         long limit = properties.getMaxFileSize().toBytes();
         if (file.getSize() > limit) {
-            throw new DomainException(413, "Image exceeds the maximum file size");
+            throw new DomainException(CatalogErrorCode.IMAGE_TOO_LARGE);
         }
         byte[] bytes;
         try (var input = file.getInputStream()) {
             bytes = input.readNBytes((int) limit + 1);
         } catch (IOException e) {
-            throw new DomainException(400, "Cannot read the image file");
+            throw new DomainException(CatalogErrorCode.IMAGE_READ_FAILED);
         }
         if (bytes.length > limit) {
-            throw new DomainException(413, "Image exceeds the maximum file size");
+            throw new DomainException(CatalogErrorCode.IMAGE_TOO_LARGE);
         }
         // No filename or caller-supplied Content-Type is passed to detection.
         String mimeType = tika.detect(bytes);
         String extension = EXTENSIONS.get(mimeType);
         if (extension == null) {
-            throw new DomainException(400, "Only JPEG, PNG and WebP images are supported");
+            throw new DomainException(CatalogErrorCode.IMAGE_INVALID_TYPE);
         }
         String objectName = "products/" + productId + "/" + UUID.randomUUID() + "." + extension;
         HttpRequest request = request(objectUrl(objectName))
@@ -61,10 +62,10 @@ public class ImageStorageClient {
                 .POST(HttpRequest.BodyPublishers.ofByteArray(bytes)).build();
         int status = send(request);
         if (status == 413) {
-            throw new DomainException(413, "Image exceeds the storage file size limit");
+            throw new DomainException(CatalogErrorCode.IMAGE_TOO_LARGE);
         }
         if (status < 200 || status >= 300) {
-            throw new DomainException(503, "Image storage is unavailable");
+            throw new DomainException(CatalogErrorCode.IMAGE_STORAGE_UNAVAILABLE);
         }
         return baseUrl() + "/storage/v1/object/public/" + properties.getBucket() + "/" + objectName;
     }
@@ -96,14 +97,14 @@ public class ImageStorageClient {
 
     private HttpRequest.Builder request(String url) {
         if (properties.getSupabaseUrl().isBlank() || properties.getServiceKey().isBlank()) {
-            throw new DomainException(503, "Image storage is not configured");
+            throw new DomainException(CatalogErrorCode.IMAGE_STORAGE_NOT_CONFIGURED);
         }
         try {
             return HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(30))
                     .header("Authorization", "Bearer " + properties.getServiceKey())
                     .header("apikey", properties.getServiceKey());
         } catch (IllegalArgumentException e) {
-            throw new DomainException(503, "Image storage is not configured correctly");
+            throw new DomainException(CatalogErrorCode.IMAGE_STORAGE_NOT_CONFIGURED);
         }
     }
 
@@ -113,9 +114,9 @@ public class ImageStorageClient {
             return http.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new DomainException(503, "Image storage request was interrupted");
+            throw new DomainException(CatalogErrorCode.IMAGE_STORAGE_UNAVAILABLE);
         } catch (IOException | IllegalArgumentException e) {
-            throw new DomainException(503, "Image storage is unavailable");
+            throw new DomainException(CatalogErrorCode.IMAGE_STORAGE_UNAVAILABLE);
         }
     }
 }
