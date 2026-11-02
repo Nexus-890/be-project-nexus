@@ -1,7 +1,8 @@
 package com.group5.commerceservice.cart.controller;
 
-import com.group5.commerceservice.cart.request.CartItemRequest;
-import com.group5.commerceservice.cart.response.CartResponse;
+import com.group5.commerceservice.cart.dto.request.CartItemRequest;
+import com.group5.commerceservice.cart.dto.request.UpdateCartItemRequest;
+import com.group5.commerceservice.cart.dto.response.CartResponse;
 import com.group5.commerceservice.cart.service.CartService;
 import com.group5.common_security.CurrentUser;
 import com.group5.common_core.model.ApiResponse;
@@ -10,8 +11,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/carts")
@@ -40,5 +42,23 @@ public class CartController {
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(ApiResponse.of(cartService.addItem(currentUser, request)));
+    }
+
+    @PutMapping("/me/items/{id}")
+    @PreAuthorize("hasAuthority('CART.UPDATE')")
+    public CartResponse updateItem(
+            @Valid @RequestBody UpdateCartItemRequest request,
+            CurrentUser currentUser,
+            @PathVariable("id") UUID id) {
+        return cartService.updateCartItem(currentUser, id, request);
+    }
+
+    @DeleteMapping("/me/items/{id}")
+    @PreAuthorize("hasAuthority('CART.REMOVE_ITEM')")
+    public ResponseEntity<Void> removeItem(
+            CurrentUser currentUser,
+            @PathVariable("id") UUID id) {
+        cartService.removeCartItem(currentUser, id);
+        return ResponseEntity.noContent().build();
     }
 }

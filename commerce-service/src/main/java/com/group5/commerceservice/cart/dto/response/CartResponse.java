@@ -1,4 +1,4 @@
-package com.group5.commerceservice.cart.response;
+package com.group5.commerceservice.cart.dto.response;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
