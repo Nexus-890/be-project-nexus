@@ -18,8 +18,6 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.unit.DataSize;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
@@ -42,6 +40,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class ProductImageUploadTest {
     private final ProductImageRepository images = mock(ProductImageRepository.class);
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc = mock(org.springframework.jdbc.core.JdbcTemplate.class);
     private final StorageProperties storageProperties = new StorageProperties();
     private final Product product = new Product();
     private final UUID sellerId = UUID.randomUUID();
@@ -90,7 +89,9 @@ class ProductImageUploadTest {
         storageProperties.setSupabaseUrl("http://127.0.0.1:" + bucket.getAddress().getPort());
         storageProperties.setServiceKey("test-service-key");
         storage = new ImageStorageClient(storageProperties);
-        service = new ProductImageService(images, storage, 5);
+        when(jdbc.queryForObject(anyString(), eq(Integer.class), any(UUID.class))).thenReturn(0);
+        when(jdbc.update(anyString(), any(UUID.class), any(UUID.class))).thenReturn(1);
+        service = new ProductImageService(new ProductImageUploadTransactions(images, jdbc, 5), storage);
         product.setSellerId(sellerId);
         when(images.findProductForUpload(product.getId())).thenReturn(Optional.of(product));
         when(images.findAllByProduct_IdOrderBySortOrderAscIdAsc(product.getId())).thenReturn(List.of());
@@ -104,12 +105,10 @@ class ProductImageUploadTest {
                 .setCustomArgumentResolvers(new CurrentUserArgumentResolver())
                 .setControllerAdvice(new ProductImageController.MultipartErrors(errors), errors).build();
         authenticate(seller);
-        TransactionSynchronizationManager.initSynchronization();
     }
 
     @AfterEach
     void close() {
-        TransactionSynchronizationManager.clearSynchronization();
         SecurityContextHolder.clearContext();
         bucket.stop(0);
     }
@@ -162,7 +161,7 @@ class ProductImageUploadTest {
 
     @Test
     void configurableCountLimitIsAppliedBeforeUpload() {
-        service = new ProductImageService(images, storage, 1);
+        service = new ProductImageService(new ProductImageUploadTransactions(images, jdbc, 1), storage);
         when(images.findAllByProduct_IdOrderBySortOrderAscIdAsc(product.getId()))
                 .thenReturn(List.of(new ProductImage()));
         assertThatThrownBy(() -> service.upload(product.getId(), null, seller))
@@ -260,6 +259,7 @@ class ProductImageUploadTest {
                         org.hamcrest.Matchers.containsString("test-service-key"))));
         verify(images, never()).saveAndFlush(any());
         assertThat(objects).isEmpty();
+        verify(jdbc).update(eq("DELETE FROM product_image_uploads WHERE id = ?"), any(UUID.class));
     }
 
     @Test
@@ -275,10 +275,9 @@ class ProductImageUploadTest {
         doThrow(new IllegalStateException("database unavailable")).when(images).saveAndFlush(any());
         assertThatThrownBy(() -> service.upload(product.getId(), file("jpg"), seller))
                 .isInstanceOf(IllegalStateException.class);
-        assertThat(objects).hasSize(1);
-        TransactionSynchronizationManager.getSynchronizations().forEach(
-                sync -> sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+        // Compensation runs after the failed metadata transaction has exited.
         assertThat(objects).isEmpty();
+        verify(jdbc).update(eq("DELETE FROM product_image_uploads WHERE id = ?"), any(UUID.class));
     }
 
     @Test
