@@ -35,12 +35,18 @@ import jakarta.annotation.PostConstruct;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -77,8 +83,12 @@ public class OrderService {
 
     private final OrderStateMachine stateMachine;
     private final OrderStatusHistoryRepository historyRepository;
+    private final PlatformTransactionManager transactionManager;
     private final OrderEventPublisher events;
     private final EntityManager entityManager;
+
+    @Value("${nexus.order.idempotency-enabled:true}")
+    private boolean idempotencyEnabled = true;
 
     @Value("${nexus.order.payment-timeout-minutes:15}")
     private long paymentTimeoutMinutes = 15;
@@ -93,30 +103,68 @@ public class OrderService {
     public record CreationResult(boolean created, OrderGroupResponse response) {
     }
 
-    //Create order form cart
-    @Transactional
+    // Each attempt must finish (or roll back) before reading a UNIQUE-conflict winner.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public CreationResult create(CurrentUser user, String key, CreateOrderRequest request) {
-        log.info("Create order called: buyerId={}, idempotencyKey={}",
-                user != null ? user.id() : null, key);
         requireAccess(user);
-        if (key == null || !key.matches("[\\x21-\\x7E]{1,100}")) {
-            throw new DomainException(CommerceErrorCode.INVALID_ORDER_REQUEST, "Idempotency-Key must contain 1 to 100 visible ASCII characters");
+        if (key == null || !key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")) {
+            throw new DomainException(CommerceErrorCode.INVALID_ORDER_REQUEST, "Idempotency-Key must be a UUID");
         }
         if (request == null || request.shippingAddress() == null || !"SEPAY".equals(request.paymentMethod())) {
             throw new DomainException(CommerceErrorCode.INVALID_ORDER_REQUEST, "Shipping address and SEPAY payment method are required");
         }
         Map<String, Object> snapshot = request.snapshot();
-        groupRepository.lockKey("order-key:" + key);
-        Optional<OrderGroup> previous = groupRepository.findByIdempotencyKey(key);
-        if (previous.isPresent()) {
-            OrderGroup group = previous.get();
-            if (!group.getBuyerId().equals(user.id()) || group.getOrders().isEmpty()
-                    || group.getOrders().stream().anyMatch(order -> !snapshot.equals(order.getShippingInfo()))) {
-                throw new DomainException(CommerceErrorCode.IDEMPOTENCY_CONFLICT);
+        boolean replayEnabled = idempotencyEnabled;
+        String effectiveKey = replayEnabled ? UUID.fromString(key).toString() : UUID.randomUUID().toString();
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        try {
+            return transaction.execute(status -> {
+                if (replayEnabled) {
+                    groupRepository.lockKey("order-key:" + effectiveKey);
+                    Optional<OrderGroup> previous = groupRepository.findByIdempotencyKey(effectiveKey);
+                    if (previous.isPresent()) {
+                        return replay(user, snapshot, previous.get());
+                    }
+                }
+                return createFromCart(user, effectiveKey, snapshot);
+            });
+        } catch (DataIntegrityViolationException violation) {
+            if (!replayEnabled || !isIdempotencyKeyViolation(violation)) {
+                throw violation;
             }
-            return new CreationResult(false, toResponse(group));
+            // PostgreSQL aborts the losing transaction on 23505; query only after rollback.
+            transaction.setReadOnly(true);
+            return transaction.execute(status -> groupRepository.findByIdempotencyKey(effectiveKey)
+                    .map(group -> replay(user, snapshot, group))
+                    .orElseThrow(() -> violation));
         }
+    }
 
+    private CreationResult replay(CurrentUser user, Map<String, Object> snapshot, OrderGroup group) {
+        if (!group.getBuyerId().equals(user.id())) {
+            throw new DomainException(CommerceErrorCode.IDEMPOTENCY_KEY_NOT_OWNED);
+        }
+        if (group.getOrders().isEmpty()
+                || group.getOrders().stream().anyMatch(order -> !snapshot.equals(order.getShippingInfo()))) {
+            throw new DomainException(CommerceErrorCode.IDEMPOTENCY_CONFLICT);
+        }
+        return new CreationResult(false, toResponse(group));
+    }
+
+    private boolean isIdempotencyKeyViolation(DataIntegrityViolationException violation) {
+        for (Throwable cause = violation; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException constraint
+                    && "23505".equals(constraint.getSQLState())
+                    && ("order_groups_idempotency_key_key".equals(constraint.getConstraintName())
+                    || "orders_idempotency_key_key".equals(constraint.getConstraintName()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private CreationResult createFromCart(CurrentUser user, String key, Map<String, Object> snapshot) {
         groupRepository.lockKey("order-buyer:" + user.id());
         Cart cart = cartRepository.findActiveForUpdate(user.id())
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.CART_EMPTY));
