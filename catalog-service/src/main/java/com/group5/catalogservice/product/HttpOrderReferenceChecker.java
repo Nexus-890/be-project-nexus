@@ -2,9 +2,11 @@ package com.group5.catalogservice.product;
 
 import com.group5.catalogservice.shared.config.CatalogProperties;
 import com.group5.common_core.exception.DomainException;
+import com.group5.common_core.model.ApiResponse;
 import io.micrometer.observation.ObservationRegistry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -47,15 +49,15 @@ public class HttpOrderReferenceChecker implements OrderReferenceChecker {
         }
 
         try {
-            OrderReferencesResponse response = client.get()
+            ApiResponse<OrderReferencesResponse> response = client.get()
                     .uri("/internal/order-references/products/{productId}", productId)
                     .header(HttpHeaders.AUTHORIZATION, authorization)
                     .retrieve()
-                    .body(OrderReferencesResponse.class);
-            if (response == null || response.hasOrders() == null) {
+                    .body(new ParameterizedTypeReference<ApiResponse<OrderReferencesResponse>>() { });
+            if (response == null || response.data() == null || response.data().hasOrders() == null) {
                 throw new DomainException(503, UNAVAILABLE);
             }
-            return response.hasOrders();
+            return response.data().hasOrders();
         } catch (RestClientException exception) {
             // A failed lookup must never turn into permission to delete a referenced product.
             throw new DomainException(503, UNAVAILABLE);

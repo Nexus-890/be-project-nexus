@@ -1,5 +1,6 @@
 package com.group5.notificationservice.eventlog.kafka.demo;
 
+import com.group5.common_core.model.ApiResponse;
 import java.util.List;
 
 import org.springframework.context.annotation.Profile;
@@ -19,7 +20,7 @@ public class KafkaDemoMessageController {
     }
 
     @GetMapping("/messages")
-    public List<KafkaDemoMessage> messages() {
-        return repository.findLatest();
+    public ApiResponse<List<KafkaDemoMessage>> messages() {
+        return ApiResponse.list(repository.findLatest());
     }
 }

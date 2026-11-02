@@ -1,5 +1,6 @@
 package com.group5.notificationservice.eventlog.kafka.smoke;
 
+import com.group5.common_core.model.ApiResponse;
 import java.util.List;
 
 import org.springframework.context.annotation.Profile;
@@ -19,7 +20,7 @@ public class KafkaSmokeMessageController {
     }
 
     @GetMapping("/messages")
-    public List<KafkaSmokeMessage> messages() {
-        return store.snapshot();
+    public ApiResponse<List<KafkaSmokeMessage>> messages() {
+        return ApiResponse.list(store.snapshot());
     }
 }

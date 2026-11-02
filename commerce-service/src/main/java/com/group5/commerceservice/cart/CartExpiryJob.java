@@ -3,7 +3,7 @@ package com.group5.commerceservice.cart;
 
 import com.group5.commerceservice.cart.repository.CartRepository;
 import com.group5.commerceservice.shared.config.CartProperties;
-import com.group5.common_core.constant.ErrorCode;
+import com.group5.commerceservice.shared.exception.CommerceErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUserAuditor;
 import jakarta.transaction.Transactional;
@@ -30,7 +30,7 @@ public class CartExpiryJob {
     public void expireInactiveCarts() {
         int expirationDays = cartProperties.getExpirationDays();
         if (expirationDays < 1) {
-            throw new DomainException(ErrorCode.INVALID_CONFIGURATION);
+            throw new DomainException(CommerceErrorCode.INVALID_CONFIGURATION);
         }
         int expiredCount = cartRepository.expireInactiveActiveCarts(expirationDays, CurrentUserAuditor.SYSTEM_ID);
         log.info(

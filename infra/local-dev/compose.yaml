@@ -81,6 +81,112 @@ services:
     networks:
       - nexus-network
 
+  # Config Server and Eureka run on the host in the local development stack.
+  # Package the shipment JAR first; enable this service with --profile shipment.
+  shipment-service:
+    profiles: ["shipment"]
+    image: eclipse-temurin:21-jre
+    working_dir: /app
+    user: "10001:10001"
+    command: ["java", "-jar", "/app/shipment-service.jar"]
+
+    volumes:
+      - ../../shipment-service/target/shipment-service-0.0.1-SNAPSHOT.jar:/app/shipment-service.jar:ro
+
+    environment:
+      TZ: ${TZ}
+      CONFIG_SERVER_URL: http://host.docker.internal:8888
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://host.docker.internal:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
+      EUREKA_INSTANCE_HOSTNAME: host.docker.internal
+      EUREKA_INSTANCE_NON_SECURE_PORT: "8088"
+      EUREKA_INSTANCE_INSTANCE_ID: shipment-service:8088
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+      JWT_ISSUER: ${JWT_ISSUER:-user-service}
+      JWT_JWK_SET_URI: ${JWT_JWK_SET_URI:-http://host.docker.internal:8081/.well-known/jwks.json}
+
+    ports:
+      - "8088:8088"
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8088; printf 'GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+    restart: unless-stopped
+
+    networks:
+      - nexus-network
+
+  # Package the rating JAR first; enable this service with --profile rating.
+  rating-service:
+    container_name: nexus-rating-service
+    profiles: ["rating"]
+    image: eclipse-temurin:21-jre
+    working_dir: /app
+    user: "10001:10001"
+    command: ["java", "-jar", "/app/rating-service.jar"]
+
+    volumes:
+      - ../../rating-service/target/rating-service-0.0.1-SNAPSHOT.jar:/app/rating-service.jar:ro
+
+    environment:
+      TZ: ${TZ}
+      CONFIG_SERVER_URL: http://host.docker.internal:8888
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://host.docker.internal:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
+      EUREKA_INSTANCE_HOSTNAME: host.docker.internal
+      EUREKA_INSTANCE_NON_SECURE_PORT: ${RATING_PORT:-8089}
+      EUREKA_INSTANCE_INSTANCE_ID: rating-service:${RATING_PORT:-8089}
+      EUREKA_INSTANCE_HEALTH_CHECK_URL: http://host.docker.internal:${RATING_PORT:-8089}/actuator/health
+      EUREKA_INSTANCE_STATUS_PAGE_URL: http://host.docker.internal:${RATING_PORT:-8089}/actuator/info
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+      JWT_ISSUER: ${JWT_ISSUER:-user-service}
+      JWT_JWK_SET_URI: ${JWT_JWK_SET_URI:-http://host.docker.internal:8081/.well-known/jwks.json}
+
+    ports:
+      - "${RATING_PORT:-8089}:8089"
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+    healthcheck:
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8089; printf 'GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+    restart: unless-stopped
+
+    networks:
+      - nexus-network
+
   auth-service:
     image: quay.io/keycloak/keycloak:26.7.5
     container_name: nexus-auth-service

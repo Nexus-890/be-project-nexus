@@ -127,6 +127,15 @@ nexus:
         path: /api/v1/orders
         privilege: ORDER.CREATE
       - method: GET
+        path: /api/v1/orders/{id}/history
+        privilege: ORDER.VIEW
+      - method: GET
+        path: /api/v1/orders
+        privilege: ORDER.LIST
+      - method: GET
+        path: /api/v1/orders/{id}
+        privilege: ORDER.VIEW
+      - method: GET
         path: /api/v1/notifications
         privilege: NOTIFICATION.VIEW
       - method: GET

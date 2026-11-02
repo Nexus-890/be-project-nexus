@@ -5,6 +5,7 @@ import com.group5.commerceservice.cart.dto.request.UpdateCartItemRequest;
 import com.group5.commerceservice.cart.dto.response.CartResponse;
 import com.group5.commerceservice.cart.service.CartService;
 import com.group5.common_security.CurrentUser;
+import com.group5.common_core.model.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -26,21 +27,21 @@ public class CartController {
     // Ref: docs/api/gateway-permissions.md — CRT-01
     @GetMapping("/me")
     @PreAuthorize("hasAuthority('CART.VIEW') and hasAuthority('CART.CREATE')")
-    public ResponseEntity<CartResponse> getMyCart(
-             CurrentUser currentUser) {
-        return ResponseEntity.ok(cartService.getMyCart(currentUser));
+    public ResponseEntity<ApiResponse<CartResponse>> getMyCart(
+            @AuthenticationPrincipal CurrentUser currentUser) {
+        return ResponseEntity.ok(ApiResponse.of(cartService.getMyCart(currentUser)));
     }
 
     // Gateway yêu cầu CART.UPDATE (primary privilege).
     // Ref: docs/api/gateway-permissions.md — CRT-02
     @PostMapping("/me/items")
     @PreAuthorize("hasAuthority('CART.UPDATE')")
-    public ResponseEntity<CartResponse> addItem(
-             CurrentUser currentUser,
+    public ResponseEntity<ApiResponse<CartResponse>> addItem(
+            @AuthenticationPrincipal CurrentUser currentUser,
             @Valid @RequestBody CartItemRequest request) {
         return ResponseEntity
                 .status(HttpStatus.CREATED)
-                .body(cartService.addItem(currentUser, request));
+                .body(ApiResponse.of(cartService.addItem(currentUser, request)));
     }
 
     @PutMapping("/me/items/{id}")

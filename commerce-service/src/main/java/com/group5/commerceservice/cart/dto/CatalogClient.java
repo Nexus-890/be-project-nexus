@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 
 import java.util.List;
 import java.util.UUID;
+import com.group5.common_core.model.ApiResponse;
 
 @FeignClient(
         name = "catalog-service",
@@ -14,10 +15,10 @@ import java.util.UUID;
 public interface CatalogClient {
 
     @GetMapping("/skus/{id}")
-    CatalogSkuResponse getSkuById(@PathVariable("id") UUID id);
+    ApiResponse<CatalogSkuResponse> getSkuById(@PathVariable("id") UUID id);
 
     @GetMapping("/products/{id}")
-    ProductResponse getProductById(@PathVariable("id") UUID id);
+    ApiResponse<ProductResponse> getProductById(@PathVariable("id") UUID id);
 
     record ProductResponse(UUID id, UUID sellerId, String name, String status, List<ImageResponse> images) { }
 

@@ -119,6 +119,7 @@ class SecurityAutoConfigurationTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.type").value("urn:problem:unauthorized"))
                 .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
                 .andExpect(jsonPath("$.instance").value("/test/me"))
                 .andExpect(jsonPath("$.traceId").value(traceId));
         assertThat(traceId).matches("[0-9a-f]{32}");
@@ -160,6 +161,7 @@ class SecurityAutoConfigurationTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.type").value("urn:problem:forbidden"))
                 .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"))
                 .andExpect(jsonPath("$.traceId").value(traceId));
     }
 

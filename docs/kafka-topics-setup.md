@@ -225,13 +225,13 @@ Gửi event từ Commerce bằng CMD hoặc PowerShell:
 curl.exe -i -X POST http://localhost:8083/internal/kafka-demo/messages -H "Content-Type: application/json" -d "{\"key\":\"order-demo-001\",\"message\":\"hello-from-normal-services\"}"
 ```
 
-Response `201` có `outboxId`, `eventId`, `topic`, `partition`, `offset`. Ghi lại `eventId` rồi xem Notification đã lưu vào DB:
+Response `201` có `data.outboxId`, `data.eventId`, `data.topic`, `data.partition`, `data.offset`. Ghi lại `data.eventId` rồi xem Notification đã lưu vào DB:
 
 ```cmd
 curl.exe http://localhost:8086/internal/kafka-demo/messages
 ```
 
-GET trả các record gần nhất lấy từ `notification_db.event_logs`, **không phải danh sách memory**. Dùng IntelliJ Database tool hoặc `psql` kiểm tra trực tiếp:
+GET trả `{ "data": [...], "page": { "number": 0, "size": N, "totalElements": N, "totalPages": 1 } }`; các record trong `data` lấy từ `notification_db.event_logs`, **không phải danh sách memory**. Cả danh sách được biểu diễn bằng một trang, không thêm tham số phân trang; danh sách rỗng có `size: 1`, `totalElements: 0`, `totalPages: 0`. Dùng IntelliJ Database tool hoặc `psql` kiểm tra trực tiếp:
 
 ```sql
 -- commerce_db
@@ -312,15 +312,17 @@ Response thành công là HTTP `201` và JSON dạng:
 
 ```json
 {
-  "eventId": "<uuid>",
-  "key": "demo-order-001",
-  "topic": "nexus.training.integration.v1",
-  "partition": 0,
-  "offset": 0
+  "data": {
+    "eventId": "<uuid>",
+    "key": "demo-order-001",
+    "topic": "nexus.training.integration.v1",
+    "partition": 0,
+    "offset": 0
+  }
 }
 ```
 
-`partition` và `offset` thay đổi theo state Kafka local. Lưu `eventId` để search trên Kafka UI.
+`data.partition` và `data.offset` thay đổi theo state Kafka local. Lưu `data.eventId` để search trên Kafka UI.
 
 Request rule:
 
@@ -337,17 +339,22 @@ Producer tạo envelope JSON `TrainingEvent` gồm `eventId`, `eventType`, `even
 curl.exe http://localhost:8086/internal/kafka-smoke/messages
 ```
 
-Mỗi item có metadata Kafka:
+Response có danh sách trong `data` và thông tin trang trong `page`. Mỗi item có metadata Kafka:
 
 ```json
 {
-  "eventId": "<uuid>",
-  "key": "demo-order-001",
-  "topic": "nexus.training.integration.v1",
-  "partition": 0,
-  "offset": 0,
-  "receivedAt": "<instant>",
-  "value": "{...raw event json...}"
+  "data": [
+    {
+      "eventId": "<uuid>",
+      "key": "demo-order-001",
+      "topic": "nexus.training.integration.v1",
+      "partition": 0,
+      "offset": 0,
+      "receivedAt": "<instant>",
+      "value": "{...raw event json...}"
+    }
+  ],
+  "page": { "number": 0, "size": 1, "totalElements": 1, "totalPages": 1 }
 }
 ```
 

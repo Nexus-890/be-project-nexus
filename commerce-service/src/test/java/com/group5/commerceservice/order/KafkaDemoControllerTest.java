@@ -36,10 +36,10 @@ class KafkaDemoControllerTest {
         mvc.perform(post("/internal/kafka-demo/messages").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"key\":\"order-1\",\"message\":\"hello\"}"))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.outboxId").value(outboxId.toString()))
-                .andExpect(jsonPath("$.eventId").value(outboxId.toString()))
-                .andExpect(jsonPath("$.partition").value(2))
-                .andExpect(jsonPath("$.offset").value(7));
+                .andExpect(jsonPath("$.data.outboxId").value(outboxId.toString()))
+                .andExpect(jsonPath("$.data.eventId").value(outboxId.toString()))
+                .andExpect(jsonPath("$.data.partition").value(2))
+                .andExpect(jsonPath("$.data.offset").value(7));
         verify(publisher).publish(new KafkaDemoRequest("order-1", "hello"));
     }
 
