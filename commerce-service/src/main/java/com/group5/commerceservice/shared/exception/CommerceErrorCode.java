@@ -19,7 +19,9 @@ public enum CommerceErrorCode implements ErrorCode {
     IDEMPOTENCY_CONFLICT(HttpStatus.CONFLICT, "Idempotency-Key was already used for another request"),
     PROMOTION_NOT_SUPPORTED(HttpStatus.CONFLICT, "Remove the promotion code before placing this order"),
     ITEM_UNAVAILABLE(HttpStatus.CONFLICT, "An item is unavailable"),
-    INVALID_ORDER_AMOUNT(HttpStatus.CONFLICT, "An item price or order total cannot be represented as numeric(19,2)");
+    INVALID_ORDER_AMOUNT(HttpStatus.CONFLICT, "An item price or order total cannot be represented as numeric(19,2)"),
+    ORDER_NOT_CANCELLABLE(HttpStatus.CONFLICT, "The order can no longer be cancelled"),
+    RESERVED_CANCEL_REASON(HttpStatus.BAD_REQUEST, "This cancellation reason is reserved for payment expiry");
 
     private final HttpStatus status;
     private final String message;

@@ -128,6 +128,9 @@ nexus:
       - method: GET
         path: /api/v1/orders/{id}
         privilege: ORDER.VIEW
+      - method: POST
+        path: /api/v1/orders/{id}/cancel
+        privilege: ORDER.CANCEL
       - method: GET
         path: /api/v1/notifications
         privilege: NOTIFICATION.VIEW

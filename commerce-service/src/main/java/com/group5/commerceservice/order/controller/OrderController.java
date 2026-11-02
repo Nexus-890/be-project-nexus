@@ -2,6 +2,7 @@ package com.group5.commerceservice.order.controller;
 
 import com.group5.commerceservice.order.OrderStatus;
 import com.group5.commerceservice.order.service.OrderService;
+import com.group5.commerceservice.order.dto.request.CancelOrderRequest;
 import com.group5.commerceservice.order.dto.request.ChangeOrderStatusRequest;
 import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
 import com.group5.commerceservice.order.dto.response.OrderGroupResponse;
@@ -58,6 +59,13 @@ public class OrderController {
     public ApiResponse<OrderResponse> changeStatus(CurrentUser user, @PathVariable UUID id,
             @Valid @RequestBody ChangeOrderStatusRequest request) {
         return ApiResponse.of(orderService.changeStatus(user, id, request));
+    }
+
+    @PostMapping("/api/v1/orders/{id}/cancel")
+    @PreAuthorize("hasAuthority('ORDER.CANCEL')")
+    public ApiResponse<OrderGroupResponse> cancel(CurrentUser user, @PathVariable UUID id,
+            @Valid @RequestBody CancelOrderRequest request) {
+        return ApiResponse.of(orderService.cancel(user, id, request));
     }
 
     @GetMapping("/api/v1/orders/{id}/history")

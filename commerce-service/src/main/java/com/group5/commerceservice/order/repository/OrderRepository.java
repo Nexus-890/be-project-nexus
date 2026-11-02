@@ -2,12 +2,14 @@ package com.group5.commerceservice.order.repository;
 
 import com.group5.commerceservice.order.OrderStatus;
 import com.group5.commerceservice.order.entity.Order;
+import com.group5.commerceservice.order.entity.OrderItem;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -26,6 +28,15 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     @Query("select o.status from Order o where o.id = :id")
     Optional<OrderStatus> findStatusById(UUID id);
+
+    @Query(value = "SELECT id FROM orders WHERE order_group_id = :groupId ORDER BY id FOR UPDATE", nativeQuery = true)
+    List<UUID> lockGroupOrders(UUID groupId);
+
+    @Query("select o.id from Order o where o.orderGroup.id = :groupId and o.status = :status order by o.id")
+    List<UUID> findIdsByGroupAndStatus(UUID groupId, OrderStatus status);
+
+    @Query("select i from OrderItem i where i.order.id in :orderIds order by i.id")
+    List<OrderItem> findItemsByOrderIds(List<UUID> orderIds);
 
     @Modifying
     @Query(value = """
