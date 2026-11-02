@@ -3941,6 +3941,313 @@ paths:
             type: "string"
             format: "uuid"
 
+  /api/v1/carts/me/items/{id}:
+    put:
+      tags: [Cart]
+      operationId: updateOwnCartItem
+      summary: Replace the quantity of an item in the current cart
+      description: Uses the JWT subject active cart only. Missing, inactive or foreign cart items return 404. Quantity is replaced, not incremented. Existing unitPrice is preserved.
+      security:
+        - bearerAuth: []
+      x-required-privileges: [CART.UPDATE]
+      x-gateway-privilege: CART.UPDATE
+      x-required-roles: []
+      x-ownership: JWT subject active cart only.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Cart item ID.
+          schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity]
+              properties:
+                quantity: {type: integer, format: int32, minimum: 1}
+            example: {quantity: 2}
+      responses:
+        "200":
+          description: Current cart with the replaced item quantity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetOwnCartResponse"
+        "400":
+          description: INVALID_PARAMETER, INVALID_REQUEST_BODY, VALIDATION_FAILED, COMMERCE_INVALID_QUANTITY.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [400]}
+                      code: {type: string, enum: ["INVALID_PARAMETER","INVALID_REQUEST_BODY","VALIDATION_FAILED","COMMERCE_INVALID_QUANTITY"]}
+              examples:
+                INVALID_PARAMETER:
+                  value: {"type":"urn:problem:invalid-parameter","title":"Bad Request","status":400,"detail":"A request parameter is invalid","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"INVALID_PARAMETER"}
+                INVALID_REQUEST_BODY:
+                  value: {"type":"urn:problem:invalid-request-body","title":"Bad Request","status":400,"detail":"The request body is invalid or malformed","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"INVALID_REQUEST_BODY"}
+                VALIDATION_FAILED:
+                  value: {"type":"urn:problem:validation-failed","title":"Bad Request","status":400,"detail":"The request data is invalid","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"VALIDATION_FAILED"}
+                COMMERCE_INVALID_QUANTITY:
+                  value: {"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"Quantity is invalid","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"COMMERCE_INVALID_QUANTITY"}
+        "401":
+          description: UNAUTHENTICATED, COMMERCE_UNAUTHENTICATED.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [401]}
+                      code: {type: string, enum: ["UNAUTHENTICATED","COMMERCE_UNAUTHENTICATED"]}
+              examples:
+                UNAUTHENTICATED:
+                  value: {"type":"urn:problem:unauthenticated","title":"Unauthorized","status":401,"detail":"A valid access token is required to access this resource","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"UNAUTHENTICATED"}
+                COMMERCE_UNAUTHENTICATED:
+                  value: {"type":"urn:problem:domain-error","title":"Unauthorized","status":401,"detail":"Unauthenticated","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"COMMERCE_UNAUTHENTICATED"}
+        "403":
+          description: FORBIDDEN.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [403]}
+                      code: {type: string, enum: ["FORBIDDEN"]}
+              examples:
+                FORBIDDEN:
+                  value: {"type":"urn:problem:forbidden","title":"Forbidden","status":403,"detail":"You do not have permission to access this resource","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"FORBIDDEN"}
+        "404":
+          description: NOT_FOUND.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [404]}
+                      code: {type: string, enum: ["NOT_FOUND"]}
+              examples:
+                NOT_FOUND:
+                  value: {"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"The requested resource was not found","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"NOT_FOUND"}
+        "405":
+          description: METHOD_NOT_ALLOWED.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [405]}
+                      code: {type: string, enum: ["METHOD_NOT_ALLOWED"]}
+              examples:
+                METHOD_NOT_ALLOWED:
+                  value: {"type":"urn:problem:method-not-allowed","title":"Method Not Allowed","status":405,"detail":"The HTTP method is not supported for this endpoint","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"METHOD_NOT_ALLOWED"}
+        "406":
+          description: NOT_ACCEPTABLE.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [406]}
+                      code: {type: string, enum: ["NOT_ACCEPTABLE"]}
+              examples:
+                NOT_ACCEPTABLE:
+                  value: {"type":"urn:problem:not-acceptable","title":"Not Acceptable","status":406,"detail":"The requested response format is not supported","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"NOT_ACCEPTABLE"}
+        "415":
+          description: UNSUPPORTED_MEDIA_TYPE.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [415]}
+                      code: {type: string, enum: ["UNSUPPORTED_MEDIA_TYPE"]}
+              examples:
+                UNSUPPORTED_MEDIA_TYPE:
+                  value: {"type":"urn:problem:unsupported-media-type","title":"Unsupported Media Type","status":415,"detail":"The request content type is not supported","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"UNSUPPORTED_MEDIA_TYPE"}
+        "429":
+          description: RATE_LIMITED.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [429]}
+                      code: {type: string, enum: ["RATE_LIMITED"]}
+              examples:
+                RATE_LIMITED:
+                  value: {"type":"urn:problem:rate-limited","title":"Too Many Requests","status":429,"detail":"Too many requests; retry after the indicated delay","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"RATE_LIMITED"}
+        "500":
+          description: INTERNAL_ERROR.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [500]}
+                      code: {type: string, enum: ["INTERNAL_ERROR"]}
+              examples:
+                INTERNAL_ERROR:
+                  value: {"type":"urn:problem:internal-error","title":"Internal Server Error","status":500,"detail":"An unexpected error occurred","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"INTERNAL_ERROR"}
+    delete:
+      tags: [Cart]
+      operationId: removeOwnCartItem
+      summary: Remove an item from the current cart
+      description: Uses the JWT subject active cart only. Missing, inactive or foreign cart items return 404. Success has no body.
+      security:
+        - bearerAuth: []
+      x-required-privileges: [CART.REMOVE_ITEM]
+      x-gateway-privilege: CART.REMOVE_ITEM
+      x-required-roles: []
+      x-ownership: JWT subject active cart only.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Cart item ID.
+          schema: {type: string, format: uuid}
+      responses:
+        "204":
+          description: Item removed; no response body.
+        "400":
+          description: INVALID_PARAMETER, INVALID_REQUEST_BODY, VALIDATION_FAILED.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [400]}
+                      code: {type: string, enum: ["INVALID_PARAMETER","INVALID_REQUEST_BODY","VALIDATION_FAILED"]}
+              examples:
+                INVALID_PARAMETER:
+                  value: {"type":"urn:problem:invalid-parameter","title":"Bad Request","status":400,"detail":"A request parameter is invalid","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"INVALID_PARAMETER"}
+                INVALID_REQUEST_BODY:
+                  value: {"type":"urn:problem:invalid-request-body","title":"Bad Request","status":400,"detail":"The request body is invalid or malformed","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"INVALID_REQUEST_BODY"}
+                VALIDATION_FAILED:
+                  value: {"type":"urn:problem:validation-failed","title":"Bad Request","status":400,"detail":"The request data is invalid","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"VALIDATION_FAILED"}
+        "401":
+          description: UNAUTHENTICATED, COMMERCE_UNAUTHENTICATED.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [401]}
+                      code: {type: string, enum: ["UNAUTHENTICATED","COMMERCE_UNAUTHENTICATED"]}
+              examples:
+                UNAUTHENTICATED:
+                  value: {"type":"urn:problem:unauthenticated","title":"Unauthorized","status":401,"detail":"A valid access token is required to access this resource","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"UNAUTHENTICATED"}
+                COMMERCE_UNAUTHENTICATED:
+                  value: {"type":"urn:problem:domain-error","title":"Unauthorized","status":401,"detail":"Unauthenticated","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"COMMERCE_UNAUTHENTICATED"}
+        "403":
+          description: FORBIDDEN.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [403]}
+                      code: {type: string, enum: ["FORBIDDEN"]}
+              examples:
+                FORBIDDEN:
+                  value: {"type":"urn:problem:forbidden","title":"Forbidden","status":403,"detail":"You do not have permission to access this resource","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"FORBIDDEN"}
+        "404":
+          description: NOT_FOUND.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [404]}
+                      code: {type: string, enum: ["NOT_FOUND"]}
+              examples:
+                NOT_FOUND:
+                  value: {"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"The requested resource was not found","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"NOT_FOUND"}
+        "405":
+          description: METHOD_NOT_ALLOWED.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [405]}
+                      code: {type: string, enum: ["METHOD_NOT_ALLOWED"]}
+              examples:
+                METHOD_NOT_ALLOWED:
+                  value: {"type":"urn:problem:method-not-allowed","title":"Method Not Allowed","status":405,"detail":"The HTTP method is not supported for this endpoint","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"METHOD_NOT_ALLOWED"}
+        "406":
+          description: NOT_ACCEPTABLE.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [406]}
+                      code: {type: string, enum: ["NOT_ACCEPTABLE"]}
+              examples:
+                NOT_ACCEPTABLE:
+                  value: {"type":"urn:problem:not-acceptable","title":"Not Acceptable","status":406,"detail":"The requested response format is not supported","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"NOT_ACCEPTABLE"}
+        "429":
+          description: RATE_LIMITED.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [429]}
+                      code: {type: string, enum: ["RATE_LIMITED"]}
+              examples:
+                RATE_LIMITED:
+                  value: {"type":"urn:problem:rate-limited","title":"Too Many Requests","status":429,"detail":"Too many requests; retry after the indicated delay","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"RATE_LIMITED"}
+        "500":
+          description: INTERNAL_ERROR.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [500]}
+                      code: {type: string, enum: ["INTERNAL_ERROR"]}
+              examples:
+                INTERNAL_ERROR:
+                  value: {"type":"urn:problem:internal-error","title":"Internal Server Error","status":500,"detail":"An unexpected error occurred","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"INTERNAL_ERROR"}
 components:
   securitySchemes:
     bearerAuth:
