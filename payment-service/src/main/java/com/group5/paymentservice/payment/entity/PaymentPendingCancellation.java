@@ -15,14 +15,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Staging row for an OrderGroupCancelled event that arrived before its
- * CheckoutPaymentRequested manifest. The consumer acknowledges the Kafka
- * record (processed marker committed in the same transaction) instead of
- * retrying forever and blocking the whole partition. The stashed
- * cancellation is applied when the manifest arrives, inside the same
- * transaction that creates the payment session and its instructions.
- */
 @Getter
 @Setter
 @Entity
@@ -68,7 +60,7 @@ public class PaymentPendingCancellation {
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "orders", nullable = false, columnDefinition = "jsonb")
-    private List<Map<String, Object>> orders;
+    private List<Map<String, String>> orders;
 
     @NotNull
     @Column(name = "source_event_id", nullable = false)
