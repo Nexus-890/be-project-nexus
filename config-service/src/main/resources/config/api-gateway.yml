@@ -122,6 +122,9 @@ nexus:
       - method: GET
         path: /api/v1/orders/{id}/history
         privilege: ORDER.VIEW
+      - method: POST
+        path: /api/v1/payments
+        privilege: CHECKOUT.START
       - method: GET
         path: /api/v1/orders
         privilege: ORDER.LIST
