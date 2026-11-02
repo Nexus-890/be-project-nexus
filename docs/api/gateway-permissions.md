@@ -8,8 +8,8 @@ its original scope and historical contract; its former page/error-shape text doe
 not override #248 for already delivered endpoints. Access-policy rows remain the
 source of truth for gateway privilege registration.
 
-This document contains the active gateway policy table and the #88 API-shape
-draft contracts below. A draft contract does not expose a runtime endpoint. Every
+This document contains the active gateway policy table and the #88 and #124
+API-shape draft contracts below. A draft contract does not expose a runtime endpoint. Every
 issue enabling or changing a runtime endpoint must update this document and the endpoint policy
 in `config-service/src/main/resources/config/api-gateway.yml` in the same merge
 request. `SecurityConfig.java` binds `nexus.security.public-endpoints` and
@@ -322,3 +322,122 @@ Retain the catalogue 204 responses and record an exception to #88's original
 nonempty-body criterion. Implementation MRs still need to register the gateway
 privilege and enforce the full downstream policy before deployment; these drafts
 and Prism cannot demonstrate runtime authorization.
+
+## API shapes draft (#124) — inventory and auction
+
+These **26 method/path contracts** are drafts (`0.1.0-draft`) for the
+[inventory contract](inventory-service.yaml) and the
+[auction contract](auction-service.yaml). A draft does not expose a runtime
+endpoint: `RouteConfig` has no inventory or auction route yet, and this section
+changes neither `api-gateway.yml` nor `SecurityConfig`. Each owning issue registers
+its row, enforces the service rule and copies its operations into `openapi/`.
+Each method/path appears exactly once below, with a role, the word `public`, or
+`system` for the two paths the gateway never routes.
+
+Gateway privilege `token only` means the gateway requires a valid token and the
+service checks the role, as ORD-06 does above. SRS 2.7 defines no `INVENTORY.*` or
+`WAREHOUSE.*` privilege, so inventory paths are role-only; do not invent one.
+A path with several roles in `x-required-roles` accepts any one of them.
+
+**inventory-service**
+
+| Method | Path | Actor roles (or public) | Gateway privilege | Required service privileges (all) | Ownership / business restriction | Owning issue |
+|---|---|---|---|---|---|---|
+| POST | `/api/v1/inventory/intake` | ADMIN | token only | none (role-only) | Service requires ADMIN; writes one ledger row in the same transaction | #130 |
+| GET | `/api/v1/inventory/{skuId}` | public | public | none (public) |  | #132 |
+| GET | `/api/v1/inventory` | public | public | none (public) |  | #132 |
+| POST | `/api/v1/inventory/reservations` | BUYER | token only | none (role-only) | Service requires BUYER; commerce-service forwards the buyer token | #134 |
+| POST | `/api/v1/inventory/reservations/{id}/confirm` | system | not routed | none (service-to-service) | Called by the event consumers of #160 and #161; conditional on status HELD | #136 |
+| POST | `/api/v1/inventory/reservations/{id}/release` | system | not routed | none (service-to-service) | Called by the event consumers of #160 and #161; conditional on status HELD | #136 |
+| GET | `/api/v1/inventory/reservations` | ADMIN, SUPPORT_STAFF | token only | none (role-only) | Service requires ADMIN or SUPPORT_STAFF | #200 |
+| GET | `/api/v1/inventory/balances` | ADMIN, SELLER | token only | none (role-only) | Service requires ADMIN, or SELLER for their own SKUs | #200 |
+| POST | `/api/v1/inventory/adjustments` | ADMIN | token only | none (role-only) | Service requires ADMIN; writes one ledger row | #200 |
+| GET | `/api/v1/inventory/movements` | ADMIN, SUPPORT_STAFF | token only | none (role-only) | Service requires ADMIN or SUPPORT_STAFF | #200 |
+| POST | `/api/v1/warehouses` | ADMIN | token only | none (role-only) | Service requires ADMIN | #199 |
+| GET | `/api/v1/warehouses` | ADMIN, SUPPORT_STAFF | token only | none (role-only) | Service requires ADMIN or SUPPORT_STAFF | #199 |
+| GET | `/api/v1/warehouses/{id}` | ADMIN, SUPPORT_STAFF | token only | none (role-only) | Service requires ADMIN or SUPPORT_STAFF | #199 |
+| PUT | `/api/v1/warehouses/{id}` | ADMIN | token only | none (role-only) | Service requires ADMIN | #199 |
+
+**auction-service**
+
+| Method | Path | Actor roles (or public) | Gateway privilege | Required service privileges (all) | Ownership / business restriction | Owning issue |
+|---|---|---|---|---|---|---|
+| POST | `/api/v1/auctions` | ADMIN, SELLER | AUCTION.CREATE | AUCTION.CREATE | Seller of the product; ADMIN on behalf of a seller | #140, #141, #142 |
+| PUT | `/api/v1/auctions/{id}` | ADMIN, SELLER | AUCTION.UPDATE | AUCTION.UPDATE | Owner of the auction; frozen once it has started | #197 |
+| POST | `/api/v1/auctions/{id}/schedule` | ADMIN, SELLER | AUCTION.UPDATE | AUCTION.UPDATE | Owner of the auction; only from CREATED | #144 |
+| GET | `/api/v1/auctions/{id}` | public | public | none (public) |  | #143 |
+| GET | `/api/v1/auctions` | public | public | none (public) |  | #143 |
+| GET | `/api/v1/auctions/{id}/state` | public | public | none (public) |  | #168 |
+| POST | `/api/v1/auctions/{id}/cancel` | ADMIN, SELLER | AUCTION.CANCEL | AUCTION.CANCEL | Owner of the auction; only while it has no valid bid | #197 |
+| POST | `/api/v1/auctions/{id}/admin-cancel` | ADMIN | AUCTION.ADMIN_CANCEL | AUCTION.ADMIN_CANCEL | Any auction not yet settled or cancelled; audit actor and reason | #197 |
+| GET | `/api/v1/auctions/mine` | SELLER | AUCTION.LIST | AUCTION.LIST | Own auctions only | #198 |
+| POST | `/api/v1/auctions/{id}/bids` | BUYER | AUCTION.BID | AUCTION.BID | Not the auction's seller; caller-scoped idempotency key | #146, #147 |
+| GET | `/api/v1/auctions/{id}/bids` | public | public | none (public) |  | #169 |
+| GET | `/api/v1/bids/mine` | BUYER | AUCTION.VIEW_BID_HISTORY | AUCTION.VIEW_BID_HISTORY | Own bids only | #198 |
+
+### Scope and draft decisions
+
+- **Required role of the reservation path:** `POST /api/v1/inventory/reservations`
+  requires `BUYER`. commerce-service sends it with the buyer's token; the frontend
+  does not call it.
+- **Availability is public:** `GET /api/v1/inventory/{skuId}` and
+  `GET /api/v1/inventory` need no token and return only `skuId` and `available`.
+- **`{skuId}` is not UUID-constrained by the gateway:** `matcherPath` constrains
+  only a segment named `{id}`, and public matchers are registered first. A public
+  row written as `/api/v1/inventory/{skuId}` would also match `/reservations`,
+  `/balances` and `/movements`, making those GETs public at the gateway. #132 must
+  register the row as `/api/v1/inventory/{id}`, or change `matcherPath`. The
+  `{id}` rows for auctions do not have this problem.
+- **Not routed:** the route #136 relies on must leave out
+  `/api/v1/inventory/reservations/{id}/confirm` and `/release`, so that a call from
+  outside returns 404.
+- **Public auction reads:** the catalogue lists a privilege next to AUC-04, AUC-05,
+  AUC-06 and BID-02 and also marks them public. Public wins: no token is needed, and
+  the service does not check a privilege for an anonymous caller.
+- **No bidder id in public reads:** `Auction` leaves out `leader_bidder_id` and
+  `winner_id`, because AUC-04 and AUC-05 are public. AUC-06 and BID-02 return masked
+  names only. `POST .../bids` returns `leaderBidderId` to the bidder who just led.
+- **Shipment:** shipping moved to shipment-service (#241), so its paths are not in
+  this draft.
+- **Scope:** every inventory and auction path in the Sprint 2 issues, plus AUC-06
+  (#168) and BID-02 (#169) from Sprint 3, so the auction room can be mocked too. The
+  catalogue still marks AUC-02, AUC-07, AUC-08, AUC-10 and BID-03 after R1, but #197
+  and #198 are in Sprint 2. AUC-09, AUC-11 and AUC-12 have no issue and are left out.
+  `GET /internal/v1/inventory/reservations` (#209, Sprint 3) is not in this draft.
+- **Movement types:** `movementType` and the `type` filter use the eight
+  `inventory_movement_type` values plus `INTAKE` and `COMMIT`, which V6 adds (#131).
+  #200 writes `ADJUSTMENT`. The schema document still names an `ADJUST` value that no
+  issue writes.
+- **Money:** a JSON number, per ADR-008. It differs from the #88 decimal strings.
+- **Error codes:** the `AUCTION_*` and `INVENTORY_*` names under
+  `x-business-error-codes` are proposals, except `AUCTION_BID_TOO_LOW` and
+  `INVENTORY_INSUFFICIENT_STOCK`, which #146 and #134 name. Security failures keep the
+  shared `UNAUTHENTICATED` and `FORBIDDEN`.
+- **204:** INV-05 and INV-06 return 204 with no body, as the catalogue and #136 say.
+  They are the exception to "returns example data on every path" in #124.
+
+### Validate and run the mocks
+
+Run these commands from `be-project-nexus`:
+
+```bash
+npx --yes @redocly/cli@2.63.0 lint docs/api/inventory-service.yaml docs/api/auction-service.yaml
+npx --yes @stoplight/prism-cli@5.14.2 mock docs/api/inventory-service.yaml -p 4012
+npx --yes @stoplight/prism-cli@5.14.2 mock docs/api/auction-service.yaml -p 4013
+```
+
+The runnable FE guide is in [inventory-service.yaml](inventory-service.yaml), under
+`info.description`, **Frontend quick start**.
+
+### Verification scope
+
+- Redocly 2.63.0 with `redocly.yaml`: both files valid, no warnings.
+- Prism 5.14.2, all 26 operations: the default response matches its example, every
+  declared status and named error example is returned with the right media type, and
+  the two 204 responses have no body. A protected path without a token returns 401, a
+  public path without a token succeeds, 101 SKU ids return 400, and a bid without
+  `Idempotency-Key` returns 400. `/inventory/reservations` and `/auctions/mine` reach
+  their own operations, not `{skuId}` or `{id}`. 441 checks, 0 failures.
+
+Prism does not check JWT signatures, roles, privileges or ownership, so none of this
+proves runtime authorization. The FE confirmation is recorded on #124, not here.
