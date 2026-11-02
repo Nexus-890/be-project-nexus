@@ -18,6 +18,7 @@ public enum CommerceErrorCode implements ErrorCode {
     ILLEGAL_TRANSITION(HttpStatus.CONFLICT, "The order status transition is not allowed"),
     IDEMPOTENCY_KEY_NOT_OWNED(HttpStatus.BAD_REQUEST, "Idempotency-Key cannot be used for this request"),
     IDEMPOTENCY_CONFLICT(HttpStatus.CONFLICT, "Idempotency-Key was already used for another request"),
+    PRICE_CHANGED(HttpStatus.CONFLICT, "An item price has changed; review the new price before retrying checkout"),
     PROMOTION_NOT_SUPPORTED(HttpStatus.CONFLICT, "Remove the promotion code before placing this order"),
     ITEM_UNAVAILABLE(HttpStatus.CONFLICT, "An item is unavailable"),
     INVALID_ORDER_AMOUNT(HttpStatus.CONFLICT, "An item price or order total cannot be represented as numeric(19,2)"),

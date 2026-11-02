@@ -79,6 +79,7 @@ public class OrderService {
     private final CartItemRepository cartItemRepository;
     private final CatalogClient catalogClient;
     private final InventoryClient inventoryClient;
+    private final PricingService pricingService;
     private static final String PAYMENT_DEADLINE_EXPIRED = "PAYMENT_DEADLINE_EXPIRED";
 
     private final OrderStateMachine stateMachine;
@@ -103,6 +104,9 @@ public class OrderService {
     public record CreationResult(boolean created, OrderGroupResponse response) {
     }
 
+    private record CheckoutResult(CreationResult order, DomainException priceChange) {
+    }
+
     // Each attempt must finish (or roll back) before reading a UNIQUE-conflict winner.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public CreationResult create(CurrentUser user, String key, CreateOrderRequest request) {
@@ -118,17 +122,18 @@ public class OrderService {
         String effectiveKey = replayEnabled ? UUID.fromString(key).toString() : UUID.randomUUID().toString();
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
         transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        CheckoutResult result;
         try {
-            return transaction.execute(status -> {
+            result = Objects.requireNonNull(transaction.execute(status -> {
                 if (replayEnabled) {
                     groupRepository.lockKey("order-key:" + effectiveKey);
                     Optional<OrderGroup> previous = groupRepository.findByIdempotencyKey(effectiveKey);
                     if (previous.isPresent()) {
-                        return replay(user, snapshot, previous.get());
+                        return new CheckoutResult(replay(user, snapshot, previous.get()), null);
                     }
                 }
                 return createFromCart(user, effectiveKey, snapshot);
-            });
+            }));
         } catch (DataIntegrityViolationException violation) {
             if (!replayEnabled || !isIdempotencyKeyViolation(violation)) {
                 throw violation;
@@ -139,6 +144,11 @@ public class OrderService {
                     .map(group -> replay(user, snapshot, group))
                     .orElseThrow(() -> violation));
         }
+        // Commit the cart price refresh before the shared handler receives the conflict.
+        if (result.priceChange() != null) {
+            throw result.priceChange();
+        }
+        return result.order();
     }
 
     private CreationResult replay(CurrentUser user, Map<String, Object> snapshot, OrderGroup group) {
@@ -164,7 +174,7 @@ public class OrderService {
         return false;
     }
 
-    private CreationResult createFromCart(CurrentUser user, String key, Map<String, Object> snapshot) {
+    private CheckoutResult createFromCart(CurrentUser user, String key, Map<String, Object> snapshot) {
         groupRepository.lockKey("order-buyer:" + user.id());
         Cart cart = cartRepository.findActiveForUpdate(user.id())
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.CART_EMPTY));
@@ -177,6 +187,15 @@ public class OrderService {
             throw new DomainException(CommerceErrorCode.PROMOTION_NOT_SUPPORTED);
         }
 
+        Map<UUID, CatalogSkuResponse> skus;
+        try {
+            skus = pricingService.revalidate(lines);
+        } catch (DomainException error) {
+            if (!CommerceErrorCode.PRICE_CHANGED.code().equals(error.getErrorCode())) {
+                throw error;
+            }
+            return new CheckoutResult(null, error);
+        }
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
         OrderGroup group = new OrderGroup();
         group.setBuyerId(user.id());
@@ -189,7 +208,7 @@ public class OrderService {
         Map<UUID, Order> sellers = new TreeMap<>();
         Map<UUID, ProductResponse> products = new HashMap<>();
         for (CartItem line : lines.stream().sorted(Comparator.comparing(CartItem::getId)).toList()) {
-            CatalogSkuResponse sku = readSku(line);
+            CatalogSkuResponse sku = skus.get(line.getSkuId());
             ProductResponse product = products.computeIfAbsent(line.getProductId(), this::readProduct);
             if (line.getQuantity() == null || line.getQuantity() <= 0) {
                 throw new DomainException(CommerceErrorCode.INVALID_QUANTITY);
@@ -218,7 +237,7 @@ public class OrderService {
             item.setSkuCode(sku.getSkuCode());
             item.setImageUrl(firstImage(product));
             item.setQuantity(line.getQuantity());
-            item.setUnitPrice(money(sku.getPrice()));
+            item.setUnitPrice(money(line.getUnitPrice()));
             item.setTotalPrice(money(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity()))));
             order.getItems().add(item);
         }
@@ -245,7 +264,7 @@ public class OrderService {
 
         log.info("Cart after checkout: id={}, status={}", cart.getId(), cart.getStatus());
         log.info("Order group created: groupId={}, buyerId={}, orders={}", group.getId(), user.id(), sellers.size());
-        return new CreationResult(true, toResponse(group));
+        return new CheckoutResult(new CreationResult(true, toResponse(group)), null);
     }
 
     @Transactional(readOnly = true)
@@ -405,23 +424,6 @@ public class OrderService {
                 ? orderRepository.findByUserIdOrderByCreatedAtDescOrderNumberDesc(user.id(), pageable)
                 : orderRepository.findByUserIdAndStatusOrderByCreatedAtDescOrderNumberDesc(user.id(), status, pageable);
         return orders.map(this::toOrderResponse);
-    }
-
-    private CatalogSkuResponse readSku(CartItem line) {
-        CatalogSkuResponse sku;
-        try {
-            var response = catalogClient.getSkuById(line.getSkuId());
-            sku = response == null ? null : response.data();
-        } catch (FeignException.NotFound exception) {
-            throw new DomainException(CommerceErrorCode.ITEM_UNAVAILABLE, "A cart item is no longer available");
-        } catch (FeignException exception) {
-            throw new DomainException(CommerceErrorCode.CATALOG_UNAVAILABLE, "Catalog is unavailable; retry placing the order later");
-        }
-        if (sku == null || !line.getSkuId().equals(sku.getId()) || !line.getProductId().equals(sku.getProductId())
-                || !"ACTIVE".equals(sku.getStatus()) || sku.getPrice() == null || sku.getPrice().signum() < 0) {
-            throw new DomainException(CommerceErrorCode.ITEM_UNAVAILABLE, "A cart item is no longer available");
-        }
-        return sku;
     }
 
     private ProductResponse readProduct(UUID id) {

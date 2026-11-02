@@ -1285,7 +1285,7 @@ paths:
         - "Orders"
       operationId: "createOrder"
       summary: "Place an order from the current cart"
-      description: "Requires CHECKOUT.START AND ORDER.CREATE and a UUID Idempotency-Key. Splits the active cart by seller, snapshots current catalog prices and reserves inventory. With nexus.order.idempotency-enabled=true (ORDER_IDEMPOTENCY_ENABLED, default true), a matching replay of the same key, buyer and shipping/payment payload returns the original order group and seller order IDs with 200 and creates no new rows; a fresh key returns 201. UUID letter case is normalized, so uppercase and lowercase forms are the same key. Concurrent requests for one key leave one group and one order per seller; the losing request returns the committed winner's group. A missing or invalid key returns 400 COMMERCE_INVALID_ORDER_REQUEST. A key owned by another buyer returns 400 COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED without that buyer's order data. The same buyer reusing a key with changed shipping/payment data returns 409 COMMERCE_IDEMPOTENCY_CONFLICT. When idempotency is disabled, the UUID header remains required but each successful checkout uses a fresh internal key and does not replay the supplied key. Cart ownership and checkout guards still apply. Unsupported promotion, unavailable item and unrepresentable money fail before checkout completes. Payment method is SEPAY; the current reservation implementation may reject unavailable inventory. Gateway checks ORDER.CREATE; downstream additionally checks CHECKOUT.START."
+      description: "Requires CHECKOUT.START AND ORDER.CREATE and a UUID Idempotency-Key. Splits the active cart by seller and checks current SKU availability before checkout. With nexus.order.idempotency-enabled=true (ORDER_IDEMPOTENCY_ENABLED, default true), a matching replay of the same key, buyer and shipping/payment payload returns the original order group and seller order IDs with 200 before price validation and creates no new rows; a fresh key returns 201. UUID letter case is normalized, so uppercase and lowercase forms are the same key. Concurrent successful requests for one key leave one group and one order per seller; the losing request returns the committed winner's group. A missing or invalid key returns 400 COMMERCE_INVALID_ORDER_REQUEST. A key owned by another buyer returns 400 COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED without that buyer's order data. The same buyer reusing a key with changed shipping/payment data returns 409 COMMERCE_IDEMPOTENCY_CONFLICT. When idempotency is disabled, the UUID header remains required but each successful checkout uses a fresh internal key and does not replay the supplied key. With nexus.checkout.price-revalidation=true (CHECKOUT_PRICE_REVALIDATION, default true), current SKU prices are compared with the cart prices using exact long minor units. A changed price returns 409 COMMERCE_PRICE_CHANGED with top-level skuId, oldPrice and newPrice in the original currency units. Only the reported cart item's price is updated and committed; no order or inventory reservation is created. A confirmed retry with a new Idempotency-Key returns 201 at the updated cart price if prices have not changed again. If several prices changed, each 409 reports and updates one item, leaving the other changed prices for subsequent confirmation. With price-revalidation=false, orders use the saved cart prices while SKU and product availability checks still apply. Cart ownership and checkout guards still apply. Unsupported promotion, unavailable item and unrepresentable money fail before checkout completes. Payment method is SEPAY; the current reservation implementation may reject unavailable inventory. Gateway checks ORDER.CREATE; downstream additionally checks CHECKOUT.START."
       security:
         -
           bearerAuth: []
@@ -1615,29 +1615,32 @@ paths:
                     instance: "/api/v1/orders"
                     code: "NOT_ACCEPTABLE"
         "409":
-          description: "Conflict. Codes: `COMMERCE_IDEMPOTENCY_CONFLICT`, `COMMERCE_PROMOTION_NOT_SUPPORTED`, `COMMERCE_ITEM_UNAVAILABLE`, `COMMERCE_INVALID_ORDER_AMOUNT`. IDEMPOTENCY_CONFLICT applies when the same buyer reuses a key with changed shipping/payment data; a key belonging to another buyer returns 400 instead."
+          description: "Conflict. Codes: `COMMERCE_IDEMPOTENCY_CONFLICT`, `COMMERCE_PROMOTION_NOT_SUPPORTED`, `COMMERCE_ITEM_UNAVAILABLE`, `COMMERCE_INVALID_ORDER_AMOUNT`, `COMMERCE_PRICE_CHANGED`. IDEMPOTENCY_CONFLICT applies when the same buyer reuses a key with changed shipping/payment data; a key belonging to another buyer returns 400 instead. PRICE_CHANGED includes skuId, oldPrice and newPrice; the reported cart price is saved, but no order or inventory reservation is created."
           content:
             application/problem+json:
               schema:
-                allOf:
+                oneOf:
                   -
-                    $ref: "#/components/schemas/Problem"
-
+                    $ref: "#/components/schemas/PriceChangedProblem"
                   -
-                    type: "object"
-                    required: []
-                    properties:
-                      status:
-                        type: "integer"
-                        enum:
-                          - 409
-                      code:
-                        type: "string"
-                        enum:
-                          - "COMMERCE_IDEMPOTENCY_CONFLICT"
-                          - "COMMERCE_PROMOTION_NOT_SUPPORTED"
-                          - "COMMERCE_ITEM_UNAVAILABLE"
-                          - "COMMERCE_INVALID_ORDER_AMOUNT"
+                    allOf:
+                      -
+                        $ref: "#/components/schemas/Problem"
+                      -
+                        type: "object"
+                        required: []
+                        properties:
+                          status:
+                            type: "integer"
+                            enum:
+                              - 409
+                          code:
+                            type: "string"
+                            enum:
+                              - "COMMERCE_IDEMPOTENCY_CONFLICT"
+                              - "COMMERCE_PROMOTION_NOT_SUPPORTED"
+                              - "COMMERCE_ITEM_UNAVAILABLE"
+                              - "COMMERCE_INVALID_ORDER_AMOUNT"
 
               examples:
                 COMMERCE_IDEMPOTENCY_CONFLICT:
@@ -1676,6 +1679,18 @@ paths:
                     detail: "An item price or order total cannot be represented as numeric(19,2)"
                     instance: "/api/v1/orders"
                     code: "COMMERCE_INVALID_ORDER_AMOUNT"
+                COMMERCE_PRICE_CHANGED:
+                  summary: "The SKU price changed from 150000 to 180000; confirm before retrying"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Conflict"
+                    status: 409
+                    detail: "An item price has changed; review the new price before retrying checkout"
+                    instance: "/api/v1/orders"
+                    code: "COMMERCE_PRICE_CHANGED"
+                    skuId: "c8000000-0000-4000-8000-000000000003"
+                    oldPrice: 150000
+                    newPrice: 180000
         "415":
           description: "Unsupported Media Type. Codes: `UNSUPPORTED_MEDIA_TYPE`."
           content:
@@ -3987,6 +4002,40 @@ components:
           type: "array"
           items:
             $ref: "#/components/schemas/ValidationError"
+    PriceChangedProblem:
+      allOf:
+        -
+          $ref: "#/components/schemas/Problem"
+        -
+          type: "object"
+          required:
+            - "skuId"
+            - "oldPrice"
+            - "newPrice"
+          properties:
+            status:
+              type: "integer"
+              enum:
+                - 409
+            code:
+              type: "string"
+              enum:
+                - "COMMERCE_PRICE_CHANGED"
+            skuId:
+              type: "string"
+              format: "uuid"
+            oldPrice:
+              type: "number"
+              minimum: 0
+              multipleOf: 0.01
+              description: "The price saved in the cart before this response, in the original currency units."
+              example: 150000
+            newPrice:
+              type: "number"
+              minimum: 0
+              multipleOf: 0.01
+              description: "The current SKU price saved to the reported cart item, in the original currency units."
+              example: 180000
     ValidationError:
       type: "object"
       required:
@@ -4527,6 +4576,9 @@ x-business-error-codes:
   COMMERCE_INVALID_ORDER_AMOUNT:
     status: 409
     detail: "An item price or order total cannot be represented as numeric(19,2)"
+  COMMERCE_PRICE_CHANGED:
+    status: 409
+    detail: "An item price has changed; review the new price before retrying checkout"
   COMMERCE_ORDER_NOT_CANCELLABLE:
     status: 409
     detail: "The order can no longer be cancelled"

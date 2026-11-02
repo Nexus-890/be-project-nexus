@@ -12,6 +12,7 @@ import com.group5.commerceservice.order.event.OrderEventPublisher;
 import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.service.InventoryClient;
 import com.group5.commerceservice.order.service.OrderService;
+import com.group5.commerceservice.order.service.PricingService;
 import com.group5.commerceservice.order.service.OrderStateMachine;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_core.model.ApiResponse;
@@ -228,7 +229,7 @@ class OrderStatusFlowTest {
     @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses = {CartRepository.class, OrderRepository.class})
     @EnableJpaAuditing(auditorAwareRef = "auditor")
-    @Import({OrderService.class, OrderStateMachine.class})
+    @Import({OrderService.class, OrderStateMachine.class, PricingService.class})
     static class JpaConfig {
         @Bean
         DataSource dataSource() {
