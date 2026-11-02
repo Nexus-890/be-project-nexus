@@ -1,4 +1,4 @@
-package com.group5.userservice.reputation;
+package com.group5.ratingservice.enums;
 
 public enum TrustLevel {
     NEW,

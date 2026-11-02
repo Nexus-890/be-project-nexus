@@ -34,7 +34,7 @@ class EnumMigrationTest {
                 "select id, trust_level from user_reputations order by id");
 
         Flyway.configure().dataSource(source).schemas("enum_upgrade").defaultSchema("enum_upgrade")
-                .load().migrate();
+                .target("5").load().migrate();
 
         assertThat(jdbc.queryForList("select id, status::text as status, gender::text as gender from users order by id"))
                 .isEqualTo(users);
@@ -42,7 +42,12 @@ class EnumMigrationTest {
                 .isEqualTo(reputations);
         assertThat(jdbc.queryForList("select created_by from users", java.util.UUID.class))
                 .containsOnly(CurrentUserAuditor.SYSTEM_ID);
-        verifyEnumColumns(jdbc, "enum_upgrade");
+        assertThat(jdbc.queryForList("""
+                select table_name || '.' || column_name || ':' || udt_name
+                from information_schema.columns
+                where table_schema = 'enum_upgrade' and data_type = 'USER-DEFINED'
+                """, String.class)).containsExactlyInAnyOrder(
+                "users.status:user_status", "users.gender:gender", "user_reputations.trust_level:trust_level");
     }
 
     @Test
@@ -53,19 +58,15 @@ class EnumMigrationTest {
                 .rootCause().hasMessageContaining("invalid input value for enum user_status");
         assertThatThrownBy(() -> jdbc.update("update users set gender = 'INVALID'"))
                 .rootCause().hasMessageContaining("invalid input value for enum gender");
-        assertThatThrownBy(() -> jdbc.update("""
-                insert into user_reputations(user_id, trust_level) select id, 'INVALID' from users limit 1
-                """))
-                .rootCause().hasMessageContaining("invalid input value for enum trust_level");
-        jdbc.update("insert into user_reputations(user_id) select id from users limit 1");
-        assertThat(jdbc.queryForObject("select trust_level::text from user_reputations", String.class)).isEqualTo("NEW");
+        assertThat(jdbc.queryForObject("select to_regclass('enum_fresh.user_reputations')", String.class)).isNull();
+        assertThat(jdbc.queryForObject("select to_regclass('enum_fresh.ratings')", String.class)).isNull();
         assertThat(jdbc.queryForList("select distinct status::text from users", String.class)).containsExactly("ACTIVE");
         assertThat(jdbc.queryForObject("""
                 select count(*) from information_schema.columns
                 where table_schema = 'enum_fresh' and column_name in ('created_by', 'updated_by')
-                  and table_name in ('users', 'refresh_tokens', 'password_reset_tokens', 'user_reputations', 'ratings')
+                  and table_name in ('users', 'refresh_tokens', 'password_reset_tokens')
                   and data_type = 'uuid' and is_nullable = 'NO'
-                """, Integer.class)).isEqualTo(10);
+                """, Integer.class)).isEqualTo(6);
     }
 
     private static void verifyEnumColumns(JdbcTemplate jdbc, String schema) {
@@ -74,6 +75,6 @@ class EnumMigrationTest {
                 from information_schema.columns
                 where table_schema = ? and data_type = 'USER-DEFINED'
                 """, String.class, schema)).containsExactlyInAnyOrder(
-                "users.status:user_status", "users.gender:gender", "user_reputations.trust_level:trust_level");
+                "users.status:user_status", "users.gender:gender");
     }
 }
