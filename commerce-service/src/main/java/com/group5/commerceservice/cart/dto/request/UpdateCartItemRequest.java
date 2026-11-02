@@ -1,18 +1,13 @@
-package com.group5.commerceservice.cart.request;
+package com.group5.commerceservice.cart.dto.request;
 
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import lombok.Getter;
 import lombok.Setter;
 
-import java.util.UUID;
-
 @Getter
 @Setter
-public class CartItemRequest {
-
-    @NotNull
-    private UUID skuId;
+public class UpdateCartItemRequest {
 
     @NotNull
     @Positive

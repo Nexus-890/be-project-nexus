@@ -50,12 +50,15 @@ independently, as required by ADR-006.
 | `/api/v1/skus/{id}` | PUT | PRODUCT.UPDATE | #86 — SKU create, update and read                       |
 | `/api/v1/carts/me` | GET | CART.VIEW | #110 — Cart: get-or-create and add item                 |
 | `/api/v1/carts/me/items` | POST | CART.UPDATE | #110 — Cart: get-or-create and add item                 |
+| `/api/v1/carts/me/items/{id}` | PUT | CART.UPDATE | #111 — Cart: update and remove item                     |
+| `/api/v1/carts/me/items/{id}` | DELETE | CART.REMOVE_ITEM | #111 — Cart: update and remove item                     |
 | `/api/v1/notifications` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
 | `/api/v1/notifications/unread-count` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
 | `/api/v1/orders` | POST | ORDER.CREATE | #113 — Order creation from a cart; service also requires CHECKOUT.START |
 | `/api/v1/orders/{id}/history` | GET | ORDER.VIEW | #116 — Order state machine and status history |
 | `/api/v1/orders` | GET | ORDER.LIST | #117 — Order read endpoints; the caller's own orders only |
 | `/api/v1/orders/{id}` | GET | ORDER.VIEW | #117 — Order read endpoints; the owner or ADMIN |
+| `/api/v1/orders/{id}/cancel` | POST | ORDER.CANCEL | #189 — Order cancellation; the buyer, ADMIN or SUPPORT_STAFF |
 | Any other path | Any other method/path pair | Token required; add the SRS privilege before exposing a new endpoint | Gateway JWT filter and permit list; future owning issue |
 
 `GET /api/v1/users/{id}` (#76) has no row on purpose: a caller may read their own

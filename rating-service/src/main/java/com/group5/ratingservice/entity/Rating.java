@@ -1,4 +1,4 @@
-package com.group5.userservice.reputation;
+package com.group5.ratingservice.entity;
 
 import com.group5.common_core.persistence.AuditedEntity;
 import jakarta.persistence.Column;

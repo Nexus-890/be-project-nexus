@@ -5,8 +5,6 @@ import com.group5.common_security.CurrentUserAuditor;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.Gender;
 import com.group5.userservice.iam.enums.UserStatus;
-import com.group5.userservice.reputation.TrustLevel;
-import com.group5.userservice.reputation.UserReputation;
 import com.group5.userservice.shared.PostgresAuditingTestConfiguration;
 import com.group5.userservice.shared.PostgresTestDatabase;
 import jakarta.persistence.EntityManager;
@@ -60,13 +58,9 @@ class EnumAuditingPersistenceTest {
             user.setGender(Gender.FEMALE);
             user.setStatus(UserStatus.LOCKED);
             entityManager.persist(user);
-            UserReputation reputation = new UserReputation();
-            reputation.setUserId(user.getId());
-            reputation.setTrustLevel(TrustLevel.TOP);
-            entityManager.persist(reputation);
             entityManager.flush();
             assertThat(user.getCreatedBy()).isEqualTo(creator);
-            assertThat(reputation.getUpdatedBy()).isEqualTo(creator);
+            assertThat(user.getUpdatedBy()).isEqualTo(creator);
             return user.getId();
         });
         actor(editor);
@@ -74,8 +68,6 @@ class EnumAuditingPersistenceTest {
             User user = entityManager.find(User.class, id);
             assertThat(user.getGender()).isEqualTo(Gender.FEMALE);
             assertThat(user.getStatus()).isEqualTo(UserStatus.LOCKED);
-            assertThat(entityManager.createQuery("select r from UserReputation r where r.userId = :id", UserReputation.class)
-                    .setParameter("id", id).getSingleResult().getTrustLevel()).isEqualTo(TrustLevel.TOP);
             user.setStatus(UserStatus.ACTIVE);
         });
         transaction.executeWithoutResult(status -> {

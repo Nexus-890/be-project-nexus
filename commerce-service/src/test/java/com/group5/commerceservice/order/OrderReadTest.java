@@ -8,6 +8,7 @@ import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
 import com.group5.commerceservice.order.dto.response.OrderItemResponse;
 import com.group5.commerceservice.order.dto.response.OrderResponse;
 import com.group5.commerceservice.order.entity.Order;
+import com.group5.commerceservice.order.event.OrderEventPublisher;
 import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.service.InventoryClient;
 import com.group5.commerceservice.order.service.OrderService;
@@ -238,6 +239,11 @@ class OrderReadTest {
         @Bean
         InventoryClient inventoryClient() {
             return Mockito.mock(InventoryClient.class);
+        }
+
+        @Bean
+        OrderEventPublisher orderEventPublisher() {
+            return Mockito.mock(OrderEventPublisher.class);
         }
 
         @Bean

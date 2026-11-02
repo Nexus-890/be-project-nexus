@@ -8,6 +8,7 @@ import com.group5.commerceservice.order.dto.request.ChangeOrderStatusRequest;
 import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
 import com.group5.commerceservice.order.dto.response.OrderStatusHistoryResponse;
 import com.group5.commerceservice.order.entity.Order;
+import com.group5.commerceservice.order.event.OrderEventPublisher;
 import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.service.InventoryClient;
 import com.group5.commerceservice.order.service.OrderService;
@@ -251,6 +252,11 @@ class OrderStatusFlowTest {
         @Bean
         InventoryClient inventoryClient() {
             return Mockito.mock(InventoryClient.class);
+        }
+
+        @Bean
+        OrderEventPublisher orderEventPublisher() {
+            return Mockito.mock(OrderEventPublisher.class);
         }
 
         @Bean
