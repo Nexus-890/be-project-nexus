@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -46,11 +47,11 @@ public class CartController {
 
     @PutMapping("/me/items/{id}")
     @PreAuthorize("hasAuthority('CART.UPDATE')")
-    public CartResponse updateItem(
+    public ResponseEntity<ApiResponse<CartResponse>> updateItem(
             @Valid @RequestBody UpdateCartItemRequest request,
             CurrentUser currentUser,
             @PathVariable("id") UUID id) {
-        return cartService.updateCartItem(currentUser, id, request);
+        return ResponseEntity.ok(ApiResponse.of(cartService.updateCartItem(currentUser, id, request)));
     }
 
     @DeleteMapping("/me/items/{id}")

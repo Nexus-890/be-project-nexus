@@ -1,5 +1,6 @@
 package com.group5.commerceservice.cart.repository;
 
+import com.group5.commerceservice.cart.CartStatus;
 import com.group5.commerceservice.cart.entity.CartItem;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -17,7 +18,7 @@ public interface CartItemRepository
     List<CartItem> findByCart_Id(UUID cartId);
 
     Optional<CartItem> findByIdAndCart_UserIdAndCart_Status(
-            UUID itemId, UUID userId, String status);
+            UUID itemId, UUID userId, CartStatus status);
 
     // clearAutomatically = true: buộc Hibernate xóa first-level cache sau khi
     // native upsert chạy xong, để findByCart_Id trong cùng transaction đọc
