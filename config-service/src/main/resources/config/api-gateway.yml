@@ -8,9 +8,9 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          # Fetch keys directly from user-service, never through this gateway.
-          jwk-set-uri: ${USER_SERVICE_JWKS_URI:http://localhost:8081/.well-known/jwks.json}
-          issuer-uri: user-service
+          # Same trust contract as #237; fetch realm keys directly, never through the gateway.
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:18080/realms/nexus/protocol/openid-connect/certs}
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
           audiences:
             - nexus-services
   data:
@@ -70,6 +70,18 @@ nexus:
         path: /api/v1/products/{id}/skus
       - method: GET
         path: /api/v1/skus/{id}
+      - method: POST
+        path: /api/v1/webhooks/sepay
+      - method: POST
+        path: /api/v1/webhooks/carriers/ghn
+      - method: POST
+        path: /api/v1/webhooks/carriers/ghtk
+      - method: GET
+        path: /api/v1/shipping/provinces
+      - method: GET
+        path: /api/v1/shipping/districts
+      - method: GET
+        path: /api/v1/shipping/wards
     protected-endpoints:
       - method: GET
         path: /api/v1/users/me
@@ -143,6 +155,60 @@ nexus:
       - method: GET
         path: /api/v1/notifications/unread-count
         privilege: NOTIFICATION.VIEW
+      - method: POST
+        path: /api/v1/payments
+        privilege: CHECKOUT.START
+      - method: GET
+        path: /api/v1/payments
+        privilege: ORDER.REFUND
+      - method: POST
+        path: /api/v1/refunds
+        privilege: ORDER.REFUND
+      - method: GET
+        path: /api/v1/refunds
+        privilege: ORDER.REFUND
+      - method: POST
+        path: /api/v1/refunds/{id}/complete
+        privilege: ORDER.REFUND
+      - method: POST
+        path: /api/v1/shipping/quotes
+        privilege: SHIPPING.QUOTE
+      - method: GET
+        path: /api/v1/carriers
+        privilege: SHIPPING.QUOTE
+      - method: POST
+        path: /api/v1/shipments
+        privilege: SHIPPING.CREATE_SHIPMENT
+      - method: GET
+        path: /api/v1/shipments
+        privilege: SHIPPING.VIEW_SHIPMENT
+      - method: GET
+        path: /api/v1/shipments/{id}
+        privilege: SHIPPING.VIEW_SHIPMENT
+      - method: GET
+        path: /api/v1/shipments/{id}/tracking
+        privilege: SHIPPING.VIEW_SHIPMENT
+      - method: PATCH
+        path: /api/v1/shipments/{id}/status
+        privilege: SHIPPING.UPDATE_STATUS
+      - method: POST
+        path: /api/v1/shipments/{id}/override
+        privilege: SHIPPING.MANUAL_OVERRIDE
+      - method: POST
+        path: /api/v1/ratings
+        privilege: REPUTATION.RATE
+      - method: GET
+        path: /api/v1/ratings
+        privilege: REPUTATION.VIEW
+      - method: GET
+        path: /api/v1/reputations/{userId}
+        privilege: REPUTATION.VIEW
+      - method: POST
+        path: /api/v1/reputations/{userId}/adjustments
+        privilege: USER.REPUTATION.ADJUST
+      - method: GET
+        path: /api/v1/reputations/{userId}/history
+        privilege: USER.REPUTATION.VIEW
   gateway:
     rate-limit:
       # Có thể đổi qua Config Server và /actuator/refresh; đủ cho polling 2 giây.

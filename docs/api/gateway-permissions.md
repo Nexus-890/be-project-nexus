@@ -59,15 +59,94 @@ independently, as required by ADR-006.
 | `/api/v1/orders` | GET | ORDER.LIST | #117 — Order read endpoints; the caller's own orders only |
 | `/api/v1/orders/{id}` | GET | ORDER.VIEW | #117 — Order read endpoints; the owner or ADMIN |
 | `/api/v1/orders/{id}/cancel` | POST | ORDER.CANCEL | #189 — Order cancellation; the buyer, ADMIN or SUPPORT_STAFF |
+| `/api/v1/webhooks/sepay` | POST | Public | #155 — payment-service; provider authentication remains downstream |
+| `/api/v1/webhooks/carriers/ghn` | POST | Public | #203 / #245 — shipment-service; concrete GHN callback, see integration status below |
+| `/api/v1/webhooks/carriers/ghtk` | POST | Public | #203 / #245 — shipment-service; concrete GHTK callback, see integration status below |
+| `/api/v1/shipping/provinces` | GET | Public | #201 — shipment-service address list |
+| `/api/v1/shipping/districts` | GET | Public | #201 — shipment-service address list; provinceCode query required downstream |
+| `/api/v1/shipping/wards` | GET | Public | #201 — shipment-service address list; districtCode query required downstream |
+| `/api/v1/payments` | POST | CHECKOUT.START | #121 — payment-service; own PENDING order group |
+| `/api/v1/payments` | GET | ORDER.REFUND | #207 — payment-service; service enforces actor and order visibility |
+| `/api/v1/refunds` | POST | ORDER.REFUND | #247 — payment-service; funded amount and idempotency enforced downstream |
+| `/api/v1/refunds` | GET | ORDER.REFUND | #247 — payment-service; order visibility enforced downstream |
+| `/api/v1/refunds/{id}/complete` | POST | ORDER.REFUND | #247 — payment-service; manual transfer confirmation enforced downstream |
+| `/api/v1/shipping/quotes` | POST | SHIPPING.QUOTE | #201 — shipment-service |
+| `/api/v1/carriers` | GET | SHIPPING.QUOTE | #201 — shipment-service; SHP-11 |
+| `/api/v1/shipments` | POST | SHIPPING.CREATE_SHIPMENT | #202 — shipment-service; manual creation |
+| `/api/v1/shipments` | GET | SHIPPING.VIEW_SHIPMENT | #202 — shipment-service; own-order visibility enforced downstream |
+| `/api/v1/shipments/{id}` | GET | SHIPPING.VIEW_SHIPMENT | #202 — shipment-service; own-order visibility enforced downstream |
+| `/api/v1/shipments/{id}/tracking` | GET | SHIPPING.VIEW_SHIPMENT | #203 — shipment-service; own-order visibility enforced downstream |
+| `/api/v1/shipments/{id}/status` | PATCH | SHIPPING.UPDATE_STATUS | #203 — shipment-service |
+| `/api/v1/shipments/{id}/override` | POST | SHIPPING.MANUAL_OVERRIDE | #203 — shipment-service; reason required downstream |
+| `/api/v1/ratings` | POST | REPUTATION.RATE | #212 — rating-service; completed-order eligibility checked downstream |
+| `/api/v1/ratings` | GET | REPUTATION.VIEW | #212 — rating-service; userId is a query parameter |
+| `/api/v1/reputations/{userId}` | GET | REPUTATION.VIEW | #213 — rating-service |
+| `/api/v1/reputations/{userId}/adjustments` | POST | USER.REPUTATION.ADJUST | #213 — rating-service; reason and score bounds checked downstream |
+| `/api/v1/reputations/{userId}/history` | GET | USER.REPUTATION.VIEW | #213 — rating-service |
 | Any other path | Any other method/path pair | Token required; add the SRS privilege before exposing a new endpoint | Gateway JWT filter and permit list; future owning issue |
 
 `GET /api/v1/users/{id}` (#76) has no row on purpose: a caller may read their own
 record without `USER.VIEW`, which the gateway cannot decide. Any valid token passes
 the gateway and user-service allows the caller's own id or `USER.VIEW`.
 
+## Service split integration (#245)
+
+The table above is the **active gateway configuration**, including policies
+registered ahead of their downstream implementation. It does not assert that a
+feature API exists. Payment initiation (#121), callbacks (#155/#203), shipping
+(#201/#202), payment reads/refunds (#207/#247), and rating/reputation (#212/#213)
+must be smoke-tested against their actual implementations when available. The
+older API-shape drafts below do not add runtime policies.
+
+| Destination | Owned paths |
+|---|---|
+| `lb://payment-service` | payments, refunds, and the exact `/api/v1/webhooks/sepay` path |
+| `lb://shipment-service` | shipments, shipping, carriers, and `/api/v1/webhooks/carriers/**` |
+| `lb://rating-service` | ratings and reputations |
+| `lb://inventory-service` | inventory and warehouses |
+
+Business prefixes in this table are under `/api/v1/` and include their base path
+and descendants. Routing and public access are separate: the carrier callback
+prefix has one owner, but only the two explicit POST paths above bypass bearer
+authentication. No catch-all webhook route or public policy exists.
+
+**Carrier contract decision pending #203 review:** the local endpoint catalogue
+(`Endpoints!F132:G132`) defines POST `/api/v1/webhooks/carriers/{carrier}`.
+SRS 2.6 and the BR workbook's `Config & Validation!A43:B44` name GHN and GHTK.
+#245 expands that template to the lowercase `ghn` and `ghtk` paths above. The
+sources do not specify URL casing; the #203 owner must reconcile these exact
+method/path pairs before merge. Uppercase names, other carriers, child paths and
+other HTTP methods receive no public exception. Provider signatures/tokens and
+payload validation remain in shipment-service; SePay verification remains in
+payment-service. Public does not mean the payload is trusted.
+
+`POST /api/v1/payments` takes `{orderGroupId}` and requires `CHECKOUT.START`
+(#121 / !100). The former commerce draft `/api/v1/orders/{id}/payment` is obsolete
+and has no gateway route. Schema tables do not create extra HTTP APIs.
+For GET payments, query parameters do not select a gateway policy: #207's
+`ORDER.REFUND` list policy also applies to `?orderId=...`. The #207 owner must
+reconcile any buyer-read exception before exposing it; the gateway cannot infer
+ownership from an ID or query string.
+
+Inventory/warehouse routes require a valid token through the fallback. SRS 2.7
+defines no `INVENTORY.*` or `WAREHOUSE.*` privileges; no invented privilege or
+draft public stock endpoint is enabled here. Owning contracts must register any
+future privilege/public changes and enforce service-side roles and business
+authorization. The unmerged #124 draft does not override #245's protected boundary.
+
+`/internal/v1/**`, `/realms/**` and `/admin/realms/**` have no gateway route,
+including for authenticated callers. Existing auth/user routes are preserved
+until #238's separate cutover; they are not Keycloak proxy routes.
+
+The gateway uses #237's Keycloak issuer/JWKS contract below. Final integration
+still requires #236/#237's realm, claim mappings and matching downstream trust
+configuration; these dependencies are not implemented by #245. Existing service
+deployments can use their `JWT_ISSUER` and `JWT_JWK_SET_URI` overrides to match
+the realm while #237's downstream configuration is integrated.
+
 ## Matching and JWT contract
 
-- Exactly nine method/path pairs are public. No public `/**`, method-less rule,
+- Exactly fifteen method/path pairs are public. No public `/**`, method-less rule,
   or implicit public HEAD/OPTIONS, Swagger or Actuator exception. TRACE is rejected
   earlier by Spring Security's HTTP firewall with 400, never forwarded.
 - `{id}` is a UUID. UUID-constrained matchers keep `/products/mine`,
@@ -75,13 +154,15 @@ the gateway and user-service allows the caller's own id or `USER.VIEW`.
   inheriting public product-detail access. Category `tree` has its own public row.
 - Category updates use PATCH in the current controller; the external endpoint
   catalogue says PUT. A later contract change must update both files.
-- RS256 only; issuer `user-service`; audience includes `nexus-services`; `exp`
+- RS256 only; issuer defaults to `http://localhost:18080/realms/nexus` (#237);
+  audience includes `nexus-services`; `exp`
   is mandatory. Expiry and `nbf` retain Spring Security's 60-second clock skew.
 - JWT segments must use canonical unpadded base64url. A changed last character
   is rejected even when only unused encoding bits, not signature bytes, change.
 - Config Server's `spring.security.oauth2.resourceserver.jwt.jwk-set-uri` points
-  directly at `http://localhost:8081/.well-known/jwks.json`. Override
-  `USER_SERVICE_JWKS_URI` for the deployment network. The reactive decoder caches
+  directly at `http://localhost:18080/realms/nexus/protocol/openid-connect/certs`.
+  Override `KEYCLOAK_ISSUER_URI` and `KEYCLOAK_JWK_SET_URI` for the deployment network.
+  The reactive decoder caches
   public keys; validation does not call the login API or loop through gateway.
 - Missing/invalid tokens return 401 `application/problem+json` with `type`,
   `title`, `status`, `detail`, `instance`, `code: UNAUTHENTICATED`, and
@@ -96,11 +177,11 @@ the gateway and user-service allows the caller's own id or `USER.VIEW`.
 From `be-project-nexus/api-gateway`, run `./mvnw verify` using Java 21.
 Tests use real RS256 tokens and a local HTTP JWKS fixture, not a mocked decoder.
 A real gateway HTTP route forwards accepted requests to an instrumented HTTP
-service; rejected requests leave its request log empty. Tests cover all nine
+service; rejected requests leave its request log empty. Tests cover all fifteen
 public pairs, other methods, listed privileges, invalid tokens, and fallback.
 The permission test binds the same YAML properties consumed by `SecurityConfig`
 and compares all explicit rows (including privileges) in both directions. It also
-independently checks the nine public pairs. Newly public undocumented pairs,
+independently checks the fifteen public pairs. Newly public undocumented pairs,
 stale document rows, duplicates, and missing owners fail.
 Configuration-binding tests verify that changed paths/privileges are honored;
 invalid methods, missing paths/privileges, and duplicate policies are rejected.
@@ -112,6 +193,30 @@ Fixtures prove gateway behavior, not the existence of unmerged service endpoints
 Live register/login/product/profile acceptance also requires their owning issues,
 running services, test data, and matching downstream permit/privilege rules.
 
+The #245 HTTP tests now import production `RouteConfig` and use LoadBalancer with
+separate instrumented fixtures for the four new service identities. They check
+base/child prefixes, destination isolation, 401/403 without forwarding, all fifteen
+public pairs, internal/Keycloak/obsolete payment paths not forwarding, and 429 with
+Retry-After. A test-only HMAC callback protocol verifies raw-body/header forwarding
+and preserves downstream 401; actual SePay/GHN/GHTK verification remains #155/#203.
+
+Validation on 2026-11-02 with Java 21: gateway `verify` passed 49 tests; Config
+Server `verify` passed 3 tests, with zero failures/errors/skips. YAML/local-reference
+checks and `git diff --check` passed. The global `node docs/api/check-contract.mjs`
+check still reports two pre-existing #111 operations missing from delivered commerce
+OpenAPI: PUT and DELETE `/api/v1/carts/me/items/{id}`. Its script/controller/spec
+inputs are unchanged by #245; do not report that global check as passing.
+
+Before live acceptance, rebuild/restart Config Server and gateway and verify the
+four Eureka identities. Capture the three public address GETs, unauthenticated
+POST quotes returning gateway 401, missing-privilege 403, and valid Keycloak-token
+forwarding for available APIs. For callback evidence, record the owning service's
+receipt as well as the response: a bad provider signature can produce a service
+401 after passing the gateway. Record which services/endpoints are unimplemented
+and distinguish fixture results from real business/API success. Reconcile the
+lowercase carrier paths with #203 and the final merged #237 trust configuration
+before merge; smoke screenshots remain to be collected.
+
 References: [ADR-006](../adr/ADR-006-service-authentication-RS256.md),
 [SRS 2.7](https://docs.google.com/document/d/1nw7_WwZoWhjgA1WiZJzu37ps_MisI5Ls/edit),
 [endpoint catalogue](https://docs.google.com/spreadsheets/d/1KIJsr87F-6TWieBbie9CVzgCBTPsM4Zk/edit),
@@ -120,7 +225,8 @@ References: [ADR-006](../adr/ADR-006-service-authentication-RS256.md),
 
 ## API shapes draft (#88) — commerce and notifications
 
-These **14 method/path contracts are fixed for callers**, while DTO field names
+These historical **14 method/path contracts** include the payment row superseded
+by #121 and reconciled below. The remaining DTO field names
 remain drafts (`0.1.0-draft`). This section is the permission handoff for the
 [commerce contract](commerce-service.yaml) and
 [notification contract](notification-service.yaml). The active table above
@@ -157,7 +263,7 @@ from the catalogue is dropped, combined into a new string, or treated as OR.
 Roles are canonical JWT `roles` codes mapped to `ROLE_<code>`; privileges are
 exact JWT `privileges` strings without prefixes. Ownership checks use validated
 JWT `sub`; do not accept a caller-controlled `userId` for another account.
-Preserve the nine public method/path pairs above; none of these 14 paths is public.
+These older drafts add no public method/path pairs to the active table above.
 
 | Method | Path | Actor roles (reference; ADMIN gate only for ORD-06) | Gateway privilege | Required service privileges (all) | Ownership / business restriction | Owning issue |
 |---|---|---|---|---|---|---|
@@ -170,7 +276,7 @@ Preserve the nine public method/path pairs above; none of these 14 paths is publ
 | GET | `/api/v1/orders/{id}` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #117 |
 | GET | `/api/v1/orders/{id}/history` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #116 |
 | PATCH | `/api/v1/orders/{id}/status` | ADMIN | token only | none (role-only) | Service requires ADMIN; moves follow the order transition table, other moves return 409; audit actor and reason | #116 |
-| POST | `/api/v1/orders/{id}/payment` | BUYER | CHECKOUT.START | CHECKOUT.START | Own PENDING order only; repeated call returns the same instructions | #120, #121 |
+| POST | `/api/v1/payments` | BUYER | CHECKOUT.START | CHECKOUT.START | Superseded payment draft reconciled with #121: own PENDING order group; body contains orderGroupId | #120, #121 |
 | GET | `/api/v1/notifications` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notifications only, including for ADMIN | #108 |
 | GET | `/api/v1/notifications/unread-count` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Count own unread notifications only | #108 |
 | PATCH | `/api/v1/notifications/{id}/read` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notification only; other caller returns 403 | #109 |
