@@ -5,10 +5,12 @@ import com.group5.paymentservice.payment.event.payload.CheckoutPaymentRequested;
 import com.group5.paymentservice.payment.event.payload.OrderGroupCancelled;
 import com.group5.common_outbox.IdempotentConsumer;
 import com.group5.paymentservice.payment.entity.PaymentInstruction;
+import com.group5.paymentservice.payment.entity.PaymentPendingCancellation;
 import com.group5.paymentservice.payment.entity.PaymentSession;
 import com.group5.paymentservice.payment.enums.PaymentInstructionStatus;
 import com.group5.paymentservice.payment.enums.PaymentSessionStatus;
 import com.group5.paymentservice.payment.repository.PaymentInstructionRepository;
+import com.group5.paymentservice.payment.repository.PaymentPendingCancellationRepository;
 import com.group5.paymentservice.payment.repository.PaymentSessionRepository;
 import jakarta.validation.Validator;
 import org.springframework.stereotype.Service;
@@ -18,7 +20,7 @@ import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
 import java.util.function.Function;
@@ -31,13 +33,17 @@ public class PaymentSessionEventHandler {
     private final IdempotentConsumer consumer;
     private final PaymentSessionRepository sessions;
     private final PaymentInstructionRepository instructions;
+    private final PaymentPendingCancellationRepository pendingCancellations;
     private final Validator validator;
 
     public PaymentSessionEventHandler(IdempotentConsumer consumer, PaymentSessionRepository sessions,
-                                      PaymentInstructionRepository instructions, Validator validator) {
+                                      PaymentInstructionRepository instructions,
+                                      PaymentPendingCancellationRepository pendingCancellations,
+                                      Validator validator) {
         this.consumer = consumer;
         this.sessions = sessions;
         this.instructions = instructions;
+        this.pendingCancellations = pendingCancellations;
         this.validator = validator;
     }
 
@@ -70,6 +76,7 @@ public class PaymentSessionEventHandler {
             PaymentSession existing = previous.get();
             require(identity.equals(existing.getIdempotencyKey()), "Conflicting immutable payment manifest");
             verifyStoredPlan(existing, manifest);
+            drainPendingCancellation(existing);
             return;
         }
 
@@ -98,6 +105,10 @@ public class PaymentSessionEventHandler {
             instruction.setLastOrderEventAt(event.occurredAt().atOffset(ZoneOffset.UTC));
             return instruction;
         }).toList());
+
+        // A cancellation that arrived before this manifest is applied now, in the
+        // same transaction, so the group never exposes a QR after being cancelled.
+        drainPendingCancellation(storedSession);
     }
 
     private void verifyStoredPlan(PaymentSession session, CheckoutPaymentRequested manifest) {
@@ -133,12 +144,67 @@ public class PaymentSessionEventHandler {
     private void cancelPlan(EventEnvelope<OrderGroupCancelled> event) {
         OrderGroupCancelled cancellation = event.payload();
         sessions.lockKey("payment-group:" + cancellation.orderGroupId());
-        PaymentSession session = sessions.findLockedByOrderGroupId(cancellation.orderGroupId()).orElseThrow(
-                () -> new IllegalStateException("Payment manifest is not available; cancellation must be retried"));
-        require(session.getBuyerId().equals(cancellation.buyerId()), "Cancellation buyer must match");
+        Optional<PaymentSession> existing = sessions.findLockedByOrderGroupId(cancellation.orderGroupId());
+        if (existing.isEmpty()) {
+            // The manifest has not arrived yet. Stash the cancellation (marker and
+            // stash commit together) so the consumer can move on; createPlan
+            // applies it when the manifest arrives. Never throw here: that would
+            // retry forever and block every group behind this record.
+            stashPendingCancellation(event);
+            return;
+        }
+        PaymentSession session = existing.get();
         List<PaymentInstruction> plan = instructions.findSessionForUpdate(session.getId());
         var versions = cancellation.orders().stream().collect(Collectors.toMap(
                 OrderGroupCancelled.CancelledOrder::orderId, OrderGroupCancelled.CancelledOrder::orderVersion));
+        applyCancellation(session, plan, cancellation.buyerId(), cancellation.reason(), cancellation.actorId(),
+                cancellation.cancelledAt().atOffset(ZoneOffset.UTC),
+                event.occurredAt().atOffset(ZoneOffset.UTC), versions);
+    }
+
+    private void stashPendingCancellation(EventEnvelope<OrderGroupCancelled> event) {
+        OrderGroupCancelled cancellation = event.payload();
+        Optional<PaymentPendingCancellation> previous =
+                pendingCancellations.findLockedByOrderGroupId(cancellation.orderGroupId());
+        if (previous.isPresent() && previous.get().getGroupVersion() >= cancellation.groupVersion()) {
+            return;
+        }
+        PaymentPendingCancellation pending = previous.orElseGet(PaymentPendingCancellation::new);
+        pending.setOrderGroupId(cancellation.orderGroupId());
+        pending.setBuyerId(cancellation.buyerId());
+        pending.setGroupVersion(cancellation.groupVersion());
+        pending.setReason(cancellation.reason());
+        pending.setActorId(cancellation.actorId());
+        pending.setCancelledAt(cancellation.cancelledAt().atOffset(ZoneOffset.UTC));
+        pending.setOccurredAt(event.occurredAt().atOffset(ZoneOffset.UTC));
+        pending.setOrders(cancellation.orders().stream()
+                .map(order -> Map.of("orderId", order.orderId().toString(),
+                        "orderVersion", Long.toString(order.orderVersion())))
+                .toList());
+        pending.setSourceEventId(event.eventId());
+        pendingCancellations.save(pending);
+    }
+
+    private void drainPendingCancellation(PaymentSession session) {
+        Optional<PaymentPendingCancellation> stashed =
+                pendingCancellations.findLockedByOrderGroupId(session.getOrderGroupId());
+        if (stashed.isEmpty()) {
+            return;
+        }
+        PaymentPendingCancellation pending = stashed.get();
+        Map<UUID, Long> versions = pending.getOrders().stream().collect(Collectors.toMap(
+                order -> UUID.fromString(order.get("orderId")),
+                order -> Long.parseLong(order.get("orderVersion"))));
+        List<PaymentInstruction> plan = instructions.findSessionForUpdate(session.getId());
+        applyCancellation(session, plan, pending.getBuyerId(), pending.getReason(), pending.getActorId(),
+                pending.getCancelledAt(), pending.getOccurredAt(), versions);
+        pendingCancellations.delete(pending);
+    }
+
+    private void applyCancellation(PaymentSession session, List<PaymentInstruction> plan, UUID buyerId,
+                                   String reason, UUID actorId, OffsetDateTime cancelledAt,
+                                   OffsetDateTime eventAt, Map<UUID, Long> versions) {
+        require(session.getBuyerId().equals(buyerId), "Cancellation buyer must match");
         require(!plan.isEmpty() && plan.size() == versions.size()
                 && plan.stream().allMatch(instruction -> versions.containsKey(instruction.getOrderId())),
                 "Cancellation must cover the complete payment plan");
@@ -150,15 +216,15 @@ public class PaymentSessionEventHandler {
         }
         require(plan.stream().allMatch(instruction -> instruction.getStatus() == PaymentInstructionStatus.PENDING
                 && instruction.getFundedTransaction() == null), "Cannot cancel inconsistent funding evidence");
-        boolean expired = "PAYMENT_DEADLINE_EXPIRED".equals(cancellation.reason());
+        boolean expired = "PAYMENT_DEADLINE_EXPIRED".equals(reason);
         session.setStatus(expired ? PaymentSessionStatus.EXPIRED : PaymentSessionStatus.CANCELED);
-        session.setUpdatedBy(cancellation.actorId());
+        session.setUpdatedBy(actorId);
         for (PaymentInstruction instruction : plan) {
             instruction.setStatus(expired ? PaymentInstructionStatus.EXPIRED : PaymentInstructionStatus.CANCELED);
-            instruction.setCanceledAt(cancellation.cancelledAt().atOffset(ZoneOffset.UTC));
+            instruction.setCanceledAt(cancelledAt);
             instruction.setLastOrderVersion(versions.get(instruction.getOrderId()));
-            instruction.setLastOrderEventAt(event.occurredAt().atOffset(ZoneOffset.UTC));
-            instruction.setUpdatedBy(cancellation.actorId());
+            instruction.setLastOrderEventAt(eventAt);
+            instruction.setUpdatedBy(actorId);
         }
     }
 

@@ -147,15 +147,23 @@ class PaymentSessionEventsTest extends PaymentDatabaseTestSupport {
     }
 
     @Test
-    void cancellationBeforeManifestRollsBackMarkerAndSucceedsWhenRetriedAfterCreation() {
+    void cancellationBeforeManifestIsStashedAndAppliedWhenManifestArrives() {
         var manifest = manifest();
         var cancellation = cancellation(manifest, "BUYER_CANCELLED");
-        assertThatThrownBy(() -> handler.cancel(cancellation)).isInstanceOf(IllegalStateException.class);
-        assertThat(marker(cancellation.eventId())).isZero();
-        handler.checkout(checkout(manifest));
         handler.cancel(cancellation);
+        // The consumer acknowledges the early cancellation instead of retrying
+        // forever: the processed marker and the stashed row commit together.
         assertThat(marker(cancellation.eventId())).isEqualTo(1);
+        assertThat(count("payment_sessions", "order_group_id", manifest.orderGroupId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM payment_pending_cancellations WHERE order_group_id = ?",
+                Integer.class, manifest.orderGroupId())).isEqualTo(1);
+        handler.checkout(checkout(manifest));
+        // The manifest transaction applies the stashed cancellation and removes it.
         assertThat(session(manifest.orderGroupId()).get("status").toString()).isEqualTo("CANCELED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM payment_pending_cancellations WHERE order_group_id = ?",
+                Integer.class, manifest.orderGroupId())).isZero();
+        assertThatThrownBy(() -> payments.initiate(buyer(manifest), manifest.orderGroupId()))
+                .isInstanceOfSatisfying(DomainException.class, error -> assertThat(error.getCode()).isEqualTo(409));
     }
 
     @Test
