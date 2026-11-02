@@ -1,7 +1,7 @@
 package com.group5.commerceservice.cart;
 
 import com.group5.commerceservice.cart.controller.CartController;
-import com.group5.commerceservice.cart.response.CartResponse;
+import com.group5.commerceservice.cart.dto.response.CartResponse;
 import com.group5.commerceservice.cart.service.CartService;
 import com.group5.commerceservice.shared.exception.CommerceErrorCode;
 import com.group5.common_core.exception.DomainException;

@@ -14,7 +14,7 @@ tags:
     description: "Own active cart get-or-create and item addition."
   -
     name: "Orders"
-    description: "Checkout, order reads, administrative status changes and order history."
+    description: "Checkout, order reads, cancellation, administrative status changes and order history."
   -
     name: "Order references"
     description: "Internal product reference lookup."
@@ -1285,7 +1285,7 @@ paths:
         - "Orders"
       operationId: "createOrder"
       summary: "Place an order from the current cart"
-      description: "Requires CHECKOUT.START AND ORDER.CREATE. Splits the active cart by seller, snapshots current catalog prices and reserves inventory. A matching replay of the same Idempotency-Key, buyer and shipping/payment payload returns the original group with 200; a new order returns 201. Unsupported promotion, unavailable item, changed payload/key ownership and unrepresentable money fail before checkout completes. Payment method is SEPAY; the current reservation implementation may reject unavailable inventory. Gateway checks ORDER.CREATE; downstream additionally checks CHECKOUT.START."
+      description: "Requires CHECKOUT.START AND ORDER.CREATE and a UUID Idempotency-Key. Splits the active cart by seller, snapshots current catalog prices and reserves inventory. With nexus.order.idempotency-enabled=true (ORDER_IDEMPOTENCY_ENABLED, default true), a matching replay of the same key, buyer and shipping/payment payload returns the original order group and seller order IDs with 200 and creates no new rows; a fresh key returns 201. UUID letter case is normalized, so uppercase and lowercase forms are the same key. Concurrent requests for one key leave one group and one order per seller; the losing request returns the committed winner's group. A missing or invalid key returns 400 COMMERCE_INVALID_ORDER_REQUEST. A key owned by another buyer returns 400 COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED without that buyer's order data. The same buyer reusing a key with changed shipping/payment data returns 409 COMMERCE_IDEMPOTENCY_CONFLICT. When idempotency is disabled, the UUID header remains required but each successful checkout uses a fresh internal key and does not replay the supplied key. Cart ownership and checkout guards still apply. Unsupported promotion, unavailable item and unrepresentable money fail before checkout completes. Payment method is SEPAY; the current reservation implementation may reject unavailable inventory. Gateway checks ORDER.CREATE; downstream additionally checks CHECKOUT.START."
       security:
         -
           bearerAuth: []
@@ -1297,7 +1297,7 @@ paths:
       x-ownership: "See operation description."
       responses:
         "200":
-          description: "Successful response."
+          description: "Idempotent replay: the original order group and seller order IDs, with no new order rows."
           content:
             application/json:
               schema:
@@ -1324,7 +1324,7 @@ paths:
                           items: []
 
         "201":
-          description: "Successful response."
+          description: "A new order group and one order for each seller in the cart were created."
           content:
             application/json:
               schema:
@@ -1351,7 +1351,7 @@ paths:
                           items: []
 
         "400":
-          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `COMMERCE_INVALID_ORDER_REQUEST`, `COMMERCE_INVALID_QUANTITY`, `COMMERCE_CART_EMPTY`."
+          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `COMMERCE_INVALID_ORDER_REQUEST`, `COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED`, `COMMERCE_INVALID_QUANTITY`, `COMMERCE_CART_EMPTY`. Missing or invalid Idempotency-Key writes no order. A key owned by another buyer returns no order data."
           content:
             application/problem+json:
               schema:
@@ -1374,6 +1374,7 @@ paths:
                           - "VALIDATION_FAILED"
                           - "INVALID_REQUEST_BODY"
                           - "COMMERCE_INVALID_ORDER_REQUEST"
+                          - "COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED"
                           - "COMMERCE_INVALID_QUANTITY"
                           - "COMMERCE_CART_EMPTY"
 
@@ -1414,6 +1415,33 @@ paths:
                     detail: "The order request is invalid"
                     instance: "/api/v1/orders"
                     code: "COMMERCE_INVALID_ORDER_REQUEST"
+                MISSING_IDEMPOTENCY_KEY:
+                  summary: "The required Idempotency-Key header is missing; no order is created"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "Idempotency-Key must be a UUID"
+                    instance: "/api/v1/orders"
+                    code: "COMMERCE_INVALID_ORDER_REQUEST"
+                INVALID_IDEMPOTENCY_KEY:
+                  summary: "The Idempotency-Key header is not a UUID; no order is created"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "Idempotency-Key must be a UUID"
+                    instance: "/api/v1/orders"
+                    code: "COMMERCE_INVALID_ORDER_REQUEST"
+                COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED:
+                  summary: "Another buyer's key is rejected without returning their order data"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "Idempotency-Key cannot be used for this request"
+                    instance: "/api/v1/orders"
+                    code: "COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED"
                 COMMERCE_INVALID_QUANTITY:
                   summary: "COMMERCE_INVALID_QUANTITY"
                   value:
@@ -1587,7 +1615,7 @@ paths:
                     instance: "/api/v1/orders"
                     code: "NOT_ACCEPTABLE"
         "409":
-          description: "Conflict. Codes: `COMMERCE_IDEMPOTENCY_CONFLICT`, `COMMERCE_PROMOTION_NOT_SUPPORTED`, `COMMERCE_ITEM_UNAVAILABLE`, `COMMERCE_INVALID_ORDER_AMOUNT`."
+          description: "Conflict. Codes: `COMMERCE_IDEMPOTENCY_CONFLICT`, `COMMERCE_PROMOTION_NOT_SUPPORTED`, `COMMERCE_ITEM_UNAVAILABLE`, `COMMERCE_INVALID_ORDER_AMOUNT`. IDEMPOTENCY_CONFLICT applies when the same buyer reuses a key with changed shipping/payment data; a key belonging to another buyer returns 400 instead."
           content:
             application/problem+json:
               schema:
@@ -1829,12 +1857,14 @@ paths:
           name: "Idempotency-Key"
           in: "header"
           required: true
-          description: "1 to 100 visible ASCII characters. Reuse only for the same buyer and shipping/payment payload."
+          description: "Required UUID in 8-4-4-4-12 form. UUID letter case is normalized to lowercase. Reuse only for the same buyer and shipping/payment payload. Missing or malformed values return 400 COMMERCE_INVALID_ORDER_REQUEST. The header remains required when ORDER_IDEMPOTENCY_ENABLED=false."
           schema:
             type: "string"
-            minLength: 1
-            maxLength: 100
-            pattern: "^[\\x21-\\x7E]{1,100}$"
+            format: "uuid"
+            minLength: 36
+            maxLength: 36
+            pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+            example: "c8000000-0000-4000-8000-000000000007"
 
       requestBody:
         required: true
@@ -2748,6 +2778,522 @@ paths:
             example:
               status: "PAID"
               reason: "Payment verified"
+  /api/v1/orders/{id}/cancel:
+    post:
+      tags:
+        - "Orders"
+      operationId: "cancelOrder"
+      summary: "Cancel an order"
+      description: "Requires ORDER.CANCEL. The buyer who owns the order, ADMIN or SUPPORT_STAFF may cancel it. A PENDING order cancels its whole unpaid order group in one transaction: the group and every still-PENDING order become CANCELED, each with a history row, and the outbox gets one OrderGroupCancelled and one OrderCancelled per order. The items of the other orders go back to the buyer's ACTIVE cart, added to the same SKU if it is already there, so the buyer can place them again as a new group; the items of the cancelled order are not returned. A PAID order is cancelled on its own: its OrderCancelled carries the amount paid, and the other orders and the group stay PAID. Any other status returns 409. PAYMENT_DEADLINE_EXPIRED is reserved for payment expiry."
+      security:
+        -
+          bearerAuth: []
+
+      x-required-privileges:
+        - "ORDER.CANCEL"
+      x-required-roles: []
+      x-ownership: "See operation description."
+      responses:
+        "200":
+          description: "Successful response."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelOrderResponse"
+              examples:
+                success:
+                  summary: "Success"
+                  value:
+                    code: 0
+                    message: "response success"
+                    data:
+                      orderGroupId: "c8000000-0000-4000-8000-000000000001"
+                      status: "CANCELED"
+                      totalAmount: 150000
+                      currency: "VND"
+                      dueAt: "2026-10-30T09:15:00Z"
+                      orders:
+                        -
+                          orderId: "c8000000-0000-4000-8000-000000000005"
+                          orderNumber: "NX-20261030-00000001"
+                          sellerId: "68000000-0000-4000-8000-000000000003"
+                          status: "CANCELED"
+                          totalAmount: 150000
+                          items: []
+        "400":
+          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `COMMERCE_RESERVED_CANCEL_REASON`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 400
+                      code:
+                        type: "string"
+                        enum:
+                          - "INVALID_PARAMETER"
+                          - "VALIDATION_FAILED"
+                          - "INVALID_REQUEST_BODY"
+                          - "COMMERCE_RESERVED_CANCEL_REASON"
+
+              examples:
+                INVALID_PARAMETER:
+                  summary: "INVALID_PARAMETER"
+                  value:
+                    type: "urn:problem:invalid-parameter"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "A request parameter is invalid"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "INVALID_PARAMETER"
+                VALIDATION_FAILED:
+                  summary: "VALIDATION_FAILED"
+                  value:
+                    type: "urn:problem:validation-failed"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "The request data is invalid"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "VALIDATION_FAILED"
+                INVALID_REQUEST_BODY:
+                  summary: "INVALID_REQUEST_BODY"
+                  value:
+                    type: "urn:problem:invalid-request-body"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "The request body is invalid or malformed"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "INVALID_REQUEST_BODY"
+                COMMERCE_RESERVED_CANCEL_REASON:
+                  summary: "COMMERCE_RESERVED_CANCEL_REASON"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "This cancellation reason is reserved for payment expiry"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "COMMERCE_RESERVED_CANCEL_REASON"
+        "401":
+          description: "Unauthorized. Codes: `UNAUTHENTICATED`, `COMMERCE_UNAUTHENTICATED`."
+          headers:
+            WWW-Authenticate:
+              description: "Bearer challenge for security failures; domain failures may omit it."
+              schema:
+                type: "string"
+                example: "Bearer"
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 401
+                      code:
+                        type: "string"
+                        enum:
+                          - "UNAUTHENTICATED"
+                          - "COMMERCE_UNAUTHENTICATED"
+
+              examples:
+                UNAUTHENTICATED:
+                  summary: "UNAUTHENTICATED"
+                  value:
+                    type: "urn:problem:unauthenticated"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "A valid access token is required to access this resource"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "UNAUTHENTICATED"
+                COMMERCE_UNAUTHENTICATED:
+                  summary: "COMMERCE_UNAUTHENTICATED"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "Unauthenticated"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "COMMERCE_UNAUTHENTICATED"
+        "403":
+          description: "Forbidden. Codes: `FORBIDDEN`, `COMMERCE_FORBIDDEN`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 403
+                      code:
+                        type: "string"
+                        enum:
+                          - "FORBIDDEN"
+                          - "COMMERCE_FORBIDDEN"
+
+              examples:
+                FORBIDDEN:
+                  summary: "FORBIDDEN"
+                  value:
+                    type: "urn:problem:forbidden"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission to access this resource"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "FORBIDDEN"
+                COMMERCE_FORBIDDEN:
+                  summary: "COMMERCE_FORBIDDEN"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "COMMERCE_FORBIDDEN"
+        "404":
+          description: "Not Found. Codes: `COMMERCE_ORDER_NOT_FOUND`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 404
+                      code:
+                        type: "string"
+                        enum:
+                          - "COMMERCE_ORDER_NOT_FOUND"
+
+              examples:
+                COMMERCE_ORDER_NOT_FOUND:
+                  summary: "COMMERCE_ORDER_NOT_FOUND"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Not Found"
+                    status: 404
+                    detail: "Order not found"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "COMMERCE_ORDER_NOT_FOUND"
+        "405":
+          description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 405
+                      code:
+                        type: "string"
+                        enum:
+                          - "METHOD_NOT_ALLOWED"
+
+              examples:
+                METHOD_NOT_ALLOWED:
+                  summary: "METHOD_NOT_ALLOWED"
+                  value:
+                    type: "urn:problem:method-not-allowed"
+                    title: "Method Not Allowed"
+                    status: 405
+                    detail: "The HTTP method is not supported for this endpoint"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "METHOD_NOT_ALLOWED"
+        "406":
+          description: "Not Acceptable. Codes: `NOT_ACCEPTABLE`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 406
+                      code:
+                        type: "string"
+                        enum:
+                          - "NOT_ACCEPTABLE"
+
+              examples:
+                NOT_ACCEPTABLE:
+                  summary: "NOT_ACCEPTABLE"
+                  value:
+                    type: "urn:problem:not-acceptable"
+                    title: "Not Acceptable"
+                    status: 406
+                    detail: "The requested response format is not supported"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "NOT_ACCEPTABLE"
+        "409":
+          description: "Conflict. Codes: `COMMERCE_ORDER_NOT_CANCELLABLE`, `COMMERCE_ILLEGAL_TRANSITION`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 409
+                      code:
+                        type: "string"
+                        enum:
+                          - "COMMERCE_ORDER_NOT_CANCELLABLE"
+                          - "COMMERCE_ILLEGAL_TRANSITION"
+
+              examples:
+                COMMERCE_ORDER_NOT_CANCELLABLE:
+                  summary: "COMMERCE_ORDER_NOT_CANCELLABLE"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Conflict"
+                    status: 409
+                    detail: "The order can no longer be cancelled"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "COMMERCE_ORDER_NOT_CANCELLABLE"
+                COMMERCE_ILLEGAL_TRANSITION:
+                  summary: "COMMERCE_ILLEGAL_TRANSITION"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Conflict"
+                    status: 409
+                    detail: "The order status transition is not allowed"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "COMMERCE_ILLEGAL_TRANSITION"
+        "415":
+          description: "Unsupported Media Type. Codes: `UNSUPPORTED_MEDIA_TYPE`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 415
+                      code:
+                        type: "string"
+                        enum:
+                          - "UNSUPPORTED_MEDIA_TYPE"
+
+              examples:
+                UNSUPPORTED_MEDIA_TYPE:
+                  summary: "UNSUPPORTED_MEDIA_TYPE"
+                  value:
+                    type: "urn:problem:unsupported-media-type"
+                    title: "Unsupported Media Type"
+                    status: 415
+                    detail: "The request content type is not supported"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "UNSUPPORTED_MEDIA_TYPE"
+        "429":
+          description: "Too Many Requests. Codes: `RATE_LIMITED`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 429
+                      code:
+                        type: "string"
+                        enum:
+                          - "RATE_LIMITED"
+
+              examples:
+                RATE_LIMITED:
+                  summary: "RATE_LIMITED"
+                  value:
+                    type: "urn:problem:rate-limited"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many requests; retry after the indicated delay"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "RATE_LIMITED"
+          headers:
+            Retry-After:
+              description: "Present when supplied by the limiter."
+              schema:
+                type: "string"
+        "500":
+          description: "Internal Server Error. Codes: `INTERNAL_ERROR`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 500
+                      code:
+                        type: "string"
+                        enum:
+                          - "INTERNAL_ERROR"
+
+              examples:
+                INTERNAL_ERROR:
+                  summary: "INTERNAL_ERROR"
+                  value:
+                    type: "urn:problem:internal-error"
+                    title: "Internal Server Error"
+                    status: 500
+                    detail: "An unexpected error occurred"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "INTERNAL_ERROR"
+        "503":
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 503
+                      code:
+                        type: "string"
+                        enum:
+                          - "SERVICE_UNAVAILABLE"
+
+              examples:
+                SERVICE_UNAVAILABLE:
+                  summary: "SERVICE_UNAVAILABLE"
+                  value:
+                    type: "urn:problem:service-unavailable"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "A required service is unavailable"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "SERVICE_UNAVAILABLE"
+        "504":
+          description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 504
+                      code:
+                        type: "string"
+                        enum:
+                          - "GATEWAY_TIMEOUT"
+
+              examples:
+                GATEWAY_TIMEOUT:
+                  summary: "GATEWAY_TIMEOUT"
+                  value:
+                    type: "urn:problem:gateway-timeout"
+                    title: "Gateway Timeout"
+                    status: 504
+                    detail: "The service did not answer in time"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/cancel"
+                    code: "GATEWAY_TIMEOUT"
+      x-gateway-privilege: "ORDER.CANCEL"
+      parameters:
+        -
+          name: "id"
+          in: "path"
+          required: true
+          description: "Resource UUID."
+          schema:
+            type: "string"
+            format: "uuid"
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelOrder"
+            example:
+              reason: "Changed my mind"
   /api/v1/orders/{id}/history:
     get:
       tags:
@@ -3637,6 +4183,16 @@ components:
           minLength: 1
           maxLength: 500
           pattern: "\\S"
+    CancelOrder:
+      type: "object"
+      required:
+        - "reason"
+      properties:
+        reason:
+          type: "string"
+          minLength: 1
+          maxLength: 500
+          pattern: "\\S"
     OrderItem:
       type: "object"
       required:
@@ -3860,6 +4416,22 @@ components:
         data:
           $ref: "#/components/schemas/Order"
       additionalProperties: false
+    CancelOrderResponse:
+      type: "object"
+      required:
+        - "code"
+        - "message"
+        - "data"
+      properties:
+        code:
+          type: "integer"
+          default: 0
+        message:
+          type: "string"
+          default: "response success"
+        data:
+          $ref: "#/components/schemas/OrderGroup"
+      additionalProperties: false
     OrderStatusHistoryListResponse:
       type: "object"
       required:
@@ -3943,6 +4515,9 @@ x-business-error-codes:
   COMMERCE_IDEMPOTENCY_CONFLICT:
     status: 409
     detail: "Idempotency-Key was already used for another request"
+  COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED:
+    status: 400
+    detail: "Idempotency-Key cannot be used for this request"
   COMMERCE_PROMOTION_NOT_SUPPORTED:
     status: 409
     detail: "Remove the promotion code before placing this order"
@@ -3952,3 +4527,9 @@ x-business-error-codes:
   COMMERCE_INVALID_ORDER_AMOUNT:
     status: 409
     detail: "An item price or order total cannot be represented as numeric(19,2)"
+  COMMERCE_ORDER_NOT_CANCELLABLE:
+    status: 409
+    detail: "The order can no longer be cancelled"
+  COMMERCE_RESERVED_CANCEL_REASON:
+    status: 400
+    detail: "This cancellation reason is reserved for payment expiry"

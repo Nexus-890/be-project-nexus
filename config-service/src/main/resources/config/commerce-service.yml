@@ -28,6 +28,7 @@ nexus:
     allow-guest-cart: false
     expiration-days: 7
   order:
+    idempotency-enabled: ${ORDER_IDEMPOTENCY_ENABLED:true}
     # Sprint 3 disables this flag when wiring a real InventoryClient.
     inventory-stub-enabled: true
     payment-timeout-minutes: 15

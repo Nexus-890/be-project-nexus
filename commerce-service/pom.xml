@@ -150,6 +150,16 @@
 			<artifactId>common-core</artifactId>
 			<version>1.0.0</version>
 		</dependency>
+		<dependency>
+			<groupId>com.group5</groupId>
+			<artifactId>common-events</artifactId>
+			<version>1.0.0</version>
+		</dependency>
+		<dependency>
+			<groupId>com.group5</groupId>
+			<artifactId>common-outbox</artifactId>
+			<version>1.0.0</version>
+		</dependency>
 		<!-- ShedLock integration with Spring -->
 		<dependency>
 			<groupId>net.javacrumbs.shedlock</groupId>

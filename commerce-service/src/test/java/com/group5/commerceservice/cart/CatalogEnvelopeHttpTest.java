@@ -5,7 +5,7 @@ import com.group5.commerceservice.cart.entity.Cart;
 import com.group5.commerceservice.cart.entity.CartItem;
 import com.group5.commerceservice.cart.repository.CartItemRepository;
 import com.group5.commerceservice.cart.repository.CartRepository;
-import com.group5.commerceservice.cart.request.CartItemRequest;
+import com.group5.commerceservice.cart.dto.request.CartItemRequest;
 import com.group5.commerceservice.cart.service.CartService;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
