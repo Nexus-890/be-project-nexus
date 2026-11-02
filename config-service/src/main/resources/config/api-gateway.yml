@@ -116,7 +116,6 @@ nexus:
       - method: POST
         path: /api/v1/carts/me/items
         privilege: CART.UPDATE
-<<<<<<< be-project-nexus/config-service/src/main/resources/config/api-gateway.yml
       - method: PUT
         path: /api/v1/carts/me/items/{id}
         privilege: CART.UPDATE
