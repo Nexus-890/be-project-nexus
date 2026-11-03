@@ -3,11 +3,11 @@ package com.group5.userservice.iam;
 import com.group5.common_core.exception.DomainException;
 import com.group5.userservice.iam.dto.UpdateProfileRequest;
 import com.group5.userservice.iam.dto.UserResponse;
-import com.group5.userservice.iam.entity.Role;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.Gender;
 import com.group5.userservice.iam.enums.UserStatus;
 import com.group5.userservice.shared.config.IamProperties;
+import com.group5.userservice.shared.exception.UserErrorCode;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,6 +23,7 @@ import org.springframework.transaction.TransactionStatus;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -32,6 +33,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -67,6 +69,7 @@ class UserProfileServiceTest {
     @Test
     void getReturnsTheRequestedCallerAndExistingRegistrationResponseWithoutWriting() {
         when(userRepository.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+        givenKeycloakRoles();
 
         UserResponse response = userService.getOwnProfile(USER_ID);
 
@@ -98,6 +101,7 @@ class UserProfileServiceTest {
     void threeFieldUpdateNormalizesEmailAndRetainsPasswordPhoneIdentityRoleAndLoginState() {
         givenCaller();
         when(userRepository.saveAndFlush(user)).thenReturn(user);
+        givenKeycloakRoles();
 
         UserResponse response = userService.updateOwnProfile(USER_ID,
                 new UpdateProfileRequest("  Changed Name  ", null, null, "  HCM  ", "  X@NEXUS.LOCAL  "));
@@ -116,6 +120,7 @@ class UserProfileServiceTest {
         assertThat(user.getLockedUntil()).isEqualTo(CREATED_AT.plusMinutes(15));
         assertThat(user.getLastLoginAt()).isEqualTo(CREATED_AT);
         verify(userRepository).existsByEmailAndIdNot("x@nexus.local", USER_ID);
+        verify(keycloak).updateEmail(USER_ID, "x@nexus.local");
         verify(transactionManager).commit(transactionStatus);
         verifyNoInteractions(passwordEncoder);
     }
@@ -124,7 +129,7 @@ class UserProfileServiceTest {
     void aRequestWithNoEditableValuesRetainsTheWholeProfileAndSkipsEmailLookup() {
         givenCaller();
         when(userRepository.saveAndFlush(user)).thenReturn(user);
-        UserResponse before = UserResponse.from(user);
+        UserResponse before = UserResponse.from(user, List.of());
 
         UserResponse response = userService.updateOwnProfile(USER_ID,
                 new UpdateProfileRequest(null, null, null, null, null));
@@ -138,7 +143,7 @@ class UserProfileServiceTest {
     void duplicateEmailReturns409BeforeMutatingOtherFields() {
         givenCaller();
         when(userRepository.existsByEmailAndIdNot("other@nexus.local", USER_ID)).thenReturn(true);
-        UserResponse before = UserResponse.from(user);
+        UserResponse before = UserResponse.from(user, List.of());
 
         DomainException error = catchThrowableOfType(DomainException.class,
                 () -> userService.updateOwnProfile(USER_ID,
@@ -146,7 +151,7 @@ class UserProfileServiceTest {
                                 Gender.OTHER, "Rejected Address", "  OTHER@NEXUS.LOCAL  ")));
 
         assertThat(error.getCode()).isEqualTo(409);
-        assertThat(UserResponse.from(user)).isEqualTo(before);
+        assertThat(UserResponse.from(user, List.of())).isEqualTo(before);
         verify(userRepository, never()).saveAndFlush(any());
         verify(transactionManager).rollback(transactionStatus);
     }
@@ -170,13 +175,15 @@ class UserProfileServiceTest {
         iamProperties.setDefaultUserRole("SELLER");
         givenCaller();
         when(userRepository.saveAndFlush(user)).thenReturn(user);
+        givenKeycloakRoles();
 
         UserResponse response = userService.updateOwnProfile(USER_ID,
                 new UpdateProfileRequest("Changed Name", null, null, null, null));
 
         assertThat(response.fullName()).isEqualTo("Changed Name");
         assertThat(response.roles()).containsExactly("BUYER");
-        verify(userRepository, never()).findRegistrationRole(anyString());
+        verify(keycloak, never()).realmRole(anyString());
+        verify(keycloak, never()).updateEmail(any(), anyString());
         verifyNoInteractions(passwordEncoder);
     }
 
@@ -250,10 +257,42 @@ class UserProfileServiceTest {
 
         assertThat(error.getCode()).isEqualTo(409);
         verify(transactionManager).commit(transactionStatus);
+        verify(keycloak).updateEmail(USER_ID, "changed@nexus.local");
+        verify(keycloak).updateEmail(USER_ID, "buyer@nexus.local");
+    }
+
+    @Test
+    void anUnchangedEmailIsNotSentToKeycloak() {
+        givenCaller();
+        when(userRepository.saveAndFlush(user)).thenReturn(user);
+
+        userService.updateOwnProfile(USER_ID, new UpdateProfileRequest(null, null, null, null, "Buyer@Nexus.Local"));
+
+        verify(keycloak, never()).updateEmail(any(), anyString());
+    }
+
+    @Test
+    void anEmailTakenInKeycloakReturns409AndRollsBackTheProfile() {
+        givenCaller();
+        when(userRepository.saveAndFlush(user)).thenReturn(user);
+        doThrow(new DomainException(UserErrorCode.USER_EMAIL_ALREADY_USED))
+                .when(keycloak).updateEmail(USER_ID, "taken@nexus.local");
+
+        DomainException error = catchThrowableOfType(DomainException.class,
+                () -> userService.updateOwnProfile(USER_ID,
+                        new UpdateProfileRequest(null, null, null, null, "taken@nexus.local")));
+
+        assertThat(error.getErrorCode()).isEqualTo("USER_EMAIL_ALREADY_USED");
+        verify(transactionManager).rollback(transactionStatus);
+        verify(keycloak, times(1)).updateEmail(any(), anyString());
     }
 
     private void givenCaller() {
         when(userRepository.findForProfileUpdate(USER_ID)).thenReturn(Optional.of(user));
+    }
+
+    private void givenKeycloakRoles() {
+        when(keycloak.realmRoles(USER_ID)).thenReturn(List.of("BUYER"));
     }
 
     private DataIntegrityViolationException uniqueViolation(String constraint) {
@@ -277,9 +316,6 @@ class UserProfileServiceTest {
         existing.setLockedUntil(CREATED_AT.plusMinutes(15));
         existing.setLastLoginAt(CREATED_AT);
         existing.setCreatedAt(CREATED_AT);
-        Role buyer = new Role();
-        buyer.setCode("BUYER");
-        existing.assignInitialRole(buyer);
         return existing;
     }
 }

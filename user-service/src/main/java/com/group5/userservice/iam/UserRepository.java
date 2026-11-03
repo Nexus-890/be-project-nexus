@@ -2,7 +2,6 @@ package com.group5.userservice.iam;
 
 import com.group5.userservice.iam.entity.User;
 import jakarta.persistence.LockModeType;
-import com.group5.userservice.iam.entity.Role;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
@@ -24,9 +23,6 @@ public interface UserRepository extends JpaRepository<User, UUID>, JpaSpecificat
     boolean existsByPhone(String phone);
 
     boolean existsByIdentityNumber(String identityNumber);
-
-    @Query("select r from Role r where r.code = :code and r.deletedAt is null")
-    Optional<Role> findRegistrationRole(@Param("code") String code);
 
     // The existing schema has no identity-number UNIQUE constraint. Serialize
     // this registration path across instances without altering database schema.

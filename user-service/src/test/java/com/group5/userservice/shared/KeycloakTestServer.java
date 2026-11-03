@@ -34,6 +34,8 @@ import java.util.stream.Collectors;
 /** A disposable Keycloak with the project realm and seed script, shared by the test JVM. */
 public final class KeycloakTestServer {
     public static final String CLIENT_SECRET = random(32);
+    public static final String DEMO_ADMIN = "admin@nexus.local";
+    public static final String DEMO_ADMIN_PASSWORD = random(16);
     private static final String ADMIN = "test-admin";
     private static final String ADMIN_PASSWORD = random(24);
     private static final String REDIRECT = "http://localhost:3000/user-service-test-callback";
@@ -155,7 +157,7 @@ public final class KeycloakTestServer {
                             "KEYCLOAK_SERVER_URL", "http://localhost:8080",
                             "KEYCLOAK_ADMIN", ADMIN,
                             "KEYCLOAK_ADMIN_PASSWORD", ADMIN_PASSWORD,
-                            "DEMO_ADMIN_PASSWORD", random(16),
+                            "DEMO_ADMIN_PASSWORD", DEMO_ADMIN_PASSWORD,
                             "DEMO_SELLER_PASSWORD", random(16),
                             "DEMO_BUYER_PASSWORD", random(16),
                             "KEYCLOAK_USER_SERVICE_CLIENT_SECRET", CLIENT_SECRET))

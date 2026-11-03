@@ -162,6 +162,59 @@ class RegistrationIntegrationTest {
         assertThat(body.get("id").asString()).isEqualTo(keycloakId.toString());
         assertThat(body.get("email").asString()).isEqualTo("login@nexus.test");
         assertThat(body.get("fullName").asString()).isEqualTo("Registered Buyer");
+        assertThat(body.get("roles").toString()).isEqualTo("[\"BUYER\"]");
+    }
+
+    @Test
+    void profileEmailChangeMovesTheKeycloakSignIn() throws Exception {
+        assertThat(post(REGISTER, request("before@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+        UUID keycloakId = KeycloakTestServer.userIdByEmail("before@nexus.test").orElseThrow();
+        String token = KeycloakTestServer.signIn("before@nexus.test", PASSWORD);
+
+        HttpResponse<String> updated = put("/api/v1/users/me", Map.of("email", "After@Nexus.Test"), token);
+
+        assertThat(updated.statusCode()).isEqualTo(200);
+        assertThat(JSON.readTree(updated.body()).get("data").get("email").asString()).isEqualTo("after@nexus.test");
+        assertThat(KeycloakTestServer.userIdByEmail("after@nexus.test")).contains(keycloakId);
+        assertThat(KeycloakTestServer.userIdByEmail("before@nexus.test")).isEmpty();
+        assertThat(KeycloakTestServer.signIn("after@nexus.test", PASSWORD)).isNotBlank();
+    }
+
+    @Test
+    void profileEmailHeldByAnotherKeycloakAccountReturns409AndKeepsBothRecords() throws Exception {
+        assertThat(post(REGISTER, request("keep@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+        UUID keycloakId = KeycloakTestServer.userIdByEmail("keep@nexus.test").orElseThrow();
+        String token = KeycloakTestServer.signIn("keep@nexus.test", PASSWORD);
+
+        HttpResponse<String> rejected = put("/api/v1/users/me", Map.of("email", KeycloakTestServer.DEMO_ADMIN), token);
+
+        assertThat(rejected.statusCode()).isEqualTo(409);
+        assertThat(JSON.readTree(rejected.body()).get("code").asString()).isEqualTo("USER_EMAIL_ALREADY_USED");
+        assertThat(jdbc.queryForObject("select email from users", String.class)).isEqualTo("keep@nexus.test");
+        assertThat(KeycloakTestServer.userIdByEmail("keep@nexus.test")).contains(keycloakId);
+    }
+
+    @Test
+    void adminListFiltersByKeycloakRoleAndShowsKeycloakRoles() throws Exception {
+        assertThat(post(REGISTER, request("buyer@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+        configChanged = true;
+        writeConfig("SELLER", true);
+        assertThat(post("/actuator/refresh", Map.of()).statusCode()).isEqualTo(200);
+        assertThat(post(REGISTER, request("seller@nexus.test", "0901234568", "001235")).statusCode()).isEqualTo(201);
+        String admin = KeycloakTestServer.signIn(KeycloakTestServer.DEMO_ADMIN, KeycloakTestServer.DEMO_ADMIN_PASSWORD);
+
+        HttpResponse<String> sellers = get("/api/v1/users?role=seller", admin);
+        HttpResponse<String> everyone = get("/api/v1/users?sort=email", admin);
+
+        assertThat(sellers.statusCode()).isEqualTo(200);
+        JsonNode sellerPage = JSON.readTree(sellers.body()).get("data");
+        assertThat(sellerPage.size()).isEqualTo(1);
+        assertThat(sellerPage.get(0).get("email").asString()).isEqualTo("seller@nexus.test");
+        assertThat(sellerPage.get(0).get("roles").toString()).isEqualTo("[\"SELLER\"]");
+        assertThat(everyone.statusCode()).isEqualTo(200);
+        JsonNode everyonePage = JSON.readTree(everyone.body()).get("data");
+        assertThat(everyonePage.size()).isEqualTo(2);
+        assertThat(everyonePage.get(0).get("roles").toString()).isEqualTo("[\"BUYER\"]");
     }
 
     @Test
@@ -378,6 +431,15 @@ class RegistrationIntegrationTest {
                 .timeout(Duration.ofSeconds(30))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
+                .build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> put(String path, Map<?, ?> body, String token) throws Exception {
+        return HTTP.send(HttpRequest.newBuilder(uri(path))
+                .timeout(Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + token)
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
                 .build(), HttpResponse.BodyHandlers.ofString());
     }
 

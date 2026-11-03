@@ -50,6 +50,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Real JPA transactions and SQL constraints, without an enclosing test transaction.
@@ -84,12 +85,6 @@ class ProfileTransactionTest {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             userRepository.deleteAll();
             userRepository.flush();
-            jdbc.update("delete from roles");
-            OffsetDateTime now = OffsetDateTime.now();
-            jdbc.update("""
-                    insert into roles (id, code, name, is_system, created_at, updated_at)
-                    values (?, 'BUYER', 'Buyer', true, ?, ?)
-                    """, UUID.randomUUID(), now, now);
             firstId = seedUser(FIRST_EMAIL, "0900000001", "First User", "First City");
             secondId = seedUser(SECOND_EMAIL, "0900000002", "Second User", "Second City");
         });
@@ -138,8 +133,6 @@ class ProfileTransactionTest {
         assertThat(after.failedLoginCount()).isEqualTo(before.failedLoginCount());
         assertThat(after.version()).isEqualTo(before.version() + 1);
         assertThat(readCommittedProfile(secondId)).isEqualTo(otherBefore);
-        assertThat(jdbc.queryForObject("select count(*) from user_roles where user_id = ?",
-                Long.class, firstId)).isEqualTo(1L);
     }
 
     @Test
@@ -310,12 +303,17 @@ class ProfileTransactionTest {
         user.setGender(Gender.MALE);
         user.setAddress(address);
         user.setFailedLoginCount((short) 3);
-        user.assignInitialRole(userRepository.findRegistrationRole("BUYER").orElseThrow());
         return userRepository.saveAndFlush(user).getId();
     }
 
+    private static KeycloakAdminClient buyerKeycloak() {
+        KeycloakAdminClient keycloak = mock(KeycloakAdminClient.class);
+        when(keycloak.realmRoles(any())).thenReturn(List.of("BUYER"));
+        return keycloak;
+    }
+
     private UserService serviceUsing(UserRepository repository) {
-        return new UserService(repository, passwordEncoder, new IamProperties(), mock(KeycloakAdminClient.class),
+        return new UserService(repository, passwordEncoder, new IamProperties(), buyerKeycloak(),
                 transactionManager);
     }
 
@@ -393,7 +391,7 @@ class ProfileTransactionTest {
         @Bean
         UserService userService(UserRepository repository, PlatformTransactionManager manager,
                                 PasswordEncoder encoder) {
-            return new UserService(repository, encoder, new IamProperties(), mock(KeycloakAdminClient.class), manager);
+            return new UserService(repository, encoder, new IamProperties(), buyerKeycloak(), manager);
         }
     }
 }

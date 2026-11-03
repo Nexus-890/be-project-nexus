@@ -3,7 +3,6 @@ package com.group5.userservice.iam;
 import com.group5.common_core.exception.DomainException;
 import com.group5.userservice.iam.dto.RegisterRequest;
 import com.group5.userservice.iam.dto.UserResponse;
-import com.group5.userservice.iam.entity.Role;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.UserStatus;
 import com.group5.userservice.shared.config.IamProperties;
@@ -121,7 +120,6 @@ class UserServiceTest {
     void failedCleanupIsKeptAsSuppressedUnderTheOriginalError() {
         givenNoDuplicates();
         givenKeycloakAccount("BUYER");
-        when(userRepository.findRegistrationRole("BUYER")).thenReturn(Optional.of(buyerRole()));
         IllegalStateException original = new IllegalStateException("database down");
         when(userRepository.saveAndFlush(any(User.class))).thenThrow(original);
         DomainException cleanup = new DomainException(UserErrorCode.USER_IDENTITY_PROVIDER_UNAVAILABLE);
@@ -163,16 +161,16 @@ class UserServiceTest {
     }
 
     @Test
-    void registerStoresExactlyOneConfiguredDefaultRole() {
+    void registerAssignsExactlyOneConfiguredRealmRoleAndNoLocalRole() {
         givenRegistrationCanSave();
         ArgumentCaptor<User> savedUser = ArgumentCaptor.forClass(User.class);
 
-        userService.register(validRequest());
+        UserResponse response = userService.register(validRequest());
 
+        verify(keycloak, times(1)).assignRealmRole(any(), any());
         verify(userRepository).saveAndFlush(savedUser.capture());
-        assertThat(savedUser.getValue().getRoles())
-                .extracting(Role::getCode)
-                .containsExactly("BUYER");
+        assertThat(savedUser.getValue().getRoles()).isEmpty();
+        assertThat(response.roles()).containsExactly("BUYER");
     }
 
     @Test
@@ -300,7 +298,6 @@ class UserServiceTest {
     void concurrentDatabaseUniqueViolationReturns409() {
         givenNoDuplicates();
         givenKeycloakAccount("BUYER");
-        when(userRepository.findRegistrationRole("BUYER")).thenReturn(Optional.of(buyerRole()));
         when(userRepository.saveAndFlush(any(User.class)))
                 .thenThrow(new DataIntegrityViolationException("duplicate email",
                         new org.hibernate.exception.ConstraintViolationException(
@@ -318,7 +315,6 @@ class UserServiceTest {
     void concurrentPhoneUniqueViolationReturns409AfterRollback() {
         givenNoDuplicates();
         givenKeycloakAccount("BUYER");
-        when(userRepository.findRegistrationRole("BUYER")).thenReturn(Optional.of(buyerRole()));
         when(userRepository.saveAndFlush(any(User.class)))
                 .thenThrow(new DataIntegrityViolationException("duplicate phone",
                         new org.hibernate.exception.ConstraintViolationException(
@@ -336,7 +332,6 @@ class UserServiceTest {
     void nonDuplicateDatabaseConstraintViolationKeepsTheOriginalException() {
         givenNoDuplicates();
         givenKeycloakAccount("BUYER");
-        when(userRepository.findRegistrationRole("BUYER")).thenReturn(Optional.of(buyerRole()));
         DataIntegrityViolationException original = new DataIntegrityViolationException("foreign key",
                 new org.hibernate.exception.ConstraintViolationException(
                         "foreign key", new SQLException("foreign key", "23503"), "user_roles_role_id_fkey"));
@@ -374,9 +369,6 @@ class UserServiceTest {
     private void givenRegistrationCanSave(String roleCode) {
         givenNoDuplicates();
         givenKeycloakAccount(roleCode);
-        Role role = buyerRole();
-        role.setCode(roleCode);
-        when(userRepository.findRegistrationRole(roleCode)).thenReturn(Optional.of(role));
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> {
             User user = invocation.getArgument(0);
             user.setStatus(UserStatus.ACTIVE);
@@ -404,14 +396,6 @@ class UserServiceTest {
     private void givenNoDuplicates() {
         givenNoDuplicatesBeforeKeycloak();
         when(userRepository.lockRegistrationIdentity(anyString())).thenReturn(1);
-    }
-
-    private Role buyerRole() {
-        Role role = new Role();
-        role.setId(UUID.fromString("f78f7e48-7672-48f2-b5d3-d5b615d512d7"));
-        role.setCode("BUYER");
-        role.setName("Buyer");
-        return role;
     }
 
     private RegisterRequest validRequest() {

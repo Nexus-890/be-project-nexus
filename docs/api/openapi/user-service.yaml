@@ -950,6 +950,7 @@ paths:
           - "INTERNAL_ERROR"
         "503":
           - "SERVICE_UNAVAILABLE"
+          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           - "GATEWAY_TIMEOUT"
       responses:
@@ -1228,7 +1229,7 @@ paths:
                     instance: "/api/v1/users/me"
                     code: "INTERNAL_ERROR"
         "503":
-          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`, `USER_IDENTITY_PROVIDER_UNAVAILABLE`."
           content:
             "application/problem+json":
               schema:
@@ -1246,6 +1247,7 @@ paths:
                         type: "string"
                         enum:
                           - "SERVICE_UNAVAILABLE"
+                          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
               examples:
                 SERVICE_UNAVAILABLE:
                   summary: "SERVICE_UNAVAILABLE"
@@ -1256,6 +1258,15 @@ paths:
                     detail: "A required service is unavailable"
                     instance: "/api/v1/users/me"
                     code: "SERVICE_UNAVAILABLE"
+                USER_IDENTITY_PROVIDER_UNAVAILABLE:
+                  summary: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "The identity provider is unavailable"
+                    instance: "/api/v1/users/me"
+                    code: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
           content:
@@ -1290,7 +1301,7 @@ paths:
         - "Users"
       operationId: "updateOwnProfile"
       summary: "Update editable fields of the current profile"
-      description: "Preserves existing partial-update behavior even though the delivered method is PUT: omitted/null properties retain stored values. Access: requires PROFILE.UPDATE. Ownership/business restriction: JWT subject only."
+      description: "Preserves existing partial-update behavior even though the delivered method is PUT: omitted/null properties retain stored values. A changed email is also set on the Keycloak account; an email another Keycloak account holds returns 409. Access: requires PROFILE.UPDATE. Ownership/business restriction: JWT subject only."
       security:
         -
           bearerAuth: []
@@ -1304,6 +1315,7 @@ paths:
           - "INVALID_PARAMETER"
           - "VALIDATION_FAILED"
           - "INVALID_REQUEST_BODY"
+          - "USER_IDENTITY_REJECTED"
         "401":
           - "UNAUTHENTICATED"
         "403":
@@ -1327,6 +1339,7 @@ paths:
           - "INTERNAL_ERROR"
         "503":
           - "SERVICE_UNAVAILABLE"
+          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           - "GATEWAY_TIMEOUT"
       requestBody:
@@ -1363,7 +1376,7 @@ paths:
                       status: "ACTIVE"
                       createdAt: "2026-10-23T00:00:00Z"
         "400":
-          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`."
+          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `USER_IDENTITY_REJECTED`."
           content:
             "application/problem+json":
               schema:
@@ -1383,6 +1396,7 @@ paths:
                           - "INVALID_PARAMETER"
                           - "VALIDATION_FAILED"
                           - "INVALID_REQUEST_BODY"
+                          - "USER_IDENTITY_REJECTED"
               examples:
                 INVALID_PARAMETER:
                   summary: "INVALID_PARAMETER"
@@ -1420,6 +1434,15 @@ paths:
                     detail: "The request body is invalid or malformed"
                     instance: "/api/v1/users/me"
                     code: "INVALID_REQUEST_BODY"
+                USER_IDENTITY_REJECTED:
+                  summary: "USER_IDENTITY_REJECTED"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "The identity provider rejected the account details"
+                    instance: "/api/v1/users/me"
+                    code: "USER_IDENTITY_REJECTED"
         "401":
           description: "Unauthorized. Codes: `UNAUTHENTICATED`."
           headers:
@@ -1730,7 +1753,7 @@ paths:
                     instance: "/api/v1/users/me"
                     code: "INTERNAL_ERROR"
         "503":
-          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`, `USER_IDENTITY_PROVIDER_UNAVAILABLE`."
           content:
             "application/problem+json":
               schema:
@@ -1748,6 +1771,7 @@ paths:
                         type: "string"
                         enum:
                           - "SERVICE_UNAVAILABLE"
+                          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
               examples:
                 SERVICE_UNAVAILABLE:
                   summary: "SERVICE_UNAVAILABLE"
@@ -1758,6 +1782,15 @@ paths:
                     detail: "A required service is unavailable"
                     instance: "/api/v1/users/me"
                     code: "SERVICE_UNAVAILABLE"
+                USER_IDENTITY_PROVIDER_UNAVAILABLE:
+                  summary: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "The identity provider is unavailable"
+                    instance: "/api/v1/users/me"
+                    code: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
           content:
@@ -1820,6 +1853,7 @@ paths:
           - "INTERNAL_ERROR"
         "503":
           - "SERVICE_UNAVAILABLE"
+          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           - "GATEWAY_TIMEOUT"
       parameters:
@@ -2107,7 +2141,7 @@ paths:
                     instance: "/api/v1/users/c8000000-0000-4000-8000-000000000002"
                     code: "INTERNAL_ERROR"
         "503":
-          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`, `USER_IDENTITY_PROVIDER_UNAVAILABLE`."
           content:
             "application/problem+json":
               schema:
@@ -2125,6 +2159,7 @@ paths:
                         type: "string"
                         enum:
                           - "SERVICE_UNAVAILABLE"
+                          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
               examples:
                 SERVICE_UNAVAILABLE:
                   summary: "SERVICE_UNAVAILABLE"
@@ -2135,6 +2170,15 @@ paths:
                     detail: "A required service is unavailable"
                     instance: "/api/v1/users/c8000000-0000-4000-8000-000000000002"
                     code: "SERVICE_UNAVAILABLE"
+                USER_IDENTITY_PROVIDER_UNAVAILABLE:
+                  summary: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "The identity provider is unavailable"
+                    instance: "/api/v1/users/c8000000-0000-4000-8000-000000000002"
+                    code: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
           content:
@@ -2203,6 +2247,7 @@ paths:
           - "INTERNAL_ERROR"
         "503":
           - "SERVICE_UNAVAILABLE"
+          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           - "GATEWAY_TIMEOUT"
       parameters:
@@ -2228,7 +2273,7 @@ paths:
           name: "role"
           in: "query"
           required: false
-          description: "Role code is trimmed and uppercased before filtering."
+          description: "Keycloak realm role name, trimmed and uppercased before filtering."
           schema:
             type: "string"
         -
@@ -2556,7 +2601,7 @@ paths:
                     instance: "/api/v1/users"
                     code: "INTERNAL_ERROR"
         "503":
-          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`, `USER_IDENTITY_PROVIDER_UNAVAILABLE`."
           content:
             "application/problem+json":
               schema:
@@ -2574,6 +2619,7 @@ paths:
                         type: "string"
                         enum:
                           - "SERVICE_UNAVAILABLE"
+                          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
               examples:
                 SERVICE_UNAVAILABLE:
                   summary: "SERVICE_UNAVAILABLE"
@@ -2584,6 +2630,15 @@ paths:
                     detail: "A required service is unavailable"
                     instance: "/api/v1/users"
                     code: "SERVICE_UNAVAILABLE"
+                USER_IDENTITY_PROVIDER_UNAVAILABLE:
+                  summary: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "The identity provider is unavailable"
+                    instance: "/api/v1/users"
+                    code: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
           content:

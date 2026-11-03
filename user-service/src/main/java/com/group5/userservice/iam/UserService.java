@@ -6,7 +6,6 @@ import com.group5.userservice.iam.dto.RegisterRequest;
 import com.group5.userservice.iam.dto.UpdateProfileRequest;
 import com.group5.userservice.iam.dto.UserListRequest;
 import com.group5.userservice.iam.dto.UserResponse;
-import com.group5.userservice.iam.entity.Role;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.Gender;
 import com.group5.userservice.shared.config.IamProperties;
@@ -21,7 +20,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDate;
 import java.sql.SQLException;
+import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 public class UserService {
@@ -59,16 +61,8 @@ public class UserService {
             // execute() has already rolled back, including failures at commit.
             String field = duplicateField(exception);
             RuntimeException failure = field == null ? exception : duplicate(field);
-            removeIdentity(userId, failure);
+            compensate(() -> keycloak.deleteUser(userId), failure);
             throw failure;
-        }
-    }
-
-    private void removeIdentity(UUID userId, RuntimeException failure) {
-        try {
-            keycloak.deleteUser(userId);
-        } catch (RuntimeException cleanup) {
-            failure.addSuppressed(cleanup);
         }
     }
 
@@ -77,41 +71,68 @@ public class UserService {
     }
 
     public UserResponse getUser(UUID userId) {
-        return transaction.execute(status -> {
-            User user = userRepository.findByIdAndDeletedAtIsNull(userId)
-                    .orElseThrow(() -> new DomainException(UserErrorCode.USER_NOT_FOUND));
-            return UserResponse.from(user);
-        });
+        User user = transaction.execute(status -> userRepository.findByIdAndDeletedAtIsNull(userId)
+                .orElseThrow(() -> new DomainException(UserErrorCode.USER_NOT_FOUND)));
+        return UserResponse.from(user, keycloak.realmRoles(userId));
     }
 
     public Page<UserResponse> listUsers(UserListRequest request) {
         Specification<User> filter = UserSpecifications.notDeleted()
                 .and(UserSpecifications.matches(request.q()))
                 .and(UserSpecifications.hasStatus(request.status()))
-                .and(UserSpecifications.hasRole(request.role()));
-        return transaction.execute(status ->
-                userRepository.findAll(filter, request.pageable()).map(UserResponse::from));
+                .and(withRole(request.role()));
+        Page<User> users = transaction.execute(status -> userRepository.findAll(filter, request.pageable()));
+        return users.map(user -> UserResponse.from(user, keycloak.realmRoles(user.getId())));
+    }
+
+    private Specification<User> withRole(String role) {
+        if (role == null || role.isBlank()) {
+            return Specification.unrestricted();
+        }
+        return UserSpecifications.idIn(keycloak.userIdsWithRole(role.trim().toUpperCase(Locale.ROOT)));
     }
 
     public UserResponse updateOwnProfile(UUID userId, UpdateProfileRequest request) {
+        AtomicReference<String> replacedEmail = new AtomicReference<>();
+        User user;
         try {
-            return transaction.execute(status -> updateProfileInTransaction(userId, request));
+            user = transaction.execute(status -> updateProfileInTransaction(userId, request, replacedEmail));
         } catch (RuntimeException exception) {
             // The transaction has already rolled back before translating a database conflict.
-            String field = duplicateField(exception);
-            if (field != null) {
-                throw duplicate(field);
+            RuntimeException failure = profileFailure(exception);
+            String previousEmail = replacedEmail.get();
+            if (previousEmail != null) {
+                compensate(() -> keycloak.updateEmail(userId, previousEmail), failure);
             }
-            if (isProfileUniqueViolation(exception)) {
-                throw new DomainException(UserErrorCode.USER_PROFILE_CONFLICT);
-            }
-            throw exception;
+            throw failure;
+        }
+        return UserResponse.from(user, keycloak.realmRoles(userId));
+    }
+
+    private static RuntimeException profileFailure(RuntimeException exception) {
+        String field = duplicateField(exception);
+        if (field != null) {
+            return duplicate(field);
+        }
+        if (isProfileUniqueViolation(exception)) {
+            return new DomainException(UserErrorCode.USER_PROFILE_CONFLICT);
+        }
+        return exception;
+    }
+
+    private static void compensate(Runnable undo, RuntimeException failure) {
+        try {
+            undo.run();
+        } catch (RuntimeException cleanup) {
+            failure.addSuppressed(cleanup);
         }
     }
 
-    private UserResponse updateProfileInTransaction(UUID userId, UpdateProfileRequest request) {
+    private User updateProfileInTransaction(UUID userId, UpdateProfileRequest request,
+                                            AtomicReference<String> replacedEmail) {
         User user = userRepository.findForProfileUpdate(userId)
                 .orElseThrow(() -> new DomainException(UserErrorCode.USER_NOT_FOUND));
+        String previousEmail = user.getEmail();
 
         if (request.email() != null
                 && userRepository.existsByEmailAndIdNot(request.email(), userId)) {
@@ -134,7 +155,12 @@ public class UserService {
             user.setEmail(request.email());
         }
 
-        return UserResponse.from(userRepository.saveAndFlush(user));
+        User saved = userRepository.saveAndFlush(user);
+        if (request.email() != null && !request.email().equals(previousEmail)) {
+            keycloak.updateEmail(userId, request.email());
+            replacedEmail.set(previousEmail);
+        }
+        return saved;
     }
 
     private static boolean isProfileUniqueViolation(Throwable exception) {
@@ -162,8 +188,6 @@ public class UserService {
     private UserResponse createUser(UUID userId, RegisterRequest request, String roleCode) {
         userRepository.lockRegistrationIdentity(request.identityNumber());
         rejectDuplicates(request);
-        Role role = userRepository.findRegistrationRole(roleCode)
-                .orElseThrow(() -> new DomainException(UserErrorCode.USER_REGISTRATION_ROLE_UNAVAILABLE));
 
         User user = new User();
         user.setId(userId);
@@ -175,9 +199,8 @@ public class UserService {
         user.setGender(Gender.valueOf(request.gender()));
         user.setAddress(request.address());
         user.setDateOfBirth(LocalDate.parse(request.dateOfBirth()));
-        user.assignInitialRole(role);
 
-        return UserResponse.from(userRepository.saveAndFlush(user));
+        return UserResponse.from(userRepository.saveAndFlush(user), List.of(roleCode));
     }
 
     private static DomainException duplicate(String field) {

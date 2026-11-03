@@ -9,6 +9,7 @@ import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -22,8 +23,12 @@ import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -32,6 +37,8 @@ import java.util.function.Function;
 public class KeycloakAdminClient {
     private static final Logger log = LoggerFactory.getLogger(KeycloakAdminClient.class);
     private static final Duration TOKEN_REFRESH_MARGIN = Duration.ofSeconds(30);
+    private static final int MEMBER_PAGE_SIZE = 500;
+    private static final Set<String> BUILT_IN_ROLES = Set.of("offline_access", "uma_authorization");
 
     private final KeycloakProperties properties;
     private final Clock clock;
@@ -112,6 +119,90 @@ public class KeycloakAdminClient {
         }
     }
 
+    public List<String> realmRoles(UUID userId) {
+        try {
+            RealmRole[] roles = withToken(token -> client.get()
+                    .uri("/admin/realms/{realm}/users/{id}/role-mappings/realm", properties.getRealm(), userId)
+                    .headers(headers -> headers.setBearerAuth(token))
+                    .retrieve()
+                    .body(RealmRole[].class));
+            if (roles == null) {
+                return List.of();
+            }
+            String defaultRoles = "default-roles-" + properties.getRealm();
+            return Arrays.stream(roles)
+                    .map(RealmRole::name)
+                    .filter(name -> !name.equals(defaultRoles) && !BUILT_IN_ROLES.contains(name))
+                    .sorted()
+                    .toList();
+        } catch (HttpClientErrorException.NotFound exception) {
+            return List.of();
+        } catch (RestClientException exception) {
+            throw unavailable("read realm roles of user " + userId, exception);
+        }
+    }
+
+    public Set<UUID> userIdsWithRole(String role) {
+        Set<UUID> ids = new HashSet<>();
+        try {
+            for (int first = 0; ; first += MEMBER_PAGE_SIZE) {
+                int offset = first;
+                UserId[] page = withToken(token -> client.get()
+                        .uri("/admin/realms/{realm}/roles/{role}/users?briefRepresentation=true&first={first}&max={max}",
+                                properties.getRealm(), role, offset, MEMBER_PAGE_SIZE)
+                        .headers(headers -> headers.setBearerAuth(token))
+                        .retrieve()
+                        .body(UserId[].class));
+                if (page == null) {
+                    return ids;
+                }
+                for (UserId user : page) {
+                    ids.add(user.id());
+                }
+                if (page.length < MEMBER_PAGE_SIZE) {
+                    return ids;
+                }
+            }
+        } catch (HttpClientErrorException.NotFound exception) {
+            return Set.of();
+        } catch (RestClientException exception) {
+            throw unavailable("read members of realm role " + role, exception);
+        }
+    }
+
+    public void updateEmail(UUID userId, String email) {
+        try {
+            withToken(token -> {
+                Map<String, Object> user = client.get()
+                        .uri("/admin/realms/{realm}/users/{id}", properties.getRealm(), userId)
+                        .headers(headers -> headers.setBearerAuth(token))
+                        .retrieve()
+                        .body(new ParameterizedTypeReference<Map<String, Object>>() { });
+                if (user == null) {
+                    throw new DomainException(UserErrorCode.USER_IDENTITY_PROVIDER_UNAVAILABLE);
+                }
+                user.put("email", email);
+                user.put("emailVerified", false);
+                return client.put()
+                        .uri("/admin/realms/{realm}/users/{id}", properties.getRealm(), userId)
+                        .headers(headers -> headers.setBearerAuth(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(user)
+                        .retrieve()
+                        .toBodilessEntity();
+            });
+        } catch (HttpClientErrorException.NotFound exception) {
+            log.warn("Profile {} has no Keycloak account, so its new email is stored only in user-service", userId);
+        } catch (HttpClientErrorException.Conflict exception) {
+            throw new DomainException(UserErrorCode.USER_EMAIL_ALREADY_USED);
+        } catch (HttpClientErrorException.BadRequest exception) {
+            log.warn("Keycloak rejected an email change: {}", exception.getResponseBodyAsString());
+            throw new DomainException(UserErrorCode.USER_IDENTITY_REJECTED);
+        } catch (RestClientException exception) {
+            throw unavailable("update email of user " + userId, exception);
+        }
+    }
+
     public void deleteUser(UUID userId) {
         try {
             withToken(token -> client.delete()
@@ -177,6 +268,9 @@ public class KeycloakAdminClient {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record RealmRole(String id, String name) { }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record UserId(UUID id) { }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record TokenResponse(@JsonProperty("access_token") String accessToken,
