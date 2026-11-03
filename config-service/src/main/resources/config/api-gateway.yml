@@ -149,6 +149,12 @@ nexus:
       - method: POST
         path: /api/v1/products/{id}/images
         privilege: PRODUCT.UPDATE
+      - method: DELETE
+        path: /api/v1/products/{id}/images/{imageId}
+        privilege: PRODUCT.UPDATE
+      - method: PUT
+        path: /api/v1/products/{id}/images/order
+        privilege: PRODUCT.UPDATE
   gateway:
     rate-limit:
       # Có thể đổi qua Config Server và /actuator/refresh; đủ cho polling 2 giây.

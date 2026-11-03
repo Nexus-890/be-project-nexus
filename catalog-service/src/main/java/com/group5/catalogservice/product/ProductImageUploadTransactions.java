@@ -70,7 +70,8 @@ public class ProductImageUploadTransactions {
         jdbc.update("DELETE FROM product_image_uploads WHERE id = ?", reservation);
     }
 
-    private Product lockOwnedProduct(UUID productId, CurrentUser user) {
+    // Called inside the transaction for each image mutation.
+    Product lockOwnedProduct(UUID productId, CurrentUser user) {
         if (user == null) throw new DomainException(CatalogErrorCode.UNAUTHENTICATED);
         if (!user.hasRole("SELLER") || !user.hasPrivilege("PRODUCT.UPDATE")) {
             throw new DomainException(CatalogErrorCode.UNAUTHORIZED);

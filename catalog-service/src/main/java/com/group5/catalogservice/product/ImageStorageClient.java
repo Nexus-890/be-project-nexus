@@ -70,7 +70,32 @@ public class ImageStorageClient {
         return baseUrl() + "/storage/v1/object/public/" + properties.getBucket() + "/" + objectName;
     }
 
-    // Internal compensation only; image deletion endpoints belong to #123.
+    public void delete(UUID productId, String imageUrl) {
+        if (imageUrl == null || imageUrl.isBlank()) {
+            throw new DomainException(CatalogErrorCode.IMAGE_STORAGE_PATH_INVALID);
+        }
+        String bucketPrefix = baseUrl() + "/storage/v1/object/public/" + properties.getBucket() + "/";
+        if (!imageUrl.startsWith(bucketPrefix)) {
+            // Seeded/external images can belong to another environment. Never send its
+            // URL or our credentials there; the owner may still remove the local row.
+            log.warn("Skipping object deletion for product {}: image is outside the configured storage bucket", productId);
+            return;
+        }
+        String prefix = bucketPrefix + "products/" + productId + "/";
+        if (!imageUrl.startsWith(prefix)) {
+            throw new DomainException(CatalogErrorCode.IMAGE_STORAGE_PATH_INVALID);
+        }
+        String filename = imageUrl.substring(prefix.length());
+        if (!filename.matches("[0-9a-fA-F-]{36}\\.(jpg|png|webp)")) {
+            throw new DomainException(CatalogErrorCode.IMAGE_STORAGE_PATH_INVALID);
+        }
+        int status = send(request(objectUrl("products/" + productId + "/" + filename)).DELETE().build());
+        if ((status < 200 || status >= 300) && status != 404) {
+            throw new DomainException(CatalogErrorCode.IMAGE_STORAGE_UNAVAILABLE);
+        }
+    }
+
+    // Best-effort compensation when an upload transaction rolls back.
     public void discard(String imageUrl) {
         String prefix = baseUrl() + "/storage/v1/object/public/" + properties.getBucket() + "/";
         if (!imageUrl.startsWith(prefix)) {

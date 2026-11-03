@@ -122,7 +122,6 @@ class PaymentProviderRegistryTest {
         return new SepayPaymentProvider(new SepayProperties(
                 "970415", "0000000002", "NEXUS TEST", "compact", "SEVQR"));
     }
-
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(PaymentProperties.class)
     static class PropertiesConfiguration {
