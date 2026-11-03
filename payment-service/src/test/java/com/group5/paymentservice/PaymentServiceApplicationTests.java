@@ -13,7 +13,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
         "spring.jpa.hibernate.ddl-auto=validate",
         "nexus.security.jwt.issuer=user-service",
         "nexus.security.jwt.audience=nexus-services",
-        "nexus.security.jwt.jwk-set-uri=http://127.0.0.1/.well-known/jwks.json"
+        "nexus.security.jwt.jwk-set-uri=http://127.0.0.1/.well-known/jwks.json",
+        "nexus.payment.provider=SEPAY"
 })
 class PaymentServiceApplicationTests {
 

@@ -16,3 +16,5 @@ nexus:
       issuer: ${JWT_ISSUER:user-service}
       audience: nexus-services
       jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:8081/.well-known/jwks.json}
+  payment:
+    provider: ${PAYMENT_PROVIDER:SEPAY}
