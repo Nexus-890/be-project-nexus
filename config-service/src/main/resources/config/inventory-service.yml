@@ -17,5 +17,10 @@ springdoc:
   swagger-ui:
     enabled: true
 nexus:
+  security:
+    jwt:
+      issuer: user-service
+      audience: nexus-services
+      jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:8081/.well-known/jwks.json}
   inventory:
     default-warehouse-code: WH_001
