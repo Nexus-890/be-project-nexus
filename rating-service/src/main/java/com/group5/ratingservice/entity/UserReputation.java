@@ -1,6 +1,7 @@
-package com.group5.userservice.reputation;
+package com.group5.ratingservice.entity;
 
 import com.group5.common_core.persistence.AuditedEntity;
+import com.group5.ratingservice.enums.TrustLevel;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

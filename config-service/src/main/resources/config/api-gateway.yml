@@ -116,6 +116,12 @@ nexus:
       - method: POST
         path: /api/v1/carts/me/items
         privilege: CART.UPDATE
+      - method: PUT
+        path: /api/v1/carts/me/items/{id}
+        privilege: CART.UPDATE
+      - method: DELETE
+        path: /api/v1/carts/me/items/{id}
+        privilege: CART.REMOVE_ITEM
       - method: POST
         path: /api/v1/orders
         privilege: ORDER.CREATE
@@ -128,6 +134,9 @@ nexus:
       - method: GET
         path: /api/v1/orders/{id}
         privilege: ORDER.VIEW
+      - method: POST
+        path: /api/v1/orders/{id}/cancel
+        privilege: ORDER.CANCEL
       - method: GET
         path: /api/v1/notifications
         privilege: NOTIFICATION.VIEW

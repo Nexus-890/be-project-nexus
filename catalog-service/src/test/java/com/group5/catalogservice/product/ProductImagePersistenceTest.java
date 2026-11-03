@@ -61,6 +61,8 @@ class ProductImagePersistenceTest {
     private static final Map<String, byte[]> OBJECTS = new ConcurrentHashMap<>();
     private static final AtomicInteger UPLOADS = new AtomicInteger();
     private static final AtomicInteger DELETE_STATUS = new AtomicInteger(200);
+    private static volatile java.util.concurrent.CountDownLatch uploadEntered;
+    private static volatile java.util.concurrent.CountDownLatch uploadRelease;
     private static final HttpServer STORAGE = startStorage();
     private static final boolean LIVE = Boolean.getBoolean("catalog.supabase.live");
     private static final JsonMapper JSON = JsonMapper.shared();
@@ -80,6 +82,9 @@ class ProductImagePersistenceTest {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
+        // Flyway uses two connections during startup. Shrink only for the slow-upload test.
+        registry.add("spring.datasource.hikari.maximum-pool-size", () -> "2");
+        registry.add("spring.datasource.hikari.connection-timeout", () -> "1500");
         registry.add("nexus.storage.supabase-url", () -> LIVE ? requiredEnv("SUPABASE_URL")
                 : "http://127.0.0.1:" + STORAGE.getAddress().getPort());
         registry.add("nexus.storage.service-key", () -> LIVE ? requiredEnv("SUPABASE_SERVICE_KEY") : "fixture-key");
@@ -298,6 +303,71 @@ class ProductImagePersistenceTest {
         });
     }
 
+    @Test
+    void slowStorageHoldsNeitherProductLockNorTheOnlyPoolConnection() throws Exception {
+        var dataSource = context.getBean(com.zaxxer.hikari.HikariDataSource.class);
+        dataSource.setMinimumIdle(0);
+        dataSource.setMaximumPoolSize(1);
+        dataSource.getHikariPoolMXBean().softEvictConnections();
+        org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).until(() ->
+                dataSource.getHikariPoolMXBean().getTotalConnections() <= 1);
+        uploadEntered = new java.util.concurrent.CountDownLatch(1);
+        uploadRelease = new java.util.concurrent.CountDownLatch(1);
+        try (var pool = Executors.newSingleThreadExecutor()) {
+            var result = pool.submit(() -> upload(jpeg()).andReturn().getResponse().getStatus());
+            try {
+                assertThat(uploadEntered.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM product_image_uploads WHERE product_id = ?",
+                        Integer.class, productId)).isEqualTo(1);
+                var transaction = new org.springframework.transaction.support.TransactionTemplate(
+                        context.getBean(org.springframework.transaction.PlatformTransactionManager.class));
+                transaction.executeWithoutResult(status -> {
+                    jdbc.execute("SET LOCAL lock_timeout = '500ms'");
+                    assertThat(jdbc.queryForList("SELECT id FROM products WHERE id = ? FOR UPDATE", productId)).hasSize(1);
+                });
+            } finally {
+                uploadRelease.countDown();
+            }
+            assertThat(result.get(10, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo(201);
+        } finally {
+            uploadEntered = null;
+            uploadRelease = null;
+            dataSource.setMaximumPoolSize(2);
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM product_image_uploads WHERE product_id = ?",
+                Integer.class, productId)).isZero();
+    }
+
+    @Test
+    void activeReservationsCountTowardLimitAndExpiredReservationsAreReclaimed() throws Exception {
+        for (int i = 0; i < 5; i++) {
+            jdbc.update("INSERT INTO product_image_uploads(id, product_id) VALUES (?, ?)", UUID.randomUUID(), productId);
+        }
+        upload(jpeg()).andExpect(status().isBadRequest());
+        assertThat(UPLOADS).hasValue(0);
+        jdbc.update("UPDATE product_image_uploads SET expires_at = clock_timestamp() - interval '1 second' WHERE product_id = ?", productId);
+        upload(jpeg()).andExpect(status().isCreated());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM product_image_uploads WHERE product_id = ?",
+                Integer.class, productId)).isZero();
+    }
+
+    @Test
+    void realDatabaseInsertFailureRollsBackAndDiscardsUploadedObject() throws Exception {
+        jdbc.execute("ALTER TABLE product_images ADD CONSTRAINT reject_test_upload CHECK (product_id <> '" + productId + "')");
+        try {
+            var file = new MockMultipartFile("file", "image.jpg", "image/jpeg", jpeg());
+            var user = new com.group5.common_security.CurrentUser(SELLER, java.util.Set.of("SELLER"), java.util.Set.of("PRODUCT.UPDATE"));
+            org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                    context.getBean(ProductImageService.class).upload(productId, file, user))
+                    .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM product_images WHERE product_id = ?", Integer.class, productId)).isZero();
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM product_image_uploads WHERE product_id = ?", Integer.class, productId)).isZero();
+            assertThat(OBJECTS).isEmpty();
+        } finally {
+            jdbc.execute("ALTER TABLE product_images DROP CONSTRAINT reject_test_upload");
+        }
+    }
+
     private org.springframework.test.web.servlet.ResultActions upload(byte[] bytes) throws Exception {
         return mvc.perform(multipart("/api/v1/products/{id}/images", productId)
                 .file(new MockMultipartFile("file", "untrusted.exe", "application/octet-stream", bytes))
@@ -330,6 +400,17 @@ class ProductImagePersistenceTest {
                 byte[] result = new byte[0];
                 int status = 200;
                 if (exchange.getRequestMethod().equals("POST")) {
+                    var entered = uploadEntered;
+                    var release = uploadRelease;
+                    if (entered != null && release != null) {
+                        entered.countDown();
+                        try {
+                            if (!release.await(15, java.util.concurrent.TimeUnit.SECONDS)) throw new java.io.IOException("Timed out waiting for test release");
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                            throw new java.io.IOException(exception);
+                        }
+                    }
                     UPLOADS.incrementAndGet();
                     OBJECTS.put(path.replace("/object/", "/object/public/"), exchange.getRequestBody().readAllBytes());
                 } else if (exchange.getRequestMethod().equals("DELETE")) {

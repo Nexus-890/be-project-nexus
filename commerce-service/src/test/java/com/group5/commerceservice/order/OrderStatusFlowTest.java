@@ -8,9 +8,11 @@ import com.group5.commerceservice.order.dto.request.ChangeOrderStatusRequest;
 import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
 import com.group5.commerceservice.order.dto.response.OrderStatusHistoryResponse;
 import com.group5.commerceservice.order.entity.Order;
+import com.group5.commerceservice.order.event.OrderEventPublisher;
 import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.service.InventoryClient;
 import com.group5.commerceservice.order.service.OrderService;
+import com.group5.commerceservice.order.service.PricingService;
 import com.group5.commerceservice.order.service.OrderStateMachine;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_core.model.ApiResponse;
@@ -227,7 +229,7 @@ class OrderStatusFlowTest {
     @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses = {CartRepository.class, OrderRepository.class})
     @EnableJpaAuditing(auditorAwareRef = "auditor")
-    @Import({OrderService.class, OrderStateMachine.class})
+    @Import({OrderService.class, OrderStateMachine.class, PricingService.class})
     static class JpaConfig {
         @Bean
         DataSource dataSource() {
@@ -251,6 +253,11 @@ class OrderStatusFlowTest {
         @Bean
         InventoryClient inventoryClient() {
             return Mockito.mock(InventoryClient.class);
+        }
+
+        @Bean
+        OrderEventPublisher orderEventPublisher() {
+            return Mockito.mock(OrderEventPublisher.class);
         }
 
         @Bean
