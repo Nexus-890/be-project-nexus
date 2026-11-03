@@ -11,6 +11,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 @Service
 public class NotificationService {
@@ -32,6 +34,24 @@ public class NotificationService {
     @Transactional(readOnly = true)
     public long unreadCount(CurrentUser currentUser) {
         return repository.countByUserIdAndReadAtIsNull(requireUserId(currentUser));
+    }
+
+    @Transactional
+    public void markAsRead(UUID id, CurrentUser currentUser) {
+        UUID userId = requireUserId(currentUser);
+        Notification notification = repository.findById(id)
+                .orElseThrow(() -> new DomainException(NotificationErrorCode.NOT_FOUND));
+        if (!userId.equals(notification.getUserId())) {
+            throw new DomainException(NotificationErrorCode.NOT_OWNER);
+        }
+        if (notification.getReadAt() == null) {
+            repository.markAsRead(id, userId, OffsetDateTime.now(ZoneOffset.UTC));
+        }
+    }
+
+    @Transactional
+    public void markAllAsRead(CurrentUser currentUser) {
+        repository.markAllAsRead(requireUserId(currentUser), OffsetDateTime.now(ZoneOffset.UTC));
     }
 
     private static NotificationResponse toResponse(Notification notification) {

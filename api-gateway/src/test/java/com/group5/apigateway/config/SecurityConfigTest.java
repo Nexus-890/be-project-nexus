@@ -111,6 +111,16 @@ class SecurityConfigTest {
     }
 
     @Test
+    void markingNotificationsRequiresBearerTokenAtTheGateway() {
+        for (String path : List.of("/api/v1/notifications/" + ID + "/read", "/api/v1/notifications/read-all")) {
+            client.patch().uri(path).exchange().expectStatus().isUnauthorized()
+                    .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
+                    .expectBody().jsonPath("$.code").isEqualTo("UNAUTHENTICATED");
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+    }
+
+    @Test
     void validProfileTokenReturns200AndForwardsOriginalBearerToService() {
         String bearer = "Bearer " + token(SIGNING_KEY, c -> c.claim("privileges", List.of("PROFILE.VIEW")));
         client.get().uri(ME).header(HttpHeaders.AUTHORIZATION, bearer).exchange()
