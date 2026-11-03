@@ -71,9 +71,18 @@ public class ImageStorageClient {
     }
 
     public void delete(UUID productId, String imageUrl) {
-        String prefix = baseUrl() + "/storage/v1/object/public/" + properties.getBucket()
-                + "/products/" + productId + "/";
-        if (imageUrl == null || !imageUrl.startsWith(prefix)) {
+        if (imageUrl == null || imageUrl.isBlank()) {
+            throw new DomainException(CatalogErrorCode.IMAGE_STORAGE_PATH_INVALID);
+        }
+        String bucketPrefix = baseUrl() + "/storage/v1/object/public/" + properties.getBucket() + "/";
+        if (!imageUrl.startsWith(bucketPrefix)) {
+            // Seeded/external images can belong to another environment. Never send its
+            // URL or our credentials there; the owner may still remove the local row.
+            log.warn("Skipping object deletion for product {}: image is outside the configured storage bucket", productId);
+            return;
+        }
+        String prefix = bucketPrefix + "products/" + productId + "/";
+        if (!imageUrl.startsWith(prefix)) {
             throw new DomainException(CatalogErrorCode.IMAGE_STORAGE_PATH_INVALID);
         }
         String filename = imageUrl.substring(prefix.length());

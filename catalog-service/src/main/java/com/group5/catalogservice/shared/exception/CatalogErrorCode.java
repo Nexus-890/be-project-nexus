@@ -17,7 +17,7 @@ public enum CatalogErrorCode implements ErrorCode {
     IMAGE_REQUIRED("An image file is required", HttpStatus.BAD_REQUEST),
     IMAGE_NOT_FOUND("Product image not found", HttpStatus.NOT_FOUND),
     IMAGE_ORDER_INVALID("imageIds must contain exactly the product's image IDs without duplicates", HttpStatus.BAD_REQUEST),
-    IMAGE_STORAGE_PATH_INVALID("Image URL does not belong to the configured product storage", HttpStatus.SERVICE_UNAVAILABLE),
+    IMAGE_STORAGE_PATH_INVALID("Image URL does not belong to the configured product storage", HttpStatus.CONFLICT),
     IMAGE_LIMIT_REACHED("Product image limit reached", HttpStatus.BAD_REQUEST),
     IMAGE_SORT_LIMIT_REACHED("Product image sort order limit reached", HttpStatus.BAD_REQUEST),
     IMAGE_TOO_LARGE("Image exceeds the maximum file size", HttpStatus.PAYLOAD_TOO_LARGE),

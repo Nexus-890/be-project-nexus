@@ -1,14 +1,17 @@
 # Image delete, reorder and seed — #123
 
-Prerequisite: #122 / MR !88. The corrected upload branch is merged into this
-feature branch for development; MR !88 still needs review and merge before #123.
-#108 is already merged, allowing #109 to proceed independently.
+Prerequisite: #122 / MR !88, already merged into develop.
 
 ## Delivered code
 
 - `ProductImageService.delete`: lock product, check JWT seller ownership and image
   membership, delete/flush the DB row, delete the configured Supabase object.
   Storage failure throws a named 503 error and rolls back the row deletion.
+  An image outside the configured project/bucket (including V7 seed URLs from
+  another environment) removes only the local row, logs a warning with the
+  product ID, and sends no storage request. Ownership checks still apply.
+  An invalid product path or filename inside the configured bucket returns
+  409 `CATALOG_IMAGE_STORAGE_PATH_INVALID` and preserves the row.
 - `reorder`: validate that imageIds is exactly the current image set, including
   cardinality and duplicate checks, before assigning sortOrder 0..n-1. Upload,
   delete and reorder use the same product row lock.
@@ -35,8 +38,29 @@ feature branch for development; MR !88 still needs review and merge before #123.
 - Reordering two uploads changes the DB and detail response order. Missing,
   duplicate, foreign, null and malformed IDs return 400 and do not change order.
   Another seller returns 403; no token 401; missing privilege 403; missing or
-  foreign-product image 404. A provider failure preserves the DB row. A foreign
-  storage URL is refused without sending a deletion to that host.
+  foreign-product image 404. A provider failure preserves the DB row.
+
+## Review correction — 2026-11-03
+
+MR !97 review identified that V7 demo images could not be removed when
+`SUPABASE_URL` differed from the team's seed project. The fix uses the reviewer's
+second option: allow deletion of the local image row without touching storage
+outside the configured project/bucket. V7 stays unchanged so existing database
+checksums remain valid. Provisioning a different bucket and rewriting URLs is
+only needed to host the demo images in that bucket.
+
+Regression coverage uses isolated PostgreSQL and HTTP fixtures to verify deletion
+of an actual V7 seed row with different storage configuration, row-only deletion
+for another host/bucket, no outbound request to either storage, and 403 for
+another seller. Invalid paths within the configured bucket return 409 without
+changing any row columns or calling storage. Existing tests cover normal object
+deletion and rollback when the provider fails.
+
+Validation on the review fix with Java 21: shared-library `install` passed;
+catalog-service `verify` passed **105 tests, 0 failures/errors/skips**; the contract
+checker passed **38 operations**; Redocly lint passed for the catalog OpenAPI.
+Storage regression tests use HTTP fixtures; the live-provider AC1 discrepancy
+below was not rechecked by this run.
 
 ## Explicit acceptance discrepancy: public GET after real Supabase deletion
 

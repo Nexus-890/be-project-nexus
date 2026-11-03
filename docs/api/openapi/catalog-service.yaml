@@ -7154,7 +7154,7 @@ paths:
       tags: [Products]
       operationId: deleteProductImage
       summary: "Delete an owned product image and its storage object"
-      description: "Requires SELLER and PRODUCT.UPDATE. Verify ownership and image membership before deletion. Storage deletion failure returns 503 and rolls back the DB row deletion."
+      description: "Requires SELLER and PRODUCT.UPDATE. Verify ownership and image membership before deletion. Images outside the configured storage project/bucket are removed from the database only; no storage request is sent and a warning is logged. Invalid paths inside the configured bucket return 409. Storage deletion failure returns 503. Both errors roll back the DB row deletion."
       security:
         - bearerAuth: []
       x-required-privileges: [PRODUCT.UPDATE]
@@ -7174,7 +7174,7 @@ paths:
           schema: {type: string, format: uuid}
       responses:
         "204":
-          description: Database row and storage object removed; no response body.
+          description: Database row removed and the storage object deleted if it belongs to the configured bucket; no response body.
         "400":
           description: "Bad Request. Codes: INVALID_PARAMETER."
           content:
@@ -7291,8 +7291,30 @@ paths:
                     detail: "Product image not found"
                     instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images/69000000-0000-4000-8000-000000000301"
                     code: "CATALOG_IMAGE_NOT_FOUND"
+        "409":
+          description: "Conflict. Codes: CATALOG_IMAGE_STORAGE_PATH_INVALID."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [409]}
+                      code:
+                        type: string
+                        enum: ["CATALOG_IMAGE_STORAGE_PATH_INVALID"]
+              examples:
+                CATALOG_IMAGE_STORAGE_PATH_INVALID:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Conflict"
+                    status: 409
+                    detail: "Image URL does not belong to the configured product storage"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images/69000000-0000-4000-8000-000000000301"
+                    code: "CATALOG_IMAGE_STORAGE_PATH_INVALID"
         "503":
-          description: "Service Unavailable. Codes: CATALOG_IMAGE_STORAGE_UNAVAILABLE, CATALOG_IMAGE_STORAGE_NOT_CONFIGURED, CATALOG_IMAGE_STORAGE_PATH_INVALID."
+          description: "Service Unavailable. Codes: CATALOG_IMAGE_STORAGE_UNAVAILABLE, CATALOG_IMAGE_STORAGE_NOT_CONFIGURED."
           content:
             application/problem+json:
               schema:
@@ -7303,7 +7325,7 @@ paths:
                       status: {type: integer, enum: [503]}
                       code:
                         type: string
-                        enum: ["CATALOG_IMAGE_STORAGE_UNAVAILABLE","CATALOG_IMAGE_STORAGE_NOT_CONFIGURED","CATALOG_IMAGE_STORAGE_PATH_INVALID"]
+                        enum: ["CATALOG_IMAGE_STORAGE_UNAVAILABLE","CATALOG_IMAGE_STORAGE_NOT_CONFIGURED"]
               examples:
                 CATALOG_IMAGE_STORAGE_UNAVAILABLE:
                   value:
@@ -7321,14 +7343,6 @@ paths:
                     detail: "Image storage is not configured"
                     instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images/69000000-0000-4000-8000-000000000301"
                     code: "CATALOG_IMAGE_STORAGE_NOT_CONFIGURED"
-                CATALOG_IMAGE_STORAGE_PATH_INVALID:
-                  value:
-                    type: "urn:problem:domain-error"
-                    title: "Service Unavailable"
-                    status: 503
-                    detail: "Image URL does not belong to the configured product storage"
-                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images/69000000-0000-4000-8000-000000000301"
-                    code: "CATALOG_IMAGE_STORAGE_PATH_INVALID"
         "405":
           description: "Method Not Allowed. Codes: METHOD_NOT_ALLOWED."
           content:
@@ -8478,4 +8492,5 @@ x-business-error-codes:
   CATALOG_IMAGE_ORDER_INVALID:
     detail: "imageIds must contain exactly the product's image IDs without duplicates"
   CATALOG_IMAGE_STORAGE_PATH_INVALID:
+    status: 409
     detail: "Image URL does not belong to the configured product storage"
