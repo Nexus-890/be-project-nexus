@@ -14,6 +14,7 @@ const services = {
     'src/main/java/com/group5/catalogservice/category/CategoryController.java',
     'src/main/java/com/group5/catalogservice/product/controller/ProductController.java',
     'src/main/java/com/group5/catalogservice/product/controller/SkuController.java',
+    'src/main/java/com/group5/catalogservice/product/ProductImageController.java',
   ],
   'commerce-service': [
     'src/main/java/com/group5/commerceservice/cart/controller/CartController.java',

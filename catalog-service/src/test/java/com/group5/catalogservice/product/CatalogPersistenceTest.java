@@ -57,7 +57,8 @@ class CatalogPersistenceTest {
     private static final GenericContainer<?> POSTGRES = new GenericContainer<>(DockerImageName.parse("postgres:18"))
             .withEnv("POSTGRES_PASSWORD", "test")
             .withExposedPorts(5432)
-            .waitingFor(Wait.forListeningPort());
+                    // Port binding can precede PostgreSQL readiness after initdb.
+                    .waitingFor(Wait.forLogMessage(".*database system is ready to accept connections.*\\s", 2));
 
     @BeforeAll
     static void startPostgres() {

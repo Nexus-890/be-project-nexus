@@ -9,6 +9,7 @@ import com.group5.commerceservice.cart.entity.CartItem;
 import com.group5.commerceservice.cart.repository.CartItemRepository;
 import com.group5.commerceservice.cart.repository.CartRepository;
 import com.group5.commerceservice.order.OrderStatus;
+import com.group5.commerceservice.order.dto.request.CancelOrderRequest;
 import com.group5.commerceservice.order.dto.request.ChangeOrderStatusRequest;
 import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
 import com.group5.commerceservice.order.dto.response.OrderGroupResponse;
@@ -19,6 +20,9 @@ import com.group5.commerceservice.order.entity.Order;
 import com.group5.commerceservice.order.entity.OrderGroup;
 import com.group5.commerceservice.order.entity.OrderItem;
 import com.group5.commerceservice.order.entity.OrderStatusHistory;
+import com.group5.commerceservice.order.event.OrderCancelled;
+import com.group5.commerceservice.order.event.OrderEventPublisher;
+import com.group5.commerceservice.order.event.OrderGroupCancelled;
 import com.group5.commerceservice.order.repository.OrderGroupRepository;
 import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.repository.OrderStatusHistoryRepository;
@@ -28,14 +32,21 @@ import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
 import feign.FeignException;
 import jakarta.annotation.PostConstruct;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -68,8 +79,17 @@ public class OrderService {
     private final CartItemRepository cartItemRepository;
     private final CatalogClient catalogClient;
     private final InventoryClient inventoryClient;
+    private final PricingService pricingService;
+    private static final String PAYMENT_DEADLINE_EXPIRED = "PAYMENT_DEADLINE_EXPIRED";
+
     private final OrderStateMachine stateMachine;
     private final OrderStatusHistoryRepository historyRepository;
+    private final PlatformTransactionManager transactionManager;
+    private final OrderEventPublisher events;
+    private final EntityManager entityManager;
+
+    @Value("${nexus.order.idempotency-enabled:true}")
+    private boolean idempotencyEnabled = true;
 
     @Value("${nexus.order.payment-timeout-minutes:15}")
     private long paymentTimeoutMinutes = 15;
@@ -84,30 +104,77 @@ public class OrderService {
     public record CreationResult(boolean created, OrderGroupResponse response) {
     }
 
-    //Create order form cart
-    @Transactional
+    private record CheckoutResult(CreationResult order, DomainException priceChange) {
+    }
+
+    // Each attempt must finish (or roll back) before reading a UNIQUE-conflict winner.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public CreationResult create(CurrentUser user, String key, CreateOrderRequest request) {
-        log.info("Create order called: buyerId={}, idempotencyKey={}",
-                user != null ? user.id() : null, key);
         requireAccess(user);
-        if (key == null || !key.matches("[\\x21-\\x7E]{1,100}")) {
-            throw new DomainException(CommerceErrorCode.INVALID_ORDER_REQUEST, "Idempotency-Key must contain 1 to 100 visible ASCII characters");
+        if (key == null || !key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")) {
+            throw new DomainException(CommerceErrorCode.INVALID_ORDER_REQUEST, "Idempotency-Key must be a UUID");
         }
         if (request == null || request.shippingAddress() == null || !"SEPAY".equals(request.paymentMethod())) {
             throw new DomainException(CommerceErrorCode.INVALID_ORDER_REQUEST, "Shipping address and SEPAY payment method are required");
         }
         Map<String, Object> snapshot = request.snapshot();
-        groupRepository.lockKey("order-key:" + key);
-        Optional<OrderGroup> previous = groupRepository.findByIdempotencyKey(key);
-        if (previous.isPresent()) {
-            OrderGroup group = previous.get();
-            if (!group.getBuyerId().equals(user.id()) || group.getOrders().isEmpty()
-                    || group.getOrders().stream().anyMatch(order -> !snapshot.equals(order.getShippingInfo()))) {
-                throw new DomainException(CommerceErrorCode.IDEMPOTENCY_CONFLICT);
+        boolean replayEnabled = idempotencyEnabled;
+        String effectiveKey = replayEnabled ? UUID.fromString(key).toString() : UUID.randomUUID().toString();
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        CheckoutResult result;
+        try {
+            result = Objects.requireNonNull(transaction.execute(status -> {
+                if (replayEnabled) {
+                    groupRepository.lockKey("order-key:" + effectiveKey);
+                    Optional<OrderGroup> previous = groupRepository.findByIdempotencyKey(effectiveKey);
+                    if (previous.isPresent()) {
+                        return new CheckoutResult(replay(user, snapshot, previous.get()), null);
+                    }
+                }
+                return createFromCart(user, effectiveKey, snapshot);
+            }));
+        } catch (DataIntegrityViolationException violation) {
+            if (!replayEnabled || !isIdempotencyKeyViolation(violation)) {
+                throw violation;
             }
-            return new CreationResult(false, toResponse(group));
+            // PostgreSQL aborts the losing transaction on 23505; query only after rollback.
+            transaction.setReadOnly(true);
+            return transaction.execute(status -> groupRepository.findByIdempotencyKey(effectiveKey)
+                    .map(group -> replay(user, snapshot, group))
+                    .orElseThrow(() -> violation));
         }
+        // Commit the cart price refresh before the shared handler receives the conflict.
+        if (result.priceChange() != null) {
+            throw result.priceChange();
+        }
+        return result.order();
+    }
 
+    private CreationResult replay(CurrentUser user, Map<String, Object> snapshot, OrderGroup group) {
+        if (!group.getBuyerId().equals(user.id())) {
+            throw new DomainException(CommerceErrorCode.IDEMPOTENCY_KEY_NOT_OWNED);
+        }
+        if (group.getOrders().isEmpty()
+                || group.getOrders().stream().anyMatch(order -> !snapshot.equals(order.getShippingInfo()))) {
+            throw new DomainException(CommerceErrorCode.IDEMPOTENCY_CONFLICT);
+        }
+        return new CreationResult(false, toResponse(group));
+    }
+
+    private boolean isIdempotencyKeyViolation(DataIntegrityViolationException violation) {
+        for (Throwable cause = violation; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException constraint
+                    && "23505".equals(constraint.getSQLState())
+                    && ("order_groups_idempotency_key_key".equals(constraint.getConstraintName())
+                    || "orders_idempotency_key_key".equals(constraint.getConstraintName()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private CheckoutResult createFromCart(CurrentUser user, String key, Map<String, Object> snapshot) {
         groupRepository.lockKey("order-buyer:" + user.id());
         Cart cart = cartRepository.findActiveForUpdate(user.id())
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.CART_EMPTY));
@@ -120,6 +187,15 @@ public class OrderService {
             throw new DomainException(CommerceErrorCode.PROMOTION_NOT_SUPPORTED);
         }
 
+        Map<UUID, CatalogSkuResponse> skus;
+        try {
+            skus = pricingService.revalidate(lines);
+        } catch (DomainException error) {
+            if (!CommerceErrorCode.PRICE_CHANGED.code().equals(error.getErrorCode())) {
+                throw error;
+            }
+            return new CheckoutResult(null, error);
+        }
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
         OrderGroup group = new OrderGroup();
         group.setBuyerId(user.id());
@@ -132,7 +208,7 @@ public class OrderService {
         Map<UUID, Order> sellers = new TreeMap<>();
         Map<UUID, ProductResponse> products = new HashMap<>();
         for (CartItem line : lines.stream().sorted(Comparator.comparing(CartItem::getId)).toList()) {
-            CatalogSkuResponse sku = readSku(line);
+            CatalogSkuResponse sku = skus.get(line.getSkuId());
             ProductResponse product = products.computeIfAbsent(line.getProductId(), this::readProduct);
             if (line.getQuantity() == null || line.getQuantity() <= 0) {
                 throw new DomainException(CommerceErrorCode.INVALID_QUANTITY);
@@ -161,7 +237,7 @@ public class OrderService {
             item.setSkuCode(sku.getSkuCode());
             item.setImageUrl(firstImage(product));
             item.setQuantity(line.getQuantity());
-            item.setUnitPrice(money(sku.getPrice()));
+            item.setUnitPrice(money(line.getUnitPrice()));
             item.setTotalPrice(money(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity()))));
             order.getItems().add(item);
         }
@@ -188,7 +264,7 @@ public class OrderService {
 
         log.info("Cart after checkout: id={}, status={}", cart.getId(), cart.getStatus());
         log.info("Order group created: groupId={}, buyerId={}, orders={}", group.getId(), user.id(), sellers.size());
-        return new CreationResult(true, toResponse(group));
+        return new CheckoutResult(new CreationResult(true, toResponse(group)), null);
     }
 
     @Transactional(readOnly = true)
@@ -224,6 +300,104 @@ public class OrderService {
                 .toList();
     }
 
+    @Transactional
+    public OrderGroupResponse cancel(CurrentUser user, UUID orderId, CancelOrderRequest request) {
+        if (user == null || user.id() == null) {
+            throw new DomainException(CommerceErrorCode.UNAUTHENTICATED);
+        }
+        String reason = request.reason().strip();
+        if (PAYMENT_DEADLINE_EXPIRED.equals(reason)) {
+            throw new DomainException(CommerceErrorCode.RESERVED_CANCEL_REASON);
+        }
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
+        if (!order.getUserId().equals(user.id()) && !user.hasRole("ADMIN") && !user.hasRole("SUPPORT_STAFF")) {
+            throw new DomainException(CommerceErrorCode.FORBIDDEN);
+        }
+        UUID groupId = order.getOrderGroup().getId();
+        String groupStatus = groupRepository.lockStatus(groupId)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
+        orderRepository.lockGroupOrders(groupId);
+        OrderStatus current = orderRepository.findStatusById(orderId)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
+        OffsetDateTime cancelledAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
+
+        List<UUID> cancelled = switch (current) {
+            case PENDING -> cancelPendingGroup(groupId, groupStatus, user.id(), reason);
+            case PAID -> {
+                stateMachine.move(orderId, OrderStatus.CANCELED, user.id(), reason);
+                yield List.of(orderId);
+            }
+            default -> throw notCancellable(order.getOrderNumber(), current.name());
+        };
+        log.info("Order cancellation accepted: orderId={}, from={}, cancelled={}, actor={}",
+                orderId, current, cancelled, user.id());
+
+        entityManager.flush();
+        entityManager.clear();
+        if (current == OrderStatus.PENDING) {
+            returnToCart(order.getUserId(), cancelled.stream().filter(id -> !id.equals(orderId)).toList(), user.id());
+        }
+        OrderGroup group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
+        publishCancellation(group, cancelled, current, user.id(), reason, cancelledAt.toInstant().toString());
+        return toResponse(group);
+    }
+
+    private void returnToCart(UUID buyerId, List<UUID> orderIds, UUID actor) {
+        List<OrderItem> items = orderIds.isEmpty() ? List.of() : orderRepository.findItemsByOrderIds(orderIds);
+        if (items.isEmpty()) {
+            return;
+        }
+        cartRepository.createActiveCartIfAbsent(UUID.randomUUID(), buyerId, actor);
+        Cart cart = cartRepository.findActiveForUpdate(buyerId)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.DB_ERROR));
+        cartRepository.touchActiveCart(cart.getId(), actor);
+        for (OrderItem item : items) {
+            cartItemRepository.addOrIncreaseQuantity(UUID.randomUUID(), cart.getId(), item.getProductId(),
+                    item.getSkuId(), item.getQuantity(), item.getUnitPrice(), actor);
+        }
+        log.info("Items of the other cancelled orders returned to the cart: buyerId={}, cartId={}, orders={}",
+                buyerId, cart.getId(), orderIds);
+    }
+
+    private List<UUID> cancelPendingGroup(UUID groupId, String groupStatus, UUID actor, String reason) {
+        if (!"PENDING".equals(groupStatus)) {
+            throw notCancellable("group " + groupId, groupStatus);
+        }
+        List<UUID> pending = orderRepository.findIdsByGroupAndStatus(groupId, OrderStatus.PENDING);
+        pending.forEach(id -> stateMachine.move(id, OrderStatus.CANCELED, actor, reason));
+        if (groupRepository.cancelPending(groupId, actor) == 0) {
+            throw notCancellable("group " + groupId, groupStatus);
+        }
+        return pending;
+    }
+
+    private void publishCancellation(OrderGroup group, List<UUID> cancelled, OrderStatus from, UUID actor,
+                                     String reason, String cancelledAt) {
+        List<Order> orders = group.getOrders().stream()
+                .filter(order -> cancelled.contains(order.getId()))
+                .sorted(Comparator.comparing(Order::getId))
+                .toList();
+        if (from == OrderStatus.PENDING) {
+            events.orderGroupCancelled(new OrderGroupCancelled(group.getId(), group.getBuyerId(), group.getVersion(),
+                    reason, actor, cancelledAt, orders.stream()
+                            .map(order -> new OrderGroupCancelled.CancelledOrder(order.getId(), order.getVersion()))
+                            .toList()));
+        }
+        for (Order order : orders) {
+            String paidAmount = from == OrderStatus.PAID ? money(order.getTotalAmount()).toPlainString() : "0.00";
+            events.orderCancelled(new OrderCancelled(order.getId(), order.getUserId(), order.getOrderNumber(),
+                    order.getOrderType(), order.getReferenceId(), cancelledAt, reason, group.getId(),
+                    order.getSellerId(), order.getVersion(), paidAmount, group.getCurrency(), actor));
+        }
+    }
+
+    private static DomainException notCancellable(String subject, String status) {
+        return new DomainException(CommerceErrorCode.ORDER_NOT_CANCELLABLE,
+                subject + " is " + status + " and can no longer be cancelled");
+    }
+
     @Transactional(readOnly = true)
     public OrderResponse getOrder(CurrentUser user, UUID orderId) {
         if (user == null || user.id() == null) {
@@ -250,23 +424,6 @@ public class OrderService {
                 ? orderRepository.findByUserIdOrderByCreatedAtDescOrderNumberDesc(user.id(), pageable)
                 : orderRepository.findByUserIdAndStatusOrderByCreatedAtDescOrderNumberDesc(user.id(), status, pageable);
         return orders.map(this::toOrderResponse);
-    }
-
-    private CatalogSkuResponse readSku(CartItem line) {
-        CatalogSkuResponse sku;
-        try {
-            var response = catalogClient.getSkuById(line.getSkuId());
-            sku = response == null ? null : response.data();
-        } catch (FeignException.NotFound exception) {
-            throw new DomainException(CommerceErrorCode.ITEM_UNAVAILABLE, "A cart item is no longer available");
-        } catch (FeignException exception) {
-            throw new DomainException(CommerceErrorCode.CATALOG_UNAVAILABLE, "Catalog is unavailable; retry placing the order later");
-        }
-        if (sku == null || !line.getSkuId().equals(sku.getId()) || !line.getProductId().equals(sku.getProductId())
-                || !"ACTIVE".equals(sku.getStatus()) || sku.getPrice() == null || sku.getPrice().signum() < 0) {
-            throw new DomainException(CommerceErrorCode.ITEM_UNAVAILABLE, "A cart item is no longer available");
-        }
-        return sku;
     }
 
     private ProductResponse readProduct(UUID id) {

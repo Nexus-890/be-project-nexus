@@ -6795,6 +6795,360 @@ paths:
                     detail: "The service did not answer in time"
                     instance: "/api/v1/skus/c8000000-0000-4000-8000-000000000002"
                     code: "GATEWAY_TIMEOUT"
+  /api/v1/products/{id}/images:
+    post:
+      tags: [Products]
+      operationId: uploadProductImage
+      summary: Upload an image to an owned product
+      description: "Requires SELLER and PRODUCT.UPDATE; only the owner may upload. Validate JPEG/PNG/WebP bytes, not the filename or supplied MIME type. Enforce the configured count limit (default 5) before storage upload. File limit defaults to 5 MB. Product list and detail return images sorted by sortOrder then ID."
+      security:
+        - bearerAuth: []
+      x-required-privileges: [PRODUCT.UPDATE]
+      x-required-roles: [SELLER]
+      x-gateway-privilege: PRODUCT.UPDATE
+      x-ownership: Product sellerId must equal the JWT subject.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Product ID.
+          schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: JPEG, PNG or WebP bytes within nexus.storage.max-file-size.
+      responses:
+        "201":
+          description: Image uploaded and its URL recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageUploadResponse"
+              example:
+                code: 0
+                message: response success
+                data:
+                  id: 69000000-0000-4000-8000-000000000301
+                  imageUrl: https://storage.example.org/storage/v1/object/public/product-images/products/69000000-0000-4000-8000-000000000201/cover.jpg
+                  sortOrder: 0
+        "400":
+          description: "Bad Request. Codes: CATALOG_IMAGE_REQUIRED, CATALOG_IMAGE_LIMIT_REACHED, CATALOG_IMAGE_SORT_LIMIT_REACHED, CATALOG_IMAGE_INVALID_TYPE, CATALOG_IMAGE_READ_FAILED, INVALID_PARAMETER."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [400]}
+                      code:
+                        type: string
+                        enum: ["CATALOG_IMAGE_REQUIRED","CATALOG_IMAGE_LIMIT_REACHED","CATALOG_IMAGE_SORT_LIMIT_REACHED","CATALOG_IMAGE_INVALID_TYPE","CATALOG_IMAGE_READ_FAILED","INVALID_PARAMETER"]
+              examples:
+                CATALOG_IMAGE_REQUIRED:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "An image file is required"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "CATALOG_IMAGE_REQUIRED"
+                CATALOG_IMAGE_LIMIT_REACHED:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "Product image limit reached"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "CATALOG_IMAGE_LIMIT_REACHED"
+                CATALOG_IMAGE_SORT_LIMIT_REACHED:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "Product image sort order limit reached"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "CATALOG_IMAGE_SORT_LIMIT_REACHED"
+                CATALOG_IMAGE_INVALID_TYPE:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "Only JPEG, PNG and WebP images are supported"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "CATALOG_IMAGE_INVALID_TYPE"
+                CATALOG_IMAGE_READ_FAILED:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "Cannot read the image file"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "CATALOG_IMAGE_READ_FAILED"
+                INVALID_PARAMETER:
+                  value:
+                    type: "urn:problem:invalid-parameter"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "A request parameter is invalid"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "INVALID_PARAMETER"
+        "401":
+          description: "Unauthorized. Codes: UNAUTHENTICATED, CATALOG_UNAUTHENTICATED."
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge for security failures.
+              schema: {type: string}
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [401]}
+                      code:
+                        type: string
+                        enum: ["UNAUTHENTICATED","CATALOG_UNAUTHENTICATED"]
+              examples:
+                UNAUTHENTICATED:
+                  value:
+                    type: "urn:problem:unauthenticated"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "A valid access token is required to access this resource"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "UNAUTHENTICATED"
+                CATALOG_UNAUTHENTICATED:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "Unauthenticated!"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "CATALOG_UNAUTHENTICATED"
+        "403":
+          description: "Forbidden. Codes: FORBIDDEN, CATALOG_UNAUTHORIZED."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [403]}
+                      code:
+                        type: string
+                        enum: ["FORBIDDEN","CATALOG_UNAUTHORIZED"]
+              examples:
+                FORBIDDEN:
+                  value:
+                    type: "urn:problem:forbidden"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission to access this resource"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "FORBIDDEN"
+                CATALOG_UNAUTHORIZED:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission!"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "CATALOG_UNAUTHORIZED"
+        "404":
+          description: "Not Found. Codes: CATALOG_PRODUCT_NOT_FOUND."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [404]}
+                      code:
+                        type: string
+                        enum: ["CATALOG_PRODUCT_NOT_FOUND"]
+              examples:
+                CATALOG_PRODUCT_NOT_FOUND:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Not Found"
+                    status: 404
+                    detail: "Product not found, not ACTIVE or deleted"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "CATALOG_PRODUCT_NOT_FOUND"
+        "413":
+          description: "Content Too Large. Codes: CATALOG_IMAGE_TOO_LARGE."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [413]}
+                      code:
+                        type: string
+                        enum: ["CATALOG_IMAGE_TOO_LARGE"]
+              examples:
+                CATALOG_IMAGE_TOO_LARGE:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Content Too Large"
+                    status: 413
+                    detail: "Image exceeds the maximum file size"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "CATALOG_IMAGE_TOO_LARGE"
+        "415":
+          description: "Unsupported Media Type. Codes: UNSUPPORTED_MEDIA_TYPE."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [415]}
+                      code:
+                        type: string
+                        enum: ["UNSUPPORTED_MEDIA_TYPE"]
+              examples:
+                UNSUPPORTED_MEDIA_TYPE:
+                  value:
+                    type: "urn:problem:unsupported-media-type"
+                    title: "Unsupported Media Type"
+                    status: 415
+                    detail: "The request content type is not supported"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "UNSUPPORTED_MEDIA_TYPE"
+        "503":
+          description: "Service Unavailable. Codes: CATALOG_IMAGE_STORAGE_UNAVAILABLE, CATALOG_IMAGE_STORAGE_NOT_CONFIGURED."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [503]}
+                      code:
+                        type: string
+                        enum: ["CATALOG_IMAGE_STORAGE_UNAVAILABLE","CATALOG_IMAGE_STORAGE_NOT_CONFIGURED"]
+              examples:
+                CATALOG_IMAGE_STORAGE_UNAVAILABLE:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "Image storage is unavailable"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "CATALOG_IMAGE_STORAGE_UNAVAILABLE"
+                CATALOG_IMAGE_STORAGE_NOT_CONFIGURED:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "Image storage is not configured"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "CATALOG_IMAGE_STORAGE_NOT_CONFIGURED"
+        "405":
+          description: "Method Not Allowed. Codes: METHOD_NOT_ALLOWED."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [405]}
+                      code:
+                        type: string
+                        enum: ["METHOD_NOT_ALLOWED"]
+              examples:
+                METHOD_NOT_ALLOWED:
+                  value:
+                    type: "urn:problem:method-not-allowed"
+                    title: "Method Not Allowed"
+                    status: 405
+                    detail: "The HTTP method is not supported for this endpoint"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "METHOD_NOT_ALLOWED"
+        "406":
+          description: "Not Acceptable. Codes: NOT_ACCEPTABLE."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [406]}
+                      code:
+                        type: string
+                        enum: ["NOT_ACCEPTABLE"]
+              examples:
+                NOT_ACCEPTABLE:
+                  value:
+                    type: "urn:problem:not-acceptable"
+                    title: "Not Acceptable"
+                    status: 406
+                    detail: "The requested response format is not supported"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "NOT_ACCEPTABLE"
+        "429":
+          description: "Too Many Requests. Codes: RATE_LIMITED."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [429]}
+                      code:
+                        type: string
+                        enum: ["RATE_LIMITED"]
+              examples:
+                RATE_LIMITED:
+                  value:
+                    type: "urn:problem:rate-limited"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many requests; retry after the indicated delay"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "RATE_LIMITED"
+        "500":
+          description: "Internal Server Error. Codes: INTERNAL_ERROR."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [500]}
+                      code:
+                        type: string
+                        enum: ["INTERNAL_ERROR"]
+              examples:
+                INTERNAL_ERROR:
+                  value:
+                    type: "urn:problem:internal-error"
+                    title: "Internal Server Error"
+                    status: 500
+                    detail: "An unexpected error occurred"
+                    instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images"
+                    code: "INTERNAL_ERROR"
 components:
   securitySchemes:
     bearerAuth:
@@ -7013,6 +7367,11 @@ components:
           minimum: 0
           description: "Existing BigDecimal JSON number; this migration preserves the delivered numeric wire format."
           nullable: true
+        images:
+          type: array
+          description: Product images sorted by sortOrder then ID; empty when none exist.
+          items:
+            $ref: "#/components/schemas/Image"
     ProductDetail:
       type: "object"
       required:
@@ -7468,6 +7827,15 @@ components:
         page:
           $ref: "#/components/schemas/PageInfo"
       additionalProperties: false
+    ImageUploadResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code: {type: integer, default: 0}
+        message: {type: string, default: response success}
+        data:
+          $ref: "#/components/schemas/Image"
+      additionalProperties: false
 x-service: "catalog-service"
 x-business-error-codes:
   CATALOG_SLUG_DUPLICATED:
@@ -7521,3 +7889,19 @@ x-business-error-codes:
   CATALOG_INVALID_SLUG:
     status: 400
     detail: "Invalid slug format"
+  CATALOG_IMAGE_REQUIRED:
+    detail: "An image file is required"
+  CATALOG_IMAGE_LIMIT_REACHED:
+    detail: "Product image limit reached"
+  CATALOG_IMAGE_SORT_LIMIT_REACHED:
+    detail: "Product image sort order limit reached"
+  CATALOG_IMAGE_INVALID_TYPE:
+    detail: "Only JPEG, PNG and WebP images are supported"
+  CATALOG_IMAGE_READ_FAILED:
+    detail: "Cannot read the image file"
+  CATALOG_IMAGE_TOO_LARGE:
+    detail: "Image exceeds the maximum file size"
+  CATALOG_IMAGE_STORAGE_UNAVAILABLE:
+    detail: "Image storage is unavailable"
+  CATALOG_IMAGE_STORAGE_NOT_CONFIGURED:
+    detail: "Image storage is not configured"

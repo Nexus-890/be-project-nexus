@@ -27,7 +27,10 @@ nexus:
     max-active-per-user: 1
     allow-guest-cart: false
     expiration-days: 7
+  checkout:
+    price-revalidation: ${CHECKOUT_PRICE_REVALIDATION:true}
   order:
+    idempotency-enabled: ${ORDER_IDEMPOTENCY_ENABLED:true}
     # Sprint 3 disables this flag when wiring a real InventoryClient.
     inventory-stub-enabled: true
     payment-timeout-minutes: 15

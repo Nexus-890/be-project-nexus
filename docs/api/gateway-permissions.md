@@ -47,9 +47,12 @@ independently, as required by ADR-006.
 | `/api/v1/categories/{id}` | PATCH | CATEGORY.UPDATE | #80 — Category create, update and read                  |
 | `/api/v1/categories/{id}` | DELETE | CATEGORY.DELETE | #82 — Category delete guard                             |
 | `/api/v1/products/{id}/skus` | POST | PRODUCT.UPDATE | #86 — SKU create, update and read                       |
+| `/api/v1/products/{id}/images` | POST | PRODUCT.UPDATE | #122 — Product image upload; service requires SELLER and product ownership |
 | `/api/v1/skus/{id}` | PUT | PRODUCT.UPDATE | #86 — SKU create, update and read                       |
 | `/api/v1/carts/me` | GET | CART.VIEW | #110 — Cart: get-or-create and add item                 |
 | `/api/v1/carts/me/items` | POST | CART.UPDATE | #110 — Cart: get-or-create and add item                 |
+| `/api/v1/carts/me/items/{id}` | PUT | CART.UPDATE | #111 — Cart: update and remove item                     |
+| `/api/v1/carts/me/items/{id}` | DELETE | CART.REMOVE_ITEM | #111 — Cart: update and remove item                     |
 | `/api/v1/notifications` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
 | `/api/v1/notifications/unread-count` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
 | `/api/v1/orders` | POST | ORDER.CREATE | #113 — Order creation from a cart; service also requires CHECKOUT.START |
@@ -57,6 +60,7 @@ independently, as required by ADR-006.
 | `/api/v1/orders/{id}/history` | GET | ORDER.VIEW | #116 — Order state machine and status history |
 | `/api/v1/orders` | GET | ORDER.LIST | #117 — Order read endpoints; the caller's own orders only |
 | `/api/v1/orders/{id}` | GET | ORDER.VIEW | #117 — Order read endpoints; the owner or ADMIN |
+| `/api/v1/orders/{id}/cancel` | POST | ORDER.CANCEL | #189 — Order cancellation; the buyer, ADMIN or SUPPORT_STAFF |
 | Any other path | Any other method/path pair | Token required; add the SRS privilege before exposing a new endpoint | Gateway JWT filter and permit list; future owning issue |
 
 PAY-01 is owned by payment-service at `POST /api/v1/payments` (#121), with

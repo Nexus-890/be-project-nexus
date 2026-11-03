@@ -103,6 +103,25 @@ class OrderResponseContractTest {
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("COMMERCE_ORDER_NOT_FOUND"));
     }
 
+    @Test void cancellationWrapsTheGroupAndNamesItsFailures() throws Exception {
+        var order = new OrderResponse(id, "NX-TEST", user.id(), OrderStatus.CANCELED, BigDecimal.TEN, List.of());
+        var group = new OrderGroupResponse(id, "CANCELED", BigDecimal.TEN, "VND", OffsetDateTime.now(), List.of(order));
+        when(service.cancel(eq(user), eq(id), any())).thenReturn(group);
+        mvc.perform(post("/api/v1/orders/{id}/cancel", id).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Changed my mind\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.status").value("CANCELED"))
+                .andExpect(jsonPath("$.data.orders[0].status").value("CANCELED"));
+        mvc.perform(post("/api/v1/orders/{id}/cancel", id).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\" \"}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        when(service.cancel(eq(user), eq(id), any()))
+                .thenThrow(new DomainException(CommerceErrorCode.ORDER_NOT_CANCELLABLE));
+        mvc.perform(post("/api/v1/orders/{id}/cancel", id).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Changed my mind\"}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("COMMERCE_ORDER_NOT_CANCELLABLE"));
+    }
+
     @Test void transitionFailuresExposeNamedProblemDetails() throws Exception {
         when(service.changeStatus(eq(user), eq(id), any())).thenThrow(new DomainException(CommerceErrorCode.ILLEGAL_TRANSITION));
         mvc.perform(patch("/api/v1/orders/{id}/status", id).contentType(MediaType.APPLICATION_JSON)
