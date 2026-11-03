@@ -28,1139 +28,1359 @@ paths:
   /api/v1/carts/me:
     get:
       tags:
-        - "Cart"
-      operationId: "getOwnCart"
-      summary: "Get or create the current active cart"
-      description: "Returns200 even when first access creates the cart. One active cart per user is protected by a database unique index. Gateway primary privilege is CART.VIEW; downstream additionally checks CART.CREATE. Access: requires CART.VIEW AND CART.CREATE. Ownership/business restriction: JWT subject only; guest carts are not supported."
+        - Cart
+      operationId: getOwnCart
+      summary: Get or create the current active cart
+      description: With a valid bearer token, use the JWT subject cart and require the listed privileges; X-Guest-Token is ignored. Without bearer authentication, use an enabled guest cart identified by X-Guest-Token. Invalid bearer tokens return 401 without guest fallback. Guest tokens are signed opaque owner capabilities and expire after configured inactivity (7 days by default); viewing does not extend inactivity. Quantities are integers 1..999; add sums duplicates and rejects totals above 999. Cart operations do not reserve stock. Authenticated reads get or create an active cart; guest reads never create a cart.
       security:
-        -
-          bearerAuth: []
+        - bearerAuth: []
+        - {}
       x-required-privileges:
-        - "CART.VIEW"
-        - "CART.CREATE"
-      x-gateway-privilege: "CART.VIEW"
+        - CART.VIEW
+        - CART.CREATE
+      x-gateway-privilege: CART.VIEW
       x-required-roles: []
-      x-ownership: "JWT subject only; guest carts are not supported."
+      x-ownership: JWT subject cart, or the ACTIVE unexpired guest owner cart. Guest access does not grant checkout.
       x-error-codes:
         "400":
-          - "INVALID_PARAMETER"
+          - INVALID_PARAMETER
         "401":
-          - "UNAUTHENTICATED"
-          - "COMMERCE_UNAUTHENTICATED"
-        "403":
-          - "FORBIDDEN"
+          - UNAUTHENTICATED
+          - COMMERCE_UNAUTHENTICATED
+        "403": &a1
+          - FORBIDDEN
+          - COMMERCE_GUEST_CART_DISABLED
+        "404": &a2
+          - COMMERCE_GUEST_CART_NOT_FOUND
         "405":
-          - "METHOD_NOT_ALLOWED"
+          - METHOD_NOT_ALLOWED
         "406":
-          - "NOT_ACCEPTABLE"
+          - NOT_ACCEPTABLE
         "429":
-          - "RATE_LIMITED"
-        "500":
-          - "INTERNAL_ERROR"
-          - "COMMERCE_DB_ERROR"
+          - RATE_LIMITED
+        "500": &a3
+          - INTERNAL_ERROR
+          - COMMERCE_DB_ERROR
+          - COMMERCE_INVALID_GUEST_CONFIGURATION
+          - COMMERCE_INVALID_CONFIGURATION
         "503":
-          - "SERVICE_UNAVAILABLE"
+          - SERVICE_UNAVAILABLE
         "504":
-          - "GATEWAY_TIMEOUT"
+          - GATEWAY_TIMEOUT
       responses:
         "200":
-          description: "Successful response."
+          description: Successful response.
           content:
-            "application/json":
+            application/json:
               schema:
                 $ref: "#/components/schemas/GetOwnCartResponse"
               examples:
                 success:
-                  summary: "Success"
+                  summary: Success
                   value:
                     code: 0
-                    message: "response success"
+                    message: response success
                     data:
-                      id: "c8000000-0000-4000-8000-000000000004"
-                      userId: "68000000-0000-4000-8000-000000000002"
-                      status: "ACTIVE"
+                      id: c8000000-0000-4000-8000-000000000004
+                      userId: 68000000-0000-4000-8000-000000000002
+                      status: ACTIVE
                       items: []
         "400":
           description: "Bad Request. Codes: `INVALID_PARAMETER`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 400
                       code:
-                        type: "string"
+                        type: string
                         enum:
-                          - "INVALID_PARAMETER"
+                          - INVALID_PARAMETER
               examples:
                 INVALID_PARAMETER:
-                  summary: "INVALID_PARAMETER"
+                  summary: INVALID_PARAMETER
                   value:
-                    type: "urn:problem:invalid-parameter"
-                    title: "Bad Request"
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
                     status: 400
-                    detail: "A request parameter is invalid"
-                    instance: "/api/v1/carts/me"
-                    code: "INVALID_PARAMETER"
+                    detail: A request parameter is invalid
+                    instance: /api/v1/carts/me
+                    code: INVALID_PARAMETER
         "401":
           description: "Unauthorized. Codes: `UNAUTHENTICATED`, `COMMERCE_UNAUTHENTICATED`."
           headers:
             WWW-Authenticate:
-              description: "Bearer challenge is present for security-layer authentication failure. A domain login error does not promise this header."
+              description: Bearer challenge is present for security-layer authentication failure. A domain login error does not promise this header.
               schema:
-                type: "string"
-                example: "Bearer"
+                type: string
+                example: Bearer
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 401
                       code:
-                        type: "string"
+                        type: string
                         enum:
-                          - "UNAUTHENTICATED"
-                          - "COMMERCE_UNAUTHENTICATED"
+                          - UNAUTHENTICATED
+                          - COMMERCE_UNAUTHENTICATED
               examples:
                 UNAUTHENTICATED:
-                  summary: "UNAUTHENTICATED"
+                  summary: UNAUTHENTICATED
                   value:
-                    type: "urn:problem:unauthorized"
-                    title: "Unauthorized"
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
                     status: 401
-                    detail: "A valid access token is required to access this resource"
-                    instance: "/api/v1/carts/me"
-                    code: "UNAUTHENTICATED"
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/carts/me
+                    code: UNAUTHENTICATED
                 COMMERCE_UNAUTHENTICATED:
-                  summary: "COMMERCE_UNAUTHENTICATED"
+                  summary: COMMERCE_UNAUTHENTICATED
                   value:
-                    type: "urn:problem:domain-error"
-                    title: "Unauthorized"
+                    type: urn:problem:domain-error
+                    title: Unauthorized
                     status: 401
-                    detail: "Unauthenticated"
-                    instance: "/api/v1/carts/me"
-                    code: "COMMERCE_UNAUTHENTICATED"
+                    detail: Unauthenticated
+                    instance: /api/v1/carts/me
+                    code: COMMERCE_UNAUTHENTICATED
         "403":
-          description: "Forbidden. Codes: `FORBIDDEN`."
+          description: "Forbidden. Codes: `FORBIDDEN`, `COMMERCE_GUEST_CART_DISABLED`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 403
                       code:
-                        type: "string"
-                        enum:
-                          - "FORBIDDEN"
+                        type: string
+                        enum: *a1
               examples:
                 FORBIDDEN:
-                  summary: "FORBIDDEN"
+                  summary: FORBIDDEN
                   value:
-                    type: "urn:problem:forbidden"
-                    title: "Forbidden"
+                    type: urn:problem:forbidden
+                    title: Forbidden
                     status: 403
-                    detail: "You do not have permission to access this resource"
-                    instance: "/api/v1/carts/me"
-                    code: "FORBIDDEN"
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/carts/me
+                    code: FORBIDDEN
+                COMMERCE_GUEST_CART_DISABLED:
+                  summary: COMMERCE_GUEST_CART_DISABLED
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: Guest carts are disabled
+                    instance: /api/v1/carts/me
+                    code: COMMERCE_GUEST_CART_DISABLED
+        "404":
+          description: "Not Found. Codes: `COMMERCE_GUEST_CART_NOT_FOUND`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 404
+                      code:
+                        type: string
+                        enum: *a2
+              examples:
+                COMMERCE_GUEST_CART_NOT_FOUND:
+                  summary: COMMERCE_GUEST_CART_NOT_FOUND
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Guest cart not found or no longer active
+                    instance: /api/v1/carts/me
+                    code: COMMERCE_GUEST_CART_NOT_FOUND
         "405":
           description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
           headers:
             Allow:
-              description: "Methods supported by this resource when known."
+              description: Methods supported by this resource when known.
               schema:
-                type: "string"
+                type: string
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 405
                       code:
-                        type: "string"
+                        type: string
                         enum:
-                          - "METHOD_NOT_ALLOWED"
+                          - METHOD_NOT_ALLOWED
               examples:
                 METHOD_NOT_ALLOWED:
-                  summary: "METHOD_NOT_ALLOWED"
+                  summary: METHOD_NOT_ALLOWED
                   value:
-                    type: "urn:problem:method-not-allowed"
-                    title: "Method Not Allowed"
+                    type: urn:problem:method-not-allowed
+                    title: Method Not Allowed
                     status: 405
-                    detail: "The HTTP method is not supported for this endpoint"
-                    instance: "/api/v1/carts/me"
-                    code: "METHOD_NOT_ALLOWED"
+                    detail: The HTTP method is not supported for this endpoint
+                    instance: /api/v1/carts/me
+                    code: METHOD_NOT_ALLOWED
         "406":
           description: "Not Acceptable. Codes: `NOT_ACCEPTABLE`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 406
                       code:
-                        type: "string"
+                        type: string
                         enum:
-                          - "NOT_ACCEPTABLE"
+                          - NOT_ACCEPTABLE
               examples:
                 NOT_ACCEPTABLE:
-                  summary: "NOT_ACCEPTABLE"
+                  summary: NOT_ACCEPTABLE
                   value:
-                    type: "urn:problem:not-acceptable"
-                    title: "Not Acceptable"
+                    type: urn:problem:not-acceptable
+                    title: Not Acceptable
                     status: 406
-                    detail: "The requested response format is not supported"
-                    instance: "/api/v1/carts/me"
-                    code: "NOT_ACCEPTABLE"
+                    detail: The requested response format is not supported
+                    instance: /api/v1/carts/me
+                    code: NOT_ACCEPTABLE
         "429":
           description: "Too Many Requests. Codes: `RATE_LIMITED`."
           headers:
             Retry-After:
-              description: "When provided by the gateway limiter, delay in seconds before retrying."
+              description: When provided by the gateway limiter, delay in seconds before retrying.
               schema:
-                type: "string"
-                pattern: "^[0-9]+$"
+                type: string
+                pattern: ^[0-9]+$
                 example: "30"
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 429
                       code:
-                        type: "string"
+                        type: string
                         enum:
-                          - "RATE_LIMITED"
+                          - RATE_LIMITED
               examples:
                 RATE_LIMITED:
-                  summary: "RATE_LIMITED"
+                  summary: RATE_LIMITED
                   value:
-                    type: "https://nexus/errors/too-many-requests"
-                    title: "Too Many Requests"
+                    type: https://nexus/errors/too-many-requests
+                    title: Too Many Requests
                     status: 429
-                    detail: "Too many requests; retry after the indicated delay"
-                    instance: "/api/v1/carts/me"
-                    code: "RATE_LIMITED"
+                    detail: Too many requests; retry after the indicated delay
+                    instance: /api/v1/carts/me
+                    code: RATE_LIMITED
         "500":
-          description: "Internal Server Error. Codes: `INTERNAL_ERROR`, `COMMERCE_DB_ERROR`."
+          description: "Internal Server Error. Codes: `INTERNAL_ERROR`, `COMMERCE_DB_ERROR`, `COMMERCE_INVALID_GUEST_CONFIGURATION`, `COMMERCE_INVALID_CONFIGURATION`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 500
                       code:
-                        type: "string"
-                        enum:
-                          - "INTERNAL_ERROR"
-                          - "COMMERCE_DB_ERROR"
+                        type: string
+                        enum: *a3
               examples:
                 INTERNAL_ERROR:
-                  summary: "INTERNAL_ERROR"
+                  summary: INTERNAL_ERROR
                   value:
-                    type: "urn:problem:internal-server-error"
-                    title: "Internal Server Error"
+                    type: urn:problem:internal-server-error
+                    title: Internal Server Error
                     status: 500
-                    detail: "An unexpected error occurred"
-                    instance: "/api/v1/carts/me"
-                    code: "INTERNAL_ERROR"
+                    detail: An unexpected error occurred
+                    instance: /api/v1/carts/me
+                    code: INTERNAL_ERROR
                 COMMERCE_DB_ERROR:
-                  summary: "COMMERCE_DB_ERROR"
+                  summary: COMMERCE_DB_ERROR
                   value:
-                    type: "urn:problem:domain-error"
-                    title: "Internal Server Error"
+                    type: urn:problem:domain-error
+                    title: Internal Server Error
                     status: 500
-                    detail: "Database error"
-                    instance: "/api/v1/carts/me"
-                    code: "COMMERCE_DB_ERROR"
+                    detail: Database error
+                    instance: /api/v1/carts/me
+                    code: COMMERCE_DB_ERROR
+                COMMERCE_INVALID_GUEST_CONFIGURATION:
+                  summary: COMMERCE_INVALID_GUEST_CONFIGURATION
+                  value:
+                    type: urn:problem:domain-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: Guest cart token signing is not configured correctly
+                    instance: /api/v1/carts/me
+                    code: COMMERCE_INVALID_GUEST_CONFIGURATION
+                COMMERCE_INVALID_CONFIGURATION:
+                  summary: COMMERCE_INVALID_CONFIGURATION
+                  value:
+                    type: urn:problem:domain-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: Expiration-days must be greater or equal to 1
+                    instance: /api/v1/carts/me
+                    code: COMMERCE_INVALID_CONFIGURATION
         "503":
           description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 503
                       code:
-                        type: "string"
+                        type: string
                         enum:
-                          - "SERVICE_UNAVAILABLE"
+                          - SERVICE_UNAVAILABLE
               examples:
                 SERVICE_UNAVAILABLE:
-                  summary: "SERVICE_UNAVAILABLE"
+                  summary: SERVICE_UNAVAILABLE
                   value:
-                    type: "https://nexus/errors/service-unavailable"
-                    title: "Service Unavailable"
+                    type: https://nexus/errors/service-unavailable
+                    title: Service Unavailable
                     status: 503
-                    detail: "A required service is unavailable"
-                    instance: "/api/v1/carts/me"
-                    code: "SERVICE_UNAVAILABLE"
+                    detail: A required service is unavailable
+                    instance: /api/v1/carts/me
+                    code: SERVICE_UNAVAILABLE
         "504":
           description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 504
                       code:
-                        type: "string"
+                        type: string
                         enum:
-                          - "GATEWAY_TIMEOUT"
+                          - GATEWAY_TIMEOUT
               examples:
                 GATEWAY_TIMEOUT:
-                  summary: "GATEWAY_TIMEOUT"
+                  summary: GATEWAY_TIMEOUT
                   value:
-                    type: "https://nexus/errors/gateway-timeout"
-                    title: "Gateway Timeout"
+                    type: https://nexus/errors/gateway-timeout
+                    title: Gateway Timeout
                     status: 504
-                    detail: "The service did not answer in time"
-                    instance: "/api/v1/carts/me"
-                    code: "GATEWAY_TIMEOUT"
+                    detail: The service did not answer in time
+                    instance: /api/v1/carts/me
+                    code: GATEWAY_TIMEOUT
+      parameters:
+        - name: X-Guest-Token
+          in: header
+          required: false
+          description: Required when no bearer token is supplied. Obtain from POST /api/v1/carts/guest. Never log or expose this owner capability.
+          schema:
+            type: string
+            maxLength: 255
   /api/v1/carts/me/items:
     post:
       tags:
-        - "Cart"
-      operationId: "addCartItem"
-      summary: "Add a SKU to the current cart"
-      description: "Fetches current SKU from catalog, then atomically inserts or increases existing quantity and refreshes unitPrice. Both a new line and an increased line return201. A missing/invisible or invisible catalog SKU returns404. A malformed catalog envelope/data is502 COMMERCE_INVALID_CATALOG_RESPONSE. Other Feign failures return503 COMMERCE_CATALOG_UNAVAILABLE. No inventory/stock check is introduced. Access: requires CART.UPDATE. Ownership/business restriction: JWT subject active cart only; caller cannot choose userId/cartId."
+        - Cart
+      operationId: addCartItem
+      summary: Add a SKU to the current cart
+      description: With a valid bearer token, use the JWT subject cart and require the listed privileges; X-Guest-Token is ignored. Without bearer authentication, use an enabled guest cart identified by X-Guest-Token. Invalid bearer tokens return 401 without guest fallback. Guest tokens are signed opaque owner capabilities and expire after configured inactivity (7 days by default); viewing does not extend inactivity. Quantities are integers 1..999; add sums duplicates and rejects totals above 999. Cart operations do not reserve stock. Items must belong to the resolved active cart.
       security:
-        -
-          bearerAuth: []
+        - bearerAuth: []
+        - {}
       x-required-privileges:
-        - "CART.UPDATE"
-      x-gateway-privilege: "CART.UPDATE"
+        - CART.UPDATE
+      x-gateway-privilege: CART.UPDATE
       x-required-roles: []
-      x-ownership: "JWT subject active cart only; caller cannot choose userId/cartId."
+      x-ownership: JWT subject cart, or the ACTIVE unexpired guest owner cart. Guest access does not grant checkout.
       x-error-codes:
         "400":
-          - "INVALID_PARAMETER"
-          - "VALIDATION_FAILED"
-          - "INVALID_REQUEST_BODY"
-          - "COMMERCE_INVALID_QUANTITY"
+          - INVALID_PARAMETER
+          - VALIDATION_FAILED
+          - INVALID_REQUEST_BODY
+          - COMMERCE_INVALID_QUANTITY
         "401":
-          - "UNAUTHENTICATED"
-          - "COMMERCE_UNAUTHENTICATED"
-        "403":
-          - "FORBIDDEN"
-        "404":
-          - "COMMERCE_SKU_NOT_FOUND"
+          - UNAUTHENTICATED
+          - COMMERCE_UNAUTHENTICATED
+        "403": &a1
+          - FORBIDDEN
+          - COMMERCE_GUEST_CART_DISABLED
+        "404": &a2
+          - COMMERCE_SKU_NOT_FOUND
+          - COMMERCE_GUEST_CART_NOT_FOUND
         "405":
-          - "METHOD_NOT_ALLOWED"
+          - METHOD_NOT_ALLOWED
         "406":
-          - "NOT_ACCEPTABLE"
+          - NOT_ACCEPTABLE
         "415":
-          - "UNSUPPORTED_MEDIA_TYPE"
+          - UNSUPPORTED_MEDIA_TYPE
         "429":
-          - "RATE_LIMITED"
-        "500":
-          - "INTERNAL_ERROR"
-          - "COMMERCE_DB_ERROR"
+          - RATE_LIMITED
+        "500": &a3
+          - INTERNAL_ERROR
+          - COMMERCE_DB_ERROR
+          - COMMERCE_INVALID_GUEST_CONFIGURATION
+          - COMMERCE_INVALID_CONFIGURATION
         "502":
-          - "COMMERCE_INVALID_CATALOG_RESPONSE"
+          - COMMERCE_INVALID_CATALOG_RESPONSE
         "503":
-          - "SERVICE_UNAVAILABLE"
-          - "COMMERCE_CATALOG_UNAVAILABLE"
+          - SERVICE_UNAVAILABLE
+          - COMMERCE_CATALOG_UNAVAILABLE
         "504":
-          - "GATEWAY_TIMEOUT"
+          - GATEWAY_TIMEOUT
       requestBody:
         required: true
         content:
-          "application/json":
+          application/json:
             schema:
               $ref: "#/components/schemas/AddCartItem"
             example:
-              skuId: "c8000000-0000-4000-8000-000000000003"
+              skuId: c8000000-0000-4000-8000-000000000003
               quantity: 1
       responses:
         "201":
-          description: "Created."
+          description: Created.
           content:
-            "application/json":
+            application/json:
               schema:
                 $ref: "#/components/schemas/AddCartItemResponse"
               examples:
                 success:
-                  summary: "Success"
+                  summary: Success
                   value:
                     code: 0
-                    message: "response success"
+                    message: response success
                     data:
-                      id: "c8000000-0000-4000-8000-000000000004"
-                      userId: "68000000-0000-4000-8000-000000000002"
-                      status: "ACTIVE"
+                      id: c8000000-0000-4000-8000-000000000004
+                      userId: 68000000-0000-4000-8000-000000000002
+                      status: ACTIVE
                       items:
-                        -
-                          id: "c8000000-0000-4000-8000-000000000005"
-                          productId: "c8000000-0000-4000-8000-000000000002"
-                          skuId: "c8000000-0000-4000-8000-000000000003"
+                        - id: c8000000-0000-4000-8000-000000000005
+                          productId: c8000000-0000-4000-8000-000000000002
+                          skuId: c8000000-0000-4000-8000-000000000003
                           quantity: 1
                           unitPrice: 150000.5
         "400":
           description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `COMMERCE_INVALID_QUANTITY`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 400
                       code:
-                        type: "string"
+                        type: string
                         enum:
-                          - "INVALID_PARAMETER"
-                          - "VALIDATION_FAILED"
-                          - "INVALID_REQUEST_BODY"
-                          - "COMMERCE_INVALID_QUANTITY"
+                          - INVALID_PARAMETER
+                          - VALIDATION_FAILED
+                          - INVALID_REQUEST_BODY
+                          - COMMERCE_INVALID_QUANTITY
               examples:
                 INVALID_PARAMETER:
-                  summary: "INVALID_PARAMETER"
+                  summary: INVALID_PARAMETER
                   value:
-                    type: "urn:problem:invalid-parameter"
-                    title: "Bad Request"
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
                     status: 400
-                    detail: "A request parameter is invalid"
-                    instance: "/api/v1/carts/me/items"
-                    code: "INVALID_PARAMETER"
+                    detail: A request parameter is invalid
+                    instance: /api/v1/carts/me/items
+                    code: INVALID_PARAMETER
                 VALIDATION_FAILED:
-                  summary: "VALIDATION_FAILED"
+                  summary: VALIDATION_FAILED
                   value:
-                    type: "urn:problem:validation-error"
-                    title: "Bad Request"
+                    type: urn:problem:validation-error
+                    title: Bad Request
                     status: 400
-                    detail: "The request data is invalid"
-                    instance: "/api/v1/carts/me/items"
-                    code: "VALIDATION_FAILED"
+                    detail: The request data is invalid
+                    instance: /api/v1/carts/me/items
+                    code: VALIDATION_FAILED
                     errors:
-                      -
-                        field: "skuId"
-                        code: "VALIDATION_NOT_NULL"
-                        detail: "Invalid value for skuId"
-                      -
-                        field: "quantity"
-                        code: "VALIDATION_POSITIVE"
-                        detail: "Invalid value for quantity"
+                      - field: skuId
+                        code: VALIDATION_NOT_NULL
+                        detail: Invalid value for skuId
+                      - field: quantity
+                        code: VALIDATION_POSITIVE
+                        detail: Invalid value for quantity
                 INVALID_REQUEST_BODY:
-                  summary: "INVALID_REQUEST_BODY"
+                  summary: INVALID_REQUEST_BODY
                   value:
-                    type: "urn:problem:invalid-request-body"
-                    title: "Bad Request"
+                    type: urn:problem:invalid-request-body
+                    title: Bad Request
                     status: 400
-                    detail: "The request body is invalid or malformed"
-                    instance: "/api/v1/carts/me/items"
-                    code: "INVALID_REQUEST_BODY"
+                    detail: The request body is invalid or malformed
+                    instance: /api/v1/carts/me/items
+                    code: INVALID_REQUEST_BODY
                 COMMERCE_INVALID_QUANTITY:
-                  summary: "COMMERCE_INVALID_QUANTITY"
+                  summary: COMMERCE_INVALID_QUANTITY
                   value:
-                    type: "urn:problem:domain-error"
-                    title: "Bad Request"
+                    type: urn:problem:domain-error
+                    title: Bad Request
                     status: 400
-                    detail: "Quantity is invalid"
-                    instance: "/api/v1/carts/me/items"
-                    code: "COMMERCE_INVALID_QUANTITY"
+                    detail: Quantity is invalid
+                    instance: /api/v1/carts/me/items
+                    code: COMMERCE_INVALID_QUANTITY
         "401":
           description: "Unauthorized. Codes: `UNAUTHENTICATED`, `COMMERCE_UNAUTHENTICATED`."
           headers:
             WWW-Authenticate:
-              description: "Bearer challenge is present for security-layer authentication failure. A domain login error does not promise this header."
+              description: Bearer challenge is present for security-layer authentication failure. A domain login error does not promise this header.
               schema:
-                type: "string"
-                example: "Bearer"
+                type: string
+                example: Bearer
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 401
                       code:
-                        type: "string"
+                        type: string
                         enum:
-                          - "UNAUTHENTICATED"
-                          - "COMMERCE_UNAUTHENTICATED"
+                          - UNAUTHENTICATED
+                          - COMMERCE_UNAUTHENTICATED
               examples:
                 UNAUTHENTICATED:
-                  summary: "UNAUTHENTICATED"
+                  summary: UNAUTHENTICATED
                   value:
-                    type: "urn:problem:unauthorized"
-                    title: "Unauthorized"
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
                     status: 401
-                    detail: "A valid access token is required to access this resource"
-                    instance: "/api/v1/carts/me/items"
-                    code: "UNAUTHENTICATED"
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/carts/me/items
+                    code: UNAUTHENTICATED
                 COMMERCE_UNAUTHENTICATED:
-                  summary: "COMMERCE_UNAUTHENTICATED"
+                  summary: COMMERCE_UNAUTHENTICATED
                   value:
-                    type: "urn:problem:domain-error"
-                    title: "Unauthorized"
+                    type: urn:problem:domain-error
+                    title: Unauthorized
                     status: 401
-                    detail: "Unauthenticated"
-                    instance: "/api/v1/carts/me/items"
-                    code: "COMMERCE_UNAUTHENTICATED"
+                    detail: Unauthenticated
+                    instance: /api/v1/carts/me/items
+                    code: COMMERCE_UNAUTHENTICATED
         "403":
-          description: "Forbidden. Codes: `FORBIDDEN`."
+          description: "Forbidden. Codes: `FORBIDDEN`, `COMMERCE_GUEST_CART_DISABLED`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 403
                       code:
-                        type: "string"
-                        enum:
-                          - "FORBIDDEN"
+                        type: string
+                        enum: *a1
               examples:
                 FORBIDDEN:
-                  summary: "FORBIDDEN"
+                  summary: FORBIDDEN
                   value:
-                    type: "urn:problem:forbidden"
-                    title: "Forbidden"
+                    type: urn:problem:forbidden
+                    title: Forbidden
                     status: 403
-                    detail: "You do not have permission to access this resource"
-                    instance: "/api/v1/carts/me/items"
-                    code: "FORBIDDEN"
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/carts/me/items
+                    code: FORBIDDEN
+                COMMERCE_GUEST_CART_DISABLED:
+                  summary: COMMERCE_GUEST_CART_DISABLED
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: Guest carts are disabled
+                    instance: /api/v1/carts/me/items
+                    code: COMMERCE_GUEST_CART_DISABLED
         "404":
-          description: "Not Found. Codes: `COMMERCE_SKU_NOT_FOUND`."
+          description: "Not Found. Codes: `COMMERCE_SKU_NOT_FOUND`, `COMMERCE_GUEST_CART_NOT_FOUND`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 404
                       code:
-                        type: "string"
-                        enum:
-                          - "COMMERCE_SKU_NOT_FOUND"
+                        type: string
+                        enum: *a2
               examples:
                 COMMERCE_SKU_NOT_FOUND:
-                  summary: "COMMERCE_SKU_NOT_FOUND"
+                  summary: COMMERCE_SKU_NOT_FOUND
                   value:
-                    type: "urn:problem:domain-error"
-                    title: "Not Found"
+                    type: urn:problem:domain-error
+                    title: Not Found
                     status: 404
-                    detail: "SKU not found"
-                    instance: "/api/v1/carts/me/items"
-                    code: "COMMERCE_SKU_NOT_FOUND"
+                    detail: SKU not found
+                    instance: /api/v1/carts/me/items
+                    code: COMMERCE_SKU_NOT_FOUND
+                COMMERCE_GUEST_CART_NOT_FOUND:
+                  summary: COMMERCE_GUEST_CART_NOT_FOUND
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Guest cart not found or no longer active
+                    instance: /api/v1/carts/me/items
+                    code: COMMERCE_GUEST_CART_NOT_FOUND
         "405":
           description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
           headers:
             Allow:
-              description: "Methods supported by this resource when known."
+              description: Methods supported by this resource when known.
               schema:
-                type: "string"
+                type: string
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 405
                       code:
-                        type: "string"
+                        type: string
                         enum:
-                          - "METHOD_NOT_ALLOWED"
+                          - METHOD_NOT_ALLOWED
               examples:
                 METHOD_NOT_ALLOWED:
-                  summary: "METHOD_NOT_ALLOWED"
+                  summary: METHOD_NOT_ALLOWED
                   value:
-                    type: "urn:problem:method-not-allowed"
-                    title: "Method Not Allowed"
+                    type: urn:problem:method-not-allowed
+                    title: Method Not Allowed
                     status: 405
-                    detail: "The HTTP method is not supported for this endpoint"
-                    instance: "/api/v1/carts/me/items"
-                    code: "METHOD_NOT_ALLOWED"
+                    detail: The HTTP method is not supported for this endpoint
+                    instance: /api/v1/carts/me/items
+                    code: METHOD_NOT_ALLOWED
         "406":
           description: "Not Acceptable. Codes: `NOT_ACCEPTABLE`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 406
                       code:
-                        type: "string"
+                        type: string
                         enum:
-                          - "NOT_ACCEPTABLE"
+                          - NOT_ACCEPTABLE
               examples:
                 NOT_ACCEPTABLE:
-                  summary: "NOT_ACCEPTABLE"
+                  summary: NOT_ACCEPTABLE
                   value:
-                    type: "urn:problem:not-acceptable"
-                    title: "Not Acceptable"
+                    type: urn:problem:not-acceptable
+                    title: Not Acceptable
                     status: 406
-                    detail: "The requested response format is not supported"
-                    instance: "/api/v1/carts/me/items"
-                    code: "NOT_ACCEPTABLE"
+                    detail: The requested response format is not supported
+                    instance: /api/v1/carts/me/items
+                    code: NOT_ACCEPTABLE
         "415":
           description: "Unsupported Media Type. Codes: `UNSUPPORTED_MEDIA_TYPE`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 415
                       code:
-                        type: "string"
+                        type: string
                         enum:
-                          - "UNSUPPORTED_MEDIA_TYPE"
+                          - UNSUPPORTED_MEDIA_TYPE
               examples:
                 UNSUPPORTED_MEDIA_TYPE:
-                  summary: "UNSUPPORTED_MEDIA_TYPE"
+                  summary: UNSUPPORTED_MEDIA_TYPE
                   value:
-                    type: "urn:problem:unsupported-media-type"
-                    title: "Unsupported Media Type"
+                    type: urn:problem:unsupported-media-type
+                    title: Unsupported Media Type
                     status: 415
-                    detail: "The request content type is not supported"
-                    instance: "/api/v1/carts/me/items"
-                    code: "UNSUPPORTED_MEDIA_TYPE"
+                    detail: The request content type is not supported
+                    instance: /api/v1/carts/me/items
+                    code: UNSUPPORTED_MEDIA_TYPE
         "429":
           description: "Too Many Requests. Codes: `RATE_LIMITED`."
           headers:
             Retry-After:
-              description: "When provided by the gateway limiter, delay in seconds before retrying."
+              description: When provided by the gateway limiter, delay in seconds before retrying.
               schema:
-                type: "string"
-                pattern: "^[0-9]+$"
+                type: string
+                pattern: ^[0-9]+$
                 example: "30"
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 429
                       code:
-                        type: "string"
+                        type: string
                         enum:
-                          - "RATE_LIMITED"
+                          - RATE_LIMITED
               examples:
                 RATE_LIMITED:
-                  summary: "RATE_LIMITED"
+                  summary: RATE_LIMITED
                   value:
-                    type: "https://nexus/errors/too-many-requests"
-                    title: "Too Many Requests"
+                    type: https://nexus/errors/too-many-requests
+                    title: Too Many Requests
                     status: 429
-                    detail: "Too many requests; retry after the indicated delay"
-                    instance: "/api/v1/carts/me/items"
-                    code: "RATE_LIMITED"
+                    detail: Too many requests; retry after the indicated delay
+                    instance: /api/v1/carts/me/items
+                    code: RATE_LIMITED
         "500":
-          description: "Internal Server Error. Codes: `INTERNAL_ERROR`, `COMMERCE_DB_ERROR`."
+          description: "Internal Server Error. Codes: `INTERNAL_ERROR`, `COMMERCE_DB_ERROR`, `COMMERCE_INVALID_GUEST_CONFIGURATION`, `COMMERCE_INVALID_CONFIGURATION`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 500
                       code:
-                        type: "string"
-                        enum:
-                          - "INTERNAL_ERROR"
-                          - "COMMERCE_DB_ERROR"
+                        type: string
+                        enum: *a3
               examples:
                 INTERNAL_ERROR:
-                  summary: "INTERNAL_ERROR"
+                  summary: INTERNAL_ERROR
                   value:
-                    type: "urn:problem:internal-server-error"
-                    title: "Internal Server Error"
+                    type: urn:problem:internal-server-error
+                    title: Internal Server Error
                     status: 500
-                    detail: "An unexpected error occurred"
-                    instance: "/api/v1/carts/me/items"
-                    code: "INTERNAL_ERROR"
+                    detail: An unexpected error occurred
+                    instance: /api/v1/carts/me/items
+                    code: INTERNAL_ERROR
                 COMMERCE_DB_ERROR:
-                  summary: "COMMERCE_DB_ERROR"
+                  summary: COMMERCE_DB_ERROR
                   value:
-                    type: "urn:problem:domain-error"
-                    title: "Internal Server Error"
+                    type: urn:problem:domain-error
+                    title: Internal Server Error
                     status: 500
-                    detail: "Database error"
-                    instance: "/api/v1/carts/me/items"
-                    code: "COMMERCE_DB_ERROR"
+                    detail: Database error
+                    instance: /api/v1/carts/me/items
+                    code: COMMERCE_DB_ERROR
+                COMMERCE_INVALID_GUEST_CONFIGURATION:
+                  summary: COMMERCE_INVALID_GUEST_CONFIGURATION
+                  value:
+                    type: urn:problem:domain-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: Guest cart token signing is not configured correctly
+                    instance: /api/v1/carts/me/items
+                    code: COMMERCE_INVALID_GUEST_CONFIGURATION
+                COMMERCE_INVALID_CONFIGURATION:
+                  summary: COMMERCE_INVALID_CONFIGURATION
+                  value:
+                    type: urn:problem:domain-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: Expiration-days must be greater or equal to 1
+                    instance: /api/v1/carts/me/items
+                    code: COMMERCE_INVALID_CONFIGURATION
         "502":
           description: "Bad Gateway. Codes: `COMMERCE_INVALID_CATALOG_RESPONSE`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 502
                       code:
-                        type: "string"
+                        type: string
                         enum:
-                          - "COMMERCE_INVALID_CATALOG_RESPONSE"
+                          - COMMERCE_INVALID_CATALOG_RESPONSE
               examples:
                 COMMERCE_INVALID_CATALOG_RESPONSE:
-                  summary: "COMMERCE_INVALID_CATALOG_RESPONSE"
+                  summary: COMMERCE_INVALID_CATALOG_RESPONSE
                   value:
-                    type: "urn:problem:domain-error"
-                    title: "Bad Gateway"
+                    type: urn:problem:domain-error
+                    title: Bad Gateway
                     status: 502
-                    detail: "Catalog returned an invalid SKU response"
-                    instance: "/api/v1/carts/me/items"
-                    code: "COMMERCE_INVALID_CATALOG_RESPONSE"
+                    detail: Catalog returned an invalid SKU response
+                    instance: /api/v1/carts/me/items
+                    code: COMMERCE_INVALID_CATALOG_RESPONSE
         "503":
           description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`, `COMMERCE_CATALOG_UNAVAILABLE`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 503
                       code:
-                        type: "string"
+                        type: string
                         enum:
-                          - "SERVICE_UNAVAILABLE"
-                          - "COMMERCE_CATALOG_UNAVAILABLE"
+                          - SERVICE_UNAVAILABLE
+                          - COMMERCE_CATALOG_UNAVAILABLE
               examples:
                 SERVICE_UNAVAILABLE:
-                  summary: "SERVICE_UNAVAILABLE"
+                  summary: SERVICE_UNAVAILABLE
                   value:
-                    type: "https://nexus/errors/service-unavailable"
-                    title: "Service Unavailable"
+                    type: https://nexus/errors/service-unavailable
+                    title: Service Unavailable
                     status: 503
-                    detail: "A required service is unavailable"
-                    instance: "/api/v1/carts/me/items"
-                    code: "SERVICE_UNAVAILABLE"
+                    detail: A required service is unavailable
+                    instance: /api/v1/carts/me/items
+                    code: SERVICE_UNAVAILABLE
                 COMMERCE_CATALOG_UNAVAILABLE:
-                  summary: "COMMERCE_CATALOG_UNAVAILABLE"
+                  summary: COMMERCE_CATALOG_UNAVAILABLE
                   value:
-                    type: "urn:problem:domain-error"
-                    title: "Service Unavailable"
+                    type: urn:problem:domain-error
+                    title: Service Unavailable
                     status: 503
-                    detail: "Catalog is unavailable"
-                    instance: "/api/v1/carts/me/items"
-                    code: "COMMERCE_CATALOG_UNAVAILABLE"
+                    detail: Catalog is unavailable
+                    instance: /api/v1/carts/me/items
+                    code: COMMERCE_CATALOG_UNAVAILABLE
         "504":
           description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
                 allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
                     properties:
                       status:
-                        type: "integer"
+                        type: integer
                         enum:
                           - 504
                       code:
-                        type: "string"
+                        type: string
                         enum:
-                          - "GATEWAY_TIMEOUT"
+                          - GATEWAY_TIMEOUT
               examples:
                 GATEWAY_TIMEOUT:
-                  summary: "GATEWAY_TIMEOUT"
+                  summary: GATEWAY_TIMEOUT
                   value:
-                    type: "https://nexus/errors/gateway-timeout"
-                    title: "Gateway Timeout"
+                    type: https://nexus/errors/gateway-timeout
+                    title: Gateway Timeout
                     status: 504
-                    detail: "The service did not answer in time"
-                    instance: "/api/v1/carts/me/items"
-                    code: "GATEWAY_TIMEOUT"
+                    detail: The service did not answer in time
+                    instance: /api/v1/carts/me/items
+                    code: GATEWAY_TIMEOUT
+      parameters:
+        - name: X-Guest-Token
+          in: header
+          required: false
+          description: Required when no bearer token is supplied. Obtain from POST /api/v1/carts/guest. Never log or expose this owner capability.
+          schema:
+            type: string
+            maxLength: 255
   /api/v1/carts/me/items/{id}:
     put:
-      tags: ["Cart"]
-      operationId: "updateCartItem"
-      summary: "Replace the quantity of an own cart item"
-      description: "Existing #111 operation documented to restore the delivered controller inventory. Uses only the caller active cart; missing cart or inaccessible item returns NOT_FOUND. No ADMIN ownership bypass."
-      security: [{"bearerAuth":[]}]
-      x-required-privileges: ["CART.UPDATE"]
-      x-gateway-privilege: "CART.UPDATE"
+      tags:
+        - Cart
+      operationId: updateOwnCartItem
+      summary: Replace the quantity of an item in the current cart
+      description: With a valid bearer token, use the JWT subject cart and require the listed privileges; X-Guest-Token is ignored. Without bearer authentication, use an enabled guest cart identified by X-Guest-Token. Invalid bearer tokens return 401 without guest fallback. Guest tokens are signed opaque owner capabilities and expire after configured inactivity (7 days by default); viewing does not extend inactivity. Quantities are integers 1..999; add sums duplicates and rejects totals above 999. Cart operations do not reserve stock. Items must belong to the resolved active cart.
+      security:
+        - bearerAuth: []
+        - {}
+      x-required-privileges:
+        - CART.UPDATE
+      x-gateway-privilege: CART.UPDATE
       x-required-roles: []
-      x-ownership: "JWT subject active cart only."
+      x-ownership: JWT subject cart, or the ACTIVE unexpired guest owner cart. Guest access does not grant checkout.
       x-error-codes:
-        400: ["COMMERCE_INVALID_QUANTITY","VALIDATION_FAILED","INVALID_REQUEST_BODY","INVALID_PARAMETER"]
-        401: ["UNAUTHENTICATED","COMMERCE_UNAUTHENTICATED"]
-        403: ["FORBIDDEN"]
-        404: ["NOT_FOUND"]
-        405: ["METHOD_NOT_ALLOWED"]
-        406: ["NOT_ACCEPTABLE"]
-        415: ["UNSUPPORTED_MEDIA_TYPE"]
-        429: ["RATE_LIMITED"]
-        500: ["INTERNAL_ERROR"]
-        503: ["SERVICE_UNAVAILABLE"]
-        504: ["GATEWAY_TIMEOUT"]
-      parameters: [{"name":"id","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}]
+        "400":
+          - COMMERCE_INVALID_QUANTITY
+          - VALIDATION_FAILED
+          - INVALID_REQUEST_BODY
+          - INVALID_PARAMETER
+        "401":
+          - UNAUTHENTICATED
+          - COMMERCE_UNAUTHENTICATED
+        "403": &a1
+          - FORBIDDEN
+          - COMMERCE_GUEST_CART_DISABLED
+        "404": &a2
+          - COMMERCE_GUEST_CART_NOT_FOUND
+          - COMMERCE_CART_NOT_FOUND
+        "405":
+          - METHOD_NOT_ALLOWED
+        "406":
+          - NOT_ACCEPTABLE
+        "415":
+          - UNSUPPORTED_MEDIA_TYPE
+        "429":
+          - RATE_LIMITED
+        "500": &a3
+          - INTERNAL_ERROR
+          - COMMERCE_INVALID_GUEST_CONFIGURATION
+          - COMMERCE_INVALID_CONFIGURATION
+        "503":
+          - SERVICE_UNAVAILABLE
+        "504":
+          - GATEWAY_TIMEOUT
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Cart item ID.
+          schema:
+            type: string
+            format: uuid
+        - name: X-Guest-Token
+          in: header
+          required: false
+          description: Required when no bearer token is supplied. Obtain from POST /api/v1/carts/guest. Never log or expose this owner capability.
+          schema:
+            type: string
+            maxLength: 255
       responses:
-        200:
-          description: "Updated current cart."
+        "200":
+          description: Current cart with the replaced item quantity.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/GetOwnCartResponse"
-              example:
-                code: 0
-                message: "response success"
-                data:
-                  id: "c8000000-0000-4000-8000-000000000004"
-                  userId: "68000000-0000-4000-8000-000000000002"
-                  status: "ACTIVE"
-                  items: [{"id":"c8000000-0000-4000-8000-000000000005","productId":"c8000000-0000-4000-8000-000000000002","skuId":"c8000000-0000-4000-8000-000000000003","quantity":2,"unitPrice":150000}]
-        400:
-          description: "Bad Request. Codes: `COMMERCE_INVALID_QUANTITY`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `INVALID_PARAMETER`."
+        "400":
+          description: INVALID_PARAMETER, INVALID_REQUEST_BODY, VALIDATION_FAILED, COMMERCE_INVALID_QUANTITY.
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[400]},"code":{"type":"string","enum":["COMMERCE_INVALID_QUANTITY","VALIDATION_FAILED","INVALID_REQUEST_BODY","INVALID_PARAMETER"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 400
+                      code:
+                        type: string
+                        enum:
+                          - INVALID_PARAMETER
+                          - INVALID_REQUEST_BODY
+                          - VALIDATION_FAILED
+                          - COMMERCE_INVALID_QUANTITY
               examples:
-                COMMERCE_INVALID_QUANTITY:
-                  summary: "COMMERCE_INVALID_QUANTITY"
-                  value:
-                    type: "urn:problem:commerce-invalid-quantity"
-                    title: "Bad Request"
-                    status: 400
-                    detail: "Quantity is invalid"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "COMMERCE_INVALID_QUANTITY"
-                VALIDATION_FAILED:
-                  summary: "VALIDATION_FAILED"
-                  value:
-                    type: "urn:problem:validation-failed"
-                    title: "Bad Request"
-                    status: 400
-                    detail: "The request data is invalid"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "VALIDATION_FAILED"
-                INVALID_REQUEST_BODY:
-                  summary: "INVALID_REQUEST_BODY"
-                  value:
-                    type: "urn:problem:invalid-request-body"
-                    title: "Bad Request"
-                    status: 400
-                    detail: "The request body is invalid"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "INVALID_REQUEST_BODY"
                 INVALID_PARAMETER:
-                  summary: "INVALID_PARAMETER"
                   value:
-                    type: "urn:problem:invalid-parameter"
-                    title: "Bad Request"
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
                     status: 400
-                    detail: "Bad Request"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "INVALID_PARAMETER"
-        401:
-          description: "Unauthorized. Codes: `UNAUTHENTICATED`, `COMMERCE_UNAUTHENTICATED`."
+                    detail: A request parameter is invalid
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: INVALID_PARAMETER
+                INVALID_REQUEST_BODY:
+                  value:
+                    type: urn:problem:invalid-request-body
+                    title: Bad Request
+                    status: 400
+                    detail: The request body is invalid or malformed
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: INVALID_REQUEST_BODY
+                VALIDATION_FAILED:
+                  value:
+                    type: urn:problem:validation-failed
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: VALIDATION_FAILED
+                COMMERCE_INVALID_QUANTITY:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Quantity is invalid
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: COMMERCE_INVALID_QUANTITY
+        "401":
+          description: UNAUTHENTICATED, COMMERCE_UNAUTHENTICATED.
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[401]},"code":{"type":"string","enum":["UNAUTHENTICATED","COMMERCE_UNAUTHENTICATED"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 401
+                      code:
+                        type: string
+                        enum:
+                          - UNAUTHENTICATED
+                          - COMMERCE_UNAUTHENTICATED
               examples:
                 UNAUTHENTICATED:
-                  summary: "UNAUTHENTICATED"
                   value:
-                    type: "urn:problem:unauthenticated"
-                    title: "Unauthorized"
+                    type: urn:problem:unauthenticated
+                    title: Unauthorized
                     status: 401
-                    detail: "Unauthorized"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "UNAUTHENTICATED"
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: UNAUTHENTICATED
                 COMMERCE_UNAUTHENTICATED:
-                  summary: "COMMERCE_UNAUTHENTICATED"
                   value:
-                    type: "urn:problem:commerce-unauthenticated"
-                    title: "Unauthorized"
+                    type: urn:problem:domain-error
+                    title: Unauthorized
                     status: 401
-                    detail: "Unauthenticated"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "COMMERCE_UNAUTHENTICATED"
-          headers:
-            WWW-Authenticate:
-              description: "Bearer challenge for security-layer authentication failures."
-              schema:
-                type: "string"
-                example: "Bearer"
-        403:
-          description: "Forbidden. Codes: `FORBIDDEN`."
+                    detail: Unauthenticated
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: COMMERCE_UNAUTHENTICATED
+        "403":
+          description: "Forbidden. Codes: `FORBIDDEN`, `COMMERCE_GUEST_CART_DISABLED`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[403]},"code":{"type":"string","enum":["FORBIDDEN"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 403
+                      code:
+                        type: string
+                        enum: *a1
               examples:
                 FORBIDDEN:
-                  summary: "FORBIDDEN"
                   value:
-                    type: "urn:problem:forbidden"
-                    title: "Forbidden"
+                    type: urn:problem:forbidden
+                    title: Forbidden
                     status: 403
-                    detail: "Forbidden"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "FORBIDDEN"
-        404:
-          description: "undefined. Codes: `NOT_FOUND`."
-          content:
-            "application/problem+json":
-              schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[404]},"code":{"type":"string","enum":["NOT_FOUND"]}}}]
-              examples:
-                NOT_FOUND:
-                  summary: "NOT_FOUND"
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: FORBIDDEN
+                COMMERCE_GUEST_CART_DISABLED:
+                  summary: COMMERCE_GUEST_CART_DISABLED
                   value:
-                    type: "urn:problem:not-found"
-                    title: undefined
-                    status: 404
-                    detail: undefined
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "NOT_FOUND"
-        405:
-          description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: Guest carts are disabled
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: COMMERCE_GUEST_CART_DISABLED
+        "404":
+          description: "Not Found. Codes: `COMMERCE_GUEST_CART_NOT_FOUND`, `COMMERCE_CART_NOT_FOUND`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[405]},"code":{"type":"string","enum":["METHOD_NOT_ALLOWED"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 404
+                      code:
+                        type: string
+                        enum: *a2
+              examples:
+                COMMERCE_GUEST_CART_NOT_FOUND:
+                  summary: COMMERCE_GUEST_CART_NOT_FOUND
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Guest cart not found or no longer active
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: COMMERCE_GUEST_CART_NOT_FOUND
+                COMMERCE_CART_NOT_FOUND:
+                  summary: COMMERCE_CART_NOT_FOUND
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Cart or cart item not found
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: COMMERCE_CART_NOT_FOUND
+        "405":
+          description: METHOD_NOT_ALLOWED.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 405
+                      code:
+                        type: string
+                        enum:
+                          - METHOD_NOT_ALLOWED
               examples:
                 METHOD_NOT_ALLOWED:
-                  summary: "METHOD_NOT_ALLOWED"
                   value:
-                    type: "urn:problem:method-not-allowed"
-                    title: "Method Not Allowed"
+                    type: urn:problem:method-not-allowed
+                    title: Method Not Allowed
                     status: 405
-                    detail: "Method Not Allowed"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "METHOD_NOT_ALLOWED"
-          headers:
-            Allow:
-              description: "Supported methods when known."
-              schema:
-                type: "string"
-        406:
-          description: "Not Acceptable. Codes: `NOT_ACCEPTABLE`."
+                    detail: The HTTP method is not supported for this endpoint
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: METHOD_NOT_ALLOWED
+        "406":
+          description: NOT_ACCEPTABLE.
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[406]},"code":{"type":"string","enum":["NOT_ACCEPTABLE"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 406
+                      code:
+                        type: string
+                        enum:
+                          - NOT_ACCEPTABLE
               examples:
                 NOT_ACCEPTABLE:
-                  summary: "NOT_ACCEPTABLE"
                   value:
-                    type: "urn:problem:not-acceptable"
-                    title: "Not Acceptable"
+                    type: urn:problem:not-acceptable
+                    title: Not Acceptable
                     status: 406
-                    detail: "Not Acceptable"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "NOT_ACCEPTABLE"
-        415:
-          description: "Unsupported Media Type. Codes: `UNSUPPORTED_MEDIA_TYPE`."
+                    detail: The requested response format is not supported
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: NOT_ACCEPTABLE
+        "415":
+          description: UNSUPPORTED_MEDIA_TYPE.
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[415]},"code":{"type":"string","enum":["UNSUPPORTED_MEDIA_TYPE"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 415
+                      code:
+                        type: string
+                        enum:
+                          - UNSUPPORTED_MEDIA_TYPE
               examples:
                 UNSUPPORTED_MEDIA_TYPE:
-                  summary: "UNSUPPORTED_MEDIA_TYPE"
                   value:
-                    type: "urn:problem:unsupported-media-type"
-                    title: "Unsupported Media Type"
+                    type: urn:problem:unsupported-media-type
+                    title: Unsupported Media Type
                     status: 415
-                    detail: "Unsupported Media Type"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "UNSUPPORTED_MEDIA_TYPE"
-        429:
-          description: "Too Many Requests. Codes: `RATE_LIMITED`."
+                    detail: The request content type is not supported
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: UNSUPPORTED_MEDIA_TYPE
+        "429":
+          description: RATE_LIMITED.
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[429]},"code":{"type":"string","enum":["RATE_LIMITED"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 429
+                      code:
+                        type: string
+                        enum:
+                          - RATE_LIMITED
               examples:
                 RATE_LIMITED:
-                  summary: "RATE_LIMITED"
                   value:
-                    type: "urn:problem:rate-limited"
-                    title: "Too Many Requests"
+                    type: urn:problem:rate-limited
+                    title: Too Many Requests
                     status: 429
-                    detail: "Too Many Requests"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "RATE_LIMITED"
-          headers:
-            Retry-After:
-              description: "Seconds to wait when supplied by the gateway."
-              schema:
-                type: "integer"
-                minimum: 1
-        500:
-          description: "Internal Server Error. Codes: `INTERNAL_ERROR`."
+                    detail: Too many requests; retry after the indicated delay
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: RATE_LIMITED
+        "500":
+          description: "Internal Server Error. Codes: `INTERNAL_ERROR`, `COMMERCE_INVALID_GUEST_CONFIGURATION`, `COMMERCE_INVALID_CONFIGURATION`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[500]},"code":{"type":"string","enum":["INTERNAL_ERROR"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 500
+                      code:
+                        type: string
+                        enum: *a3
               examples:
                 INTERNAL_ERROR:
-                  summary: "INTERNAL_ERROR"
                   value:
-                    type: "urn:problem:internal-error"
-                    title: "Internal Server Error"
+                    type: urn:problem:internal-error
+                    title: Internal Server Error
                     status: 500
-                    detail: "Internal Server Error"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "INTERNAL_ERROR"
-        503:
+                    detail: An unexpected error occurred
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: INTERNAL_ERROR
+                COMMERCE_INVALID_GUEST_CONFIGURATION:
+                  summary: COMMERCE_INVALID_GUEST_CONFIGURATION
+                  value:
+                    type: urn:problem:domain-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: Guest cart token signing is not configured correctly
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: COMMERCE_INVALID_GUEST_CONFIGURATION
+                COMMERCE_INVALID_CONFIGURATION:
+                  summary: COMMERCE_INVALID_CONFIGURATION
+                  value:
+                    type: urn:problem:domain-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: Expiration-days must be greater or equal to 1
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: COMMERCE_INVALID_CONFIGURATION
+        "503":
           description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[503]},"code":{"type":"string","enum":["SERVICE_UNAVAILABLE"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 503
+                      code:
+                        type: string
+                        enum:
+                          - SERVICE_UNAVAILABLE
               examples:
                 SERVICE_UNAVAILABLE:
-                  summary: "SERVICE_UNAVAILABLE"
+                  summary: SERVICE_UNAVAILABLE
                   value:
-                    type: "urn:problem:service-unavailable"
-                    title: "Service Unavailable"
+                    type: urn:problem:service-unavailable
+                    title: Service Unavailable
                     status: 503
-                    detail: "Service Unavailable"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "SERVICE_UNAVAILABLE"
-        504:
+                    detail: Service Unavailable
+                    instance: /api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005
+                    code: SERVICE_UNAVAILABLE
+        "504":
           description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[504]},"code":{"type":"string","enum":["GATEWAY_TIMEOUT"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 504
+                      code:
+                        type: string
+                        enum:
+                          - GATEWAY_TIMEOUT
               examples:
                 GATEWAY_TIMEOUT:
-                  summary: "GATEWAY_TIMEOUT"
+                  summary: GATEWAY_TIMEOUT
                   value:
-                    type: "urn:problem:gateway-timeout"
-                    title: "Gateway Timeout"
+                    type: urn:problem:gateway-timeout
+                    title: Gateway Timeout
                     status: 504
-                    detail: "Gateway Timeout"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "GATEWAY_TIMEOUT"
+                    detail: Gateway Timeout
+                    instance: /api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005
+                    code: GATEWAY_TIMEOUT
       requestBody:
         required: true
         content:
@@ -1170,199 +1390,384 @@ paths:
             example:
               quantity: 2
     delete:
-      tags: ["Cart"]
-      operationId: "removeCartItem"
-      summary: "Remove an own cart item"
-      description: "Existing #111 operation documented to restore the delivered controller inventory. Uses only the caller active cart; missing cart or inaccessible item returns NOT_FOUND. No ADMIN ownership bypass."
-      security: [{"bearerAuth":[]}]
-      x-required-privileges: ["CART.REMOVE_ITEM"]
-      x-gateway-privilege: "CART.REMOVE_ITEM"
+      tags:
+        - Cart
+      operationId: removeOwnCartItem
+      summary: Remove an item from the current cart
+      description: With a valid bearer token, use the JWT subject cart and require the listed privileges; X-Guest-Token is ignored. Without bearer authentication, use an enabled guest cart identified by X-Guest-Token. Invalid bearer tokens return 401 without guest fallback. Guest tokens are signed opaque owner capabilities and expire after configured inactivity (7 days by default); viewing does not extend inactivity. Quantities are integers 1..999; add sums duplicates and rejects totals above 999. Cart operations do not reserve stock. Items must belong to the resolved active cart.
+      security:
+        - bearerAuth: []
+        - {}
+      x-required-privileges:
+        - CART.REMOVE_ITEM
+      x-gateway-privilege: CART.REMOVE_ITEM
       x-required-roles: []
-      x-ownership: "JWT subject active cart only."
+      x-ownership: JWT subject cart, or the ACTIVE unexpired guest owner cart. Guest access does not grant checkout.
       x-error-codes:
-        400: ["INVALID_PARAMETER"]
-        401: ["UNAUTHENTICATED","COMMERCE_UNAUTHENTICATED"]
-        403: ["FORBIDDEN"]
-        404: ["NOT_FOUND"]
-        405: ["METHOD_NOT_ALLOWED"]
-        429: ["RATE_LIMITED"]
-        500: ["INTERNAL_ERROR"]
-        503: ["SERVICE_UNAVAILABLE"]
-        504: ["GATEWAY_TIMEOUT"]
-      parameters: [{"name":"id","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}]
+        "400":
+          - INVALID_PARAMETER
+        "401":
+          - UNAUTHENTICATED
+          - COMMERCE_UNAUTHENTICATED
+        "403": &a4
+          - FORBIDDEN
+          - COMMERCE_GUEST_CART_DISABLED
+        "404": &a5
+          - COMMERCE_GUEST_CART_NOT_FOUND
+          - COMMERCE_CART_NOT_FOUND
+        "405":
+          - METHOD_NOT_ALLOWED
+        "429":
+          - RATE_LIMITED
+        "500": &a6
+          - INTERNAL_ERROR
+          - COMMERCE_INVALID_GUEST_CONFIGURATION
+          - COMMERCE_INVALID_CONFIGURATION
+        "503":
+          - SERVICE_UNAVAILABLE
+        "504":
+          - GATEWAY_TIMEOUT
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Cart item ID.
+          schema:
+            type: string
+            format: uuid
+        - name: X-Guest-Token
+          in: header
+          required: false
+          description: Required when no bearer token is supplied. Obtain from POST /api/v1/carts/guest. Never log or expose this owner capability.
+          schema:
+            type: string
+            maxLength: 255
       responses:
-        204:
-          description: "Removed; no response body."
-        400:
-          description: "Bad Request. Codes: `INVALID_PARAMETER`."
+        "204":
+          description: Item removed; no response body.
+        "400":
+          description: INVALID_PARAMETER, INVALID_REQUEST_BODY, VALIDATION_FAILED.
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[400]},"code":{"type":"string","enum":["INVALID_PARAMETER"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 400
+                      code:
+                        type: string
+                        enum:
+                          - INVALID_PARAMETER
+                          - INVALID_REQUEST_BODY
+                          - VALIDATION_FAILED
               examples:
                 INVALID_PARAMETER:
-                  summary: "INVALID_PARAMETER"
                   value:
-                    type: "urn:problem:invalid-parameter"
-                    title: "Bad Request"
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
                     status: 400
-                    detail: "Bad Request"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "INVALID_PARAMETER"
-        401:
-          description: "Unauthorized. Codes: `UNAUTHENTICATED`, `COMMERCE_UNAUTHENTICATED`."
+                    detail: A request parameter is invalid
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: INVALID_PARAMETER
+                INVALID_REQUEST_BODY:
+                  value:
+                    type: urn:problem:invalid-request-body
+                    title: Bad Request
+                    status: 400
+                    detail: The request body is invalid or malformed
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: INVALID_REQUEST_BODY
+                VALIDATION_FAILED:
+                  value:
+                    type: urn:problem:validation-failed
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: VALIDATION_FAILED
+        "401":
+          description: UNAUTHENTICATED, COMMERCE_UNAUTHENTICATED.
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[401]},"code":{"type":"string","enum":["UNAUTHENTICATED","COMMERCE_UNAUTHENTICATED"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 401
+                      code:
+                        type: string
+                        enum:
+                          - UNAUTHENTICATED
+                          - COMMERCE_UNAUTHENTICATED
               examples:
                 UNAUTHENTICATED:
-                  summary: "UNAUTHENTICATED"
                   value:
-                    type: "urn:problem:unauthenticated"
-                    title: "Unauthorized"
+                    type: urn:problem:unauthenticated
+                    title: Unauthorized
                     status: 401
-                    detail: "Unauthorized"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "UNAUTHENTICATED"
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: UNAUTHENTICATED
                 COMMERCE_UNAUTHENTICATED:
-                  summary: "COMMERCE_UNAUTHENTICATED"
                   value:
-                    type: "urn:problem:commerce-unauthenticated"
-                    title: "Unauthorized"
+                    type: urn:problem:domain-error
+                    title: Unauthorized
                     status: 401
-                    detail: "Unauthenticated"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "COMMERCE_UNAUTHENTICATED"
-          headers:
-            WWW-Authenticate:
-              description: "Bearer challenge for security-layer authentication failures."
-              schema:
-                type: "string"
-                example: "Bearer"
-        403:
-          description: "Forbidden. Codes: `FORBIDDEN`."
+                    detail: Unauthenticated
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: COMMERCE_UNAUTHENTICATED
+        "403":
+          description: "Forbidden. Codes: `FORBIDDEN`, `COMMERCE_GUEST_CART_DISABLED`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[403]},"code":{"type":"string","enum":["FORBIDDEN"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 403
+                      code:
+                        type: string
+                        enum: *a4
               examples:
                 FORBIDDEN:
-                  summary: "FORBIDDEN"
                   value:
-                    type: "urn:problem:forbidden"
-                    title: "Forbidden"
+                    type: urn:problem:forbidden
+                    title: Forbidden
                     status: 403
-                    detail: "Forbidden"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "FORBIDDEN"
-        404:
-          description: "undefined. Codes: `NOT_FOUND`."
-          content:
-            "application/problem+json":
-              schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[404]},"code":{"type":"string","enum":["NOT_FOUND"]}}}]
-              examples:
-                NOT_FOUND:
-                  summary: "NOT_FOUND"
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: FORBIDDEN
+                COMMERCE_GUEST_CART_DISABLED:
+                  summary: COMMERCE_GUEST_CART_DISABLED
                   value:
-                    type: "urn:problem:not-found"
-                    title: undefined
-                    status: 404
-                    detail: undefined
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "NOT_FOUND"
-        405:
-          description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: Guest carts are disabled
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: COMMERCE_GUEST_CART_DISABLED
+        "404":
+          description: "Not Found. Codes: `COMMERCE_GUEST_CART_NOT_FOUND`, `COMMERCE_CART_NOT_FOUND`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[405]},"code":{"type":"string","enum":["METHOD_NOT_ALLOWED"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 404
+                      code:
+                        type: string
+                        enum: *a5
+              examples:
+                COMMERCE_GUEST_CART_NOT_FOUND:
+                  summary: COMMERCE_GUEST_CART_NOT_FOUND
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Guest cart not found or no longer active
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: COMMERCE_GUEST_CART_NOT_FOUND
+                COMMERCE_CART_NOT_FOUND:
+                  summary: COMMERCE_CART_NOT_FOUND
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Cart or cart item not found
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: COMMERCE_CART_NOT_FOUND
+        "405":
+          description: METHOD_NOT_ALLOWED.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 405
+                      code:
+                        type: string
+                        enum:
+                          - METHOD_NOT_ALLOWED
               examples:
                 METHOD_NOT_ALLOWED:
-                  summary: "METHOD_NOT_ALLOWED"
                   value:
-                    type: "urn:problem:method-not-allowed"
-                    title: "Method Not Allowed"
+                    type: urn:problem:method-not-allowed
+                    title: Method Not Allowed
                     status: 405
-                    detail: "Method Not Allowed"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "METHOD_NOT_ALLOWED"
-          headers:
-            Allow:
-              description: "Supported methods when known."
-              schema:
-                type: "string"
-        429:
-          description: "Too Many Requests. Codes: `RATE_LIMITED`."
+                    detail: The HTTP method is not supported for this endpoint
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: METHOD_NOT_ALLOWED
+        "406":
+          description: NOT_ACCEPTABLE.
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[429]},"code":{"type":"string","enum":["RATE_LIMITED"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 406
+                      code:
+                        type: string
+                        enum:
+                          - NOT_ACCEPTABLE
+              examples:
+                NOT_ACCEPTABLE:
+                  value:
+                    type: urn:problem:not-acceptable
+                    title: Not Acceptable
+                    status: 406
+                    detail: The requested response format is not supported
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: NOT_ACCEPTABLE
+        "429":
+          description: RATE_LIMITED.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 429
+                      code:
+                        type: string
+                        enum:
+                          - RATE_LIMITED
               examples:
                 RATE_LIMITED:
-                  summary: "RATE_LIMITED"
                   value:
-                    type: "urn:problem:rate-limited"
-                    title: "Too Many Requests"
+                    type: urn:problem:rate-limited
+                    title: Too Many Requests
                     status: 429
-                    detail: "Too Many Requests"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "RATE_LIMITED"
-          headers:
-            Retry-After:
-              description: "Seconds to wait when supplied by the gateway."
-              schema:
-                type: "integer"
-                minimum: 1
-        500:
-          description: "Internal Server Error. Codes: `INTERNAL_ERROR`."
+                    detail: Too many requests; retry after the indicated delay
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: RATE_LIMITED
+        "500":
+          description: "Internal Server Error. Codes: `INTERNAL_ERROR`, `COMMERCE_INVALID_GUEST_CONFIGURATION`, `COMMERCE_INVALID_CONFIGURATION`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[500]},"code":{"type":"string","enum":["INTERNAL_ERROR"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 500
+                      code:
+                        type: string
+                        enum: *a6
               examples:
                 INTERNAL_ERROR:
-                  summary: "INTERNAL_ERROR"
                   value:
-                    type: "urn:problem:internal-error"
-                    title: "Internal Server Error"
+                    type: urn:problem:internal-error
+                    title: Internal Server Error
                     status: 500
-                    detail: "Internal Server Error"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "INTERNAL_ERROR"
-        503:
+                    detail: An unexpected error occurred
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: INTERNAL_ERROR
+                COMMERCE_INVALID_GUEST_CONFIGURATION:
+                  summary: COMMERCE_INVALID_GUEST_CONFIGURATION
+                  value:
+                    type: urn:problem:domain-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: Guest cart token signing is not configured correctly
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: COMMERCE_INVALID_GUEST_CONFIGURATION
+                COMMERCE_INVALID_CONFIGURATION:
+                  summary: COMMERCE_INVALID_CONFIGURATION
+                  value:
+                    type: urn:problem:domain-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: Expiration-days must be greater or equal to 1
+                    instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
+                    code: COMMERCE_INVALID_CONFIGURATION
+        "503":
           description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[503]},"code":{"type":"string","enum":["SERVICE_UNAVAILABLE"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 503
+                      code:
+                        type: string
+                        enum:
+                          - SERVICE_UNAVAILABLE
               examples:
                 SERVICE_UNAVAILABLE:
-                  summary: "SERVICE_UNAVAILABLE"
+                  summary: SERVICE_UNAVAILABLE
                   value:
-                    type: "urn:problem:service-unavailable"
-                    title: "Service Unavailable"
+                    type: urn:problem:service-unavailable
+                    title: Service Unavailable
                     status: 503
-                    detail: "Service Unavailable"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "SERVICE_UNAVAILABLE"
-        504:
+                    detail: Service Unavailable
+                    instance: /api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005
+                    code: SERVICE_UNAVAILABLE
+        "504":
           description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
           content:
-            "application/problem+json":
+            application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[504]},"code":{"type":"string","enum":["GATEWAY_TIMEOUT"]}}}]
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 504
+                      code:
+                        type: string
+                        enum:
+                          - GATEWAY_TIMEOUT
               examples:
                 GATEWAY_TIMEOUT:
-                  summary: "GATEWAY_TIMEOUT"
+                  summary: GATEWAY_TIMEOUT
                   value:
-                    type: "urn:problem:gateway-timeout"
-                    title: "Gateway Timeout"
+                    type: urn:problem:gateway-timeout
+                    title: Gateway Timeout
                     status: 504
-                    detail: "Gateway Timeout"
-                    instance: "/api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005"
-                    code: "GATEWAY_TIMEOUT"
+                    detail: Gateway Timeout
+                    instance: /api/v1/carts/me/items/c8000000-0000-4000-8000-000000000005
+                    code: GATEWAY_TIMEOUT
   /api/v1/carts/me/pricing:
     get:
       tags: ["Cart"]
@@ -3602,7 +4007,6 @@ paths:
           schema:
             type: "string"
             format: "uuid"
-
   /api/v1/orders/{id}/status:
     patch:
       tags:
@@ -5011,7 +5415,6 @@ paths:
           schema:
             type: "string"
             format: "uuid"
-
   /internal/order-references/products/{productId}:
     get:
       tags:
@@ -5254,314 +5657,836 @@ paths:
           schema:
             type: "string"
             format: "uuid"
-
-  /api/v1/carts/me/items/{id}:
-    put:
-      tags: [Cart]
-      operationId: updateOwnCartItem
-      summary: Replace the quantity of an item in the current cart
-      description: Uses the JWT subject active cart only. Missing, inactive or foreign cart items return 404. Quantity is replaced, not incremented. Existing unitPrice is preserved.
+  /api/v1/carts/guest:
+    post:
+      tags:
+        - Cart
+      operationId: createGuestCart
+      summary: Create an anonymous guest cart
+      description: Create an empty ACTIVE guest cart with userId null. Requires ALLOW_GUEST_CART=true and a configured shared signing key. Returns a fresh signed opaque guestToken; retain it and send X-Guest-Token on the four cart read/item operations. Tokens expire with cart inactivity and cannot be reused after merge. Does not create a login session or reserve inventory.
+      security: []
+      x-required-privileges: []
+      x-required-roles: []
+      x-ownership: The returned guest token owns the new cart.
+      x-error-codes:
+        "400":
+          - INVALID_PARAMETER
+        "401":
+          - UNAUTHENTICATED
+          - COMMERCE_UNAUTHENTICATED
+        "403": &a1
+          - FORBIDDEN
+          - COMMERCE_GUEST_CART_DISABLED
+        "405":
+          - METHOD_NOT_ALLOWED
+        "406":
+          - NOT_ACCEPTABLE
+        "429":
+          - RATE_LIMITED
+        "500": &a2
+          - INTERNAL_ERROR
+          - COMMERCE_DB_ERROR
+          - COMMERCE_INVALID_GUEST_CONFIGURATION
+        "503":
+          - SERVICE_UNAVAILABLE
+        "504":
+          - GATEWAY_TIMEOUT
+      responses:
+        "201":
+          description: Guest cart created.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestCartEnvelope"
+              examples:
+                success:
+                  value:
+                    code: 0
+                    message: response success
+                    data:
+                      guestToken: v1.68000000-0000-4000-8000-000000000002.signed-owner-capability
+                      cart:
+                        id: c8000000-0000-4000-8000-000000000004
+                        userId: null
+                        status: ACTIVE
+                        items: []
+                        issues: []
+        "400":
+          description: "Bad Request. Codes: `INVALID_PARAMETER`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 400
+                      code:
+                        type: string
+                        enum:
+                          - INVALID_PARAMETER
+              examples:
+                INVALID_PARAMETER:
+                  summary: INVALID_PARAMETER
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
+                    status: 400
+                    detail: A request parameter is invalid
+                    instance: /api/v1/carts/guest
+                    code: INVALID_PARAMETER
+        "401":
+          description: "Unauthorized. Codes: `UNAUTHENTICATED`, `COMMERCE_UNAUTHENTICATED`."
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge is present for security-layer authentication failure. A domain login error does not promise this header.
+              schema:
+                type: string
+                example: Bearer
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 401
+                      code:
+                        type: string
+                        enum:
+                          - UNAUTHENTICATED
+                          - COMMERCE_UNAUTHENTICATED
+              examples:
+                UNAUTHENTICATED:
+                  summary: UNAUTHENTICATED
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/carts/guest
+                    code: UNAUTHENTICATED
+                COMMERCE_UNAUTHENTICATED:
+                  summary: COMMERCE_UNAUTHENTICATED
+                  value:
+                    type: urn:problem:domain-error
+                    title: Unauthorized
+                    status: 401
+                    detail: Unauthenticated
+                    instance: /api/v1/carts/guest
+                    code: COMMERCE_UNAUTHENTICATED
+        "403":
+          description: "Forbidden. Codes: `FORBIDDEN`, `COMMERCE_GUEST_CART_DISABLED`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 403
+                      code:
+                        type: string
+                        enum: *a1
+              examples:
+                FORBIDDEN:
+                  summary: FORBIDDEN
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/carts/guest
+                    code: FORBIDDEN
+                COMMERCE_GUEST_CART_DISABLED:
+                  summary: COMMERCE_GUEST_CART_DISABLED
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: Guest carts are disabled
+                    instance: /api/v1/carts/guest
+                    code: COMMERCE_GUEST_CART_DISABLED
+        "405":
+          description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
+          headers:
+            Allow:
+              description: Methods supported by this resource when known.
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 405
+                      code:
+                        type: string
+                        enum:
+                          - METHOD_NOT_ALLOWED
+              examples:
+                METHOD_NOT_ALLOWED:
+                  summary: METHOD_NOT_ALLOWED
+                  value:
+                    type: urn:problem:method-not-allowed
+                    title: Method Not Allowed
+                    status: 405
+                    detail: The HTTP method is not supported for this endpoint
+                    instance: /api/v1/carts/guest
+                    code: METHOD_NOT_ALLOWED
+        "406":
+          description: "Not Acceptable. Codes: `NOT_ACCEPTABLE`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 406
+                      code:
+                        type: string
+                        enum:
+                          - NOT_ACCEPTABLE
+              examples:
+                NOT_ACCEPTABLE:
+                  summary: NOT_ACCEPTABLE
+                  value:
+                    type: urn:problem:not-acceptable
+                    title: Not Acceptable
+                    status: 406
+                    detail: The requested response format is not supported
+                    instance: /api/v1/carts/guest
+                    code: NOT_ACCEPTABLE
+        "429":
+          description: "Too Many Requests. Codes: `RATE_LIMITED`."
+          headers:
+            Retry-After:
+              description: When provided by the gateway limiter, delay in seconds before retrying.
+              schema:
+                type: string
+                pattern: ^[0-9]+$
+                example: "30"
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 429
+                      code:
+                        type: string
+                        enum:
+                          - RATE_LIMITED
+              examples:
+                RATE_LIMITED:
+                  summary: RATE_LIMITED
+                  value:
+                    type: https://nexus/errors/too-many-requests
+                    title: Too Many Requests
+                    status: 429
+                    detail: Too many requests; retry after the indicated delay
+                    instance: /api/v1/carts/guest
+                    code: RATE_LIMITED
+        "500":
+          description: "Internal Server Error. Codes: `INTERNAL_ERROR`, `COMMERCE_DB_ERROR`, `COMMERCE_INVALID_GUEST_CONFIGURATION`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 500
+                      code:
+                        type: string
+                        enum: *a2
+              examples:
+                INTERNAL_ERROR:
+                  summary: INTERNAL_ERROR
+                  value:
+                    type: urn:problem:internal-server-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: An unexpected error occurred
+                    instance: /api/v1/carts/guest
+                    code: INTERNAL_ERROR
+                COMMERCE_DB_ERROR:
+                  summary: COMMERCE_DB_ERROR
+                  value:
+                    type: urn:problem:domain-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: Database error
+                    instance: /api/v1/carts/guest
+                    code: COMMERCE_DB_ERROR
+                COMMERCE_INVALID_GUEST_CONFIGURATION:
+                  summary: COMMERCE_INVALID_GUEST_CONFIGURATION
+                  value:
+                    type: urn:problem:domain-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: Guest cart token signing is not configured correctly
+                    instance: /api/v1/carts/guest
+                    code: COMMERCE_INVALID_GUEST_CONFIGURATION
+        "503":
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 503
+                      code:
+                        type: string
+                        enum:
+                          - SERVICE_UNAVAILABLE
+              examples:
+                SERVICE_UNAVAILABLE:
+                  summary: SERVICE_UNAVAILABLE
+                  value:
+                    type: https://nexus/errors/service-unavailable
+                    title: Service Unavailable
+                    status: 503
+                    detail: A required service is unavailable
+                    instance: /api/v1/carts/guest
+                    code: SERVICE_UNAVAILABLE
+        "504":
+          description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 504
+                      code:
+                        type: string
+                        enum:
+                          - GATEWAY_TIMEOUT
+              examples:
+                GATEWAY_TIMEOUT:
+                  summary: GATEWAY_TIMEOUT
+                  value:
+                    type: https://nexus/errors/gateway-timeout
+                    title: Gateway Timeout
+                    status: 504
+                    detail: The service did not answer in time
+                    instance: /api/v1/carts/guest
+                    code: GATEWAY_TIMEOUT
+      parameters: []
+  /api/v1/carts/me/merge:
+    post:
+      tags:
+        - Cart
+      operationId: mergeGuestCart
+      summary: Merge a guest cart into the authenticated buyer cart once
+      description: After the Keycloak callback, the frontend submits its stored guestToken. Requires ALLOW_GUEST_CART and CART_MERGE_ON_LOGIN. Atomically lock the guest source and buyer destination, create destination if absent, sum duplicate SKU quantities and cap at 999 with QUANTITY_CAPPED in issues. SKU identity canonically determines its seller; no caller seller ID is accepted. Existing buyer line prices are retained; new lines keep guest prices. Retain missing/inactive catalog lines with PRODUCT_INACTIVE, self-purchase lines with SELF_PURCHASE and changed prices with PRICE_CHANGED. Catalog outages/malformed responses roll back all effects and allow retry. Retire source as MERGED; replay, expired and unknown tokens return the same 404. Cart quantity does not reserve stock or clamp to available inventory; actual stock checks await inventory integration and remain mandatory at checkout. Empty guest carts may merge. Concurrent guest writes and merges serialize on the same owner row.
       security:
         - bearerAuth: []
-      x-required-privileges: [CART.UPDATE]
+      x-required-privileges:
+        - CART.UPDATE
+      x-required-roles:
+        - BUYER
+      x-ownership: Valid signed guest owner capability and authenticated BUYER target cart. Source must be ACTIVE and unexpired.
+      x-error-codes:
+        "400":
+          - INVALID_REQUEST_BODY
+          - VALIDATION_FAILED
+        "401":
+          - UNAUTHENTICATED
+          - COMMERCE_UNAUTHENTICATED
+        "403": &a1
+          - FORBIDDEN
+          - COMMERCE_GUEST_CART_DISABLED
+          - COMMERCE_CART_MERGE_DISABLED
+          - COMMERCE_FORBIDDEN
+        "404": &a2
+          - COMMERCE_GUEST_CART_NOT_FOUND
+        "405":
+          - METHOD_NOT_ALLOWED
+        "406":
+          - NOT_ACCEPTABLE
+        "415":
+          - UNSUPPORTED_MEDIA_TYPE
+        "429":
+          - RATE_LIMITED
+        "500": &a3
+          - INTERNAL_ERROR
+          - COMMERCE_DB_ERROR
+          - COMMERCE_INVALID_GUEST_CONFIGURATION
+          - COMMERCE_INVALID_CONFIGURATION
+          - COMMERCE_INVALID_PRICING_CONFIGURATION
+        "502": &a4
+          - COMMERCE_INVALID_CATALOG_RESPONSE
+        "503": &a5
+          - SERVICE_UNAVAILABLE
+          - COMMERCE_CATALOG_UNAVAILABLE
+        "504":
+          - GATEWAY_TIMEOUT
+      responses:
+        "200":
+          description: Merged buyer cart. Nonblocking issues identify retained lines requiring correction and quantity caps.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetOwnCartResponse"
+              examples:
+                success:
+                  value:
+                    code: 0
+                    message: response success
+                    data:
+                      id: c8000000-0000-4000-8000-000000000004
+                      userId: 68000000-0000-4000-8000-000000000002
+                      status: ACTIVE
+                      items: []
+                      issues: []
+        "400":
+          description: Invalid JSON, blank/missing token or token longer than 255 characters.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                VALIDATION_FAILED:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/carts/me/merge
+                    code: VALIDATION_FAILED
+        "401":
+          description: "Unauthorized. Codes: `UNAUTHENTICATED`, `COMMERCE_UNAUTHENTICATED`."
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge is present for security-layer authentication failure. A domain login error does not promise this header.
+              schema:
+                type: string
+                example: Bearer
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 401
+                      code:
+                        type: string
+                        enum:
+                          - UNAUTHENTICATED
+                          - COMMERCE_UNAUTHENTICATED
+              examples:
+                UNAUTHENTICATED:
+                  summary: UNAUTHENTICATED
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/carts/me/merge
+                    code: UNAUTHENTICATED
+                COMMERCE_UNAUTHENTICATED:
+                  summary: COMMERCE_UNAUTHENTICATED
+                  value:
+                    type: urn:problem:domain-error
+                    title: Unauthorized
+                    status: 401
+                    detail: Unauthenticated
+                    instance: /api/v1/carts/me/merge
+                    code: COMMERCE_UNAUTHENTICATED
+        "403":
+          description: "Forbidden. Codes: `FORBIDDEN`, `COMMERCE_GUEST_CART_DISABLED`, `COMMERCE_CART_MERGE_DISABLED`, `COMMERCE_FORBIDDEN`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 403
+                      code:
+                        type: string
+                        enum: *a1
+              examples:
+                FORBIDDEN:
+                  summary: FORBIDDEN
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/carts/me/merge
+                    code: FORBIDDEN
+                COMMERCE_GUEST_CART_DISABLED:
+                  summary: COMMERCE_GUEST_CART_DISABLED
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: Guest carts are disabled
+                    instance: /api/v1/carts/me/merge
+                    code: COMMERCE_GUEST_CART_DISABLED
+                COMMERCE_CART_MERGE_DISABLED:
+                  summary: COMMERCE_CART_MERGE_DISABLED
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: Guest cart merge is disabled
+                    instance: /api/v1/carts/me/merge
+                    code: COMMERCE_CART_MERGE_DISABLED
+                COMMERCE_FORBIDDEN:
+                  summary: COMMERCE_FORBIDDEN
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission
+                    instance: /api/v1/carts/me/merge
+                    code: COMMERCE_FORBIDDEN
+        "404":
+          description: "Not Found. Codes: `COMMERCE_GUEST_CART_NOT_FOUND`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 404
+                      code:
+                        type: string
+                        enum: *a2
+              examples:
+                COMMERCE_GUEST_CART_NOT_FOUND:
+                  summary: COMMERCE_GUEST_CART_NOT_FOUND
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Guest cart not found or no longer active
+                    instance: /api/v1/carts/me/merge
+                    code: COMMERCE_GUEST_CART_NOT_FOUND
+        "405":
+          description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
+          headers:
+            Allow:
+              description: Methods supported by this resource when known.
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 405
+                      code:
+                        type: string
+                        enum:
+                          - METHOD_NOT_ALLOWED
+              examples:
+                METHOD_NOT_ALLOWED:
+                  summary: METHOD_NOT_ALLOWED
+                  value:
+                    type: urn:problem:method-not-allowed
+                    title: Method Not Allowed
+                    status: 405
+                    detail: The HTTP method is not supported for this endpoint
+                    instance: /api/v1/carts/me/merge
+                    code: METHOD_NOT_ALLOWED
+        "406":
+          description: "Not Acceptable. Codes: `NOT_ACCEPTABLE`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 406
+                      code:
+                        type: string
+                        enum:
+                          - NOT_ACCEPTABLE
+              examples:
+                NOT_ACCEPTABLE:
+                  summary: NOT_ACCEPTABLE
+                  value:
+                    type: urn:problem:not-acceptable
+                    title: Not Acceptable
+                    status: 406
+                    detail: The requested response format is not supported
+                    instance: /api/v1/carts/me/merge
+                    code: NOT_ACCEPTABLE
+        "415":
+          description: The request must use application/json.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                UNSUPPORTED_MEDIA_TYPE:
+                  value:
+                    type: urn:problem:unsupported-media-type
+                    title: Unsupported Media Type
+                    status: 415
+                    detail: The request media type is not supported
+                    instance: /api/v1/carts/me/merge
+                    code: UNSUPPORTED_MEDIA_TYPE
+        "429":
+          description: "Too Many Requests. Codes: `RATE_LIMITED`."
+          headers:
+            Retry-After:
+              description: When provided by the gateway limiter, delay in seconds before retrying.
+              schema:
+                type: string
+                pattern: ^[0-9]+$
+                example: "30"
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 429
+                      code:
+                        type: string
+                        enum:
+                          - RATE_LIMITED
+              examples:
+                RATE_LIMITED:
+                  summary: RATE_LIMITED
+                  value:
+                    type: https://nexus/errors/too-many-requests
+                    title: Too Many Requests
+                    status: 429
+                    detail: Too many requests; retry after the indicated delay
+                    instance: /api/v1/carts/me/merge
+                    code: RATE_LIMITED
+        "500":
+          description: "Internal Server Error. Codes: `INTERNAL_ERROR`, `COMMERCE_DB_ERROR`, `COMMERCE_INVALID_GUEST_CONFIGURATION`, `COMMERCE_INVALID_CONFIGURATION`, `COMMERCE_INVALID_PRICING_CONFIGURATION`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 500
+                      code:
+                        type: string
+                        enum: *a3
+              examples:
+                INTERNAL_ERROR:
+                  summary: INTERNAL_ERROR
+                  value:
+                    type: urn:problem:internal-server-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: An unexpected error occurred
+                    instance: /api/v1/carts/me/merge
+                    code: INTERNAL_ERROR
+                COMMERCE_DB_ERROR:
+                  summary: COMMERCE_DB_ERROR
+                  value:
+                    type: urn:problem:domain-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: Database error
+                    instance: /api/v1/carts/me/merge
+                    code: COMMERCE_DB_ERROR
+                COMMERCE_INVALID_GUEST_CONFIGURATION:
+                  summary: COMMERCE_INVALID_GUEST_CONFIGURATION
+                  value:
+                    type: urn:problem:domain-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: Guest cart token signing is not configured correctly
+                    instance: /api/v1/carts/me/merge
+                    code: COMMERCE_INVALID_GUEST_CONFIGURATION
+                COMMERCE_INVALID_CONFIGURATION:
+                  summary: COMMERCE_INVALID_CONFIGURATION
+                  value:
+                    type: urn:problem:domain-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: Expiration-days must be greater or equal to 1
+                    instance: /api/v1/carts/me/merge
+                    code: COMMERCE_INVALID_CONFIGURATION
+                COMMERCE_INVALID_PRICING_CONFIGURATION:
+                  summary: COMMERCE_INVALID_PRICING_CONFIGURATION
+                  value:
+                    type: urn:problem:domain-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: Price revalidation must remain enabled
+                    instance: /api/v1/carts/me/merge
+                    code: COMMERCE_INVALID_PRICING_CONFIGURATION
+        "502":
+          description: "Bad Gateway. Codes: `COMMERCE_INVALID_CATALOG_RESPONSE`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 502
+                      code:
+                        type: string
+                        enum: *a4
+              examples:
+                COMMERCE_INVALID_CATALOG_RESPONSE:
+                  summary: COMMERCE_INVALID_CATALOG_RESPONSE
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Gateway
+                    status: 502
+                    detail: Catalog returned an invalid response
+                    instance: /api/v1/carts/me/merge
+                    code: COMMERCE_INVALID_CATALOG_RESPONSE
+        "503":
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`, `COMMERCE_CATALOG_UNAVAILABLE`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 503
+                      code:
+                        type: string
+                        enum: *a5
+              examples:
+                SERVICE_UNAVAILABLE:
+                  summary: SERVICE_UNAVAILABLE
+                  value:
+                    type: https://nexus/errors/service-unavailable
+                    title: Service Unavailable
+                    status: 503
+                    detail: A required service is unavailable
+                    instance: /api/v1/carts/me/merge
+                    code: SERVICE_UNAVAILABLE
+                COMMERCE_CATALOG_UNAVAILABLE:
+                  summary: COMMERCE_CATALOG_UNAVAILABLE
+                  value:
+                    type: urn:problem:domain-error
+                    title: Service Unavailable
+                    status: 503
+                    detail: Catalog is unavailable
+                    instance: /api/v1/carts/me/merge
+                    code: COMMERCE_CATALOG_UNAVAILABLE
+        "504":
+          description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 504
+                      code:
+                        type: string
+                        enum:
+                          - GATEWAY_TIMEOUT
+              examples:
+                GATEWAY_TIMEOUT:
+                  summary: GATEWAY_TIMEOUT
+                  value:
+                    type: https://nexus/errors/gateway-timeout
+                    title: Gateway Timeout
+                    status: 504
+                    detail: The service did not answer in time
+                    instance: /api/v1/carts/me/merge
+                    code: GATEWAY_TIMEOUT
+      parameters: []
       x-gateway-privilege: CART.UPDATE
-      x-required-roles: []
-      x-ownership: JWT subject active cart only.
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: Cart item ID.
-          schema: {type: string, format: uuid}
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [quantity]
-              properties:
-                quantity: {type: integer, format: int32, minimum: 1}
-            example: {quantity: 2}
-      responses:
-        "200":
-          description: Current cart with the replaced item quantity.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GetOwnCartResponse"
-        "400":
-          description: INVALID_PARAMETER, INVALID_REQUEST_BODY, VALIDATION_FAILED, COMMERCE_INVALID_QUANTITY.
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Problem"
-                  - type: object
-                    properties:
-                      status: {type: integer, enum: [400]}
-                      code: {type: string, enum: ["INVALID_PARAMETER","INVALID_REQUEST_BODY","VALIDATION_FAILED","COMMERCE_INVALID_QUANTITY"]}
-              examples:
-                INVALID_PARAMETER:
-                  value: {"type":"urn:problem:invalid-parameter","title":"Bad Request","status":400,"detail":"A request parameter is invalid","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"INVALID_PARAMETER"}
-                INVALID_REQUEST_BODY:
-                  value: {"type":"urn:problem:invalid-request-body","title":"Bad Request","status":400,"detail":"The request body is invalid or malformed","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"INVALID_REQUEST_BODY"}
-                VALIDATION_FAILED:
-                  value: {"type":"urn:problem:validation-failed","title":"Bad Request","status":400,"detail":"The request data is invalid","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"VALIDATION_FAILED"}
-                COMMERCE_INVALID_QUANTITY:
-                  value: {"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"Quantity is invalid","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"COMMERCE_INVALID_QUANTITY"}
-        "401":
-          description: UNAUTHENTICATED, COMMERCE_UNAUTHENTICATED.
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Problem"
-                  - type: object
-                    properties:
-                      status: {type: integer, enum: [401]}
-                      code: {type: string, enum: ["UNAUTHENTICATED","COMMERCE_UNAUTHENTICATED"]}
-              examples:
-                UNAUTHENTICATED:
-                  value: {"type":"urn:problem:unauthenticated","title":"Unauthorized","status":401,"detail":"A valid access token is required to access this resource","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"UNAUTHENTICATED"}
-                COMMERCE_UNAUTHENTICATED:
-                  value: {"type":"urn:problem:domain-error","title":"Unauthorized","status":401,"detail":"Unauthenticated","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"COMMERCE_UNAUTHENTICATED"}
-        "403":
-          description: FORBIDDEN.
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Problem"
-                  - type: object
-                    properties:
-                      status: {type: integer, enum: [403]}
-                      code: {type: string, enum: ["FORBIDDEN"]}
-              examples:
-                FORBIDDEN:
-                  value: {"type":"urn:problem:forbidden","title":"Forbidden","status":403,"detail":"You do not have permission to access this resource","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"FORBIDDEN"}
-        "404":
-          description: NOT_FOUND.
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Problem"
-                  - type: object
-                    properties:
-                      status: {type: integer, enum: [404]}
-                      code: {type: string, enum: ["NOT_FOUND"]}
-              examples:
-                NOT_FOUND:
-                  value: {"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"The requested resource was not found","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"NOT_FOUND"}
-        "405":
-          description: METHOD_NOT_ALLOWED.
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Problem"
-                  - type: object
-                    properties:
-                      status: {type: integer, enum: [405]}
-                      code: {type: string, enum: ["METHOD_NOT_ALLOWED"]}
-              examples:
-                METHOD_NOT_ALLOWED:
-                  value: {"type":"urn:problem:method-not-allowed","title":"Method Not Allowed","status":405,"detail":"The HTTP method is not supported for this endpoint","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"METHOD_NOT_ALLOWED"}
-        "406":
-          description: NOT_ACCEPTABLE.
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Problem"
-                  - type: object
-                    properties:
-                      status: {type: integer, enum: [406]}
-                      code: {type: string, enum: ["NOT_ACCEPTABLE"]}
-              examples:
-                NOT_ACCEPTABLE:
-                  value: {"type":"urn:problem:not-acceptable","title":"Not Acceptable","status":406,"detail":"The requested response format is not supported","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"NOT_ACCEPTABLE"}
-        "415":
-          description: UNSUPPORTED_MEDIA_TYPE.
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Problem"
-                  - type: object
-                    properties:
-                      status: {type: integer, enum: [415]}
-                      code: {type: string, enum: ["UNSUPPORTED_MEDIA_TYPE"]}
-              examples:
-                UNSUPPORTED_MEDIA_TYPE:
-                  value: {"type":"urn:problem:unsupported-media-type","title":"Unsupported Media Type","status":415,"detail":"The request content type is not supported","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"UNSUPPORTED_MEDIA_TYPE"}
-        "429":
-          description: RATE_LIMITED.
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Problem"
-                  - type: object
-                    properties:
-                      status: {type: integer, enum: [429]}
-                      code: {type: string, enum: ["RATE_LIMITED"]}
-              examples:
-                RATE_LIMITED:
-                  value: {"type":"urn:problem:rate-limited","title":"Too Many Requests","status":429,"detail":"Too many requests; retry after the indicated delay","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"RATE_LIMITED"}
-        "500":
-          description: INTERNAL_ERROR.
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Problem"
-                  - type: object
-                    properties:
-                      status: {type: integer, enum: [500]}
-                      code: {type: string, enum: ["INTERNAL_ERROR"]}
-              examples:
-                INTERNAL_ERROR:
-                  value: {"type":"urn:problem:internal-error","title":"Internal Server Error","status":500,"detail":"An unexpected error occurred","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"INTERNAL_ERROR"}
-    delete:
-      tags: [Cart]
-      operationId: removeOwnCartItem
-      summary: Remove an item from the current cart
-      description: Uses the JWT subject active cart only. Missing, inactive or foreign cart items return 404. Success has no body.
-      security:
-        - bearerAuth: []
-      x-required-privileges: [CART.REMOVE_ITEM]
-      x-gateway-privilege: CART.REMOVE_ITEM
-      x-required-roles: []
-      x-ownership: JWT subject active cart only.
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: Cart item ID.
-          schema: {type: string, format: uuid}
-      responses:
-        "204":
-          description: Item removed; no response body.
-        "400":
-          description: INVALID_PARAMETER, INVALID_REQUEST_BODY, VALIDATION_FAILED.
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Problem"
-                  - type: object
-                    properties:
-                      status: {type: integer, enum: [400]}
-                      code: {type: string, enum: ["INVALID_PARAMETER","INVALID_REQUEST_BODY","VALIDATION_FAILED"]}
-              examples:
-                INVALID_PARAMETER:
-                  value: {"type":"urn:problem:invalid-parameter","title":"Bad Request","status":400,"detail":"A request parameter is invalid","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"INVALID_PARAMETER"}
-                INVALID_REQUEST_BODY:
-                  value: {"type":"urn:problem:invalid-request-body","title":"Bad Request","status":400,"detail":"The request body is invalid or malformed","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"INVALID_REQUEST_BODY"}
-                VALIDATION_FAILED:
-                  value: {"type":"urn:problem:validation-failed","title":"Bad Request","status":400,"detail":"The request data is invalid","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"VALIDATION_FAILED"}
-        "401":
-          description: UNAUTHENTICATED, COMMERCE_UNAUTHENTICATED.
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Problem"
-                  - type: object
-                    properties:
-                      status: {type: integer, enum: [401]}
-                      code: {type: string, enum: ["UNAUTHENTICATED","COMMERCE_UNAUTHENTICATED"]}
-              examples:
-                UNAUTHENTICATED:
-                  value: {"type":"urn:problem:unauthenticated","title":"Unauthorized","status":401,"detail":"A valid access token is required to access this resource","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"UNAUTHENTICATED"}
-                COMMERCE_UNAUTHENTICATED:
-                  value: {"type":"urn:problem:domain-error","title":"Unauthorized","status":401,"detail":"Unauthenticated","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"COMMERCE_UNAUTHENTICATED"}
-        "403":
-          description: FORBIDDEN.
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Problem"
-                  - type: object
-                    properties:
-                      status: {type: integer, enum: [403]}
-                      code: {type: string, enum: ["FORBIDDEN"]}
-              examples:
-                FORBIDDEN:
-                  value: {"type":"urn:problem:forbidden","title":"Forbidden","status":403,"detail":"You do not have permission to access this resource","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"FORBIDDEN"}
-        "404":
-          description: NOT_FOUND.
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Problem"
-                  - type: object
-                    properties:
-                      status: {type: integer, enum: [404]}
-                      code: {type: string, enum: ["NOT_FOUND"]}
-              examples:
-                NOT_FOUND:
-                  value: {"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"The requested resource was not found","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"NOT_FOUND"}
-        "405":
-          description: METHOD_NOT_ALLOWED.
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Problem"
-                  - type: object
-                    properties:
-                      status: {type: integer, enum: [405]}
-                      code: {type: string, enum: ["METHOD_NOT_ALLOWED"]}
-              examples:
-                METHOD_NOT_ALLOWED:
-                  value: {"type":"urn:problem:method-not-allowed","title":"Method Not Allowed","status":405,"detail":"The HTTP method is not supported for this endpoint","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"METHOD_NOT_ALLOWED"}
-        "406":
-          description: NOT_ACCEPTABLE.
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Problem"
-                  - type: object
-                    properties:
-                      status: {type: integer, enum: [406]}
-                      code: {type: string, enum: ["NOT_ACCEPTABLE"]}
-              examples:
-                NOT_ACCEPTABLE:
-                  value: {"type":"urn:problem:not-acceptable","title":"Not Acceptable","status":406,"detail":"The requested response format is not supported","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"NOT_ACCEPTABLE"}
-        "429":
-          description: RATE_LIMITED.
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Problem"
-                  - type: object
-                    properties:
-                      status: {type: integer, enum: [429]}
-                      code: {type: string, enum: ["RATE_LIMITED"]}
-              examples:
-                RATE_LIMITED:
-                  value: {"type":"urn:problem:rate-limited","title":"Too Many Requests","status":429,"detail":"Too many requests; retry after the indicated delay","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"RATE_LIMITED"}
-        "500":
-          description: INTERNAL_ERROR.
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Problem"
-                  - type: object
-                    properties:
-                      status: {type: integer, enum: [500]}
-                      code: {type: string, enum: ["INTERNAL_ERROR"]}
-              examples:
-                INTERNAL_ERROR:
-                  value: {"type":"urn:problem:internal-error","title":"Internal Server Error","status":500,"detail":"An unexpected error occurred","instance":"/api/v1/carts/me/items/68000000-0000-4000-8000-000000000002","code":"INTERNAL_ERROR"}
+              $ref: "#/components/schemas/MergeGuestCart"
+            examples:
+              merge:
+                value:
+                  guestToken: v1.68000000-0000-4000-8000-000000000002.signed-owner-capability
 components:
   securitySchemes:
     bearerAuth:
@@ -5571,14 +6496,15 @@ components:
       description: "RS256 access JWT, issuer user-service, audience nexus-services. privileges are exact SRS strings; roles are mapped as ROLE_<code>."
   schemas:
     UpdateCartItem:
-      type: "object"
-      required: ["quantity"]
+      type: object
+      required:
+        - quantity
       properties:
         quantity:
-          type: "integer"
-          format: "int32"
+          type: integer
+          format: int32
           minimum: 1
-          maximum: 2147483647
+          maximum: 999
     CartPricing:
       type: "object"
       required: ["subtotal","taxAmount","discountAmount","estimatedShippingFee","total"]
@@ -5605,19 +6531,27 @@ components:
           minimum: 0
           description: "subtotal + taxAmount - discountAmount. Unknown shipping is excluded until #201."
     CartIssue:
-      type: "object"
-      required: ["itemId","skuId","code"]
+      type: object
+      required:
+        - itemId
+        - skuId
+        - code
       properties:
         itemId:
-          type: "string"
-          format: "uuid"
+          type: string
+          format: uuid
         skuId:
-          type: "string"
-          format: "uuid"
+          type: string
+          format: uuid
         code:
-          type: "string"
-          enum: ["OUT_OF_STOCK","PRICE_CHANGED","PRODUCT_INACTIVE"]
-          description: "OUT_OF_STOCK is reserved for INV-03 integration. PRODUCT_INACTIVE also covers catalog 404 and an inactive SKU."
+          type: string
+          enum:
+            - OUT_OF_STOCK
+            - PRICE_CHANGED
+            - PRODUCT_INACTIVE
+            - QUANTITY_CAPPED
+            - SELF_PURCHASE
+          description: "QUANTITY_CAPPED: merged quantity limited to 999. SELF_PURCHASE: retained seller-owned line. PRODUCT_INACTIVE covers catalog 404 or inactive SKU/product. PRICE_CHANGED requires review. OUT_OF_STOCK is reserved for real inventory integration; merge does not claim stock availability."
     CartValidation:
       type: "object"
       required: ["valid","issues"]
@@ -5822,68 +6756,115 @@ components:
           description: "Constraint identifier, for example VALIDATION_NOT_BLANK, VALIDATION_EMAIL, VALIDATION_SIZE or INVALID_PARAMETER."
         detail:
           type: "string"
-    Cart:
-      type: "object"
+    MergeGuestCart:
+      type: object
       required:
-        - "id"
-        - "userId"
-        - "status"
-        - "items"
+        - guestToken
+      properties:
+        guestToken:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: \S
+    GuestCart:
+      type: object
+      required:
+        - guestToken
+        - cart
+      properties:
+        guestToken:
+          type: string
+          description: Signed opaque owner token; treat as a secret.
+        cart:
+          $ref: "#/components/schemas/Cart"
+    GuestCartEnvelope:
+      type: object
+      required:
+        - code
+        - message
+        - data
+      properties:
+        code:
+          type: integer
+          default: 0
+          description: Numeric success code; omitted or null values default to 0 during response construction. Explicit values are preserved.
+        message:
+          type: string
+          default: response success
+          description: Omitted or null values default to response success during response construction. Explicit messages are preserved.
+        data:
+          $ref: "#/components/schemas/GuestCart"
+      additionalProperties: false
+    Cart:
+      type: object
+      required:
+        - id
+        - userId
+        - status
+        - items
       properties:
         id:
-          type: "string"
-          format: "uuid"
+          type: string
+          format: uuid
         userId:
-          type: "string"
-          format: "uuid"
+          type: string
+          format: uuid
+          nullable: true
         status:
-          type: "string"
+          type: string
           enum:
-            - "ACTIVE"
-          description: "Both delivered operations return the current active cart."
+            - ACTIVE
+          description: The resolved or merged destination cart is ACTIVE; retired guest source is not returned.
         items:
-          type: "array"
+          type: array
           items:
             $ref: "#/components/schemas/CartItem"
+        issues:
+          type: array
+          description: Merge findings; empty for ordinary cart operations. Revalidate at checkout.
+          items:
+            $ref: "#/components/schemas/CartIssue"
     CartItem:
-      type: "object"
+      type: object
       required:
-        - "id"
-        - "productId"
-        - "skuId"
-        - "quantity"
-        - "unitPrice"
+        - id
+        - productId
+        - skuId
+        - quantity
+        - unitPrice
       properties:
         id:
-          type: "string"
-          format: "uuid"
+          type: string
+          format: uuid
         productId:
-          type: "string"
-          format: "uuid"
+          type: string
+          format: uuid
         skuId:
-          type: "string"
-          format: "uuid"
+          type: string
+          format: uuid
         quantity:
-          type: "integer"
-          format: "int32"
+          type: integer
+          format: int32
           minimum: 1
+          maximum: 999
         unitPrice:
-          type: "number"
+          type: number
           minimum: 0
-          description: "Existing BigDecimal JSON number; this migration preserves the delivered numeric wire format."
+          description: Existing BigDecimal JSON number; this migration preserves the delivered numeric wire format.
     AddCartItem:
-      type: "object"
+      type: object
       required:
-        - "skuId"
-        - "quantity"
+        - skuId
+        - quantity
       properties:
         skuId:
-          type: "string"
-          format: "uuid"
+          type: string
+          format: uuid
         quantity:
-          type: "integer"
-          format: "int32"
+          type: integer
+          format: int32
           minimum: 1
+          maximum: 999
     GetOwnCartResponse:
       type: "object"
       required:
@@ -6356,3 +7337,21 @@ x-business-error-codes:
   COMMERCE_RESERVED_CANCEL_REASON:
     status: 400
     detail: "This cancellation reason is reserved for payment expiry"
+  COMMERCE_GUEST_CART_DISABLED:
+    status: 403
+    detail: Guest carts are disabled
+  COMMERCE_CART_MERGE_DISABLED:
+    status: 403
+    detail: Guest cart merge is disabled
+  COMMERCE_GUEST_CART_NOT_FOUND:
+    status: 404
+    detail: Guest cart not found or no longer active
+  COMMERCE_CART_NOT_FOUND:
+    status: 404
+    detail: Cart or cart item not found
+  COMMERCE_INVALID_GUEST_CONFIGURATION:
+    status: 500
+    detail: Guest cart token signing is not configured correctly
+  COMMERCE_INVALID_PRICING_CONFIGURATION:
+    status: 500
+    detail: Price revalidation must remain enabled

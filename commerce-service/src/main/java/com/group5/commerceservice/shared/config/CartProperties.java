@@ -18,6 +18,11 @@ public class CartProperties {
     //Không cho phép cart.
     private boolean allowGuestCart = false;
 
+    private boolean mergeOnLogin = true;
+
+    // Base64-encoded key of at least 32 random bytes, shared by service instances.
+    private String guestTokenSecret = "";
+
     //Số ngày không hoạt động trước khi cart ACTIVE bị chuyển sang EXPIRED. Dùng giá trị >= 1.
     private int expirationDays = 7;
 

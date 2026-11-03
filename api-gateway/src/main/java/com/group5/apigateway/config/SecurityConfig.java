@@ -6,6 +6,7 @@ import lombok.Setter;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,6 +18,9 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.codec.HttpMessageWriter;
 import org.springframework.http.codec.ServerCodecConfigurer;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.authorization.AuthorizationResult;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
@@ -89,9 +93,18 @@ public class SecurityConfig {
                                     .permitAll());
                     endpoints.stream()
                             .filter(endpoint -> !endpoint.isPublic())
-                            .forEach(endpoint -> exchanges
-                                    .pathMatchers(endpoint.method(), matcherPath(endpoint.path()))
-                                    .hasAuthority(endpoint.privilege()));
+                            .forEach(endpoint -> {
+                                var rule = exchanges.pathMatchers(endpoint.method(), matcherPath(endpoint.path()));
+                                if (endpoint.allowGuest()) {
+                                    rule.access((authentication, context) -> authentication
+                                            .<AuthorizationResult>map(auth -> new AuthorizationDecision(auth instanceof AnonymousAuthenticationToken
+                                                    || auth.isAuthenticated() && auth.getAuthorities().stream()
+                                                    .anyMatch(authority -> authority.getAuthority().equals(endpoint.privilege()))))
+                                            .defaultIfEmpty(new AuthorizationDecision(true)));
+                                } else {
+                                    rule.hasAuthority(endpoint.privilege());
+                                }
+                            });
                     exchanges.anyExchange().authenticated();
                 })
                 .oauth2ResourceServer(resourceServer -> resourceServer
@@ -223,7 +236,13 @@ public class SecurityConfig {
         }
     }
 
-    public record Endpoint(HttpMethod method, String path, String privilege) {
+    public record Endpoint(HttpMethod method, String path, String privilege, boolean allowGuest) {
+        @ConstructorBinding
+        public Endpoint { }
+
+        public Endpoint(HttpMethod method, String path, String privilege) {
+            this(method, path, privilege, false);
+        }
         boolean isPublic() {
             return privilege == null;
         }

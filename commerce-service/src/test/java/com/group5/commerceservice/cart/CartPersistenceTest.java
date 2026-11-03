@@ -313,6 +313,27 @@ class CartPersistenceTest {
     @EnableJpaAuditing(auditorAwareRef = "auditor")
     static class JpaConfig {
         @Bean
+        com.group5.commerceservice.shared.config.CartProperties cartProperties() {
+            var properties = new com.group5.commerceservice.shared.config.CartProperties();
+            properties.setAllowGuestCart(true);
+            properties.setGuestTokenSecret(java.util.Base64.getEncoder().encodeToString(new byte[32]));
+            return properties;
+        }
+
+        @Bean
+        com.group5.commerceservice.cart.service.GuestCartTokenService guestTokens(
+                com.group5.commerceservice.shared.config.CartProperties properties) {
+            return new com.group5.commerceservice.cart.service.GuestCartTokenService(properties);
+        }
+
+        @Bean
+        com.group5.commerceservice.cart.service.CartService cartService(CartRepository carts,
+                CartItemRepository items, CatalogClient catalog,
+                com.group5.commerceservice.shared.config.CartProperties properties,
+                com.group5.commerceservice.cart.service.GuestCartTokenService tokens, CartPricingService pricing) {
+            return new com.group5.commerceservice.cart.service.CartService(carts, items, catalog, properties, tokens, pricing);
+        }
+        @Bean
         CatalogClient catalogClient() { return mock(CatalogClient.class); }
 
         @Bean

@@ -70,6 +70,8 @@ nexus:
         path: /api/v1/products/{id}/skus
       - method: GET
         path: /api/v1/skus/{id}
+      - method: POST
+        path: /api/v1/carts/guest
     protected-endpoints:
       - method: GET
         path: /api/v1/users/me
@@ -113,15 +115,22 @@ nexus:
       - method: GET
         path: /api/v1/carts/me
         privilege: CART.VIEW
+        allow-guest: true
       - method: POST
         path: /api/v1/carts/me/items
         privilege: CART.UPDATE
+        allow-guest: true
       - method: PUT
         path: /api/v1/carts/me/items/{id}
         privilege: CART.UPDATE
+        allow-guest: true
       - method: DELETE
         path: /api/v1/carts/me/items/{id}
         privilege: CART.REMOVE_ITEM
+        allow-guest: true
+      - method: POST
+        path: /api/v1/carts/me/merge
+        privilege: CART.UPDATE
       - method: GET
         path: /api/v1/carts/me/pricing
         privilege: CART.VIEW

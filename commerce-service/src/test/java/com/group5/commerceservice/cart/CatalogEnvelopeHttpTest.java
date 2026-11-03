@@ -59,26 +59,24 @@ class CatalogEnvelopeHttpTest {
             cart.setId(UUID.randomUUID());
             cart.setUserId(USER);
             cart.setStatus(CartStatus.ACTIVE);
-            when(carts.findByUserIdAndStatus(USER, CartStatus.ACTIVE)).thenReturn(Optional.of(cart));
+            when(carts.findActiveForUpdate(USER)).thenReturn(Optional.of(cart));
             when(carts.touchActiveCart(cart.getId(), USER)).thenReturn(1);
             // Capture the actual write and expose its result to the service's readback.
             doAnswer(invocation -> {
-                CartItem item = new CartItem();
-                item.setId(invocation.getArgument(0));
-                item.setProductId(invocation.getArgument(2));
-                item.setSkuId(invocation.getArgument(3));
-                item.setQuantity(invocation.getArgument(4));
-                item.setUnitPrice(invocation.getArgument(5));
+                CartItem item = invocation.getArgument(0);
+                item.setId(UUID.randomUUID());
                 when(items.findByCart_Id(cart.getId())).thenReturn(List.of(item));
-                return null;
-            }).when(items).addOrIncreaseQuantity(any(), any(), any(), any(), anyInt(), any(), any());
+                return item;
+            }).when(items).save(any(CartItem.class));
 
-            var result = new CartService(carts, items, client).addItem(user(), request(SKU));
+            var result = service(carts, items, client).addItem(user(), request(SKU));
 
             assertThat(result.getItems()).hasSize(1);
             assertThat(result.getItems().getFirst().getSkuId()).isEqualTo(SKU);
             assertThat(result.getItems().getFirst().getUnitPrice()).isEqualByComparingTo(PRICE);
-            verify(items).addOrIncreaseQuantity(any(), eq(cart.getId()), eq(PRODUCT), eq(SKU), eq(2), eq(PRICE), eq(USER));
+            verify(items).save(argThat(item -> item.getCart().getId().equals(cart.getId())
+                    && item.getSkuId().equals(SKU) && item.getProductId().equals(PRODUCT)
+                    && item.getQuantity() == 2 && item.getUnitPrice().compareTo(PRICE) == 0));
         });
     }
 
@@ -111,7 +109,7 @@ class CatalogEnvelopeHttpTest {
             assertThat(context).hasNotFailed();
             CartRepository carts = mock(CartRepository.class);
             CartItemRepository items = mock(CartItemRepository.class);
-            CartService service = new CartService(carts, items, context.getBean(CatalogClient.class));
+            CartService service = service(carts, items, context.getBean(CatalogClient.class));
             DomainException failure = assertThrows(DomainException.class,
                     () -> service.addItem(user(), request(UUID.fromString(sku))));
             assertThat(failure.getErrorCode()).isEqualTo(code);
@@ -121,6 +119,12 @@ class CatalogEnvelopeHttpTest {
     }
 
     private static CurrentUser user() { return new CurrentUser(USER, Set.of(), Set.of()); }
+    private static CartService service(CartRepository carts, CartItemRepository items, CatalogClient client) {
+        var properties = new com.group5.commerceservice.shared.config.CartProperties();
+        return new CartService(carts, items, client, properties,
+                new com.group5.commerceservice.cart.service.GuestCartTokenService(properties),
+                mock(com.group5.commerceservice.cart.service.CartPricingService.class));
+    }
     private static CartItemRequest request(UUID sku) {
         CartItemRequest request = new CartItemRequest();
         request.setSkuId(sku);

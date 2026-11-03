@@ -213,14 +213,14 @@ class SecurityConfigTest {
     }
 
     @Test
-    void allNinePublicPairsWorkWithoutBearerToken() {
+    void allPublicPairsWorkWithoutBearerToken() {
         for (SecurityConfig.Endpoint endpoint : permissions.endpoints()) {
             if (endpoint.isPublic()) {
                 client.method(endpoint.method()).uri(endpoint.path().replace("{id}", ID))
                         .exchange().expectStatus().isOk();
             }
         }
-        assertThat(SERVICE_LOG).hasSize(9);
+        assertThat(SERVICE_LOG).hasSize(10);
     }
 
     @Test
@@ -304,6 +304,22 @@ class SecurityConfigTest {
         client.get().uri("/api/v1/products").header(HttpHeaders.AUTHORIZATION, "Bearer not-a-jwt")
                 .exchange().expectStatus().isUnauthorized().expectBody().jsonPath("$.code").isNotEmpty();
         assertThat(SERVICE_LOG).isEmpty();
+    }
+
+    @Test
+    void guestCartPoliciesAllowAnonymousButStillRejectInvalidBearerAndProtectMerge() {
+        for (SecurityConfig.Endpoint endpoint : permissions.endpoints()) {
+            if (!endpoint.allowGuest()) continue;
+            String path = endpoint.path().replace("{id}", ID);
+            client.method(endpoint.method()).uri(path).header("X-Guest-Token", "guest-owner")
+                    .exchange().expectStatus().isOk();
+            client.method(endpoint.method()).uri(path).header("X-Guest-Token", "guest-owner")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer invalid")
+                    .exchange().expectStatus().isUnauthorized();
+        }
+        assertThat(SERVICE_LOG).hasSize(4);
+        client.post().uri("/api/v1/carts/me/merge").header("X-Guest-Token", "guest-owner")
+                .exchange().expectStatus().isUnauthorized();
     }
 
     private void expectInvalidToken(String token) {

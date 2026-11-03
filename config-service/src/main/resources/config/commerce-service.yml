@@ -19,13 +19,26 @@ springdoc:
 
 nexus:
   security:
+    public-endpoints:
+      - method: POST
+        path: /api/v1/carts/guest
+      - method: GET
+        path: /api/v1/carts/me
+      - method: POST
+        path: /api/v1/carts/me/items
+      - method: PUT
+        path: /api/v1/carts/me/items/{id}
+      - method: DELETE
+        path: /api/v1/carts/me/items/{id}
     jwt:
       issuer: user-service
       audience: nexus-services
       jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:8081/.well-known/jwks.json}
   cart:
     max-active-per-user: 1
-    allow-guest-cart: false
+    allow-guest-cart: ${ALLOW_GUEST_CART:false}
+    merge-on-login: ${CART_MERGE_ON_LOGIN:true}
+    guest-token-secret: ${CART_GUEST_TOKEN_SECRET:}
     expiration-days: 7
   checkout:
     # BR-103: fixed true; invalid overrides fail configuration validation.
