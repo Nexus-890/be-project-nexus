@@ -112,6 +112,20 @@ public class KeycloakAdminClient {
         }
     }
 
+    public void deleteUser(UUID userId) {
+        try {
+            withToken(token -> client.delete()
+                    .uri("/admin/realms/{realm}/users/{id}", properties.getRealm(), userId)
+                    .headers(headers -> headers.setBearerAuth(token))
+                    .retrieve()
+                    .toBodilessEntity());
+        } catch (HttpClientErrorException.NotFound exception) {
+            log.warn("Keycloak user {} was already gone", userId);
+        } catch (RestClientException exception) {
+            throw unavailable("delete user " + userId, exception);
+        }
+    }
+
     private <T> T withToken(Function<String, T> request) {
         String token = accessToken();
         try {

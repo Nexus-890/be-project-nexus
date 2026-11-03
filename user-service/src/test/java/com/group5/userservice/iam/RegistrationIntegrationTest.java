@@ -213,12 +213,37 @@ class RegistrationIntegrationTest {
     void simultaneousPhoneRegistrationsReturnExactly201And409() throws Exception {
         concurrent(request("first@nexus.test", "0901234567", "001234"),
                 request("second@nexus.test", "0901234567", "001235"));
+        assertThat(KeycloakTestServer.registeredUserCount()).isEqualTo(1);
     }
 
     @Test
     void simultaneousIdentityRegistrationsReturnExactly201And409WithoutSchemaChanges() throws Exception {
         concurrent(request("first@nexus.test", "0901234567", "001234"),
                 request("second@nexus.test", "0901234568", "001234"));
+        assertThat(KeycloakTestServer.registeredUserCount()).isEqualTo(1);
+    }
+
+    @Test
+    void failedProfileInsertRemovesTheKeycloakAccount() throws Exception {
+        jdbc.execute("""
+                create function reject_registration() returns trigger language plpgsql as $$
+                begin
+                    raise exception 'registration rejected by test trigger';
+                end $$
+                """);
+        jdbc.execute("create trigger reject_registration before insert on users "
+                + "for each row execute function reject_registration()");
+        HttpResponse<String> response;
+        try {
+            response = post(REGISTER, request("orphan@nexus.test", "0901234567", "001234"));
+        } finally {
+            jdbc.execute("drop trigger reject_registration on users");
+            jdbc.execute("drop function reject_registration()");
+        }
+        assertThat(response.statusCode()).isEqualTo(500);
+        assertThat(count("users")).isZero();
+        assertThat(KeycloakTestServer.userIdByEmail("orphan@nexus.test")).isEmpty();
+        assertThat(KeycloakTestServer.registeredUserCount()).isZero();
     }
 
     @Test

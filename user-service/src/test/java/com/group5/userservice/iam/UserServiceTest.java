@@ -99,6 +99,39 @@ class UserServiceTest {
         verify(userRepository).saveAndFlush(savedUser.capture());
         assertThat(savedUser.getValue().getId()).isEqualTo(KEYCLOAK_ID);
         assertThat(response.id()).isEqualTo(KEYCLOAK_ID);
+        verify(keycloak, never()).deleteUser(any());
+    }
+
+    @Test
+    void failedRoleAssignmentDeletesTheKeycloakAccount() {
+        givenNoDuplicatesBeforeKeycloak();
+        givenKeycloakAccount("BUYER");
+        doThrow(new DomainException(UserErrorCode.USER_IDENTITY_PROVIDER_UNAVAILABLE))
+                .when(keycloak).assignRealmRole(any(), any());
+
+        DomainException rejected = catchThrowableOfType(DomainException.class,
+                () -> userService.register(validRequest()));
+
+        assertThat(rejected.getErrorCode()).isEqualTo("USER_IDENTITY_PROVIDER_UNAVAILABLE");
+        verify(keycloak).deleteUser(KEYCLOAK_ID);
+        verify(userRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void failedCleanupIsKeptAsSuppressedUnderTheOriginalError() {
+        givenNoDuplicates();
+        givenKeycloakAccount("BUYER");
+        when(userRepository.findRegistrationRole("BUYER")).thenReturn(Optional.of(buyerRole()));
+        IllegalStateException original = new IllegalStateException("database down");
+        when(userRepository.saveAndFlush(any(User.class))).thenThrow(original);
+        DomainException cleanup = new DomainException(UserErrorCode.USER_IDENTITY_PROVIDER_UNAVAILABLE);
+        doThrow(cleanup).when(keycloak).deleteUser(KEYCLOAK_ID);
+
+        IllegalStateException rejected = catchThrowableOfType(IllegalStateException.class,
+                () -> userService.register(validRequest()));
+
+        assertThat(rejected).isSameAs(original);
+        assertThat(rejected.getSuppressed()).containsExactly(cleanup);
     }
 
     @Test
@@ -125,6 +158,7 @@ class UserServiceTest {
 
         assertThat(rejected.getErrorCode()).isEqualTo("USER_EMAIL_ALREADY_USED");
         verify(keycloak, never()).assignRealmRole(any(), any());
+        verify(keycloak, never()).deleteUser(any());
         verify(userRepository, never()).saveAndFlush(any());
     }
 
@@ -277,6 +311,7 @@ class UserServiceTest {
 
         assertThat(rejected.getCode()).isEqualTo(409);
         verify(transactionManager).rollback(transactionStatus);
+        verify(keycloak).deleteUser(KEYCLOAK_ID);
     }
 
     @Test
@@ -294,6 +329,7 @@ class UserServiceTest {
 
         assertThat(rejected.getCode()).isEqualTo(409);
         verify(transactionManager).rollback(transactionStatus);
+        verify(keycloak).deleteUser(KEYCLOAK_ID);
     }
 
     @Test
@@ -311,6 +347,7 @@ class UserServiceTest {
 
         assertThat(rejected).isSameAs(original);
         verify(transactionManager).rollback(transactionStatus);
+        verify(keycloak).deleteUser(KEYCLOAK_ID);
     }
 
     @Test
@@ -327,6 +364,7 @@ class UserServiceTest {
 
         assertThat(rejected.getCode()).isEqualTo(409);
         verify(transactionManager, times(2)).commit(transactionStatus);
+        verify(keycloak).deleteUser(KEYCLOAK_ID);
     }
 
     private void givenRegistrationCanSave() {

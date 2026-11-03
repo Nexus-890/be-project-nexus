@@ -52,16 +52,23 @@ public class UserService {
                 .orElseThrow(() -> new DomainException(UserErrorCode.USER_REGISTRATION_ROLE_UNAVAILABLE));
         transaction.executeWithoutResult(status -> rejectDuplicates(request));
         UUID userId = keycloak.createUser(request.email(), request.password(), request.fullName());
-        keycloak.assignRealmRole(userId, role);
         try {
+            keycloak.assignRealmRole(userId, role);
             return transaction.execute(status -> createUser(userId, request, roleCode));
         } catch (RuntimeException exception) {
             // execute() has already rolled back, including failures at commit.
             String field = duplicateField(exception);
-            if (field != null) {
-                throw duplicate(field);
-            }
-            throw exception;
+            RuntimeException failure = field == null ? exception : duplicate(field);
+            removeIdentity(userId, failure);
+            throw failure;
+        }
+    }
+
+    private void removeIdentity(UUID userId, RuntimeException failure) {
+        try {
+            keycloak.deleteUser(userId);
+        } catch (RuntimeException cleanup) {
+            failure.addSuppressed(cleanup);
         }
     }
 
