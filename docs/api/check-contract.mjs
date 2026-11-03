@@ -18,6 +18,7 @@ const services = {
   ],
   'commerce-service': [
     'src/main/java/com/group5/commerceservice/cart/controller/CartController.java',
+    'src/main/java/com/group5/commerceservice/checkout/controller/CheckoutController.java',
     'src/main/java/com/group5/commerceservice/order/controller/OrderController.java',
   ],
   'notification-service': [
