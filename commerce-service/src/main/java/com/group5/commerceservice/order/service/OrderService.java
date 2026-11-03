@@ -21,6 +21,7 @@ import com.group5.commerceservice.order.entity.OrderGroup;
 import com.group5.commerceservice.order.entity.OrderItem;
 import com.group5.commerceservice.order.entity.OrderStatusHistory;
 import com.group5.commerceservice.order.event.OrderCancelled;
+import com.group5.commerceservice.order.event.OrderCreated;
 import com.group5.commerceservice.order.event.OrderEventPublisher;
 import com.group5.commerceservice.order.event.OrderGroupCancelled;
 import com.group5.commerceservice.order.repository.OrderGroupRepository;
@@ -253,8 +254,8 @@ public class OrderService {
         if (group.getTotalAmount().signum() <= 0) {
             throw new DomainException(CommerceErrorCode.INVALID_ORDER_REQUEST, "SEPAY orders must have a positive total");
         }
-        groupRepository.saveAndFlush(group);
-        group.getOrders().forEach(order -> stateMachine.recordCreated(order.getId(), user.id()));
+        OrderGroup savedGroup = groupRepository.saveAndFlush(group);
+        savedGroup.getOrders().forEach(order -> stateMachine.recordCreated(order.getId(), user.id()));
 
         log.info("Cart before checkout: id={}, status={}",
                 cart.getId(), cart.getStatus());
@@ -262,9 +263,22 @@ public class OrderService {
         cart.setStatus(CartStatus.CHECKED_OUT);
         cartRepository.saveAndFlush(cart);
 
+        // Refresh the persisted deadlines and versions after reservation and all checkout writes.
+        entityManager.refresh(savedGroup);
+        publishCreation(savedGroup);
+
         log.info("Cart after checkout: id={}, status={}", cart.getId(), cart.getStatus());
         log.info("Order group created: groupId={}, buyerId={}, orders={}", group.getId(), user.id(), sellers.size());
-        return new CheckoutResult(new CreationResult(true, toResponse(group)), null);
+        return new CheckoutResult(new CreationResult(true, toResponse(savedGroup)), null);
+    }
+
+    private void publishCreation(OrderGroup group) {
+        group.getOrders().stream().sorted(Comparator.comparing(Order::getId)).forEach(order ->
+                events.orderCreated(new OrderCreated(order.getId(), order.getUserId(), order.getOrderNumber(),
+                        order.getOrderType(), order.getReferenceId(), group.getId(), order.getSellerId(),
+                        order.getVersion(), order.getItems().stream().map(OrderItem::getProductId)
+                                .distinct().sorted().toList())));
+        events.checkoutPaymentRequested(group);
     }
 
     @Transactional(readOnly = true)
