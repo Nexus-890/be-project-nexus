@@ -12,7 +12,6 @@ import com.group5.userservice.shared.config.IamProperties;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.domain.Page;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -28,16 +27,13 @@ import java.util.concurrent.atomic.AtomicReference;
 @Service
 public class UserService {
     private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
     private final IamProperties iamProperties;
     private final KeycloakAdminClient keycloak;
     private final TransactionTemplate transaction;
 
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder,
-                       IamProperties iamProperties, KeycloakAdminClient keycloak,
-                       PlatformTransactionManager transactionManager) {
+    public UserService(UserRepository userRepository, IamProperties iamProperties,
+                       KeycloakAdminClient keycloak, PlatformTransactionManager transactionManager) {
         this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
         this.iamProperties = iamProperties;
         this.keycloak = keycloak;
         this.transaction = new TransactionTemplate(transactionManager);
@@ -193,7 +189,6 @@ public class UserService {
         user.setId(userId);
         user.setEmail(request.email().toLowerCase());
         user.setPhone(request.phone());
-        user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setFullName(request.fullName());
         user.setIdentityNumber(request.identityNumber());
         user.setGender(Gender.valueOf(request.gender()));

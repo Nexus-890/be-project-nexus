@@ -23,8 +23,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -68,8 +66,6 @@ class ProfileTransactionTest {
     private UserRepository userRepository;
     @Autowired
     private UserService userService;
-    @Autowired
-    private PasswordEncoder passwordEncoder;
     @Autowired
     private PlatformTransactionManager transactionManager;
     @Autowired
@@ -124,13 +120,11 @@ class ProfileTransactionTest {
         assertThat(after.fullName()).isEqualTo("Updated Name");
         assertThat(after.email()).isEqualTo("x@nexus.local");
         assertThat(after.address()).isEqualTo("HCM");
-        assertThat(after.passwordHash()).isEqualTo(before.passwordHash());
         assertThat(after.phone()).isEqualTo(before.phone());
         assertThat(after.identityNumber()).isEqualTo(before.identityNumber());
         assertThat(after.dateOfBirth()).isEqualTo(before.dateOfBirth());
         assertThat(after.gender()).isEqualTo(before.gender());
         assertThat(after.status()).isEqualTo(before.status());
-        assertThat(after.failedLoginCount()).isEqualTo(before.failedLoginCount());
         assertThat(after.version()).isEqualTo(before.version() + 1);
         assertThat(readCommittedProfile(secondId)).isEqualTo(otherBefore);
     }
@@ -151,7 +145,6 @@ class ProfileTransactionTest {
         assertThat(after.fullName()).isEqualTo(before.fullName());
         assertThat(after.email()).isEqualTo(before.email());
         assertThat(after.address()).isEqualTo(before.address());
-        assertThat(after.passwordHash()).isEqualTo(before.passwordHash());
     }
 
     @Test
@@ -296,13 +289,11 @@ class ProfileTransactionTest {
         user.setId(UUID.randomUUID());
         user.setEmail(email);
         user.setPhone(phone);
-        user.setPasswordHash(passwordEncoder.encode("original-password"));
         user.setFullName(fullName);
         user.setIdentityNumber("ID-" + phone);
         user.setDateOfBirth(ORIGINAL_BIRTH_DATE);
         user.setGender(Gender.MALE);
         user.setAddress(address);
-        user.setFailedLoginCount((short) 3);
         return userRepository.saveAndFlush(user).getId();
     }
 
@@ -313,8 +304,7 @@ class ProfileTransactionTest {
     }
 
     private UserService serviceUsing(UserRepository repository) {
-        return new UserService(repository, passwordEncoder, new IamProperties(), buyerKeycloak(),
-                transactionManager);
+        return new UserService(repository, new IamProperties(), buyerKeycloak(), transactionManager);
     }
 
     private void assertConflict(Runnable action) {
@@ -337,22 +327,20 @@ class ProfileTransactionTest {
     // A new JDBC connection observes committed rows after each service call returns or throws.
     private StoredProfile readCommittedProfile(UUID id) {
         return jdbc.queryForObject("""
-                select email, phone, password_hash, full_name, identity_number,
-                       date_of_birth, gender, address, status, failed_login_count, version
+                select email, phone, full_name, identity_number,
+                       date_of_birth, gender, address, status, version
                 from users where id = ?
                 """, (row, index) -> new StoredProfile(
-                row.getString("email"), row.getString("phone"), row.getString("password_hash"),
+                row.getString("email"), row.getString("phone"),
                 row.getString("full_name"), row.getString("identity_number"),
                 row.getObject("date_of_birth", LocalDate.class),
                 Gender.valueOf(row.getString("gender")), row.getString("address"),
-                UserStatus.valueOf(row.getString("status")), row.getShort("failed_login_count"),
-                row.getLong("version")), id);
+                UserStatus.valueOf(row.getString("status")), row.getLong("version")), id);
     }
 
-    private record StoredProfile(String email, String phone, String passwordHash,
+    private record StoredProfile(String email, String phone,
                                  String fullName, String identityNumber, LocalDate dateOfBirth,
-                                 Gender gender, String address, UserStatus status,
-                                 short failedLoginCount, long version) {
+                                 Gender gender, String address, UserStatus status, long version) {
     }
 
     private record UpdateResult(UUID userId, int status, String newName, String newAddress) {
@@ -384,14 +372,8 @@ class ProfileTransactionTest {
         }
 
         @Bean
-        PasswordEncoder passwordEncoder() {
-            return new BCryptPasswordEncoder(4);
-        }
-
-        @Bean
-        UserService userService(UserRepository repository, PlatformTransactionManager manager,
-                                PasswordEncoder encoder) {
-            return new UserService(repository, encoder, new IamProperties(), buyerKeycloak(), manager);
+        UserService userService(UserRepository repository, PlatformTransactionManager manager) {
+            return new UserService(repository, new IamProperties(), buyerKeycloak(), manager);
         }
     }
 }

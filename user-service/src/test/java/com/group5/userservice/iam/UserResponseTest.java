@@ -28,13 +28,6 @@ class UserResponseTest {
     }
 
     @Test
-    void serializedResponseDoesNotContainPasswordHash() throws Exception {
-        JsonNode json = objectMapper.valueToTree(UserResponse.from(user(), List.of("BUYER")));
-
-        assertThat(json.has("passwordHash")).isFalse();
-    }
-
-    @Test
     void serializedResponseDoesNotContainIdentityNumber() throws Exception {
         JsonNode json = objectMapper.valueToTree(UserResponse.from(user(), List.of("BUYER")));
 
@@ -46,7 +39,6 @@ class UserResponseTest {
         user.setId(UUID.fromString("7c47f673-6a1f-4b7b-bfb6-90e5b674eb81"));
         user.setEmail("buyer@nexus.local");
         user.setPhone("0901234567");
-        user.setPasswordHash("$2a$12$hash");
         user.setFullName("Buyer One");
         user.setIdentityNumber("ID123456");
         user.setGender(Gender.MALE);

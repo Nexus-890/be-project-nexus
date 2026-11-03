@@ -8,15 +8,10 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 public interface UserRepository extends JpaRepository<User, UUID>, JpaSpecificationExecutor<User> {
-
-    //Annotation của Spring Data JPA, dùng để chỉ định chế độ khóa khi thực hiện truy vấn.
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    Optional<User> findByEmailAndDeletedAtIsNull(String email);
 
     boolean existsByEmail(String email);
 
@@ -32,17 +27,6 @@ public interface UserRepository extends JpaRepository<User, UUID>, JpaSpecificat
             """, nativeQuery = true)
     Integer lockRegistrationIdentity(@Param("identityNumber") String identityNumber);
 
-    @Query("""
-            select r.code as role, p.code as permission
-            from User u
-            join u.roles r
-            left join r.permissions p
-            where u.id = :userId
-              and r.deletedAt is null
-            """)
-    //đã test và thấy gọn nhất rồi
-    List<RoleGrant> findRoleGrants(@Param("userId") UUID userId);
-
     Optional<User> findByIdAndDeletedAtIsNull(UUID id);
 
     boolean existsByEmailAndIdNot(String email, UUID id);
@@ -53,11 +37,4 @@ public interface UserRepository extends JpaRepository<User, UUID>, JpaSpecificat
         where u.id = :userId and u.deletedAt is null
         """)
     Optional<User> findForProfileUpdate(@Param("userId") UUID userId);
-
-    interface RoleGrant {
-
-        String getRole();
-
-        String getPermission();
-    }
 }

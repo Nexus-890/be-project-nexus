@@ -219,14 +219,14 @@ class SecurityConfigTest {
     }
 
     @Test
-    void allNinePublicPairsWorkWithoutBearerToken() {
+    void allSevenPublicPairsWorkWithoutBearerToken() {
         for (SecurityConfig.Endpoint endpoint : permissions.endpoints()) {
             if (endpoint.isPublic()) {
                 client.method(endpoint.method()).uri(endpoint.path().replace("{id}", ID))
                         .exchange().expectStatus().isOk();
             }
         }
-        assertThat(SERVICE_LOG).hasSize(9);
+        assertThat(SERVICE_LOG).hasSize(7);
     }
 
     @Test

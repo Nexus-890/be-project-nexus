@@ -7,17 +7,12 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.JoinTable;
-import jakarta.persistence.ManyToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -25,9 +20,6 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.util.HashSet;
-import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -45,9 +37,6 @@ public class User extends AuditedEntity {
 
     @Column(nullable = false, unique = true, length = 20)
     private String phone;
-
-    @Column(name = "password_hash", nullable = false, length = 100)
-    private String passwordHash;
 
     @Column(name = "full_name", nullable = false, length = 150)
     private String fullName;
@@ -71,15 +60,6 @@ public class User extends AuditedEntity {
     @Column(nullable = false, columnDefinition = "user_status")
     private UserStatus status = UserStatus.ACTIVE;
 
-    @Column(name = "failed_login_count", nullable = false)
-    private short failedLoginCount;
-
-    @Column(name = "locked_until")
-    private OffsetDateTime lockedUntil;
-
-    @Column(name = "last_login_at")
-    private OffsetDateTime lastLoginAt;
-
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -94,19 +74,4 @@ public class User extends AuditedEntity {
     @Version
     @Column(nullable = false)
     private Long version;
-
-    @ManyToMany(fetch = FetchType.LAZY)
-    @BatchSize(size = 50)
-    @JoinTable(
-            name = "user_roles",
-            joinColumns = @JoinColumn(name = "user_id"),
-            inverseJoinColumns = @JoinColumn(name = "role_id"))
-    private Set<Role> roles = new HashSet<>();
-
-    public void assignInitialRole(Role role) {
-        if (!roles.isEmpty()) {
-            throw new IllegalStateException("An initial role has already been assigned");
-        }
-        roles.add(Objects.requireNonNull(role, "Initial role is required"));
-    }
 }

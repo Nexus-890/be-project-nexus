@@ -23,7 +23,6 @@ import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.SharedEntityManagerCreator;
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -63,7 +62,6 @@ class UserListQueryTest {
     void insertUsers() {
         EntityManager entityManager = SharedEntityManagerCreator.createSharedEntityManager(entityManagerFactory);
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            entityManager.createNativeQuery("delete from user_roles").executeUpdate();
             entityManager.createNativeQuery("delete from users").executeUpdate();
             user(entityManager, "Dung Le", "dung@nexus.test", "0900000004", UserStatus.ACTIVE, false);
             user(entityManager, "An Nguyen", "an@nexus.test", "0900000001", UserStatus.ACTIVE, false);
@@ -145,7 +143,6 @@ class UserListQueryTest {
         user.setFullName(name);
         user.setEmail(email);
         user.setPhone(phone);
-        user.setPasswordHash("not-a-real-hash");
         user.setStatus(status);
         user.setDeletedAt(deleted ? OffsetDateTime.now() : null);
         entityManager.persist(user);
@@ -190,7 +187,7 @@ class UserListQueryTest {
         @Bean
         UserService userService(UserRepository repository, KeycloakAdminClient keycloak,
                                 PlatformTransactionManager manager) {
-            return new UserService(repository, new BCryptPasswordEncoder(4), new IamProperties(), keycloak, manager);
+            return new UserService(repository, new IamProperties(), keycloak, manager);
         }
     }
 }

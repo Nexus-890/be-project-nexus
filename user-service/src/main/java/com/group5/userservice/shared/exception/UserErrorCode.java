@@ -5,8 +5,6 @@ import org.springframework.http.HttpStatus;
 
 /** Stable business error identifiers owned by user-service. */
 public enum UserErrorCode implements ErrorCode {
-    USER_INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Invalid email or password"),
-    USER_ACCOUNT_LOCKED(HttpStatus.LOCKED, "Account is locked"),
     USER_REGISTRATION_DISABLED(HttpStatus.FORBIDDEN, "Self-registration is disabled"),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found"),
     USER_EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "email is already used"),

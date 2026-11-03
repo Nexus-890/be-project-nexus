@@ -15,7 +15,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
@@ -35,7 +34,6 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -46,8 +44,6 @@ class UserProfileServiceTest {
 
     @Mock
     private UserRepository userRepository;
-    @Mock
-    private PasswordEncoder passwordEncoder;
     @Mock
     private PlatformTransactionManager transactionManager;
     @Mock
@@ -62,7 +58,7 @@ class UserProfileServiceTest {
     @BeforeEach
     void setUp() {
         when(transactionManager.getTransaction(any(TransactionDefinition.class))).thenReturn(transactionStatus);
-        userService = new UserService(userRepository, passwordEncoder, iamProperties, keycloak, transactionManager);
+        userService = new UserService(userRepository, iamProperties, keycloak, transactionManager);
         user = existingUser();
     }
 
@@ -82,7 +78,6 @@ class UserProfileServiceTest {
         verify(userRepository).findByIdAndDeletedAtIsNull(USER_ID);
         verify(userRepository, never()).saveAndFlush(any());
         verify(transactionManager).commit(transactionStatus);
-        verifyNoInteractions(passwordEncoder);
     }
 
     @Test
@@ -98,7 +93,7 @@ class UserProfileServiceTest {
     }
 
     @Test
-    void threeFieldUpdateNormalizesEmailAndRetainsPasswordPhoneIdentityRoleAndLoginState() {
+    void threeFieldUpdateNormalizesEmailAndRetainsPhoneIdentityAndStatus() {
         givenCaller();
         when(userRepository.saveAndFlush(user)).thenReturn(user);
         givenKeycloakRoles();
@@ -110,19 +105,14 @@ class UserProfileServiceTest {
         assertThat(response.email()).isEqualTo("x@nexus.local");
         assertThat(response.address()).isEqualTo("HCM");
         assertThat(response.roles()).containsExactly("BUYER");
-        assertThat(user.getPasswordHash()).isEqualTo("unchanged-hash");
         assertThat(user.getPhone()).isEqualTo("0900000001");
         assertThat(user.getIdentityNumber()).isEqualTo("ID-0900000001");
         assertThat(user.getDateOfBirth()).isEqualTo(LocalDate.of(2000, 1, 2));
         assertThat(user.getGender()).isEqualTo(Gender.MALE);
         assertThat(user.getStatus()).isEqualTo(UserStatus.LOCKED);
-        assertThat(user.getFailedLoginCount()).isEqualTo((short) 3);
-        assertThat(user.getLockedUntil()).isEqualTo(CREATED_AT.plusMinutes(15));
-        assertThat(user.getLastLoginAt()).isEqualTo(CREATED_AT);
         verify(userRepository).existsByEmailAndIdNot("x@nexus.local", USER_ID);
         verify(keycloak).updateEmail(USER_ID, "x@nexus.local");
         verify(transactionManager).commit(transactionStatus);
-        verifyNoInteractions(passwordEncoder);
     }
 
     @Test
@@ -136,7 +126,6 @@ class UserProfileServiceTest {
 
         assertThat(response).isEqualTo(before);
         verify(userRepository, never()).existsByEmailAndIdNot(anyString(), any());
-        verifyNoInteractions(passwordEncoder);
     }
 
     @Test
@@ -184,7 +173,6 @@ class UserProfileServiceTest {
         assertThat(response.roles()).containsExactly("BUYER");
         verify(keycloak, never()).realmRole(anyString());
         verify(keycloak, never()).updateEmail(any(), anyString());
-        verifyNoInteractions(passwordEncoder);
     }
 
     @Test
@@ -305,16 +293,12 @@ class UserProfileServiceTest {
         existing.setId(USER_ID);
         existing.setEmail("buyer@nexus.local");
         existing.setPhone("0900000001");
-        existing.setPasswordHash("unchanged-hash");
         existing.setFullName("Original Name");
         existing.setIdentityNumber("ID-0900000001");
         existing.setGender(Gender.MALE);
         existing.setDateOfBirth(LocalDate.of(2000, 1, 2));
         existing.setAddress("Original City");
         existing.setStatus(UserStatus.LOCKED);
-        existing.setFailedLoginCount((short) 3);
-        existing.setLockedUntil(CREATED_AT.plusMinutes(15));
-        existing.setLastLoginAt(CREATED_AT);
         existing.setCreatedAt(CREATED_AT);
         return existing;
     }

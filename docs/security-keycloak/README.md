@@ -137,8 +137,8 @@ Recorded run: [validation evidence](validation.md).
 The resource servers are user, catalog, commerce, auction, inventory, notification,
 payment, shipment and rating; fulfillment has been retired. Config contracts cover
 all nine plus Gateway. Each service depends on common-security. The live business
-acceptance covers Gateway and Catalog; the real legacy user-service is a rejected
-issuer fixture, not a second trusted authority.
+acceptance covers Gateway and Catalog; the legacy user-service issuer is a rejected
+fixture, not a second trusted authority.
 
 If #236 is not merged, use the latest !72 source commit in a separate local
 fixture directory and set KEYCLOAK_FIXTURE_DIR as above. Historical validation
@@ -153,8 +153,8 @@ To retain sanitized evidence without JWTs, use:
 python docs/security-keycloak/test-token-trust.py --evidence-dir C:/path/to/empty-evidence-directory
 ```
 
-The legacy key is generated only for the isolated user-service. This proves
-rejection of tokens produced by the actual legacy JwtIssuer without reading the
-operator's existing private key. Both old-issuer and forged-issuer cases are
+The legacy key is generated only for this run, so the operator's existing private
+key is never read. #238 removed the user-service token issuer, so the script signs
+the old-issuer token itself. Both old-issuer and forged-issuer cases are
 checked. The audience-negative token is genuinely signed by Keycloak after
 removing only its audience mapper in the disposable realm.

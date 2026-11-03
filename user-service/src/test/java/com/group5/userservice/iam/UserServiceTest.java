@@ -13,8 +13,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
@@ -54,7 +52,6 @@ class UserServiceTest {
     @Mock
     private TransactionStatus transactionStatus;
 
-    private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
     private final IamProperties iamProperties = new IamProperties();
 
     private UserService userService;
@@ -62,7 +59,7 @@ class UserServiceTest {
     @BeforeEach
     void setUp() {
         lenient().when(transactionManager.getTransaction(any(TransactionDefinition.class))).thenReturn(transactionStatus);
-        userService = new UserService(userRepository, passwordEncoder, iamProperties, keycloak, transactionManager);
+        userService = new UserService(userRepository, iamProperties, keycloak, transactionManager);
     }
 
     @Test
@@ -78,7 +75,7 @@ class UserServiceTest {
     @Test
     void registerDefaultsToBuyerAndAllowSelfRegistrationWhenPropertiesAreAbsent() {
         UserService serviceWithAbsentProperties =
-                new UserService(userRepository, passwordEncoder, new IamProperties(), keycloak, transactionManager);
+                new UserService(userRepository, new IamProperties(), keycloak, transactionManager);
         givenRegistrationCanSave();
 
         UserResponse response = serviceWithAbsentProperties.register(validRequest());
@@ -161,28 +158,13 @@ class UserServiceTest {
     }
 
     @Test
-    void registerAssignsExactlyOneConfiguredRealmRoleAndNoLocalRole() {
+    void registerAssignsExactlyOneConfiguredRealmRole() {
         givenRegistrationCanSave();
-        ArgumentCaptor<User> savedUser = ArgumentCaptor.forClass(User.class);
 
         UserResponse response = userService.register(validRequest());
 
         verify(keycloak, times(1)).assignRealmRole(any(), any());
-        verify(userRepository).saveAndFlush(savedUser.capture());
-        assertThat(savedUser.getValue().getRoles()).isEmpty();
         assertThat(response.roles()).containsExactly("BUYER");
-    }
-
-    @Test
-    void registerHashesThePasswordBeforeSavingTheUser() {
-        givenRegistrationCanSave();
-        ArgumentCaptor<User> savedUser = ArgumentCaptor.forClass(User.class);
-
-        userService.register(validRequest());
-
-        verify(userRepository).saveAndFlush(savedUser.capture());
-        assertThat(savedUser.getValue().getPasswordHash()).isNotEqualTo("correct-password");
-        assertThat(passwordEncoder.matches("correct-password", savedUser.getValue().getPasswordHash())).isTrue();
     }
 
     @Test
@@ -332,9 +314,9 @@ class UserServiceTest {
     void nonDuplicateDatabaseConstraintViolationKeepsTheOriginalException() {
         givenNoDuplicates();
         givenKeycloakAccount("BUYER");
-        DataIntegrityViolationException original = new DataIntegrityViolationException("foreign key",
+        DataIntegrityViolationException original = new DataIntegrityViolationException("check",
                 new org.hibernate.exception.ConstraintViolationException(
-                        "foreign key", new SQLException("foreign key", "23503"), "user_roles_role_id_fkey"));
+                        "check", new SQLException("check", "23514"), "users_phone_check"));
         when(userRepository.saveAndFlush(any(User.class))).thenThrow(original);
 
         DataIntegrityViolationException rejected = catchThrowableOfType(DataIntegrityViolationException.class,

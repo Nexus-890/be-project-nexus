@@ -30,11 +30,10 @@ class RegistrationControllerTest {
 
     private static final String REGISTER = "/api/v1/auth/register";
 
-    private final AuthService authService = mock(AuthService.class);
     private final UserService userService = mock(UserService.class);
 
     private final MockMvc mockMvc = MockMvcBuilders
-            .standaloneSetup(new AuthController(authService, userService))
+            .standaloneSetup(new AuthController(userService))
             .setControllerAdvice(new GlobalExceptionHandler(null))
             .build();
 
@@ -51,19 +50,17 @@ class RegistrationControllerTest {
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$.data.email").value("buyer@nexus.local"))
                 .andExpect(jsonPath("$.data.roles[0]").value("BUYER"));
-
-        verifyNoInteractions(authService);
     }
 
     @Test
-    void responseDoesNotContainPasswordHash() throws Exception {
+    void responseDoesNotContainThePassword() throws Exception {
         when(userService.register(any(RegisterRequest.class))).thenReturn(response());
 
         mockMvc.perform(post(REGISTER)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validJson()))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.data.passwordHash").doesNotExist());
+                .andExpect(jsonPath("$.data.password").doesNotExist());
     }
 
     @Test
@@ -85,7 +82,7 @@ class RegistrationControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("email"));
 
-        verifyNoInteractions(authService, userService);
+        verifyNoInteractions(userService);
     }
 
     @Test
@@ -100,7 +97,7 @@ class RegistrationControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("identityNumber"));
 
-        verifyNoInteractions(authService, userService);
+        verifyNoInteractions(userService);
     }
 
     @Test
@@ -115,7 +112,7 @@ class RegistrationControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("address"));
 
-        verifyNoInteractions(authService, userService);
+        verifyNoInteractions(userService);
     }
 
     @Test

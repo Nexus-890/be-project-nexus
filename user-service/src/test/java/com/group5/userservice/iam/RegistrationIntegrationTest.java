@@ -26,9 +26,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.KeyPairGenerator;
 import java.time.Duration;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -87,22 +85,12 @@ class RegistrationIntegrationTest {
         registry.add("nexus.keycloak.client-secret", () -> KeycloakTestServer.CLIENT_SECRET);
         registry.add("nexus.security.jwt.issuer", KeycloakTestServer::issuer);
         registry.add("nexus.security.jwt.jwk-set-uri", KeycloakTestServer::jwkSetUri);
-        registry.add("nexus.iam.jwt.issuer", () -> "user-service");
-        registry.add("nexus.iam.jwt.audience", () -> "nexus-services");
-        registry.add("nexus.iam.jwt.key-id", () -> "registration-test");
-        registry.add("nexus.iam.jwt.private-key-path", () -> TEMP.resolve("private.pem").toString());
-        registry.add("nexus.iam.jwt.public-key-path", () -> TEMP.resolve("public.pem").toString());
     }
 
     @BeforeEach
     void prepareFixtures() {
         // These rows exist only in the disposable Testcontainers database.
-        jdbc.update("delete from user_roles");
         jdbc.update("delete from users");
-        jdbc.update("""
-                insert into roles(code, name) values ('BUYER', 'Buyer'), ('SELLER', 'Seller')
-                on conflict (code) do nothing
-                """);
         KeycloakTestServer.deleteRegisteredUsers();
         SqlCapture.STATEMENTS.clear();
     }
@@ -117,9 +105,7 @@ class RegistrationIntegrationTest {
 
     @AfterAll
     static void removeTestFiles() throws Exception {
-        for (String name : List.of("private.pem", "public.pem", "registration.properties")) {
-            Files.deleteIfExists(TEMP.resolve(name));
-        }
+        Files.deleteIfExists(TEMP.resolve("registration.properties"));
         Files.deleteIfExists(TEMP);
         System.clearProperty("nexus.registration.test-config");
     }
@@ -326,13 +312,6 @@ class RegistrationIntegrationTest {
     }
 
     @Test
-    void overlongUtf8PasswordNamesTheFieldAndProducesNoInsert() throws Exception {
-        Map<String, String> request = request("buyer@nexus.test", "0901234567", "001234");
-        request.put("password", "é".repeat(37));
-        invalid(request, "password");
-    }
-
-    @Test
     void missingConfiguredRoleLeavesNoAccount() throws Exception {
         configChanged = true;
         writeConfig("MISSING_ROLE", true);
@@ -476,14 +455,6 @@ class RegistrationIntegrationTest {
     private static Path createTestFiles() {
         try {
             Path directory = Files.createTempDirectory("nexus-registration-test-");
-            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-            generator.initialize(2048);
-            var pair = generator.generateKeyPair();
-            var base64 = Base64.getMimeEncoder(64, new byte[]{'\n'});
-            Files.writeString(directory.resolve("private.pem"), "-----BEGIN PRIVATE KEY-----\n"
-                    + base64.encodeToString(pair.getPrivate().getEncoded()) + "\n-----END PRIVATE KEY-----\n");
-            Files.writeString(directory.resolve("public.pem"), "-----BEGIN PUBLIC KEY-----\n"
-                    + base64.encodeToString(pair.getPublic().getEncoded()) + "\n-----END PUBLIC KEY-----\n");
             Files.writeString(directory.resolve("registration.properties"),
                     "nexus.iam.default-user-role=BUYER\nnexus.iam.allow-self-registration=true\n");
             System.setProperty("nexus.registration.test-config", directory.resolve("registration.properties").toString());

@@ -228,41 +228,11 @@ def run(evidence_dir=None):
             no_aud_claims = kc.verify_token(base, no_aud)
             check("aud" not in no_aud_claims, "Expected a genuinely missing aud claim")
 
-            # Start the real legacy JwtIssuer with an ephemeral owned RSA key.
+            # Sign legacy-key tokens with an ephemeral owned RSA key.
             # No operator/private production key or local .env is read.
             private = directory / "legacy-private.pem"
-            public = directory / "legacy-public.pem"
             subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048",
                             "-out", str(private)], check=True, capture_output=True)
-            subprocess.run(["openssl", "pkey", "-in", str(private), "-pubout", "-out", str(public)],
-                           check=True, capture_output=True)
-            legacy_env = app_env.copy()
-            legacy_env.update({"JWT_KEY_ID": "legacy-user-service", "JWT_PRIVATE_KEY_PATH": private.as_posix(),
-                               "JWT_PUBLIC_KEY_PATH": public.as_posix()})
-            user_port = port()
-            user = start("user-service", [*common, "--spring.application.name=user-service",
-                         f"--server.port={user_port}"], legacy_env)
-            user_url = f"http://127.0.0.1:{user_port}"
-            wait(user_url + "/actuator/health", user)
-            legacy_email = "legacy-237-" + secrets.token_hex(6) + "@local.test"
-            legacy_password = secrets.token_urlsafe(24)
-            status, _, _ = kc.http(user_url + "/api/v1/auth/register", {
-                "email": legacy_email, "password": legacy_password, "phone": "09" + str(secrets.randbelow(90000000) + 10000000),
-                "fullName": "Isolated legacy token fixture", "identityNumber": "237-" + secrets.token_hex(8),
-                "gender": "OTHER", "address": "Local test fixture", "dateOfBirth": "2000-01-01"})
-            check(status == 201, f"Legacy registration expected 201, got {status}")
-            status, _, body = kc.http(user_url + "/api/v1/auth/login", {"email": legacy_email, "password": legacy_password})
-            check(status == 200, f"Legacy login expected 200, got {status}")
-            old_token = json.loads(body)["data"]["accessToken"]
-            old_claims = json.loads(kc.unb64(old_token.split(".")[1]))
-            check(old_claims["iss"] == "user-service", "Legacy fixture must use the actual retired issuer")
-            old_header, old_payload, old_signature = old_token.split(".")
-            signature_file = directory / "legacy-signature.bin"
-            signature_file.write_bytes(kc.unb64(old_signature))
-            subprocess.run(["openssl", "dgst", "-sha256", "-verify", str(public), "-signature", str(signature_file)],
-                           input=f"{old_header}.{old_payload}".encode(), capture_output=True, check=True)
-            record("PASS: rejected legacy fixture was issued by real user-service login and has a valid signature under its own old key",
-                   legacy_issuer=old_claims["iss"], legacy_signature_verified=True)
 
             def legacy(issuer):
                 old_claims = {**claims, "iss": issuer}
@@ -272,7 +242,7 @@ def run(evidence_dir=None):
                                         input=message.encode(), capture_output=True, check=True)
                 return message + "." + kc.b64(result.stdout)
 
-            for label, invalid in (("real legacy user-service login token", old_token),
+            for label, invalid in (("legacy user-service issuer and key", legacy("user-service")),
                                    ("legacy key with forged Keycloak issuer", legacy(claims["iss"])),
                                    ("real Keycloak token without aud", no_aud)):
                 observed = {}

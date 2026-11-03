@@ -102,7 +102,6 @@ class EnumAuditingPersistenceTest {
         user.setEmail(email);
         user.setPhone(phone);
         user.setFullName("Audited User");
-        user.setPasswordHash("not-a-real-hash");
         return user;
     }
 
