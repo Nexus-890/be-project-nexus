@@ -39,15 +39,6 @@ WHERE user_id IN (
     SELECT id FROM users WHERE lower(email) IN ('sellera@nexus.local', 'sellerb@nexus.local', 'buyer@nexus.local')
 );
 
-DELETE FROM user_reputations 
-WHERE user_id IN (
-    '11111111-1111-1111-1111-111111111111',
-    '22222222-2222-2222-2222-222222222222',
-    '33333333-3333-3333-3333-333333333333'
-) OR user_id IN (
-    SELECT id FROM users WHERE lower(email) IN ('sellera@nexus.local', 'sellerb@nexus.local', 'buyer@nexus.local')
-);
-
 -- 0.3 Xóa người dùng cũ (kể cả trường hợp hoa hay thường: sellera, sellerA, ...)
 DELETE FROM users 
 WHERE id IN (

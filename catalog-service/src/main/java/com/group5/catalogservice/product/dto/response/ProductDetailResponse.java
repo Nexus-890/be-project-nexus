@@ -9,7 +9,6 @@ public class ProductDetailResponse extends ProductResponse {
     private final String description;
     private final Boolean auctionEnable;
     private final List<SkuResponse> skus;
-    private final List<ImageResponse> images;
 
     public ProductDetailResponse(UUID id, String name, String slug, ProductStatus status,
                                  UUID categoryId, UUID sellerId, String description,
@@ -19,7 +18,7 @@ public class ProductDetailResponse extends ProductResponse {
         this.description = description;
         this.auctionEnable = auctionEnable;
         this.skus = List.copyOf(skus);
-        this.images = List.copyOf(images);
+        setImages(List.copyOf(images));
     }
 
 

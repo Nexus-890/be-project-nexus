@@ -1,5 +1,6 @@
 package com.group5.userservice.iam;
 
+import com.group5.common_core.model.ProtocolResponse;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import org.springframework.http.MediaType;
@@ -19,6 +20,7 @@ public class JwksController {
     }
 
     @GetMapping(value = "/.well-known/jwks.json", produces = MediaType.APPLICATION_JSON_VALUE)
+    @ProtocolResponse("RFC 7517 requires a JWK Set object for OAuth resource servers")
     public Map<String, Object> getJwks() {
         return publicKeys.toJSONObject(true);
         //Chỉ return/export public site

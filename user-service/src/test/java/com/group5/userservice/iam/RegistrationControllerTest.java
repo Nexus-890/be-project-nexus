@@ -1,6 +1,7 @@
 package com.group5.userservice.iam;
 
 import com.group5.common_core.exception.DomainException;
+import com.group5.userservice.shared.exception.UserErrorCode;
 import com.group5.common_web.exception.GlobalExceptionHandler;
 import com.group5.userservice.iam.dto.RegisterRequest;
 import com.group5.userservice.iam.dto.UserResponse;
@@ -45,9 +46,11 @@ class RegistrationControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validJson()))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data").isMap())
+                .andExpect(jsonPath("$.page").doesNotExist())
                 .andExpect(header().string("Cache-Control", "no-store"))
-                .andExpect(jsonPath("$.email").value("buyer@nexus.local"))
-                .andExpect(jsonPath("$.roles[0]").value("BUYER"));
+                .andExpect(jsonPath("$.data.email").value("buyer@nexus.local"))
+                .andExpect(jsonPath("$.data.roles[0]").value("BUYER"));
 
         verifyNoInteractions(authService);
     }
@@ -60,7 +63,7 @@ class RegistrationControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validJson()))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.passwordHash").doesNotExist());
+                .andExpect(jsonPath("$.data.passwordHash").doesNotExist());
     }
 
     @Test
@@ -71,7 +74,7 @@ class RegistrationControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validJson()))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.identityNumber").doesNotExist());
+                .andExpect(jsonPath("$.data.identityNumber").doesNotExist());
     }
 
     @Test
@@ -118,24 +121,26 @@ class RegistrationControllerTest {
     @Test
     void disabledSelfRegistrationReturns403() throws Exception {
         when(userService.register(any(RegisterRequest.class)))
-                .thenThrow(new DomainException(403, "Self-registration is disabled"));
+                .thenThrow(new DomainException(UserErrorCode.USER_REGISTRATION_DISABLED));
 
         mockMvc.perform(post(REGISTER)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validJson()))
                 .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("USER_REGISTRATION_DISABLED"))
                 .andExpect(jsonPath("$.status").value(403));
     }
 
     @Test
     void duplicateRegistrationReturns409() throws Exception {
         when(userService.register(any(RegisterRequest.class)))
-                .thenThrow(new DomainException(409, "email, phone or identity number already used"));
+                .thenThrow(new DomainException(UserErrorCode.USER_PROFILE_CONFLICT));
 
         mockMvc.perform(post(REGISTER)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validJson()))
                 .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("USER_PROFILE_CONFLICT"))
                 .andExpect(jsonPath("$.status").value(409));
     }
 

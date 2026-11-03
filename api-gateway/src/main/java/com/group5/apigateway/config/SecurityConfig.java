@@ -177,10 +177,9 @@ public class SecurityConfig {
         problem.setDetail(status == HttpStatus.UNAUTHORIZED
                 ? "A valid bearer token is required" : "The required privilege is missing");
         problem.setInstance(URI.create(path));
+        problem.setProperty("code", status == HttpStatus.UNAUTHORIZED ? "UNAUTHENTICATED" : "FORBIDDEN");
         var span = tracer == null ? null : tracer.currentSpan();
-        problem.setProperty("traceId", span == null
-                ? exchange.getAttributes().computeIfAbsent("nexus.security.traceId", key -> UUID.randomUUID().toString())
-                : span.context().traceId());
+        if (span != null) problem.setProperty("traceId", span.context().traceId());
 
         return ServerResponse.status(status).contentType(MediaType.APPLICATION_PROBLEM_JSON).bodyValue(problem)
                 .flatMap(response -> response.writeTo(exchange, new ServerResponse.Context() {

@@ -1,5 +1,6 @@
 package com.group5.catalogservice.product.entity;
 
+import com.group5.common_core.persistence.AuditedEntity;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
@@ -15,7 +16,7 @@ import java.util.UUID;
 @Setter
 @Entity
 @Table(name = "product_stats")
-public class ProductStat {
+public class ProductStat extends AuditedEntity {
     @Id
     @Column(name = "product_id", nullable = false)
     private UUID id;
