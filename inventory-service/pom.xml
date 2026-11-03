@@ -130,6 +130,11 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot</artifactId>
 		</dependency>
+		<dependency>
+			<groupId>com.group5</groupId>
+			<artifactId>common-core</artifactId>
+			<version>1.0.0</version>
+		</dependency>
 	</dependencies>
 
 </project>
