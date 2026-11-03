@@ -137,6 +137,9 @@ nexus:
       - method: GET
         path: /api/v1/orders/{id}/history
         privilege: ORDER.VIEW
+      - method: POST
+        path: /api/v1/payments
+        privilege: CHECKOUT.START
       - method: GET
         path: /api/v1/orders
         privilege: ORDER.LIST
@@ -154,6 +157,12 @@ nexus:
         privilege: NOTIFICATION.VIEW
       - method: POST
         path: /api/v1/products/{id}/images
+        privilege: PRODUCT.UPDATE
+      - method: DELETE
+        path: /api/v1/products/{id}/images/{imageId}
+        privilege: PRODUCT.UPDATE
+      - method: PUT
+        path: /api/v1/products/{id}/images/order
         privilege: PRODUCT.UPDATE
   gateway:
     rate-limit:

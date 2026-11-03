@@ -91,7 +91,7 @@ class ProductImageUploadTest {
         storage = new ImageStorageClient(storageProperties);
         when(jdbc.queryForObject(anyString(), eq(Integer.class), any(UUID.class))).thenReturn(0);
         when(jdbc.update(anyString(), any(UUID.class), any(UUID.class))).thenReturn(1);
-        service = new ProductImageService(new ProductImageUploadTransactions(images, jdbc, 5), storage);
+        service = new ProductImageService(new ProductImageUploadTransactions(images, jdbc, 5), storage, images);
         product.setSellerId(sellerId);
         when(images.findProductForUpload(product.getId())).thenReturn(Optional.of(product));
         when(images.findAllByProduct_IdOrderBySortOrderAscIdAsc(product.getId())).thenReturn(List.of());
@@ -161,7 +161,7 @@ class ProductImageUploadTest {
 
     @Test
     void configurableCountLimitIsAppliedBeforeUpload() {
-        service = new ProductImageService(new ProductImageUploadTransactions(images, jdbc, 1), storage);
+        service = new ProductImageService(new ProductImageUploadTransactions(images, jdbc, 1), storage, images);
         when(images.findAllByProduct_IdOrderBySortOrderAscIdAsc(product.getId()))
                 .thenReturn(List.of(new ProductImage()));
         assertThatThrownBy(() -> service.upload(product.getId(), null, seller))

@@ -1,10 +1,12 @@
 package com.group5.paymentservice.payment;
 
-import com.group5.paymentservice.payment.dto.PaymentInitiationRequest;
-import com.group5.paymentservice.payment.dto.PaymentInitiationResult;
 import com.group5.paymentservice.payment.provider.PaymentProvider;
+import com.group5.paymentservice.payment.provider.PaymentProviderRegistry;
+import com.group5.paymentservice.payment.provider.dto.PaymentInitiationRequest;
+import com.group5.paymentservice.payment.provider.dto.PaymentInitiationResult;
 import com.group5.paymentservice.payment.provider.sepay.SepayPaymentProvider;
 import com.group5.paymentservice.shared.config.PaymentProperties;
+import com.group5.paymentservice.shared.config.SepayProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -24,7 +26,7 @@ class PaymentProviderRegistryTest {
 
     @Test
     void selectsSepayAmongOtherProviders() {
-        var sepay = new SepayPaymentProvider();
+        var sepay = sepay();
         runner.withBean("sepay", PaymentProvider.class, () -> sepay)
                 .withBean("fake", PaymentProvider.class, () -> new FakeProvider("FAKE"))
                 .withPropertyValues("nexus.payment.provider=SEPAY")
@@ -38,7 +40,7 @@ class PaymentProviderRegistryTest {
     @Test
     void supportsAnotherProviderWithoutChangingRegistry() {
         var fake = new FakeProvider("FUTURE");
-        runner.withBean(SepayPaymentProvider.class)
+        runner.withBean(SepayPaymentProvider.class, PaymentProviderRegistryTest::sepay)
                 .withBean("future", PaymentProvider.class, () -> fake)
                 .withPropertyValues("nexus.payment.provider=FUTURE")
                 .run(context -> {
@@ -49,7 +51,7 @@ class PaymentProviderRegistryTest {
 
     @Test
     void unknownProviderFailsContextStartupWithSettingAndValue() {
-        runner.withBean(SepayPaymentProvider.class)
+        runner.withBean(SepayPaymentProvider.class, PaymentProviderRegistryTest::sepay)
                 .withPropertyValues("nexus.payment.provider=UNKNOWN")
                 .run(context -> {
                     assertThat(context).hasFailed();
@@ -61,7 +63,7 @@ class PaymentProviderRegistryTest {
 
     @Test
     void missingSettingFailsInsteadOfSilentlyChoosingAProvider() {
-        runner.withBean(SepayPaymentProvider.class).run(context -> {
+        runner.withBean(SepayPaymentProvider.class, PaymentProviderRegistryTest::sepay).run(context -> {
             assertThat(context).hasFailed();
             assertThat(context.getStartupFailure()).hasStackTraceContaining(
                     "nexus.payment.provider must not be blank");
@@ -70,7 +72,7 @@ class PaymentProviderRegistryTest {
 
     @Test
     void blankSettingFailsStartup() {
-        runner.withBean(SepayPaymentProvider.class)
+        runner.withBean(SepayPaymentProvider.class, PaymentProviderRegistryTest::sepay)
                 .withPropertyValues("nexus.payment.provider= ")
                 .run(context -> {
                     assertThat(context).hasFailed();
@@ -88,7 +90,7 @@ class PaymentProviderRegistryTest {
 
     @Test
     void duplicateNamesAreRejectedRatherThanSelectingArbitrarily() {
-        runner.withBean(SepayPaymentProvider.class)
+        runner.withBean(SepayPaymentProvider.class, PaymentProviderRegistryTest::sepay)
                 .withBean("duplicate", PaymentProvider.class, () -> new FakeProvider("sepay"))
                 .withPropertyValues("nexus.payment.provider=SEPAY")
                 .run(context -> {
@@ -100,7 +102,7 @@ class PaymentProviderRegistryTest {
 
     @Test
     void matchesNamesIgnoringCaseAndSurroundingWhitespace() {
-        runner.withBean(SepayPaymentProvider.class)
+        runner.withBean(SepayPaymentProvider.class, PaymentProviderRegistryTest::sepay)
                 .withPropertyValues("nexus.payment.provider= sepay ")
                 .run(context -> {
                     assertThat(context).hasNotFailed();
@@ -110,12 +112,16 @@ class PaymentProviderRegistryTest {
     }
 
     @Test
-    void unimplementedInitiationDoesNotReturnFakePaymentInstructions() {
-        assertThatThrownBy(() -> new SepayPaymentProvider().initiate(null))
-                .isInstanceOf(UnsupportedOperationException.class)
-                .hasMessageContaining("#121");
+    void initiationRejectsMissingStoredPaymentData() {
+        assertThatThrownBy(() -> sepay().initiate(null))
+                .isInstanceOf(com.group5.common_core.exception.DomainException.class)
+                .hasMessageContaining("Stored payment data");
     }
 
+    private static SepayPaymentProvider sepay() {
+        return new SepayPaymentProvider(new SepayProperties(
+                "970415", "0000000002", "NEXUS TEST", "compact", "SEVQR"));
+    }
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(PaymentProperties.class)
     static class PropertiesConfiguration {

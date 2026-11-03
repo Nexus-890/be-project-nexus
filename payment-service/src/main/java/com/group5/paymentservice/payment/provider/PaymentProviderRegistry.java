@@ -1,6 +1,5 @@
-package com.group5.paymentservice.payment;
+package com.group5.paymentservice.payment.provider;
 
-import com.group5.paymentservice.payment.provider.PaymentProvider;
 import com.group5.paymentservice.shared.config.PaymentProperties;
 import org.springframework.stereotype.Component;
 
