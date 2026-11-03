@@ -1,0 +1,752 @@
+{
+  "realm": "nexus",
+  "enabled": true,
+  "displayName": "Project Nexus",
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "verifyEmail": false,
+  "defaultSignatureAlgorithm": "RS256",
+  "accessTokenLifespan": 3600,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxTemporaryLockouts": 0,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 900,
+  "maxFailureWaitSeconds": 900,
+  "quickLoginCheckMilliSeconds": 0,
+  "minimumQuickLoginWaitSeconds": 900,
+  "maxDeltaTimeSeconds": 43200,
+  "passwordPolicy": "length(8) and regexPattern((?s).*[^\\p{javaWhitespace}].*)",
+  "roles": {
+    "realm": [
+      {
+        "name": "ADMIN",
+        "description": "Nexus admin (SRS 2.7 / user-service V3)",
+        "composite": true,
+        "composites": {
+          "client": {
+            "nexus-web": [
+              "AUTH.LOGIN",
+              "AUTH.LOGOUT",
+              "PROFILE.VIEW",
+              "PROFILE.UPDATE",
+              "PROFILE.CHANGE_PASSWORD",
+              "PROFILE.RESET_PASSWORD",
+              "USER.CREATE",
+              "USER.UPDATE",
+              "USER.DELETE",
+              "USER.VIEW",
+              "USER.LIST",
+              "USER.CHANGE_PASSWORD",
+              "USER.REPUTATION.VIEW",
+              "USER.REPUTATION.ADJUST",
+              "ROLE.CREATE",
+              "ROLE.UPDATE",
+              "ROLE.DELETE",
+              "ROLE.VIEW",
+              "ROLE.LIST",
+              "PRODUCT.CREATE",
+              "PRODUCT.UPDATE",
+              "PRODUCT.DELETE",
+              "PRODUCT.VIEW",
+              "PRODUCT.LIST",
+              "PRODUCT.SEARCH",
+              "CATEGORY.CREATE",
+              "CATEGORY.UPDATE",
+              "CATEGORY.DELETE",
+              "CATEGORY.VIEW",
+              "CATEGORY.LIST",
+              "ORDER.CANCEL",
+              "ORDER.VIEW",
+              "ORDER.LIST",
+              "ORDER.REFUND",
+              "AUCTION.CREATE",
+              "AUCTION.UPDATE",
+              "AUCTION.CANCEL",
+              "AUCTION.ADMIN_CANCEL",
+              "AUCTION.VIEW",
+              "AUCTION.LIST",
+              "AUCTION.VIEW_BID_HISTORY",
+              "SHIPPING.QUOTE",
+              "SHIPPING.CREATE_SHIPMENT",
+              "SHIPPING.VIEW_SHIPMENT",
+              "SHIPPING.UPDATE_STATUS",
+              "SHIPPING.MANUAL_OVERRIDE",
+              "REPUTATION.VIEW",
+              "REPUTATION.PENALTY.VIEW",
+              "REPUTATION.PENALTY.APPLY",
+              "NOTIFICATION.VIEW",
+              "EVENT_LOG.VIEW",
+              "EVENT_LOG.VIEW_DETAIL",
+              "AUDIT_LOG.VIEW",
+              "SYSTEM.CONFIG.VIEW",
+              "SYSTEM.CONFIG.UPDATE",
+              "SYSTEM.HEALTH.VIEW"
+            ]
+          }
+        }
+      },
+      {
+        "name": "SELLER",
+        "description": "Nexus seller (SRS 2.7 / user-service V3)",
+        "composite": true,
+        "composites": {
+          "client": {
+            "nexus-web": [
+              "AUTH.LOGIN",
+              "AUTH.LOGOUT",
+              "PROFILE.VIEW",
+              "PROFILE.UPDATE",
+              "PROFILE.CHANGE_PASSWORD",
+              "PROFILE.RESET_PASSWORD",
+              "PRODUCT.CREATE",
+              "PRODUCT.UPDATE",
+              "PRODUCT.DELETE",
+              "PRODUCT.VIEW",
+              "PRODUCT.LIST",
+              "PRODUCT.SEARCH",
+              "CATEGORY.VIEW",
+              "CATEGORY.LIST",
+              "ORDER.VIEW",
+              "ORDER.LIST",
+              "AUCTION.CREATE",
+              "AUCTION.UPDATE",
+              "AUCTION.CANCEL",
+              "AUCTION.VIEW",
+              "AUCTION.LIST",
+              "AUCTION.VIEW_BID_HISTORY",
+              "SHIPPING.QUOTE",
+              "SHIPPING.VIEW_SHIPMENT",
+              "REPUTATION.VIEW",
+              "REPUTATION.RATE",
+              "NOTIFICATION.VIEW",
+              "NOTIFICATION.MANAGE_PREFERENCE"
+            ]
+          }
+        }
+      },
+      {
+        "name": "BUYER",
+        "description": "Nexus buyer (SRS 2.7 / user-service V3)",
+        "composite": true,
+        "composites": {
+          "client": {
+            "nexus-web": [
+              "AUTH.LOGIN",
+              "AUTH.LOGOUT",
+              "PROFILE.VIEW",
+              "PROFILE.UPDATE",
+              "PROFILE.CHANGE_PASSWORD",
+              "PROFILE.RESET_PASSWORD",
+              "PRODUCT.VIEW",
+              "PRODUCT.LIST",
+              "PRODUCT.SEARCH",
+              "CATEGORY.VIEW",
+              "CATEGORY.LIST",
+              "CART.CREATE",
+              "CART.UPDATE",
+              "CART.REMOVE_ITEM",
+              "CART.VIEW",
+              "CHECKOUT.START",
+              "ORDER.CREATE",
+              "ORDER.CANCEL",
+              "ORDER.VIEW",
+              "ORDER.LIST",
+              "AUCTION.VIEW",
+              "AUCTION.LIST",
+              "AUCTION.BID",
+              "AUCTION.VIEW_BID_HISTORY",
+              "SHIPPING.QUOTE",
+              "SHIPPING.VIEW_SHIPMENT",
+              "REPUTATION.VIEW",
+              "REPUTATION.RATE",
+              "NOTIFICATION.VIEW",
+              "NOTIFICATION.MANAGE_PREFERENCE"
+            ]
+          }
+        }
+      },
+      {
+        "name": "SUPPORT_STAFF",
+        "description": "Nexus support staff (SRS 2.7 / user-service V3)",
+        "composite": true,
+        "composites": {
+          "client": {
+            "nexus-web": [
+              "AUTH.LOGIN",
+              "AUTH.LOGOUT",
+              "PROFILE.VIEW",
+              "PROFILE.UPDATE",
+              "PROFILE.CHANGE_PASSWORD",
+              "PROFILE.RESET_PASSWORD",
+              "USER.UPDATE",
+              "USER.VIEW",
+              "USER.LIST",
+              "USER.REPUTATION.VIEW",
+              "ROLE.VIEW",
+              "ROLE.LIST",
+              "PRODUCT.VIEW",
+              "PRODUCT.LIST",
+              "PRODUCT.SEARCH",
+              "CATEGORY.VIEW",
+              "CATEGORY.LIST",
+              "ORDER.CANCEL",
+              "ORDER.VIEW",
+              "ORDER.LIST",
+              "ORDER.REFUND",
+              "AUCTION.VIEW",
+              "AUCTION.LIST",
+              "AUCTION.VIEW_BID_HISTORY",
+              "SHIPPING.QUOTE",
+              "SHIPPING.CREATE_SHIPMENT",
+              "SHIPPING.VIEW_SHIPMENT",
+              "SHIPPING.UPDATE_STATUS",
+              "SHIPPING.MANUAL_OVERRIDE",
+              "REPUTATION.VIEW",
+              "REPUTATION.PENALTY.VIEW",
+              "NOTIFICATION.VIEW",
+              "EVENT_LOG.VIEW",
+              "EVENT_LOG.VIEW_DETAIL",
+              "SYSTEM.HEALTH.VIEW"
+            ]
+          }
+        }
+      }
+    ],
+    "client": {
+      "nexus-web": [
+        {
+          "name": "AUTH.LOGIN",
+          "description": "Login to the system",
+          "composite": false
+        },
+        {
+          "name": "AUTH.LOGOUT",
+          "description": "Logout from the system",
+          "composite": false
+        },
+        {
+          "name": "PROFILE.VIEW",
+          "description": "View own profile",
+          "composite": false
+        },
+        {
+          "name": "PROFILE.UPDATE",
+          "description": "Update own profile",
+          "composite": false
+        },
+        {
+          "name": "PROFILE.CHANGE_PASSWORD",
+          "description": "Change own password",
+          "composite": false
+        },
+        {
+          "name": "PROFILE.RESET_PASSWORD",
+          "description": "Reset forgotten password",
+          "composite": false
+        },
+        {
+          "name": "USER.CREATE",
+          "description": "Create user account",
+          "composite": false
+        },
+        {
+          "name": "USER.UPDATE",
+          "description": "Update user information",
+          "composite": false
+        },
+        {
+          "name": "USER.DELETE",
+          "description": "Delete user account",
+          "composite": false
+        },
+        {
+          "name": "USER.VIEW",
+          "description": "View user details",
+          "composite": false
+        },
+        {
+          "name": "USER.LIST",
+          "description": "View user list",
+          "composite": false
+        },
+        {
+          "name": "USER.CHANGE_PASSWORD",
+          "description": "Change user password",
+          "composite": false
+        },
+        {
+          "name": "USER.REPUTATION.VIEW",
+          "description": "View user reputation",
+          "composite": false
+        },
+        {
+          "name": "USER.REPUTATION.ADJUST",
+          "description": "Adjust user reputation",
+          "composite": false
+        },
+        {
+          "name": "ROLE.CREATE",
+          "description": "Create role",
+          "composite": false
+        },
+        {
+          "name": "ROLE.UPDATE",
+          "description": "Update role",
+          "composite": false
+        },
+        {
+          "name": "ROLE.DELETE",
+          "description": "Delete role",
+          "composite": false
+        },
+        {
+          "name": "ROLE.VIEW",
+          "description": "View role details",
+          "composite": false
+        },
+        {
+          "name": "ROLE.LIST",
+          "description": "View role list",
+          "composite": false
+        },
+        {
+          "name": "PRODUCT.CREATE",
+          "description": "Create product",
+          "composite": false
+        },
+        {
+          "name": "PRODUCT.UPDATE",
+          "description": "Update product",
+          "composite": false
+        },
+        {
+          "name": "PRODUCT.DELETE",
+          "description": "Delete product",
+          "composite": false
+        },
+        {
+          "name": "PRODUCT.VIEW",
+          "description": "View product details",
+          "composite": false
+        },
+        {
+          "name": "PRODUCT.LIST",
+          "description": "View product list",
+          "composite": false
+        },
+        {
+          "name": "PRODUCT.SEARCH",
+          "description": "Search products",
+          "composite": false
+        },
+        {
+          "name": "CATEGORY.CREATE",
+          "description": "Create category",
+          "composite": false
+        },
+        {
+          "name": "CATEGORY.UPDATE",
+          "description": "Update category",
+          "composite": false
+        },
+        {
+          "name": "CATEGORY.DELETE",
+          "description": "Delete category",
+          "composite": false
+        },
+        {
+          "name": "CATEGORY.VIEW",
+          "description": "View category details",
+          "composite": false
+        },
+        {
+          "name": "CATEGORY.LIST",
+          "description": "View category list",
+          "composite": false
+        },
+        {
+          "name": "CART.CREATE",
+          "description": "Create shopping cart",
+          "composite": false
+        },
+        {
+          "name": "CART.UPDATE",
+          "description": "Update cart items",
+          "composite": false
+        },
+        {
+          "name": "CART.REMOVE_ITEM",
+          "description": "Remove cart item",
+          "composite": false
+        },
+        {
+          "name": "CART.VIEW",
+          "description": "View shopping cart",
+          "composite": false
+        },
+        {
+          "name": "CHECKOUT.START",
+          "description": "Start checkout process",
+          "composite": false
+        },
+        {
+          "name": "ORDER.CREATE",
+          "description": "Create order",
+          "composite": false
+        },
+        {
+          "name": "ORDER.CANCEL",
+          "description": "Cancel order",
+          "composite": false
+        },
+        {
+          "name": "ORDER.VIEW",
+          "description": "View order details",
+          "composite": false
+        },
+        {
+          "name": "ORDER.LIST",
+          "description": "View order list/history",
+          "composite": false
+        },
+        {
+          "name": "ORDER.REFUND",
+          "description": "Request or process refund",
+          "composite": false
+        },
+        {
+          "name": "AUCTION.CREATE",
+          "description": "Create auction",
+          "composite": false
+        },
+        {
+          "name": "AUCTION.UPDATE",
+          "description": "Update auction configuration",
+          "composite": false
+        },
+        {
+          "name": "AUCTION.CANCEL",
+          "description": "Cancel auction",
+          "composite": false
+        },
+        {
+          "name": "AUCTION.ADMIN_CANCEL",
+          "description": "Admin force cancel auction",
+          "composite": false
+        },
+        {
+          "name": "AUCTION.VIEW",
+          "description": "View auction details",
+          "composite": false
+        },
+        {
+          "name": "AUCTION.LIST",
+          "description": "View auction list",
+          "composite": false
+        },
+        {
+          "name": "AUCTION.BID",
+          "description": "Place bid",
+          "composite": false
+        },
+        {
+          "name": "AUCTION.VIEW_BID_HISTORY",
+          "description": "View bid history",
+          "composite": false
+        },
+        {
+          "name": "SHIPPING.QUOTE",
+          "description": "Get shipping fee quote",
+          "composite": false
+        },
+        {
+          "name": "SHIPPING.CREATE_SHIPMENT",
+          "description": "Create shipment",
+          "composite": false
+        },
+        {
+          "name": "SHIPPING.VIEW_SHIPMENT",
+          "description": "View shipment details",
+          "composite": false
+        },
+        {
+          "name": "SHIPPING.UPDATE_STATUS",
+          "description": "Update shipment status",
+          "composite": false
+        },
+        {
+          "name": "SHIPPING.MANUAL_OVERRIDE",
+          "description": "Manual shipment override",
+          "composite": false
+        },
+        {
+          "name": "REPUTATION.VIEW",
+          "description": "View reputation summary",
+          "composite": false
+        },
+        {
+          "name": "REPUTATION.RATE",
+          "description": "Rate transaction partner",
+          "composite": false
+        },
+        {
+          "name": "REPUTATION.PENALTY.VIEW",
+          "description": "View penalty history",
+          "composite": false
+        },
+        {
+          "name": "REPUTATION.PENALTY.APPLY",
+          "description": "Apply reputation penalty",
+          "composite": false
+        },
+        {
+          "name": "NOTIFICATION.VIEW",
+          "description": "View notification history",
+          "composite": false
+        },
+        {
+          "name": "NOTIFICATION.MANAGE_PREFERENCE",
+          "description": "Manage notification preferences",
+          "composite": false
+        },
+        {
+          "name": "EVENT_LOG.VIEW",
+          "description": "View event log list",
+          "composite": false
+        },
+        {
+          "name": "EVENT_LOG.VIEW_DETAIL",
+          "description": "View event log details",
+          "composite": false
+        },
+        {
+          "name": "AUDIT_LOG.VIEW",
+          "description": "View audit logs",
+          "composite": false
+        },
+        {
+          "name": "SYSTEM.CONFIG.VIEW",
+          "description": "View system configuration",
+          "composite": false
+        },
+        {
+          "name": "SYSTEM.CONFIG.UPDATE",
+          "description": "Update system configuration",
+          "composite": false
+        },
+        {
+          "name": "SYSTEM.HEALTH.VIEW",
+          "description": "View system health status",
+          "composite": false
+        }
+      ]
+    }
+  },
+  "clients": [
+    {
+      "clientId": "nexus-web",
+      "name": "Nexus Web",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:3000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
+      "fullScopeAllowed": false,
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "defaultClientScopes": [
+        "basic",
+        "web-origins",
+        "profile",
+        "email"
+      ],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "nexus-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "usermodel.realmRoleMapping.rolePrefix": ""
+          }
+        },
+        {
+          "name": "nexus-privileges",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-client-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "privileges",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "usermodel.clientRoleMapping.clientId": "nexus-web",
+            "usermodel.clientRoleMapping.rolePrefix": ""
+          }
+        },
+        {
+          "name": "nexus-services-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "nexus-services",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "scopeMappings": [
+    {
+      "client": "nexus-web",
+      "roles": [
+        "ADMIN",
+        "SELLER",
+        "BUYER",
+        "SUPPORT_STAFF"
+      ]
+    }
+  ],
+  "clientScopeMappings": {
+    "nexus-web": [
+      {
+        "client": "nexus-web",
+        "roles": [
+          "AUTH.LOGIN",
+          "AUTH.LOGOUT",
+          "PROFILE.VIEW",
+          "PROFILE.UPDATE",
+          "PROFILE.CHANGE_PASSWORD",
+          "PROFILE.RESET_PASSWORD",
+          "USER.CREATE",
+          "USER.UPDATE",
+          "USER.DELETE",
+          "USER.VIEW",
+          "USER.LIST",
+          "USER.CHANGE_PASSWORD",
+          "USER.REPUTATION.VIEW",
+          "USER.REPUTATION.ADJUST",
+          "ROLE.CREATE",
+          "ROLE.UPDATE",
+          "ROLE.DELETE",
+          "ROLE.VIEW",
+          "ROLE.LIST",
+          "PRODUCT.CREATE",
+          "PRODUCT.UPDATE",
+          "PRODUCT.DELETE",
+          "PRODUCT.VIEW",
+          "PRODUCT.LIST",
+          "PRODUCT.SEARCH",
+          "CATEGORY.CREATE",
+          "CATEGORY.UPDATE",
+          "CATEGORY.DELETE",
+          "CATEGORY.VIEW",
+          "CATEGORY.LIST",
+          "CART.CREATE",
+          "CART.UPDATE",
+          "CART.REMOVE_ITEM",
+          "CART.VIEW",
+          "CHECKOUT.START",
+          "ORDER.CREATE",
+          "ORDER.CANCEL",
+          "ORDER.VIEW",
+          "ORDER.LIST",
+          "ORDER.REFUND",
+          "AUCTION.CREATE",
+          "AUCTION.UPDATE",
+          "AUCTION.CANCEL",
+          "AUCTION.ADMIN_CANCEL",
+          "AUCTION.VIEW",
+          "AUCTION.LIST",
+          "AUCTION.BID",
+          "AUCTION.VIEW_BID_HISTORY",
+          "SHIPPING.QUOTE",
+          "SHIPPING.CREATE_SHIPMENT",
+          "SHIPPING.VIEW_SHIPMENT",
+          "SHIPPING.UPDATE_STATUS",
+          "SHIPPING.MANUAL_OVERRIDE",
+          "REPUTATION.VIEW",
+          "REPUTATION.RATE",
+          "REPUTATION.PENALTY.VIEW",
+          "REPUTATION.PENALTY.APPLY",
+          "NOTIFICATION.VIEW",
+          "NOTIFICATION.MANAGE_PREFERENCE",
+          "EVENT_LOG.VIEW",
+          "EVENT_LOG.VIEW_DETAIL",
+          "AUDIT_LOG.VIEW",
+          "SYSTEM.CONFIG.VIEW",
+          "SYSTEM.CONFIG.UPDATE",
+          "SYSTEM.HEALTH.VIEW"
+        ]
+      }
+    ]
+  },
+  "users": [
+    {
+      "id": "68000000-0000-4000-8000-000000000001",
+      "username": "admin@nexus.local",
+      "email": "admin@nexus.local",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Nexus",
+      "lastName": "Admin",
+      "requiredActions": [],
+      "realmRoles": [
+        "ADMIN"
+      ]
+    },
+    {
+      "id": "68000000-0000-4000-8000-000000000002",
+      "username": "seller@nexus.local",
+      "email": "seller@nexus.local",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Nexus",
+      "lastName": "Seller",
+      "requiredActions": [],
+      "realmRoles": [
+        "SELLER"
+      ]
+    },
+    {
+      "id": "68000000-0000-4000-8000-000000000003",
+      "username": "buyer@nexus.local",
+      "email": "buyer@nexus.local",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Nexus",
+      "lastName": "Buyer",
+      "requiredActions": [],
+      "realmRoles": [
+        "BUYER"
+      ]
+    }
+  ]
+}

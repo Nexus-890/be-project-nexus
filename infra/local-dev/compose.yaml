@@ -197,7 +197,7 @@ services:
   auth-service:
     image: quay.io/keycloak/keycloak:26.7.5
     container_name: nexus-auth-service
-    command: ["start-dev"]
+    command: ["start-dev", "--import-realm"]
 
     environment:
       TZ: ${TZ}
@@ -212,6 +212,9 @@ services:
     ports:
       - "${KEYCLOAK_PORT}:8080"
 
+    volumes:
+      - ./keycloak/realm-nexus.json:/opt/keycloak/data/import/nexus-realm.json:ro
+
     depends_on:
       postgres:
         condition: service_healthy
@@ -225,6 +228,27 @@ services:
 
     restart: unless-stopped
 
+    networks:
+      - nexus-network
+
+  # Explicit credential provisioning: .\keycloak\seed-users.ps1 on Windows.
+  auth-seed:
+    profiles: ["tools"]
+    image: quay.io/keycloak/keycloak:26.7.5
+    entrypoint: ["/bin/bash", "/opt/nexus/seed-users.sh", "--container"]
+    environment:
+      KEYCLOAK_SERVER_URL: http://auth-service:8080
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-}
+      DEMO_SELLER_PASSWORD: ${DEMO_SELLER_PASSWORD:-}
+      DEMO_BUYER_PASSWORD: ${DEMO_BUYER_PASSWORD:-}
+    volumes:
+      - ./keycloak/seed-users.sh:/opt/nexus/seed-users.sh:ro
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    restart: "no"
     networks:
       - nexus-network
 
