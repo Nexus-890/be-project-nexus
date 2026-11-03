@@ -19,7 +19,8 @@ class KeycloakResourceServerConfigTest {
     @Test
     void gatewayAndAllBusinessServicesTrustOnlyKeycloakByDefault() {
         for (String name : List.of("api-gateway", "user-service", "catalog-service", "commerce-service",
-                "auction-service", "fulfillment-service", "notification-service")) {
+                "auction-service", "inventory-service", "notification-service", "payment-service",
+                "shipment-service", "rating-service")) {
             StandardEnvironment environment = environment(name);
             String prefix = name.equals("api-gateway")
                     ? "spring.security.oauth2.resourceserver.jwt." : "nexus.security.jwt.";

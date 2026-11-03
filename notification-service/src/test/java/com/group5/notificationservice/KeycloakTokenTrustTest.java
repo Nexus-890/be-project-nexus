@@ -1,6 +1,8 @@
 package com.group5.notificationservice;
 
 import com.group5.common_security.CurrentUser;
+import com.group5.common_outbox.IdempotentConsumer;
+import com.group5.notificationservice.notification.NotificationRepository;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.RSASSASigner;
@@ -44,6 +46,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.config.name=jwt-resource-server-test",
         "spring.cloud.config.enabled=false", "eureka.client.enabled=false",
         "spring.kafka.listener.auto-startup=false", "spring.kafka.admin.auto-create=false",
+        "nexus.notification.group-id=nexus.notification.jwt-test",
         "management.tracing.export.zipkin.enabled=false",
         "spring.autoconfigure.exclude=org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration,"
                 + "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration,"
@@ -60,6 +63,8 @@ class KeycloakTokenTrustTest {
     private static final HttpServer JWKS = jwks();
     @Autowired private WebApplicationContext context;
     @MockitoBean private JdbcTemplate jdbcTemplate;
+    @MockitoBean private IdempotentConsumer idempotentConsumer;
+    @MockitoBean private NotificationRepository notifications;
     private MockMvc client;
 
     @DynamicPropertySource

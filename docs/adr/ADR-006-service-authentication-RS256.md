@@ -24,8 +24,8 @@ this does not change issuer validation. Config/Discovery are platform services,
 not end-user JWT resource servers.
 
 Gateway uses `spring.security.oauth2.resourceserver.jwt`; servlet services use
-`nexus.security.jwt` from `common-security`. Config includes all six business
-services (user, catalog, commerce, auction, fulfillment, notification). All six
+`nexus.security.jwt` from `common-security`. Config includes all nine business
+services (user, catalog, commerce, auction, inventory, notification, payment, shipment, rating). All nine
 business services depend on the existing `common-security` module, so its servlet
 resource-server filter validates protected requests even when Gateway is bypassed.
 
@@ -81,7 +81,7 @@ concerns.
 
 ## Verification
 
-Automated config contracts cover all six business services, Gateway defaults,
+Automated config contracts cover all nine business services, Gateway defaults,
 deployment overrides and the distinction from platform/legacy issuance settings.
 Gateway and common-security tests use Keycloak-shaped RS256 tokens, require the
 realm issuer and audience, reject legacy keys, and preserve flat authorities.
