@@ -21,7 +21,6 @@ import com.group5.commerceservice.order.entity.OrderGroup;
 import com.group5.commerceservice.order.entity.OrderItem;
 import com.group5.commerceservice.order.entity.OrderStatusHistory;
 import com.group5.commerceservice.order.event.OrderCancelled;
-import com.group5.commerceservice.order.event.OrderCreated;
 import com.group5.commerceservice.order.event.OrderEventPublisher;
 import com.group5.commerceservice.order.event.OrderGroupCancelled;
 import com.group5.commerceservice.order.repository.OrderGroupRepository;
@@ -273,11 +272,7 @@ public class OrderService {
     }
 
     private void publishCreation(OrderGroup group) {
-        group.getOrders().stream().sorted(Comparator.comparing(Order::getId)).forEach(order ->
-                events.orderCreated(new OrderCreated(order.getId(), order.getUserId(), order.getOrderNumber(),
-                        order.getOrderType(), order.getReferenceId(), group.getId(), order.getSellerId(),
-                        order.getVersion(), order.getItems().stream().map(OrderItem::getProductId)
-                                .distinct().sorted().toList())));
+        group.getOrders().stream().sorted(Comparator.comparing(Order::getId)).forEach(events::orderCreated);
         events.checkoutPaymentRequested(group);
     }
 

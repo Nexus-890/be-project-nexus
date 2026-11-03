@@ -2,6 +2,7 @@ package com.group5.commerceservice.order.event;
 
 import com.group5.commerceservice.order.entity.Order;
 import com.group5.commerceservice.order.entity.OrderGroup;
+import com.group5.commerceservice.order.entity.OrderItem;
 import com.group5.common_events.EventEnvelopeFactory;
 import com.group5.common_events.Topics;
 import com.group5.common_outbox.OutboxWriter;
@@ -19,7 +20,11 @@ public class OrderEventPublisher {
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
 
-    public void orderCreated(OrderCreated payload) {
+    public void orderCreated(Order order) {
+        OrderCreated payload = new OrderCreated(order.getId(), order.getUserId(), order.getOrderNumber(),
+                order.getOrderType(), order.getReferenceId(), order.getOrderGroup().getId(), order.getSellerId(),
+                order.getVersion(), order.getItems().stream().map(OrderItem::getProductId)
+                        .distinct().sorted().toList());
         outbox.write("Order", Topics.COMMERCE,
                 envelopes.create("OrderCreated", payload.orderId().toString(), payload));
     }
