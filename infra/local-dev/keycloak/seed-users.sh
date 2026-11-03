@@ -63,6 +63,8 @@ for i in "${!names[@]}"; do
 done
 for i in "${!names[@]}"; do
   key="${keys[$i]}"
-  kc set-password -r nexus --userid "${ids[$i]}" --new-password "${!key}"
+  # Keep the password inside a value= argument, including when it starts with '-'.
+  kc update "users/${ids[$i]}/reset-password" -r nexus \
+    -s type=password -s "value=${!key}" -s temporary=false -n
   echo "Seeded ${names[$i]}@nexus.local (${ids[$i]})"
 done

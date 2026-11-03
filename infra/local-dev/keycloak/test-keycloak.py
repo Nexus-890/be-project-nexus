@@ -169,9 +169,11 @@ def run(full_lockout):
                   "KEYCLOAK_PORT": "0", "KEYCLOAK_ADMIN": "test-admin", "KEYCLOAK_ADMIN_PASSWORD": secrets.token_urlsafe(24),
                   "KAFKA_PORT": "19092", "KAFKA_UI_PORT": "18090", "REDIS_PORT": "6379", "REDIS_PASSWORD": secrets.token_urlsafe(24),
                   "MAILPIT_SMTP_PORT": "1025", "MAILPIT_UI_PORT": "8025", "GRAFANA_ADMIN_PASSWORD": secrets.token_urlsafe(24)}
+        # Compose validates required payment values even though this test excludes payment-service.
+        values.update({"SEPAY_BANK_ACCOUNT": "test-unused", "SEPAY_ACCOUNT_NAME": "test-unused"})
         # Exercise dotenv quoting and punctuation without putting credentials in Git.
         for role in ("ADMIN", "SELLER", "BUYER"):
-            values[f"DEMO_{role}_PASSWORD"] = secrets.token_urlsafe(20) + '#$"\\ space'
+            values[f"DEMO_{role}_PASSWORD"] = '-p' + secrets.token_urlsafe(20) + '#$"\\ space'
         env_file = directory / ".env"
         env_file.write_text("\n".join(f"{k}='{v}'" for k, v in values.items()) + "\n")
         if os.name != "nt":
@@ -209,7 +211,7 @@ def run(full_lockout):
             print("PASS: PostgreSQL and imported Keycloak realm are healthy", flush=True)
             compose("run", "--rm", "--no-deps", "-T", "auth-seed")
             compose("run", "--rm", "--no-deps", "-T", "auth-seed")
-            print("PASS: seed-users.sh sets punctuation-containing passwords and is repeatable", flush=True)
+            print("PASS: seed-users.sh sets passwords starting with -p and containing punctuation; repeatable", flush=True)
             spec = importlib.util.spec_from_file_location("realm_contract", HERE / "test-realm.py")
             contracts = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(contracts)

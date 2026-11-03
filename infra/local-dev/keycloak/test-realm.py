@@ -107,6 +107,10 @@ class RealmContractTest(unittest.TestCase):
     def test_standard_policy_matches_documented_baseline(self):
         self.assertEqual(self.realm["passwordPolicy"], r"length(8) and regexPattern((?s).*\S.*)")
 
+    def test_session_idle_timeout_covers_access_token_lifetime(self):
+        self.assertGreaterEqual(self.realm["ssoSessionIdleTimeout"], self.realm["accessTokenLifespan"])
+        self.assertGreaterEqual(self.realm["ssoSessionMaxLifespan"], self.realm["ssoSessionIdleTimeout"])
+
 
 @unittest.skipIf(os.name == "nt" or not shutil.which("bash"), "Bash entry point runs on Unix")
 class SeedScriptTest(unittest.TestCase):

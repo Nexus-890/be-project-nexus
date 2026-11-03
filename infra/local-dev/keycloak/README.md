@@ -83,6 +83,9 @@ That container script only resets credentials of the three exact imported IDs. I
 checks their usernames, uses a private temporary kcadm config, and removes it
 on exit. Passwords are non-temporary, so no forced reset blocks demo login.
 The script can be re-run without creating users or changing IDs.
+It uses `kcadm update users/<id>/reset-password`, so demo passwords starting
+with `-` are accepted as credential values. Access-token lifetime and SSO
+session idle timeout are both 3600 seconds; the session maximum is 36000 seconds.
 
 ## Repeatable verification
 
@@ -116,9 +119,27 @@ rejects missing/wrong PKCE and invalid redirects, tests password policy, and
 proves the sixth correct-password attempt is blocked. The full mode waits the
 real 900 seconds without weakening policy or manually unlocking the user.
 
-Startup import deliberately skips a realm that already exists. Editing JSON
-and restarting is not a realm migration. Use the isolated test project to
-validate changes without deleting your local database volume.
+Startup `--import-realm` deliberately skips a realm that already exists. Editing
+`realm-nexus.json` and restarting does not overwrite an existing `nexus` realm.
+Use the isolated test project above to validate changes without touching local data.
+
+To reload the JSON into a disposable local development setup, back up any needed
+Keycloak data, stop auth-service, and reset **only `auth_db`**. This deletes all
+Keycloak realms, users, credentials and sessions in that database, including
+`master`. From `infra/local-dev`, replace `<DB_USERNAME>` with your local value:
+
+```powershell
+docker compose stop auth-service
+docker compose exec postgres psql -U "<DB_USERNAME>" -d postgres -c "DROP DATABASE auth_db WITH (FORCE);" -c "CREATE DATABASE auth_db;"
+docker compose up -d auth-service
+.\keycloak\seed-users.ps1
+```
+
+Startup imports the updated JSON into the empty database, and the seed command
+restores demo passwords from `.env`. Do not use `docker compose down -v` for this:
+the shared PostgreSQL volume also holds the other services' databases. For a
+database whose data must be retained, apply reviewed realm changes through the
+Admin Console/API instead of resetting it.
 
 The repository file is `realm-nexus.json` as requested by #236; Compose mounts
 it as `/opt/keycloak/data/import/nexus-realm.json` following Keycloak's import
