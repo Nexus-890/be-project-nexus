@@ -12,6 +12,18 @@ use `http://localhost:18080/realms/nexus` and its
 Gateway or business resource servers. The remaining `nexus.iam.jwt` configuration
 is obsolete issuance compatibility pending #238, not an additional trusted issuer.
 
+## Merge/deployment order and manual tokens
+
+Merge **!72 / #236 before !78 / #237**. Deploy !78 together with **#239** so the
+frontend signs in through Keycloak Authorization Code + PKCE. A frontend still
+calling `/api/v1/auth/login` obtains a legacy token that this cutover rejects with
+**401**. Keep rollout blocked until realm and frontend prerequisites are ready;
+#238 separately removes the legacy authentication implementation.
+
+For the team's manual API checks, follow [Postman OAuth2 + PKCE](postman-pkce.md).
+The guide explains the extra exact Postman callback registration in a local
+realm; the committed `nexus-web` client permits only `http://localhost:3000/*`.
+
 ## Reproduce
 
 Prerequisites: merge #236 first (provides `infra/local-dev/keycloak` fixtures),
@@ -128,9 +140,10 @@ all nine plus Gateway. Each service depends on common-security. The live busines
 acceptance covers Gateway and Catalog; the real legacy user-service is a rejected
 issuer fixture, not a second trusted authority.
 
-If #236 is not merged, export commit `874fbf8` into a separate local fixture
-directory and set KEYCLOAK_FIXTURE_DIR as above. It contains the current policy and
-helper implementation. Do not copy its private .env or use an existing realm.
+If #236 is not merged, use the latest !72 source commit in a separate local
+fixture directory and set KEYCLOAK_FIXTURE_DIR as above. Historical validation
+below used `874fbf8`; reruns should use the latest reviewed realm and helpers.
+Do not copy its private .env or use an existing realm.
 
 Run with Java 21 and `-Duser.timezone=UTC` for Maven on Windows. Ensure OpenSSL is
 on PATH (the Git for Windows installation includes mingw64/bin/openssl.exe).

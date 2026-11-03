@@ -1,5 +1,38 @@
 # #237 validation — 2026-11-03
 
+## Reviewer follow-up: preserved ADR and Postman guide
+
+The follow-up restores the full original ADR-006 baseline, including flows and
+the SRS privilege matrix, below the current Keycloak decision. Legacy issuer,
+signing-key and BCrypt examples are explicitly historical. The new
+[Postman guide](postman-pkce.md) covers OAuth2 + PKCE S256 and exact local callback
+registration. README and ADR both require !72 first and !78/#239 together.
+
+Checks on 2026-11-03:
+
+- Original ADR content matches `origin/develop` at `d3b9410`, ignoring trailing
+  whitespace; all local Markdown links resolve; `git diff --check` passes.
+- Offline fixture helper compatibility: 1 test passed using the exported,
+  committed !72 fixture **`2b27036`**. No private `.env` was used.
+- Live acceptance: **passed**, 20:06:08–20:08:08 Asia/Saigon
+  (`13:06:08–13:08:08 UTC`). Application source/jars are the existing !78
+  **`21ba276`** version; this follow-up changes documentation only. Uses Java 21,
+  OpenSSL and a disposable Keycloak/PostgreSQL project `nexus-237-test-c9f7405c`.
+- Real seller PKCE token creates a product through Gateway: **201**, persisted
+  seller equals JWT subject. Buyer create: **403** at Gateway and direct Catalog.
+- Real legacy user-service login token, a legacy key with forged Keycloak issuer,
+  and genuine Keycloak token missing audience: **401** at both entry points.
+- Original valid seller token still reads its products: **200**. All owned
+  containers, volumes and JVMs were cleaned up.
+
+Sanitized `evidence.json` and `summary.log` are saved locally under
+`output/mr78-review-2b27036-evidence/` in the parent workspace. The Postman field
+names/callback were checked against the official documentation; this run used the
+automated PKCE harness, not the Postman UI. The earlier full Maven evidence below
+is historical and was not rerun for this documentation-only change.
+
+## Earlier implementation verification
+
 The existing branch fsa_ANNT_25/feature/237-keycloak-tokens was updated by pulling
 origin/develop at 352987ba (merge ed227d7). This replaces the October six-service
 evidence: the current resource servers are user, catalog, commerce, auction,
