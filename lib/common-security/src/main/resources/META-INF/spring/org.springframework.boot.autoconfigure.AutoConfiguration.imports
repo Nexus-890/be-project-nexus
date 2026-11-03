@@ -1,2 +1,3 @@
 com.group5.common_security.autoconfigure.SecurityAutoConfiguration
+com.group5.common_security.autoconfigure.JpaAuditingAutoConfiguration
 

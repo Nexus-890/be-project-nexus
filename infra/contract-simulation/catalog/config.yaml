@@ -1,0 +1,10 @@
+version: 1
+name: Catalog response envelope contract
+slug: catalog-envelope-contract
+protocol: http
+port: 4958
+interceptRequests: true
+scenarios:
+  - name: default
+    path: ./default.js
+    default: true

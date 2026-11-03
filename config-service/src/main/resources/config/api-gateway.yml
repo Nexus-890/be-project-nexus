@@ -116,6 +116,45 @@ nexus:
       - method: POST
         path: /api/v1/carts/me/items
         privilege: CART.UPDATE
+      - method: PUT
+        path: /api/v1/carts/me/items/{id}
+        privilege: CART.UPDATE
+      - method: DELETE
+        path: /api/v1/carts/me/items/{id}
+        privilege: CART.REMOVE_ITEM
+      - method: POST
+        path: /api/v1/orders
+        privilege: ORDER.CREATE
+      - method: GET
+        path: /api/v1/orders/{id}/history
+        privilege: ORDER.VIEW
+      - method: POST
+        path: /api/v1/payments
+        privilege: CHECKOUT.START
+      - method: GET
+        path: /api/v1/orders
+        privilege: ORDER.LIST
+      - method: GET
+        path: /api/v1/orders/{id}
+        privilege: ORDER.VIEW
+      - method: POST
+        path: /api/v1/orders/{id}/cancel
+        privilege: ORDER.CANCEL
+      - method: GET
+        path: /api/v1/notifications
+        privilege: NOTIFICATION.VIEW
+      - method: GET
+        path: /api/v1/notifications/unread-count
+        privilege: NOTIFICATION.VIEW
+      - method: POST
+        path: /api/v1/products/{id}/images
+        privilege: PRODUCT.UPDATE
+      - method: DELETE
+        path: /api/v1/products/{id}/images/{imageId}
+        privilege: PRODUCT.UPDATE
+      - method: PUT
+        path: /api/v1/products/{id}/images/order
+        privilege: PRODUCT.UPDATE
   gateway:
     rate-limit:
       # Có thể đổi qua Config Server và /actuator/refresh; đủ cho polling 2 giây.

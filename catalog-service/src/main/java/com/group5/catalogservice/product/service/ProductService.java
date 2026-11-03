@@ -9,6 +9,9 @@ import com.group5.catalogservice.product.dto.response.SkuResponse;
 import com.group5.catalogservice.product.entity.ProductImage;
 import com.group5.catalogservice.product.entity.Skus;
 import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import java.time.OffsetDateTime;
 import com.group5.catalogservice.product.OrderReferenceChecker;
 import com.group5.catalogservice.shared.config.CatalogProperties;
@@ -18,7 +21,7 @@ import com.group5.catalogservice.product.repository.ProductRepository;
 import com.group5.catalogservice.category.Category;
 import com.group5.catalogservice.category.CategoryRepository;
 import com.group5.catalogservice.shared.util.ProductSlugGenerator;
-import com.group5.common_core.constant.ErrorCode;
+import com.group5.catalogservice.shared.exception.CatalogErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
 import java.util.UUID;
@@ -43,17 +46,17 @@ public class ProductService {
     public void deleteProduct(UUID id, CurrentUser currentUser) {
         requirePrivilege(currentUser, "PRODUCT.DELETE");
         if (!currentUser.hasRole("SELLER") && !currentUser.hasRole("ADMIN")) {
-            throw new DomainException(ErrorCode.UNAUTHORIZED);
+            throw new DomainException(CatalogErrorCode.UNAUTHORIZED);
         }
 
         Product product = productRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new DomainException(ErrorCode.PRODUCT_NOT_FOUND));
+                .orElseThrow(() -> new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND));
         if (!product.getSellerId().equals(currentUser.id())) {
-            throw new DomainException(ErrorCode.UNAUTHORIZED);
+            throw new DomainException(CatalogErrorCode.UNAUTHORIZED);
         }
         if (!catalogProperties.isAllowProductDeleteWithOrder()
                 && orderReferenceChecker.hasOrderReferences(id)) {
-            throw new DomainException(ErrorCode.PRODUCT_HAS_ORDERS);
+            throw new DomainException(CatalogErrorCode.PRODUCT_HAS_ORDERS);
         }
 
         product.setDeletedAt(OffsetDateTime.now());
@@ -70,7 +73,7 @@ public class ProductService {
         //tìm category theo Id_category truyền xuống
         Category category = categoryRepository
                 .findByIdAndDeletedAtIsNull(request.getCategoryId())
-                .orElseThrow(() -> new DomainException(ErrorCode.CATEGORY_NOT_FOUND));
+                .orElseThrow(() -> new DomainException(CatalogErrorCode.CATEGORY_NOT_FOUND));
 
 
         String name = request.getName().trim();
@@ -101,7 +104,7 @@ public class ProductService {
         log.info("Updating product: name={}", request.getName(), currentUser.id());
         Product product = findEditableProduct(product_id, currentUser);
         Category category = categoryRepository.findByIdAndDeletedAtIsNull(request.getCategoryId())
-                .orElseThrow(() -> new DomainException(ErrorCode.CATEGORY_NOT_FOUND));
+                .orElseThrow(() -> new DomainException(CatalogErrorCode.CATEGORY_NOT_FOUND));
 
 
         product.setName(request.getName().trim());
@@ -120,7 +123,7 @@ public class ProductService {
         Product product = productRepository
                 .findByIdAndStatusAndDeletedAtIsNull(id, ProductStatus.ACTIVE)
                 .orElseThrow(() ->
-                        new DomainException(ErrorCode.PRODUCT_NOT_FOUND));
+                        new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND));
 
         return toDetailResponse(product);
     }
@@ -134,17 +137,17 @@ public class ProductService {
 
 
         if (categoryId == null) {
-            return productRepository.findProductResponsesByStatus(
+            return attachImages(productRepository.findProductResponsesByStatus(
                     ProductStatus.ACTIVE,
                     pageable
-            );
+            ));
         }
 
-        return productRepository.findProductResponsesByCategory(
+        return attachImages(productRepository.findProductResponsesByCategory(
                 categoryId,
                 ProductStatus.ACTIVE,
                 pageable
-        );
+        ));
     }
 
     @Transactional(readOnly = true)
@@ -168,21 +171,34 @@ public class ProductService {
         log.debug("Finished getting seller products: sellerId={}, totalElements={}",
                 sellerId, responses.getTotalElements());
 
-        return responses;
+        return attachImages(responses);
+    }
+
+    private Page<ProductResponse> attachImages(Page<ProductResponse> page) {
+        if (!page.isEmpty()) {
+            Map<UUID, List<ImageResponse>> imagesByProduct = productRepository.findImagesForProducts(
+                            page.getContent().stream().map(ProductResponse::getId).toList()).stream()
+                    .collect(Collectors.groupingBy(image -> image.getProduct().getId(),
+                            Collectors.mapping(image -> new ImageResponse(image.getId(), image.getImageUrl(),
+                                    image.getSortOrder()), Collectors.toList())));
+            page.forEach(product -> product.setImages(List.copyOf(
+                    imagesByProduct.getOrDefault(product.getId(), List.of()))));
+        }
+        return page;
     }
 
     private void validatePagination(int page, int size) {
         if (page < 0 || size < 1) {
-            throw new DomainException(ErrorCode.DATA_INVALID);
+            throw new DomainException(CatalogErrorCode.DATA_INVALID);
         }
     }
     //method này để check xem đún owner product khum
     private Product findEditableProduct(UUID product_id, CurrentUser currentUser) {
         requirePrivilege(currentUser, "PRODUCT.UPDATE");
         Product product = productRepository.findByIdAndDeletedAtIsNull(product_id)
-                .orElseThrow(() -> new DomainException(ErrorCode.PRODUCT_NOT_FOUND));
+                .orElseThrow(() -> new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND));
         if (!currentUser.hasRole("ADMIN") && !product.getSellerId().equals(currentUser.id())) {
-            throw new DomainException(ErrorCode.UNAUTHORIZED);
+            throw new DomainException(CatalogErrorCode.UNAUTHORIZED);
         }
         return product;
     }
@@ -196,7 +212,7 @@ public class ProductService {
 
         if (!previousStatus.canTransitionTo(targetStatus)) {
             throw new DomainException(
-                    ErrorCode.INVALID_PRODUCT_STATUS_TRANSITION
+                    CatalogErrorCode.INVALID_PRODUCT_STATUS_TRANSITION
             );
         }
 
@@ -214,11 +230,11 @@ public class ProductService {
     //method check authen autho
     private void requirePrivilege(CurrentUser currentUser, String privilege) {
         if (currentUser == null) {
-            throw new DomainException(ErrorCode.UNAUTHENTICATED);
+            throw new DomainException(CatalogErrorCode.UNAUTHENTICATED);
         }
 
         if (!currentUser.hasPrivilege(privilege)) {
-            throw new DomainException(ErrorCode.UNAUTHORIZED);
+            throw new DomainException(CatalogErrorCode.UNAUTHORIZED);
         }
     }
     //product thường

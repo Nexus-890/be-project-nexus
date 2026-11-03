@@ -39,8 +39,19 @@ nexus:
       - method: GET
         path: /swagger-ui/**
   catalog:
+    max-product-images: ${MAX_PRODUCT_IMAGES:5}
     category-max-level: 3
     category-tree:
       sort-type: NAME_ASC
     allow-category-delete-with-product: false
     allow-product-delete-with-order: false
+    order-references:
+      mode: http
+      base-url: ${COMMERCE_SERVICE_URL:http://localhost:8083}
+      connect-timeout-millis: 1000
+      read-timeout-millis: 3000
+  storage:
+    supabase-url: ${SUPABASE_URL:}
+    service-key: ${SUPABASE_SERVICE_KEY:}
+    bucket: ${SUPABASE_BUCKET:product-images}
+    max-file-size: ${MAX_IMAGE_FILE_SIZE:5MB}

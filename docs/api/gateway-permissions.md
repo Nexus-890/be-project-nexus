@@ -1,5 +1,13 @@
 # Gateway permissions
 
+The delivered JSON response/error contract introduced by #248 is documented in
+[ADR-008](../adr/ADR-008-api-contract.md), the [style guide](style-guide.md), and
+[`openapi/`](openapi/). Its 24 delivered application operations use `{data,page?}`
+and symbolic Problem Details `code` values. The older **#88 draft** below retains
+its original scope and historical contract; its former page/error-shape text does
+not override #248 for already delivered endpoints. Access-policy rows remain the
+source of truth for gateway privilege registration.
+
 This document contains the active gateway policy table and the #88 API-shape
 draft contracts below. A draft contract does not expose a runtime endpoint. Every
 issue enabling or changing a runtime endpoint must update this document and the endpoint policy
@@ -39,10 +47,29 @@ independently, as required by ADR-006.
 | `/api/v1/categories/{id}` | PATCH | CATEGORY.UPDATE | #80 — Category create, update and read                  |
 | `/api/v1/categories/{id}` | DELETE | CATEGORY.DELETE | #82 — Category delete guard                             |
 | `/api/v1/products/{id}/skus` | POST | PRODUCT.UPDATE | #86 — SKU create, update and read                       |
+| `/api/v1/products/{id}/images` | POST | PRODUCT.UPDATE | #122 — Product image upload; service requires SELLER and product ownership |
+| `/api/v1/products/{id}/images/{imageId}` | DELETE | PRODUCT.UPDATE | #123 — Delete an image; service requires SELLER and product ownership |
+| `/api/v1/products/{id}/images/order` | PUT | PRODUCT.UPDATE | #123 — Reorder images; service requires SELLER and product ownership |
 | `/api/v1/skus/{id}` | PUT | PRODUCT.UPDATE | #86 — SKU create, update and read                       |
 | `/api/v1/carts/me` | GET | CART.VIEW | #110 — Cart: get-or-create and add item                 |
 | `/api/v1/carts/me/items` | POST | CART.UPDATE | #110 — Cart: get-or-create and add item                 |
+| `/api/v1/carts/me/items/{id}` | PUT | CART.UPDATE | #111 — Cart: update and remove item                     |
+| `/api/v1/carts/me/items/{id}` | DELETE | CART.REMOVE_ITEM | #111 — Cart: update and remove item                     |
+| `/api/v1/notifications` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
+| `/api/v1/notifications/unread-count` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
+| `/api/v1/orders` | POST | ORDER.CREATE | #113 — Order creation from a cart; service also requires CHECKOUT.START |
+| `/api/v1/payments` | POST | CHECKOUT.START | #121 — Buyer reads own order group's immutable payment session |
+| `/api/v1/orders/{id}/history` | GET | ORDER.VIEW | #116 — Order state machine and status history |
+| `/api/v1/orders` | GET | ORDER.LIST | #117 — Order read endpoints; the caller's own orders only |
+| `/api/v1/orders/{id}` | GET | ORDER.VIEW | #117 — Order read endpoints; the owner or ADMIN |
+| `/api/v1/orders/{id}/cancel` | POST | ORDER.CANCEL | #189 — Order cancellation; the buyer, ADMIN or SUPPORT_STAFF |
 | Any other path | Any other method/path pair | Token required; add the SRS privilege before exposing a new endpoint | Gateway JWT filter and permit list; future owning issue |
+
+PAY-01 is owned by payment-service at `POST /api/v1/payments` (#121), with
+the Buyer actor and `CHECKOUT.START` privilege. Its explicit issue contract is
+HTTP 201 with `ApiResponse<PaymentInitResponse>` and numeric whole-VND `data.amount`.
+See `openapi/payment-service.yaml`. The old per-order payment operation in
+the #88 commerce mock is superseded; it is not a runtime payment endpoint.
 
 `GET /api/v1/users/{id}` (#76) has no row on purpose: a caller may read their own
 record without `USER.VIEW`, which the gateway cannot decide. Any valid token passes
@@ -67,10 +94,10 @@ the gateway and user-service allows the caller's own id or `USER.VIEW`.
   `USER_SERVICE_JWKS_URI` for the deployment network. The reactive decoder caches
   public keys; validation does not call the login API or loop through gateway.
 - Missing/invalid tokens return 401 `application/problem+json` with `type`,
-  `title`, `status`, `detail`, `instance`, nonempty `traceId`, and
-  `WWW-Authenticate: Bearer`. Missing privileges return 403 in the same JSON format.
-  Details never echo tokens or decoder exceptions. The trace ID uses the active
-  tracing span, or a generated correlation ID when tracing is unavailable.
+  `title`, `status`, `detail`, `instance`, `code: UNAUTHENTICATED`, and
+  `WWW-Authenticate: Bearer`. Missing privileges return 403 with `code: FORBIDDEN`
+  in the same JSON format. Details never echo tokens or decoder exceptions.
+  `traceId` uses the active tracing span and is omitted when tracing is unavailable.
 - No security session is created. Existing routes forward the bearer header;
   authenticated unknown paths keep the existing route/fallback behavior.
 
@@ -106,8 +133,9 @@ References: [ADR-006](../adr/ADR-006-service-authentication-RS256.md),
 These **14 method/path contracts are fixed for callers**, while DTO field names
 remain drafts (`0.1.0-draft`). This section is the permission handoff for the
 [commerce contract](commerce-service.yaml) and
-[notification contract](notification-service.yaml), not an assertion that the
-runtime gateway already enforces them. The active table above is unchanged.
+[notification contract](notification-service.yaml). The active table above
+includes the two GET notification endpoints implemented by #108. Other draft
+rows do not assert that their runtime endpoints exist.
 Each method/path appears exactly once in the draft table; none is public.
 
 The gateway dependency is present in the branch history: merge commit `f67e7a3`
@@ -151,8 +179,8 @@ Preserve the nine public method/path pairs above; none of these 14 paths is publ
 | GET | `/api/v1/orders` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.LIST | ORDER.LIST | Own orders only, including for ADMIN; not a global admin list | #117 |
 | GET | `/api/v1/orders/{id}` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #117 |
 | GET | `/api/v1/orders/{id}/history` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #116 |
-| PATCH | `/api/v1/orders/{id}/status` | ADMIN | token only | none (role-only) | Service requires ADMIN; only PENDING to PAID or CANCELED; audit actor and reason | #116 |
-| POST | `/api/v1/orders/{id}/payment` | BUYER | CHECKOUT.START | CHECKOUT.START | Own PENDING order only; repeated call returns the same instructions | #120, #121 |
+| PATCH | `/api/v1/orders/{id}/status` | ADMIN | token only | none (role-only) | Service requires ADMIN; moves follow the order transition table, other moves return 409; audit actor and reason | #116 |
+| POST | `/api/v1/payments` | BUYER | CHECKOUT.START | CHECKOUT.START | Own PENDING group/session before dueAt; repeated call returns the same instructions | #120, #121 |
 | GET | `/api/v1/notifications` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notifications only, including for ADMIN | #108 |
 | GET | `/api/v1/notifications/unread-count` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Count own unread notifications only | #108 |
 | PATCH | `/api/v1/notifications/{id}/read` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notification only; other caller returns 403 | #109 |
@@ -193,6 +221,9 @@ Prism cannot prove any of these runtime security properties.
   number requirement. Preserve both fractional digits on the wire; never convert
   these values to JavaScript `Number` for authoritative money calculations.
   Shipping, tax, discounts and totals are server supplied.
+  The updated #121 endpoint `POST /api/v1/payments` follows its explicit response
+  example: `amount` is a numeric whole-VND value, limited to 13 digits. It does
+  not change the older #88 mock monetary fields described above.
 - **Idempotency:** order creation requires UUID `Idempotency-Key`; a new order is
   201, an identical caller/payload retry is 200 with the same order, and a changed
   payload with the same key is 409. A key belonging to another caller returns

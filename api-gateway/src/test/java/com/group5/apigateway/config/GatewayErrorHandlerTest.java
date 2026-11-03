@@ -38,6 +38,7 @@ class GatewayErrorHandlerTest {
                 .isEqualTo("42");
         assertThat(exchange.getResponse().getBodyAsString().block())
                 .contains("\"status\":429")
+                .contains("\"code\":\"RATE_LIMITED\"")
                 .contains("Too Many Requests")
                 .contains("/api/products");
     }
@@ -56,6 +57,7 @@ class GatewayErrorHandlerTest {
                 .isEqualTo(MediaType.APPLICATION_PROBLEM_JSON);
         assertThat(exchange.getResponse().getBodyAsString().block())
                 .contains("\"status\":503")
+                .contains("\"code\":\"SERVICE_UNAVAILABLE\"")
                 .contains("Service Unavailable");
     }
 }
