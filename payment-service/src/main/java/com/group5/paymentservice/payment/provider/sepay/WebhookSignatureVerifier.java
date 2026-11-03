@@ -1,4 +1,4 @@
-package com.group5.paymentservice.payment;
+package com.group5.paymentservice.payment.provider.sepay;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;

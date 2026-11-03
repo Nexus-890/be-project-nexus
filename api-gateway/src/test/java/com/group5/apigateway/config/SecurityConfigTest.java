@@ -111,6 +111,16 @@ class SecurityConfigTest {
     }
 
     @Test
+    void markingNotificationsRequiresBearerTokenAtTheGateway() {
+        for (String path : List.of("/api/v1/notifications/" + ID + "/read", "/api/v1/notifications/read-all")) {
+            client.patch().uri(path).exchange().expectStatus().isUnauthorized()
+                    .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
+                    .expectBody().jsonPath("$.code").isEqualTo("UNAUTHENTICATED");
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+    }
+
+    @Test
     void validProfileTokenReturns200AndForwardsOriginalBearerToService() {
         String bearer = "Bearer " + token(SIGNING_KEY, c -> c.claim("privileges", List.of("PROFILE.VIEW")));
         client.get().uri(ME).header(HttpHeaders.AUTHORIZATION, bearer).exchange()
@@ -171,6 +181,21 @@ class SecurityConfigTest {
         }
         assertThat(SERVICE_LOG).containsExactly("GET /api/v1/orders/manage", "GET /api/v1/orders/sales");
         assertThat(FORWARDED_TOKENS).containsExactly(listPrivilege, listPrivilege);
+    }
+
+    @Test
+    void paymentInitiationRequiresCheckoutPrivilegeAndForwardsBuyerBearer() {
+        String path = "/api/v1/payments";
+        client.post().uri(path).exchange().expectStatus().isUnauthorized();
+        String withoutPrivilege = "Bearer " + token(SIGNING_KEY, c -> { });
+        client.post().uri(path).header(HttpHeaders.AUTHORIZATION, withoutPrivilege)
+                .exchange().expectStatus().isForbidden();
+        assertThat(SERVICE_LOG).isEmpty();
+        String buyer = "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of("BUYER"))
+                .claim("privileges", List.of("CHECKOUT.START")));
+        client.post().uri(path).header(HttpHeaders.AUTHORIZATION, buyer).exchange().expectStatus().isOk();
+        assertThat(SERVICE_LOG).containsExactly("POST " + path);
+        assertThat(FORWARDED_TOKENS).containsExactly(buyer);
     }
 
     @Test
@@ -258,7 +283,7 @@ class SecurityConfigTest {
             if (endpoint.isPublic()) {
                 continue;
             }
-            String path = endpoint.path().replace("{id}", ID);
+            String path = endpoint.path().replace("{id}", ID).replace("{imageId}", ID);
             int requests = SERVICE_LOG.size();
             client.method(endpoint.method()).uri(path)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY, c -> { }))
@@ -381,7 +406,8 @@ class SecurityConfigTest {
                     .path("/api/v1/auth/**", "/api/v1/users/**", "/api/v1/products/**",
                             "/api/v1/categories/**", "/api/v1/skus/**", "/api/v1/carts/**",
                             "/api/v1/orders", "/api/v1/orders/**",
-                            "/api/v1/notifications", "/api/v1/notifications/**", "/.well-known/**")
+                            "/api/v1/notifications", "/api/v1/notifications/**", "/.well-known/**",
+                            "/api/v1/payments", "/api/v1/payments/**")
                     .uri("http://127.0.0.1:" + DOWNSTREAM.getAddress().getPort())).build();
         }
     }

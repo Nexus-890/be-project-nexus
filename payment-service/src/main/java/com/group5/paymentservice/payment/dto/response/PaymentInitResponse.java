@@ -1,4 +1,4 @@
-package com.group5.paymentservice.payment.dto;
+package com.group5.paymentservice.payment.dto.response;
 
 import java.math.BigDecimal;
 import java.time.Instant;
