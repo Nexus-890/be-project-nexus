@@ -17,16 +17,25 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.*;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class ApiProblemContractTest {
+    private static final UUID SKU = UUID.fromString("c8000000-0000-4000-8000-000000000003");
+    private static final ErrorCode PRICE_CHANGED = new ErrorCode() {
+        public String code() { return "TEST_PRICE_CHANGED"; }
+        public HttpStatus status() { return HttpStatus.CONFLICT; }
+        public String message() { return "Price changed"; }
+    };
     private MockMvc mvc;
     @BeforeEach void setup() {
         mvc = MockMvcBuilders.standaloneSetup(new Fixture())
@@ -84,6 +93,45 @@ class ApiProblemContractTest {
                 .andExpect(jsonPath("$.detail").value("Already exists"));
     }
 
+    @Test void domainExtensionsAreTopLevelProblemFieldsAndPreserveDecimalPrices() throws Exception {
+        mvc.perform(get("/price-changed")).andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("TEST_PRICE_CHANGED"))
+                .andExpect(jsonPath("$.skuId").value(SKU.toString()))
+                .andExpect(jsonPath("$.oldPrice").value(150000.5))
+                .andExpect(jsonPath("$.newPrice").value(180000.75))
+                .andExpect(jsonPath("$.data").doesNotExist())
+                .andExpect(jsonPath("$.properties").doesNotExist());
+    }
+
+    @Test void domainExtensionsCannotReplaceProblemMetadata() throws Exception {
+        mvc.perform(get("/domain-reserved")).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("urn:problem:domain-error"))
+                .andExpect(jsonPath("$.title").value("Conflict"))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.detail").value("Price changed"))
+                .andExpect(jsonPath("$.instance").value("/domain-reserved"))
+                .andExpect(jsonPath("$.code").value("TEST_PRICE_CHANGED"))
+                .andExpect(jsonPath("$.traceId").doesNotExist())
+                .andExpect(jsonPath("$.errors").doesNotExist())
+                .andExpect(jsonPath("$.skuId").value(SKU.toString()));
+    }
+
+    @Test void domainExtensionPropertiesAreCopiedAndImmutableAndLegacyConstructorsRemainEmpty() {
+        Map<String, Object> properties = new LinkedHashMap<>(priceChangeProperties());
+        DomainException error = new DomainException(PRICE_CHANGED, PRICE_CHANGED.message(), properties);
+        properties.clear();
+
+        assertThat(error.getProperties()).containsAllEntriesOf(priceChangeProperties());
+        assertThatThrownBy(() -> error.getProperties().put("newPrice", BigDecimal.ZERO))
+                .isInstanceOf(UnsupportedOperationException.class);
+        for (DomainException legacy : List.of(new DomainException(PRICE_CHANGED),
+                new DomainException(PRICE_CHANGED, "Custom detail"), new DomainException(409, "Conflict"),
+                new DomainException("Unexpected error"))) {
+            assertThat(legacy.getProperties()).isEmpty();
+        }
+    }
+
     @Test void frameworkFailuresRemainProblemJsonAndInternalDetailsAreHidden() throws Exception {
         mvc.perform(post("/validate").contentType(MediaType.APPLICATION_JSON).content("{"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST_BODY"));
@@ -103,12 +151,25 @@ class ApiProblemContractTest {
     }
 
     record Input(@NotBlank String name, @Email String email, @Positive int quantity) { }
+    private static Map<String, Object> priceChangeProperties() {
+        return Map.of("skuId", SKU, "oldPrice", new BigDecimal("150000.50"), "newPrice", new BigDecimal("180000.75"));
+    }
     @RestController static class Fixture {
         @GetMapping("/single") ApiResponse<?> single() { return ApiResponse.of(Map.of("id", "one")); }
         @GetMapping("/list") ApiResponse<?> list() { return ApiResponse.list(List.of()); }
         @PostMapping("/validate") ApiResponse<?> validate(@Valid @RequestBody Input input) { return ApiResponse.of(input); }
         @GetMapping("/uuid/{id}") ApiResponse<?> uuid(@PathVariable UUID id) { return ApiResponse.of(id); }
         @GetMapping("/unexpected") ApiResponse<?> unexpected() { throw new IllegalStateException("secret-database-detail"); }
+        @GetMapping("/price-changed") ApiResponse<?> priceChanged() {
+            throw new DomainException(PRICE_CHANGED, PRICE_CHANGED.message(), priceChangeProperties());
+        }
+        @GetMapping("/domain-reserved") ApiResponse<?> reservedDomainProperties() {
+            Map<String, Object> properties = new LinkedHashMap<>(priceChangeProperties());
+            properties.putAll(Map.of("type", "urn:problem:fake", "title", "Fake title", "status", 200,
+                    "detail", "Fake detail", "instance", "/fake", "code", "FAKE_CODE", "traceId", "fake-trace",
+                    "errors", List.of("fake-error")));
+            throw new DomainException(PRICE_CHANGED, PRICE_CHANGED.message(), properties);
+        }
         @GetMapping("/domain") ApiResponse<?> domain() {
             throw new DomainException(new ErrorCode() {
                 public String code() { return "TEST_DUPLICATE"; }

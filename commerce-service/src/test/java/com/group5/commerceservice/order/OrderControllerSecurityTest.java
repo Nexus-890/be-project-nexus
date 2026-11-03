@@ -1,6 +1,7 @@
 package com.group5.commerceservice.order;
 
 import com.group5.commerceservice.order.controller.OrderController;
+import com.group5.commerceservice.order.dto.request.CancelOrderRequest;
 import com.group5.commerceservice.order.dto.request.ChangeOrderStatusRequest;
 import com.group5.commerceservice.order.service.OrderService;
 import com.group5.common_security.CurrentUser;
@@ -85,6 +86,21 @@ class OrderControllerSecurityTest {
         assertThatThrownBy(() -> controller.listOwn(caller, null, 0, 10))
                 .isInstanceOf(AccessDeniedException.class);
         verify(orderService, never()).listOwn(any(), any(), anyInt(), anyInt());
+    }
+
+    @Test
+    void cancellingNeedsOrderCancel() {
+        CurrentUser seller = authenticate(Set.of("SELLER"), "ROLE_SELLER", "ORDER.VIEW", "ORDER.LIST");
+        CancelOrderRequest request = new CancelOrderRequest("Changed my mind");
+
+        assertThatThrownBy(() -> controller.cancel(seller, UUID.randomUUID(), request))
+                .isInstanceOf(AccessDeniedException.class);
+        verify(orderService, never()).cancel(any(), any(), any());
+
+        CurrentUser buyer = authenticate(Set.of("BUYER"), "ROLE_BUYER", "ORDER.CANCEL");
+        UUID orderId = UUID.randomUUID();
+        controller.cancel(buyer, orderId, request);
+        verify(orderService).cancel(buyer, orderId, request);
     }
 
     private static CurrentUser authenticate(Set<String> roles, String... authorities) {

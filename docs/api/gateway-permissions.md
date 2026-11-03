@@ -47,18 +47,31 @@ independently, as required by ADR-006.
 | `/api/v1/categories/{id}` | PATCH | CATEGORY.UPDATE | #80 — Category create, update and read                  |
 | `/api/v1/categories/{id}` | DELETE | CATEGORY.DELETE | #82 — Category delete guard                             |
 | `/api/v1/products/{id}/skus` | POST | PRODUCT.UPDATE | #86 — SKU create, update and read                       |
+| `/api/v1/products/{id}/images` | POST | PRODUCT.UPDATE | #122 — Product image upload; service requires SELLER and product ownership |
+| `/api/v1/products/{id}/images/{imageId}` | DELETE | PRODUCT.UPDATE | #123 — Delete an image; service requires SELLER and product ownership |
+| `/api/v1/products/{id}/images/order` | PUT | PRODUCT.UPDATE | #123 — Reorder images; service requires SELLER and product ownership |
 | `/api/v1/skus/{id}` | PUT | PRODUCT.UPDATE | #86 — SKU create, update and read                       |
 | `/api/v1/carts/me` | GET | CART.VIEW | #110 — Cart: get-or-create and add item                 |
 | `/api/v1/carts/me/items` | POST | CART.UPDATE | #110 — Cart: get-or-create and add item                 |
+| `/api/v1/carts/me/items/{id}` | PUT | CART.UPDATE | #111 — Cart: update and remove item                     |
+| `/api/v1/carts/me/items/{id}` | DELETE | CART.REMOVE_ITEM | #111 — Cart: update and remove item                     |
 | `/api/v1/notifications` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
 | `/api/v1/notifications/unread-count` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
 | `/api/v1/notifications/{id}/read` | PATCH | NOTIFICATION.VIEW | #109 — Mark own notification as read |
 | `/api/v1/notifications/read-all` | PATCH | NOTIFICATION.VIEW | #109 — Mark all own notifications as read |
 | `/api/v1/orders` | POST | ORDER.CREATE | #113 — Order creation from a cart; service also requires CHECKOUT.START |
+| `/api/v1/payments` | POST | CHECKOUT.START | #121 — Buyer reads own order group's immutable payment session |
 | `/api/v1/orders/{id}/history` | GET | ORDER.VIEW | #116 — Order state machine and status history |
 | `/api/v1/orders` | GET | ORDER.LIST | #117 — Order read endpoints; the caller's own orders only |
 | `/api/v1/orders/{id}` | GET | ORDER.VIEW | #117 — Order read endpoints; the owner or ADMIN |
+| `/api/v1/orders/{id}/cancel` | POST | ORDER.CANCEL | #189 — Order cancellation; the buyer, ADMIN or SUPPORT_STAFF |
 | Any other path | Any other method/path pair | Token required; add the SRS privilege before exposing a new endpoint | Gateway JWT filter and permit list; future owning issue |
+
+PAY-01 is owned by payment-service at `POST /api/v1/payments` (#121), with
+the Buyer actor and `CHECKOUT.START` privilege. Its explicit issue contract is
+HTTP 201 with `ApiResponse<PaymentInitResponse>` and numeric whole-VND `data.amount`.
+See `openapi/payment-service.yaml`. The old per-order payment operation in
+the #88 commerce mock is superseded; it is not a runtime payment endpoint.
 
 `GET /api/v1/users/{id}` (#76) has no row on purpose: a caller may read their own
 record without `USER.VIEW`, which the gateway cannot decide. Any valid token passes
@@ -169,7 +182,7 @@ Preserve the nine public method/path pairs above; none of these 14 paths is publ
 | GET | `/api/v1/orders/{id}` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #117 |
 | GET | `/api/v1/orders/{id}/history` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #116 |
 | PATCH | `/api/v1/orders/{id}/status` | ADMIN | token only | none (role-only) | Service requires ADMIN; moves follow the order transition table, other moves return 409; audit actor and reason | #116 |
-| POST | `/api/v1/orders/{id}/payment` | BUYER | CHECKOUT.START | CHECKOUT.START | Own PENDING order only; repeated call returns the same instructions | #120, #121 |
+| POST | `/api/v1/payments` | BUYER | CHECKOUT.START | CHECKOUT.START | Own PENDING group/session before dueAt; repeated call returns the same instructions | #120, #121 |
 | GET | `/api/v1/notifications` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notifications only, including for ADMIN | #108 |
 | GET | `/api/v1/notifications/unread-count` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Count own unread notifications only | #108 |
 | PATCH | `/api/v1/notifications/{id}/read` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notification only; other caller returns 403 | #109 |
@@ -210,6 +223,9 @@ Prism cannot prove any of these runtime security properties.
   number requirement. Preserve both fractional digits on the wire; never convert
   these values to JavaScript `Number` for authoritative money calculations.
   Shipping, tax, discounts and totals are server supplied.
+  The updated #121 endpoint `POST /api/v1/payments` follows its explicit response
+  example: `amount` is a numeric whole-VND value, limited to 13 digits. It does
+  not change the older #88 mock monetary fields described above.
 - **Idempotency:** order creation requires UUID `Idempotency-Key`; a new order is
   201, an identical caller/payload retry is 200 with the same order, and a changed
   payload with the same key is 409. A key belonging to another caller returns
