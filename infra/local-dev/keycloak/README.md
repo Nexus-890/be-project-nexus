@@ -11,6 +11,17 @@ docker compose up -d postgres auth-service
 .\keycloak\seed-users.ps1
 ```
 
+Set `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `KEYCLOAK_PORT`,
+`KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD` and the three demo passwords before
+running these commands. Existing `.env` files created before Keycloak was added
+may be missing its administrator settings; copying `.env.example` only happens
+when `.env` does not exist.
+
+Starting Keycloak and seeding its demo users do not require `SEPAY_BANK_ACCOUNT`
+or `SEPAY_ACCOUNT_NAME`. Compose parses every service before applying profile
+selection, so these payment settings may remain blank when using auth. When
+payment-service itself starts, its configuration validation still requires them.
+
 Open `http://localhost:18080/admin` (or your `KEYCLOAK_PORT`) and select
 the `nexus` realm. The bootstrap administrator belongs to `master`; it is
 different from the demo `admin@nexus.local` user in `nexus`.
@@ -93,6 +104,7 @@ Requires Python 3 and Docker Compose. No extra Python packages or OpenSSL.
 
 ```powershell
 py -3 keycloak/test-realm.py
+py -3 keycloak/test-keycloak.py --config-only
 py -3 keycloak/test-keycloak.py
 # Full AC: also observe rejection near 15 minutes and automatic recovery.
 py -3 keycloak/test-keycloak.py --full-lockout
@@ -106,6 +118,10 @@ The offline tests compare **every** privilege and mapping with V3, check token
 mapper/security settings, and verify the host seed entry point does not execute
 dotenv contents. On Unix, they also check missing-secret handling in the Bash
 container script.
+
+The `--config-only` check uses temporary environment files to verify that both
+missing and blank payment settings allow the auth configuration to render. It
+needs the Docker Compose CLI and starts no containers or database operations.
 
 The integration test renders the real Compose configuration, then starts only
 Postgres, Keycloak and the disposable seed client in a unique test project.
