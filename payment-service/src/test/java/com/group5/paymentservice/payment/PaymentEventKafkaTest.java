@@ -42,6 +42,52 @@ class PaymentEventKafkaTest extends PaymentDatabaseTestSupport {
     @Autowired private PaymentService payments;
 
     @Test
+    void earlyCancellationDoesNotBlockItsManifestOrAnotherGroupInTheSamePartition() throws Exception {
+        UUID buyerId = UUID.randomUUID();
+        Instant created = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant due = created.plusSeconds(900);
+        UUID firstGroup = UUID.randomUUID();
+        UUID secondGroup = UUID.randomUUID();
+        var firstOrder = new CheckoutPaymentRequested.SellerOrder(UUID.randomUUID(), UUID.randomUUID(),
+                new BigDecimal("200000.00"), due, 0L);
+        var secondOrder = new CheckoutPaymentRequested.SellerOrder(UUID.randomUUID(), UUID.randomUUID(),
+                new BigDecimal("150000.00"), due, 0L);
+        var manifestA = new CheckoutPaymentRequested(firstGroup, buyerId, "VND", new BigDecimal("350000.00"),
+                due, created, 2, List.of(firstOrder, secondOrder));
+        var manifestB = new CheckoutPaymentRequested(secondGroup, buyerId, "VND", new BigDecimal("350000.00"),
+                due, created, 1, List.of(new CheckoutPaymentRequested.SellerOrder(
+                        UUID.randomUUID(), UUID.randomUUID(), new BigDecimal("350000.00"), due, 0L)));
+        var cancellation = new OrderGroupCancelled(firstGroup, buyerId, 1L, "BUYER_CANCELLED", buyerId,
+                created.plusSeconds(1), List.of(new OrderGroupCancelled.CancelledOrder(firstOrder.orderId(), 1L),
+                        new OrderGroupCancelled.CancelledOrder(secondOrder.orderId(), 1L)));
+        var canceled = new EventEnvelope<>(UUID.randomUUID(), "OrderGroupCancelled", firstGroup.toString(),
+                cancellation.cancelledAt(), "early-cancel-test", cancellation);
+        var checkoutA = new EventEnvelope<>(UUID.randomUUID(), "CheckoutPaymentRequested", firstGroup.toString(),
+                created, "early-cancel-test", manifestA);
+        var checkoutB = new EventEnvelope<>(UUID.randomUUID(), "CheckoutPaymentRequested", secondGroup.toString(),
+                created, "early-cancel-test", manifestB);
+
+        kafka.send(Topics.COMMERCE, 0, firstGroup.toString(), canceled).get(10, TimeUnit.SECONDS);
+        kafka.send(Topics.COMMERCE, 0, firstGroup.toString(), checkoutA).get(10, TimeUnit.SECONDS);
+        kafka.send(Topics.COMMERCE, 0, secondGroup.toString(), checkoutB).get(10, TimeUnit.SECONDS);
+
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
+            assertThat(jdbc.queryForObject("SELECT status::text FROM payment_sessions WHERE order_group_id = ?",
+                    String.class, firstGroup)).isEqualTo("CANCELED");
+            assertThat(jdbc.queryForObject("SELECT status::text FROM payment_sessions WHERE order_group_id = ?",
+                    String.class, secondGroup)).isEqualTo("PENDING");
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM processed_events WHERE event_id IN (?, ?, ?)",
+                    Integer.class, canceled.eventId(), checkoutA.eventId(), checkoutB.eventId())).isEqualTo(3);
+        });
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM payment_pending_cancellations WHERE order_group_id = ?",
+                Integer.class, firstGroup)).isZero();
+        var buyer = new CurrentUser(buyerId, Set.of("BUYER"), Set.of("CHECKOUT.START"));
+        assertThatThrownBy(() -> payments.initiate(buyer, firstGroup)).isInstanceOfSatisfying(
+                DomainException.class, error -> assertThat(error.getCode()).isEqualTo(409));
+        assertThat(payments.initiate(buyer, secondGroup).amount()).isEqualByComparingTo("350000");
+    }
+
+    @Test
     void kafkaDeserializesTheManifestThenAppliesCancellationUsingTheSameGroupKey() throws Exception {
         UUID groupId = UUID.randomUUID();
         UUID buyerId = UUID.randomUUID();
