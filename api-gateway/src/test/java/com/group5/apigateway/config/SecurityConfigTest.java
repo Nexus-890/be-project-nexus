@@ -145,6 +145,35 @@ class SecurityConfigTest {
     }
 
     @Test
+    void operationalOrderListsRequireOrderListBeforeForwardingToTheService() {
+        List<String> paths = List.of("/api/v1/orders/manage", "/api/v1/orders/sales");
+        for (String path : paths) {
+            client.get().uri(path).exchange().expectStatus().isUnauthorized()
+                    .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+
+        String detailPrivilege = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("privileges", List.of("ORDER.VIEW")));
+        for (String path : paths) {
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, detailPrivilege)
+                    .exchange().expectStatus().isForbidden()
+                    .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                    .expectBody().jsonPath("$.code").isEqualTo("FORBIDDEN");
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+
+        String listPrivilege = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("privileges", List.of("ORDER.LIST")));
+        for (String path : paths) {
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, listPrivilege)
+                    .exchange().expectStatus().isOk().expectBody(String.class).isEqualTo("downstream");
+        }
+        assertThat(SERVICE_LOG).containsExactly("GET /api/v1/orders/manage", "GET /api/v1/orders/sales");
+        assertThat(FORWARDED_TOKENS).containsExactly(listPrivilege, listPrivilege);
+    }
+
+    @Test
     void changingLastSignatureCharacterReturns401WithNoServiceLog() {
         String good = token(SIGNING_KEY, c -> c.claim("privileges", List.of("PROFILE.VIEW")));
         // RSA-2048 signatures end in two significant base64url bits; changing only

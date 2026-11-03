@@ -103,6 +103,113 @@ class OrderResponseContractTest {
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("COMMERCE_ORDER_NOT_FOUND"));
     }
 
+    @Test void managementRouteBindsEveryFilterAndKeepsPageBesideData() throws Exception {
+        UUID buyerId = UUID.randomUUID();
+        UUID sellerId = UUID.randomUUID();
+        OffsetDateTime from = OffsetDateTime.parse("2026-11-01T00:00:00+07:00");
+        OffsetDateTime to = OffsetDateTime.parse("2026-11-03T23:59:59+07:00");
+        var order = new OrderResponse(id, "NX-MANAGE", sellerId, OrderStatus.PAID,
+                new BigDecimal("150000.00"), List.of());
+        when(service.listManaged(user, buyerId, sellerId, OrderStatus.PAID, OrderType.AUCTION, from, to, 1, 2))
+                .thenReturn(new PageImpl<>(List.of(order), PageRequest.of(1, 2), 3));
+
+        mvc.perform(get("/api/v1/orders/manage")
+                        .param("userId", buyerId.toString()).param("sellerId", sellerId.toString())
+                        .param("status", "PAID").param("orderType", "AUCTION")
+                        .param("from", from.toString()).param("to", to.toString())
+                        .param("page", "1").param("size", "2"))
+                .andExpect(status().isOk()).andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value(0)).andExpect(jsonPath("$.message").value("response success"))
+                .andExpect(jsonPath("$.data[0].orderId").value(id.toString()))
+                .andExpect(jsonPath("$.data[0].sellerId").value(sellerId.toString()))
+                .andExpect(jsonPath("$.page.number").value(1)).andExpect(jsonPath("$.page.size").value(2))
+                .andExpect(jsonPath("$.page.totalElements").value(3)).andExpect(jsonPath("$.page.totalPages").value(2))
+                .andExpect(jsonPath("$.data.content").doesNotExist());
+
+        verify(service).listManaged(user, buyerId, sellerId, OrderStatus.PAID, OrderType.AUCTION, from, to, 1, 2);
+        verify(service, never()).getOrder(any(), any());
+    }
+
+    @Test void salesRouteBindsItsFiltersWithoutAcceptingACallerSuppliedSellerScope() throws Exception {
+        OffsetDateTime from = OffsetDateTime.parse("2026-11-01T00:00:00Z");
+        OffsetDateTime to = OffsetDateTime.parse("2026-11-03T23:59:59Z");
+        var order = new OrderResponse(id, "NX-SALES", user.id(), OrderStatus.PENDING,
+                new BigDecimal("150000.00"), List.of());
+        when(service.listSales(user, OrderStatus.PENDING, from, to, 0, 5))
+                .thenReturn(new PageImpl<>(List.of(order), PageRequest.of(0, 5), 1));
+
+        mvc.perform(get("/api/v1/orders/sales").param("status", "PENDING")
+                        .param("from", from.toString()).param("to", to.toString()).param("size", "5")
+                        .param("sellerId", UUID.randomUUID().toString()).param("userId", UUID.randomUUID().toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data[0].orderId").value(id.toString()))
+                .andExpect(jsonPath("$.page.number").value(0)).andExpect(jsonPath("$.page.size").value(5))
+                .andExpect(jsonPath("$.page.totalElements").value(1)).andExpect(jsonPath("$.page.totalPages").value(1));
+
+        verify(service).listSales(user, OrderStatus.PENDING, from, to, 0, 5);
+        verify(service, never()).getOrder(any(), any());
+    }
+
+    @Test void operationalListsDefaultToPageZeroSizeTenAndReturnEmptyArrays() throws Exception {
+        var empty = new PageImpl<OrderResponse>(List.of(), PageRequest.of(0, 10), 0);
+        when(service.listManaged(user, null, null, null, null, null, null, 0, 10)).thenReturn(empty);
+        when(service.listSales(user, null, null, null, 0, 10)).thenReturn(empty);
+
+        for (String route : List.of("/api/v1/orders/manage", "/api/v1/orders/sales")) {
+            mvc.perform(get(route)).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(0)).andExpect(jsonPath("$.message").value("response success"))
+                    .andExpect(jsonPath("$.data").isArray()).andExpect(jsonPath("$.data").isEmpty())
+                    .andExpect(jsonPath("$.page.number").value(0)).andExpect(jsonPath("$.page.size").value(10))
+                    .andExpect(jsonPath("$.page.totalElements").value(0)).andExpect(jsonPath("$.page.totalPages").value(0));
+        }
+        verify(service).listManaged(user, null, null, null, null, null, null, 0, 10);
+        verify(service).listSales(user, null, null, null, 0, 10);
+        verify(service, never()).getOrder(any(), any());
+    }
+
+    @Test void malformedListFiltersReturnProblemDetailsWithoutCallingTheService() throws Exception {
+        for (String[] filter : new String[][]{
+                {"userId", "not-a-uuid"}, {"sellerId", "not-a-uuid"}, {"status", "SHIPPING"},
+                {"orderType", "UNKNOWN"}, {"from", "2026-11-01"}, {"to", "not-a-date"},
+                {"page", "first"}, {"size", "ten"}}) {
+            mvc.perform(get("/api/v1/orders/manage").param(filter[0], filter[1]))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
+                    .andExpect(jsonPath("$.instance").value("/api/v1/orders/manage"))
+                    .andExpect(jsonPath("$.data").doesNotExist());
+        }
+        for (String[] filter : new String[][]{
+                {"status", "SHIPPING"}, {"from", "not-a-date"}, {"to", "2026-11-01"},
+                {"page", "first"}, {"size", "ten"}}) {
+            mvc.perform(get("/api/v1/orders/sales").param(filter[0], filter[1]))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"))
+                    .andExpect(jsonPath("$.instance").value("/api/v1/orders/sales"))
+                    .andExpect(jsonPath("$.data").doesNotExist());
+        }
+        verifyNoInteractions(service);
+    }
+
+    @Test void invalidListRangesExposeTheCommerceFilterError() throws Exception {
+        OffsetDateTime from = OffsetDateTime.parse("2026-11-03T00:00:00Z");
+        OffsetDateTime to = OffsetDateTime.parse("2026-11-01T00:00:00Z");
+        when(service.listManaged(user, null, null, null, null, from, to, 0, 10))
+                .thenThrow(new DomainException(CommerceErrorCode.INVALID_ORDER_FILTER));
+        when(service.listSales(user, null, from, to, 0, 10))
+                .thenThrow(new DomainException(CommerceErrorCode.INVALID_ORDER_FILTER));
+
+        for (String route : List.of("/api/v1/orders/manage", "/api/v1/orders/sales")) {
+            mvc.perform(get(route).param("from", from.toString()).param("to", to.toString()))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(jsonPath("$.code").value("COMMERCE_INVALID_ORDER_FILTER"))
+                    .andExpect(jsonPath("$.instance").value(route))
+                    .andExpect(jsonPath("$.data").doesNotExist());
+        }
+    }
+
     @Test void cancellationWrapsTheGroupAndNamesItsFailures() throws Exception {
         var order = new OrderResponse(id, "NX-TEST", user.id(), OrderStatus.CANCELED, BigDecimal.TEN, List.of());
         var group = new OrderGroupResponse(id, "CANCELED", BigDecimal.TEN, "VND", OffsetDateTime.now(), List.of(order));

@@ -132,6 +132,12 @@ nexus:
         path: /api/v1/orders
         privilege: ORDER.LIST
       - method: GET
+        path: /api/v1/orders/manage
+        privilege: ORDER.LIST
+      - method: GET
+        path: /api/v1/orders/sales
+        privilege: ORDER.LIST
+      - method: GET
         path: /api/v1/orders/{id}
         privilege: ORDER.VIEW
       - method: POST

@@ -9,6 +9,7 @@ import com.group5.commerceservice.cart.entity.CartItem;
 import com.group5.commerceservice.cart.repository.CartItemRepository;
 import com.group5.commerceservice.cart.repository.CartRepository;
 import com.group5.commerceservice.order.OrderStatus;
+import com.group5.commerceservice.order.OrderType;
 import com.group5.commerceservice.order.dto.request.CancelOrderRequest;
 import com.group5.commerceservice.order.dto.request.ChangeOrderStatusRequest;
 import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
@@ -33,6 +34,7 @@ import com.group5.common_security.CurrentUser;
 import feign.FeignException;
 import jakarta.annotation.PostConstruct;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.hibernate.exception.ConstraintViolationException;
@@ -41,6 +43,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -58,6 +62,8 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
@@ -424,6 +430,52 @@ public class OrderService {
                 ? orderRepository.findByUserIdOrderByCreatedAtDescOrderNumberDesc(user.id(), pageable)
                 : orderRepository.findByUserIdAndStatusOrderByCreatedAtDescOrderNumberDesc(user.id(), status, pageable);
         return orders.map(this::toOrderResponse);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<OrderResponse> listManaged(CurrentUser user, UUID userId, UUID sellerId, OrderStatus status,
+                                          OrderType orderType, OffsetDateTime from, OffsetDateTime to, int page, int size) {
+        requireOrderListAccess(user, "ADMIN", "SUPPORT_STAFF");
+        return findOrders(userId, sellerId, status, orderType, from, to, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<OrderResponse> listSales(CurrentUser user, OrderStatus status, OffsetDateTime from,
+                                        OffsetDateTime to, int page, int size) {
+        requireOrderListAccess(user, "SELLER");
+        return findOrders(null, user.id(), status, null, from, to, page, size);
+    }
+
+    private void requireOrderListAccess(CurrentUser user, String... roles) {
+        if (user == null || user.id() == null) {
+            throw new DomainException(CommerceErrorCode.UNAUTHENTICATED);
+        }
+        if (!user.hasPrivilege("ORDER.LIST") || Arrays.stream(roles).noneMatch(user::hasRole)) {
+            throw new DomainException(CommerceErrorCode.FORBIDDEN);
+        }
+    }
+
+    private Page<OrderResponse> findOrders(UUID userId, UUID sellerId, OrderStatus status, OrderType orderType,
+                                           OffsetDateTime from, OffsetDateTime to, int page, int size) {
+        if (page < 0 || size < 1 || size > 100) {
+            throw new DomainException(CommerceErrorCode.INVALID_ORDER_FILTER,
+                    "page must be 0 or more and size between 1 and 100");
+        }
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new DomainException(CommerceErrorCode.INVALID_ORDER_FILTER, "from must not be after to");
+        }
+        Specification<Order> filter = (root, query, criteria) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (userId != null) predicates.add(criteria.equal(root.get("userId"), userId));
+            if (sellerId != null) predicates.add(criteria.equal(root.get("sellerId"), sellerId));
+            if (status != null) predicates.add(criteria.equal(root.get("status"), status));
+            if (orderType != null) predicates.add(criteria.equal(root.get("orderType"), orderType));
+            if (from != null) predicates.add(criteria.greaterThanOrEqualTo(root.get("createdAt"), from));
+            if (to != null) predicates.add(criteria.lessThanOrEqualTo(root.get("createdAt"), to));
+            return criteria.and(predicates.toArray(Predicate[]::new));
+        };
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "orderNumber"));
+        return orderRepository.findAll(filter, pageable).map(this::toOrderResponse);
     }
 
     private ProductResponse readProduct(UUID id) {

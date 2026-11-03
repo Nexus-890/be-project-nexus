@@ -1897,6 +1897,444 @@ paths:
                 district: "1"
                 city: "Ho Chi Minh"
                 countryCode: "VN"
+  /api/v1/orders/manage:
+    get:
+      tags: [Orders]
+      operationId: listManagedOrders
+      summary: List all orders for administration and support
+      description: "Requires ORDER.LIST and either ADMIN or SUPPORT_STAFF. Lists every stored order when filters are omitted. userId identifies the buyer. Supplied userId, sellerId, status, orderType, from and to filters combine with AND. BUYER and SELLER without an allowed management role receive 403 even with ORDER.LIST. from/to filter createdAt using ISO-8601 timestamps with an offset, inclusive at both bounds; from after to returns 400 COMMERCE_INVALID_ORDER_FILTER. Percent-encode a positive offset + as %2B, or use UTC Z. page is zero-based and defaults to 0; size defaults to 10 and must be 1 to 100. Invalid paging returns 400 COMMERCE_INVALID_ORDER_FILTER. Results sort by createdAt DESC then orderNumber DESC. Empty results and pages beyond the end return 200 with empty data and actual page totals."
+      security:
+        - bearerAuth: []
+      x-required-privileges: [ORDER.LIST]
+      x-gateway-privilege: ORDER.LIST
+      x-required-roles: [ADMIN, SUPPORT_STAFF]
+      x-ownership: "Either ADMIN or SUPPORT_STAFF; role plus ORDER.LIST. May filter any buyer and seller."
+      parameters:
+        - name: userId
+          in: query
+          required: false
+          description: "Optional buyer UUID."
+          schema: {type: string, format: uuid}
+          example: "68000000-0000-4000-8000-000000000002"
+        - name: sellerId
+          in: query
+          required: false
+          description: "Optional seller UUID."
+          schema: {type: string, format: uuid}
+          example: "68000000-0000-4000-8000-000000000003"
+        - name: status
+          in: query
+          required: false
+          description: "Optional exact order status."
+          schema: {$ref: "#/components/schemas/OrderStatus"}
+          example: "PENDING"
+        - name: orderType
+          in: query
+          required: false
+          description: "Optional exact order type."
+          schema: {type: string, enum: [STANDARD, AUCTION]}
+          example: "STANDARD"
+        - name: from
+          in: query
+          required: false
+          description: "Inclusive lower bound on createdAt; timestamp must include an offset."
+          schema: {type: string, format: date-time}
+          example: "2026-11-03T00:00:00Z"
+        - name: to
+          in: query
+          required: false
+          description: "Inclusive upper bound on createdAt; must not precede from."
+          schema: {type: string, format: date-time}
+          example: "2026-11-03T23:59:59Z"
+        - name: page
+          in: query
+          required: false
+          description: "Zero-based page number."
+          schema: {type: integer, minimum: 0, default: 0}
+          example: 0
+        - name: size
+          in: query
+          required: false
+          description: "Page size, from 1 to 100."
+          schema: {type: integer, minimum: 1, maximum: 100, default: 10}
+          example: 10
+      responses:
+        "200":
+          description: Matching orders with pagination metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderListResponse"
+              examples:
+                success:
+                  value:
+                    code: 0
+                    message: response success
+                    data:
+                      - orderId: "c8000000-0000-4000-8000-000000000005"
+                        orderNumber: NX-20261103-00000001
+                        sellerId: "68000000-0000-4000-8000-000000000003"
+                        status: PENDING
+                        totalAmount: 150000
+                        items: []
+                    page: {number: 0, size: 10, totalElements: 1, totalPages: 1}
+                empty:
+                  value:
+                    code: 0
+                    message: response success
+                    data: []
+                    page: {number: 0, size: 10, totalElements: 0, totalPages: 0}
+        "400":
+          description: "INVALID_PARAMETER, COMMERCE_INVALID_ORDER_FILTER."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [400]}
+                      code: {type: string, enum: ["INVALID_PARAMETER", "COMMERCE_INVALID_ORDER_FILTER"]}
+              examples:
+                INVALID_PARAMETER:
+                  value: {"type":"urn:problem:invalid-parameter","title":"Bad Request","status":400,"detail":"A request parameter is invalid","instance":"/api/v1/orders/manage","code":"INVALID_PARAMETER"}
+                COMMERCE_INVALID_ORDER_FILTER:
+                  value: {"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"The order list filters are invalid","instance":"/api/v1/orders/manage","code":"COMMERCE_INVALID_ORDER_FILTER"}
+        "401":
+          description: "UNAUTHENTICATED, COMMERCE_UNAUTHENTICATED."
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge for security failures; domain failures may omit it.
+              schema: {type: string, example: Bearer}
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [401]}
+                      code: {type: string, enum: ["UNAUTHENTICATED", "COMMERCE_UNAUTHENTICATED"]}
+              examples:
+                UNAUTHENTICATED:
+                  value: {"type":"urn:problem:unauthenticated","title":"Unauthorized","status":401,"detail":"A valid access token is required to access this resource","instance":"/api/v1/orders/manage","code":"UNAUTHENTICATED"}
+                COMMERCE_UNAUTHENTICATED:
+                  value: {"type":"urn:problem:domain-error","title":"Unauthorized","status":401,"detail":"Unauthenticated","instance":"/api/v1/orders/manage","code":"COMMERCE_UNAUTHENTICATED"}
+        "403":
+          description: "FORBIDDEN, COMMERCE_FORBIDDEN."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [403]}
+                      code: {type: string, enum: ["FORBIDDEN", "COMMERCE_FORBIDDEN"]}
+              examples:
+                FORBIDDEN:
+                  value: {"type":"urn:problem:forbidden","title":"Forbidden","status":403,"detail":"You do not have permission to access this resource","instance":"/api/v1/orders/manage","code":"FORBIDDEN"}
+                COMMERCE_FORBIDDEN:
+                  value: {"type":"urn:problem:domain-error","title":"Forbidden","status":403,"detail":"You do not have permission","instance":"/api/v1/orders/manage","code":"COMMERCE_FORBIDDEN"}
+        "405":
+          description: "METHOD_NOT_ALLOWED."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [405]}
+                      code: {type: string, enum: ["METHOD_NOT_ALLOWED"]}
+              examples:
+                METHOD_NOT_ALLOWED:
+                  value: {"type":"urn:problem:method-not-allowed","title":"Method Not Allowed","status":405,"detail":"The HTTP method is not supported for this endpoint","instance":"/api/v1/orders/manage","code":"METHOD_NOT_ALLOWED"}
+        "406":
+          description: "NOT_ACCEPTABLE."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [406]}
+                      code: {type: string, enum: ["NOT_ACCEPTABLE"]}
+              examples:
+                NOT_ACCEPTABLE:
+                  value: {"type":"urn:problem:not-acceptable","title":"Not Acceptable","status":406,"detail":"The requested response format is not supported","instance":"/api/v1/orders/manage","code":"NOT_ACCEPTABLE"}
+        "429":
+          description: "RATE_LIMITED."
+          headers:
+            Retry-After:
+              description: Present when supplied by the gateway limiter.
+              schema: {type: string}
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [429]}
+                      code: {type: string, enum: ["RATE_LIMITED"]}
+              examples:
+                RATE_LIMITED:
+                  value: {"type":"urn:problem:rate-limited","title":"Too Many Requests","status":429,"detail":"Too many requests; retry after the indicated delay","instance":"/api/v1/orders/manage","code":"RATE_LIMITED"}
+        "500":
+          description: "INTERNAL_ERROR."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [500]}
+                      code: {type: string, enum: ["INTERNAL_ERROR"]}
+              examples:
+                INTERNAL_ERROR:
+                  value: {"type":"urn:problem:internal-error","title":"Internal Server Error","status":500,"detail":"An unexpected error occurred","instance":"/api/v1/orders/manage","code":"INTERNAL_ERROR"}
+        "503":
+          description: "SERVICE_UNAVAILABLE."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [503]}
+                      code: {type: string, enum: ["SERVICE_UNAVAILABLE"]}
+              examples:
+                SERVICE_UNAVAILABLE:
+                  value: {"type":"urn:problem:service-unavailable","title":"Service Unavailable","status":503,"detail":"A required service is unavailable","instance":"/api/v1/orders/manage","code":"SERVICE_UNAVAILABLE"}
+        "504":
+          description: "GATEWAY_TIMEOUT."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [504]}
+                      code: {type: string, enum: ["GATEWAY_TIMEOUT"]}
+              examples:
+                GATEWAY_TIMEOUT:
+                  value: {"type":"urn:problem:gateway-timeout","title":"Gateway Timeout","status":504,"detail":"The service did not answer in time","instance":"/api/v1/orders/manage","code":"GATEWAY_TIMEOUT"}
+
+  /api/v1/orders/sales:
+    get:
+      tags: [Orders]
+      operationId: listSalesOrders
+      summary: List orders sold by the current seller
+      description: "Requires ORDER.LIST and SELLER. Lists only orders whose persisted seller_id equals the validated JWT subject. Supplied status, from and to filters combine with AND; no userId, sellerId or orderType selector is supported. BUYER receives 403 even with ORDER.LIST. from/to filter createdAt using ISO-8601 timestamps with an offset, inclusive at both bounds; from after to returns 400 COMMERCE_INVALID_ORDER_FILTER. Percent-encode a positive offset + as %2B, or use UTC Z. page is zero-based and defaults to 0; size defaults to 10 and must be 1 to 100. Invalid paging returns 400 COMMERCE_INVALID_ORDER_FILTER. Results sort by createdAt DESC then orderNumber DESC. Empty results and pages beyond the end return 200 with empty data and actual page totals."
+      security:
+        - bearerAuth: []
+      x-required-privileges: [ORDER.LIST]
+      x-gateway-privilege: ORDER.LIST
+      x-required-roles: [SELLER]
+      x-ownership: "SELLER plus ORDER.LIST; seller_id always equals the JWT subject."
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: "Optional exact order status."
+          schema: {$ref: "#/components/schemas/OrderStatus"}
+          example: "PENDING"
+        - name: from
+          in: query
+          required: false
+          description: "Inclusive lower bound on createdAt; timestamp must include an offset."
+          schema: {type: string, format: date-time}
+          example: "2026-11-03T00:00:00Z"
+        - name: to
+          in: query
+          required: false
+          description: "Inclusive upper bound on createdAt; must not precede from."
+          schema: {type: string, format: date-time}
+          example: "2026-11-03T23:59:59Z"
+        - name: page
+          in: query
+          required: false
+          description: "Zero-based page number."
+          schema: {type: integer, minimum: 0, default: 0}
+          example: 0
+        - name: size
+          in: query
+          required: false
+          description: "Page size, from 1 to 100."
+          schema: {type: integer, minimum: 1, maximum: 100, default: 10}
+          example: 10
+      responses:
+        "200":
+          description: Matching orders with pagination metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderListResponse"
+              examples:
+                success:
+                  value:
+                    code: 0
+                    message: response success
+                    data:
+                      - orderId: "c8000000-0000-4000-8000-000000000005"
+                        orderNumber: NX-20261103-00000001
+                        sellerId: "68000000-0000-4000-8000-000000000003"
+                        status: PENDING
+                        totalAmount: 150000
+                        items: []
+                    page: {number: 0, size: 10, totalElements: 1, totalPages: 1}
+                empty:
+                  value:
+                    code: 0
+                    message: response success
+                    data: []
+                    page: {number: 0, size: 10, totalElements: 0, totalPages: 0}
+        "400":
+          description: "INVALID_PARAMETER, COMMERCE_INVALID_ORDER_FILTER."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [400]}
+                      code: {type: string, enum: ["INVALID_PARAMETER", "COMMERCE_INVALID_ORDER_FILTER"]}
+              examples:
+                INVALID_PARAMETER:
+                  value: {"type":"urn:problem:invalid-parameter","title":"Bad Request","status":400,"detail":"A request parameter is invalid","instance":"/api/v1/orders/sales","code":"INVALID_PARAMETER"}
+                COMMERCE_INVALID_ORDER_FILTER:
+                  value: {"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"The order list filters are invalid","instance":"/api/v1/orders/sales","code":"COMMERCE_INVALID_ORDER_FILTER"}
+        "401":
+          description: "UNAUTHENTICATED, COMMERCE_UNAUTHENTICATED."
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge for security failures; domain failures may omit it.
+              schema: {type: string, example: Bearer}
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [401]}
+                      code: {type: string, enum: ["UNAUTHENTICATED", "COMMERCE_UNAUTHENTICATED"]}
+              examples:
+                UNAUTHENTICATED:
+                  value: {"type":"urn:problem:unauthenticated","title":"Unauthorized","status":401,"detail":"A valid access token is required to access this resource","instance":"/api/v1/orders/sales","code":"UNAUTHENTICATED"}
+                COMMERCE_UNAUTHENTICATED:
+                  value: {"type":"urn:problem:domain-error","title":"Unauthorized","status":401,"detail":"Unauthenticated","instance":"/api/v1/orders/sales","code":"COMMERCE_UNAUTHENTICATED"}
+        "403":
+          description: "FORBIDDEN, COMMERCE_FORBIDDEN."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [403]}
+                      code: {type: string, enum: ["FORBIDDEN", "COMMERCE_FORBIDDEN"]}
+              examples:
+                FORBIDDEN:
+                  value: {"type":"urn:problem:forbidden","title":"Forbidden","status":403,"detail":"You do not have permission to access this resource","instance":"/api/v1/orders/sales","code":"FORBIDDEN"}
+                COMMERCE_FORBIDDEN:
+                  value: {"type":"urn:problem:domain-error","title":"Forbidden","status":403,"detail":"You do not have permission","instance":"/api/v1/orders/sales","code":"COMMERCE_FORBIDDEN"}
+        "405":
+          description: "METHOD_NOT_ALLOWED."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [405]}
+                      code: {type: string, enum: ["METHOD_NOT_ALLOWED"]}
+              examples:
+                METHOD_NOT_ALLOWED:
+                  value: {"type":"urn:problem:method-not-allowed","title":"Method Not Allowed","status":405,"detail":"The HTTP method is not supported for this endpoint","instance":"/api/v1/orders/sales","code":"METHOD_NOT_ALLOWED"}
+        "406":
+          description: "NOT_ACCEPTABLE."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [406]}
+                      code: {type: string, enum: ["NOT_ACCEPTABLE"]}
+              examples:
+                NOT_ACCEPTABLE:
+                  value: {"type":"urn:problem:not-acceptable","title":"Not Acceptable","status":406,"detail":"The requested response format is not supported","instance":"/api/v1/orders/sales","code":"NOT_ACCEPTABLE"}
+        "429":
+          description: "RATE_LIMITED."
+          headers:
+            Retry-After:
+              description: Present when supplied by the gateway limiter.
+              schema: {type: string}
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [429]}
+                      code: {type: string, enum: ["RATE_LIMITED"]}
+              examples:
+                RATE_LIMITED:
+                  value: {"type":"urn:problem:rate-limited","title":"Too Many Requests","status":429,"detail":"Too many requests; retry after the indicated delay","instance":"/api/v1/orders/sales","code":"RATE_LIMITED"}
+        "500":
+          description: "INTERNAL_ERROR."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [500]}
+                      code: {type: string, enum: ["INTERNAL_ERROR"]}
+              examples:
+                INTERNAL_ERROR:
+                  value: {"type":"urn:problem:internal-error","title":"Internal Server Error","status":500,"detail":"An unexpected error occurred","instance":"/api/v1/orders/sales","code":"INTERNAL_ERROR"}
+        "503":
+          description: "SERVICE_UNAVAILABLE."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [503]}
+                      code: {type: string, enum: ["SERVICE_UNAVAILABLE"]}
+              examples:
+                SERVICE_UNAVAILABLE:
+                  value: {"type":"urn:problem:service-unavailable","title":"Service Unavailable","status":503,"detail":"A required service is unavailable","instance":"/api/v1/orders/sales","code":"SERVICE_UNAVAILABLE"}
+        "504":
+          description: "GATEWAY_TIMEOUT."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [504]}
+                      code: {type: string, enum: ["GATEWAY_TIMEOUT"]}
+              examples:
+                GATEWAY_TIMEOUT:
+                  value: {"type":"urn:problem:gateway-timeout","title":"Gateway Timeout","status":504,"detail":"The service did not answer in time","instance":"/api/v1/orders/sales","code":"GATEWAY_TIMEOUT"}
+
   /api/v1/orders/{id}:
     get:
       tags:
@@ -4853,6 +5291,9 @@ x-business-error-codes:
   COMMERCE_INVALID_CONFIGURATION:
     status: 500
     detail: "Expiration-days must be greater or equal to 1"
+  COMMERCE_INVALID_ORDER_FILTER:
+    status: 400
+    detail: "The order list filters are invalid"
   COMMERCE_INVALID_ORDER_REQUEST:
     status: 400
     detail: "The order request is invalid"
