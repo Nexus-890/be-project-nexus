@@ -1,0 +1,213 @@
+openapi: 3.0.3
+info:
+  title: Nexus inventory
+  version: 1.0.0
+  description: >-
+    Issue #130 stock intake. Every 2xx body is an ApiResponse with code, message and data;
+    every error is Problem Details. Quantities are stored per SKU and warehouse in
+    inventory_balances, where total equals available plus reserved plus unavailable.
+servers:
+  - url: http://localhost:8080
+    description: API gateway
+  - url: http://localhost:8085
+    description: Inventory service
+tags:
+  - name: Stock
+    description: Receive stock into a warehouse
+paths:
+  /api/v1/inventory/intake:
+    post:
+      tags: [Stock]
+      operationId: intakeStock
+      summary: Receive stock into a warehouse
+      description: >-
+        Raises total and available by the quantity in one statement and creates the
+        balance row on the first intake of a SKU in that warehouse. When warehouseId is
+        left out, the warehouse is the one whose code is nexus.inventory.default-warehouse-code.
+        The gateway only requires a valid token; the service requires the ADMIN role.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [ADMIN]
+      x-required-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IntakeRequest'
+            example:
+              skuId: 0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a81
+              quantity: 100
+      responses:
+        '201':
+          description: Balance after the intake
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  skuId: 0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a81
+                  warehouseId: 0195f0a1-0000-7000-8000-000000000001
+                  total: 100
+                  available: 100
+                  reserved: 0
+                  unavailable: 0
+        '400':
+          description: Missing skuId or quantity, quantity 0 or less, or a malformed body
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:validation-error
+                title: Bad Request
+                status: 400
+                detail: The request data is invalid
+                instance: /api/v1/inventory/intake
+                code: VALIDATION_FAILED
+                errors:
+                  - field: quantity
+                    code: VALIDATION_POSITIVE
+                    detail: must be greater than 0
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: The caller does not have the ADMIN role
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:forbidden
+                title: Forbidden
+                status: 403
+                detail: You do not have permission to access this resource
+                instance: /api/v1/inventory/intake
+                code: FORBIDDEN
+        '404':
+          description: The given warehouseId does not exist
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Not Found
+                status: 404
+                detail: Warehouse not found
+                instance: /api/v1/inventory/intake
+                code: INVENTORY_WAREHOUSE_NOT_FOUND
+        '500':
+          description: The configured default warehouse code matches no warehouse
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Internal Server Error
+                status: 500
+                detail: The configured default warehouse does not exist
+                instance: /api/v1/inventory/intake
+                code: INVENTORY_DEFAULT_WAREHOUSE_NOT_FOUND
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    IntakeRequest:
+      type: object
+      required: [skuId, quantity]
+      properties:
+        skuId:
+          type: string
+          format: uuid
+        warehouseId:
+          type: string
+          format: uuid
+          description: Defaults to the warehouse with code nexus.inventory.default-warehouse-code
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+    BalanceApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          default: response success
+          example: response success
+        data:
+          $ref: '#/components/schemas/Balance'
+    Balance:
+      type: object
+      required: [skuId, warehouseId, total, available, reserved, unavailable]
+      properties:
+        skuId:
+          type: string
+          format: uuid
+        warehouseId:
+          type: string
+          format: uuid
+        total:
+          type: integer
+          format: int32
+          minimum: 0
+        available:
+          type: integer
+          format: int32
+          minimum: 0
+        reserved:
+          type: integer
+          format: int32
+          minimum: 0
+        unavailable:
+          type: integer
+          format: int32
+          minimum: 0
+    Problem:
+      type: object
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: string
+        traceId:
+          type: string
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationError'
+    ValidationError:
+      type: object
+      required: [field, code, detail]
+      properties:
+        field:
+          type: string
+        code:
+          type: string
+        detail:
+          type: string

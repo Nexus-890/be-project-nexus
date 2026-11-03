@@ -70,6 +70,14 @@ public class RouteConfig {
                                         .setThrowOnLimit(true)))
                         .uri("lb://notification-service"))
 
+                .route("inventory-service", route -> route
+                        .path("/api/v1/inventory/**")
+                        .filters(filters -> filters.requestRateLimiter(config ->
+                                config.setRateLimiter(limiter)
+                                        .setKeyResolver(resolver)
+                                        .setThrowOnLimit(true)))
+                        .uri("lb://inventory-service"))
+
                 .build();
     }
 
