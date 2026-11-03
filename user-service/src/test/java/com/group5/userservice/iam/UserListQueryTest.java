@@ -34,9 +34,11 @@ import javax.sql.DataSource;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 @ExtendWith(SpringExtension.class)
 @ContextConfiguration(classes = UserListQueryTest.JpaTestConfig.class)
@@ -133,6 +135,7 @@ class UserListQueryTest {
     private static void user(EntityManager entityManager, String name, String email, String phone,
                              UserStatus status, boolean deleted, Role role) {
         User user = new User();
+        user.setId(UUID.randomUUID());
         user.setFullName(name);
         user.setEmail(email);
         user.setPhone(phone);
@@ -175,7 +178,8 @@ class UserListQueryTest {
 
         @Bean
         UserService userService(UserRepository repository, PlatformTransactionManager manager) {
-            return new UserService(repository, new BCryptPasswordEncoder(4), new IamProperties(), manager);
+            return new UserService(repository, new BCryptPasswordEncoder(4), new IamProperties(),
+                    mock(KeycloakAdminClient.class), manager);
         }
     }
 }

@@ -50,6 +50,8 @@ class UserProfileServiceTest {
     private PlatformTransactionManager transactionManager;
     @Mock
     private TransactionStatus transactionStatus;
+    @Mock
+    private KeycloakAdminClient keycloak;
 
     private final IamProperties iamProperties = new IamProperties();
     private UserService userService;
@@ -58,7 +60,7 @@ class UserProfileServiceTest {
     @BeforeEach
     void setUp() {
         when(transactionManager.getTransaction(any(TransactionDefinition.class))).thenReturn(transactionStatus);
-        userService = new UserService(userRepository, passwordEncoder, iamProperties, transactionManager);
+        userService = new UserService(userRepository, passwordEncoder, iamProperties, keycloak, transactionManager);
         user = existingUser();
     }
 

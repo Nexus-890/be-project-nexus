@@ -48,6 +48,14 @@ The `nexus-web` client is public, uses Authorization Code with mandatory PKCE
 to `http://localhost:3000`. Implicit flow and password/direct grants are disabled.
 There is no client secret. Do not test this client with `grant_type=password`.
 
+The seed command also creates the confidential `user-service` client (#238) when it
+is missing and sets its secret from `KEYCLOAK_USER_SERVICE_CLIENT_SECRET`. Only its
+service account is enabled; browser, implicit and password grants are off. The
+service account holds the `realm-management` roles `manage-users`, `view-users`,
+`query-users` and `view-realm`, which user-service needs to create accounts,
+assign the registration role and read role mappings. The client is not in
+`realm-nexus.json`, so an existing realm gets it on the next seed run.
+
 Access tokens are signed with RS256 and contain:
 
 - `sub`: the imported user UUID, unchanged from the other service seeds.

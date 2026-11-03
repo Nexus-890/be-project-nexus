@@ -28,13 +28,16 @@ public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final IamProperties iamProperties;
+    private final KeycloakAdminClient keycloak;
     private final TransactionTemplate transaction;
 
     public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder,
-                       IamProperties iamProperties, PlatformTransactionManager transactionManager) {
+                       IamProperties iamProperties, KeycloakAdminClient keycloak,
+                       PlatformTransactionManager transactionManager) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.iamProperties = iamProperties;
+        this.keycloak = keycloak;
         this.transaction = new TransactionTemplate(transactionManager);
         this.transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
@@ -45,8 +48,13 @@ public class UserService {
             throw new DomainException(UserErrorCode.USER_REGISTRATION_DISABLED);
         }
         String roleCode = iamProperties.getDefaultUserRole();
+        KeycloakAdminClient.RealmRole role = keycloak.realmRole(roleCode)
+                .orElseThrow(() -> new DomainException(UserErrorCode.USER_REGISTRATION_ROLE_UNAVAILABLE));
+        transaction.executeWithoutResult(status -> rejectDuplicates(request));
+        UUID userId = keycloak.createUser(request.email(), request.password(), request.fullName());
+        keycloak.assignRealmRole(userId, role);
         try {
-            return transaction.execute(status -> createUser(request, roleCode));
+            return transaction.execute(status -> createUser(userId, request, roleCode));
         } catch (RuntimeException exception) {
             // execute() has already rolled back, including failures at commit.
             String field = duplicateField(exception);
@@ -132,8 +140,7 @@ public class UserService {
         return false;
     }
 
-    private UserResponse createUser(RegisterRequest request, String roleCode) {
-        userRepository.lockRegistrationIdentity(request.identityNumber());
+    private void rejectDuplicates(RegisterRequest request) {
         if (userRepository.existsByEmail(request.email())) {
             throw duplicate("email");
         }
@@ -143,10 +150,16 @@ public class UserService {
         if (userRepository.existsByIdentityNumber(request.identityNumber())) {
             throw duplicate("identityNumber");
         }
+    }
+
+    private UserResponse createUser(UUID userId, RegisterRequest request, String roleCode) {
+        userRepository.lockRegistrationIdentity(request.identityNumber());
+        rejectDuplicates(request);
         Role role = userRepository.findRegistrationRole(roleCode)
                 .orElseThrow(() -> new DomainException(UserErrorCode.USER_REGISTRATION_ROLE_UNAVAILABLE));
 
         User user = new User();
+        user.setId(userId);
         user.setEmail(request.email().toLowerCase());
         user.setPhone(request.phone());
         user.setPasswordHash(passwordEncoder.encode(request.password()));

@@ -2,9 +2,9 @@ package com.group5.userservice.iam;
 
 import com.group5.common_security.CurrentUserAuditor;
 import com.group5.common_security.autoconfigure.JpaAuditingAutoConfiguration;
+import com.group5.userservice.shared.KeycloakTestServer;
 import com.group5.userservice.shared.config.IamProperties;
 import com.group5.userservice.shared.PostgresTestDatabase;
-import com.nimbusds.jwt.SignedJWT;
 import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -15,7 +15,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import tools.jackson.databind.JsonNode;
@@ -42,7 +41,7 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * HTTP tests against a disposable PostgreSQL 18 Testcontainers database.
+ * HTTP tests against disposable PostgreSQL 18 and Keycloak 26.7 Testcontainers instances.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.location=optional:file:${nexus.registration.test-config}",
@@ -55,17 +54,11 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.kafka.admin.auto-create=false",
         "spring.jpa.hibernate.ddl-auto=validate",
         "spring.jpa.open-in-view=false",
-        "nexus.security.jwt.issuer=user-service",
         "nexus.security.jwt.audience=nexus-services",
-        // These tests only call public auth endpoints and the test-only refresh endpoint;
-        // no bearer token is decoded, so the JWKS URL is never contacted.
-        "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/.well-known/jwks.json",
         "nexus.security.public-endpoints[0].method=POST",
         "nexus.security.public-endpoints[0].path=/api/v1/auth/register",
         "nexus.security.public-endpoints[1].method=POST",
-        "nexus.security.public-endpoints[1].path=/api/v1/auth/login",
-        "nexus.security.public-endpoints[2].method=POST",
-        "nexus.security.public-endpoints[2].path=/actuator/refresh",
+        "nexus.security.public-endpoints[1].path=/actuator/refresh",
         "management.endpoints.web.exposure.include=health,refresh",
         "management.tracing.enabled=false",
         "spring.jpa.properties.hibernate.session_factory.statement_inspector="
@@ -82,7 +75,6 @@ class RegistrationIntegrationTest {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private Environment environment;
     @Autowired private IamProperties iamProperties;
-    @Autowired private PasswordEncoder encoder;
     @Autowired private ApplicationContext context;
     private boolean configChanged;
 
@@ -91,6 +83,10 @@ class RegistrationIntegrationTest {
         registry.add("spring.datasource.url", PostgresTestDatabase::jdbcUrl);
         registry.add("spring.datasource.username", PostgresTestDatabase::username);
         registry.add("spring.datasource.password", PostgresTestDatabase::password);
+        registry.add("nexus.keycloak.server-url", KeycloakTestServer::baseUrl);
+        registry.add("nexus.keycloak.client-secret", () -> KeycloakTestServer.CLIENT_SECRET);
+        registry.add("nexus.security.jwt.issuer", KeycloakTestServer::issuer);
+        registry.add("nexus.security.jwt.jwk-set-uri", KeycloakTestServer::jwkSetUri);
         registry.add("nexus.iam.jwt.issuer", () -> "user-service");
         registry.add("nexus.iam.jwt.audience", () -> "nexus-services");
         registry.add("nexus.iam.jwt.key-id", () -> "registration-test");
@@ -107,6 +103,7 @@ class RegistrationIntegrationTest {
                 insert into roles(code, name) values ('BUYER', 'Buyer'), ('SELLER', 'Seller')
                 on conflict (code) do nothing
                 """);
+        KeycloakTestServer.deleteRegisteredUsers();
         SqlCapture.STATEMENTS.clear();
     }
 
@@ -142,6 +139,32 @@ class RegistrationIntegrationTest {
     }
 
     @Test
+    void registrationReturns201WithTheKeycloakUserIdAsProfileId() throws Exception {
+        HttpResponse<String> response = post(REGISTER, request("buyer@nexus.test", "0901234567", "001234"));
+
+        assertThat(response.statusCode()).isEqualTo(201);
+        UUID keycloakId = KeycloakTestServer.userIdByEmail("buyer@nexus.test").orElseThrow();
+        assertThat(JSON.readTree(response.body()).get("data").get("id").asString()).isEqualTo(keycloakId.toString());
+        assertThat(jdbc.queryForObject("select id from users", UUID.class)).isEqualTo(keycloakId);
+        assertThat(KeycloakTestServer.realmRoles(keycloakId)).contains("BUYER");
+    }
+
+    @Test
+    void newAccountSignsInThroughKeycloakAndReadsItsOwnProfile() throws Exception {
+        assertThat(post(REGISTER, request("login@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+        UUID keycloakId = KeycloakTestServer.userIdByEmail("login@nexus.test").orElseThrow();
+
+        String token = KeycloakTestServer.signIn("LOGIN@NEXUS.TEST", PASSWORD);
+        HttpResponse<String> profile = get("/api/v1/users/me", token);
+
+        assertThat(profile.statusCode()).isEqualTo(200);
+        JsonNode body = JSON.readTree(profile.body()).get("data");
+        assertThat(body.get("id").asString()).isEqualTo(keycloakId.toString());
+        assertThat(body.get("email").asString()).isEqualTo("login@nexus.test");
+        assertThat(body.get("fullName").asString()).isEqualTo("Registered Buyer");
+    }
+
+    @Test
     void createsOneBuyerRoleAndNeverReturnsSecrets() throws Exception {
         HttpResponse<String> response = post(REGISTER, request("buyer@nexus.test", "0901234567", "001234"));
         assertThat(response.statusCode()).isEqualTo(201);
@@ -152,24 +175,7 @@ class RegistrationIntegrationTest {
         assertThat(body.has("identityNumber")).isFalse();
         assertThat(body.has("password")).isFalse();
         assertThat(count("users")).isEqualTo(1);
-        assertThat(count("user_roles")).isEqualTo(1);
-        assertThat(jdbc.queryForObject("""
-                select r.code from user_roles ur join roles r on r.id = ur.role_id
-                """, String.class)).isEqualTo("BUYER");
-    }
-
-    @Test
-    void newAccountLogsInWithItsRegisteredPasswordAndCostTwelveHash() throws Exception {
-        assertThat(post(REGISTER, request("login@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
-        String hash = jdbc.queryForObject("select password_hash from users", String.class);
-        assertThat(hash).startsWith("$2a$12$");
-        assertThat(encoder.matches(PASSWORD, hash)).isTrue();
-
-        HttpResponse<String> login = post("/api/v1/auth/login",
-                Map.of("email", "LOGIN@NEXUS.TEST", "password", PASSWORD));
-        assertThat(login.statusCode()).isEqualTo(200);
-        String token = JSON.readTree(login.body()).get("data").get("accessToken").asString();
-        assertThat(SignedJWT.parse(token).getJWTClaimsSet().getStringListClaim("roles")).containsExactly("BUYER");
+        assertThat(KeycloakTestServer.registeredUserCount()).isEqualTo(1);
     }
 
     @Test
@@ -178,6 +184,7 @@ class RegistrationIntegrationTest {
                 .statusCode()).isEqualTo(201);
         assertThat(jdbc.queryForObject("select email from users", String.class)).isEqualTo("buyer@nexus.test");
         assertThat(jdbc.queryForObject("select phone from users", String.class)).isEqualTo("0901234567");
+        assertThat(KeycloakTestServer.userIdByEmail("buyer@nexus.test")).isPresent();
     }
 
     @Test
@@ -199,6 +206,7 @@ class RegistrationIntegrationTest {
     void simultaneousEmailRegistrationsReturnExactly201And409() throws Exception {
         concurrent(request("race@nexus.test", "0901234567", "001234"),
                 request("race@nexus.test", "0901234568", "001235"));
+        assertThat(KeycloakTestServer.registeredUserCount()).isEqualTo(1);
     }
 
     @Test
@@ -251,15 +259,17 @@ class RegistrationIntegrationTest {
         configChanged = true;
         writeConfig("MISSING_ROLE", true);
         assertThat(post("/actuator/refresh", Map.of()).statusCode()).isEqualTo(200);
-        assertThat(post(REGISTER, request("buyer@nexus.test", "0901234567", "001234"))
-                .statusCode()).isEqualTo(503);
+        HttpResponse<String> response = post(REGISTER, request("buyer@nexus.test", "0901234567", "001234"));
+        assertThat(response.statusCode()).isEqualTo(503);
+        assertThat(JSON.readTree(response.body()).get("code").asString())
+                .isEqualTo("USER_REGISTRATION_ROLE_UNAVAILABLE");
         assertThat(count("users")).isZero();
-        assertThat(count("user_roles")).isZero();
+        assertThat(KeycloakTestServer.registeredUserCount()).isZero();
         assertNoInsert();
     }
 
     @Test
-    void refreshedDefaultRoleIsPersistedAndReturnedInsteadOfHardcodedBuyer() throws Exception {
+    void refreshedDefaultRoleIsAssignedInKeycloakInsteadOfHardcodedBuyer() throws Exception {
         configChanged = true;
         writeConfig("SELLER", true);
         assertThat(post("/actuator/refresh", Map.of()).statusCode()).isEqualTo(200);
@@ -267,9 +277,8 @@ class RegistrationIntegrationTest {
         HttpResponse<String> response = post(REGISTER, request("seller@nexus.test", "0901234567", "001234"));
         assertThat(response.statusCode()).isEqualTo(201);
         assertThat(JSON.readTree(response.body()).get("data").get("roles").get(0).asString()).isEqualTo("SELLER");
-        assertThat(jdbc.queryForObject("""
-                select r.code from user_roles ur join roles r on r.id = ur.role_id
-                """, String.class)).isEqualTo("SELLER");
+        UUID keycloakId = KeycloakTestServer.userIdByEmail("seller@nexus.test").orElseThrow();
+        assertThat(KeycloakTestServer.realmRoles(keycloakId)).contains("SELLER").doesNotContain("BUYER");
     }
 
     @Test
@@ -283,7 +292,7 @@ class RegistrationIntegrationTest {
         assertThat(post(REGISTER, request("buyer@nexus.test", "0901234567", "001234"))
                 .statusCode()).isEqualTo(403);
         assertThat(count("users")).isZero();
-        assertThat(count("user_roles")).isZero();
+        assertThat(KeycloakTestServer.registeredUserCount()).isZero();
         assertNoInsert();
         assertThat(context.getBean(UserService.class)).isSameAs(original);
         assertThat(context.getStartupDate()).isEqualTo(started);
@@ -303,7 +312,7 @@ class RegistrationIntegrationTest {
         assertThat(duplicate.statusCode()).isEqualTo(409);
         assertThat(JSON.readTree(duplicate.body()).get("detail").asString()).contains(field);
         assertThat(count("users")).isEqualTo(1);
-        assertThat(count("user_roles")).isEqualTo(1);
+        assertThat(KeycloakTestServer.registeredUserCount()).isEqualTo(1);
         assertNoInsert();
     }
 
@@ -312,6 +321,7 @@ class RegistrationIntegrationTest {
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(JSON.readTree(response.body()).get("errors").toString()).contains("\"field\":\"" + field + "\"");
         assertThat(count("users")).isZero();
+        assertThat(KeycloakTestServer.registeredUserCount()).isZero();
         assertNoInsert();
     }
 
@@ -327,7 +337,6 @@ class RegistrationIntegrationTest {
                     .containsExactlyInAnyOrder(201, 409);
         }
         assertThat(count("users")).isEqualTo(1);
-        assertThat(count("user_roles")).isEqualTo(1);
     }
 
     private int count(String table) {
@@ -340,12 +349,23 @@ class RegistrationIntegrationTest {
     }
 
     private HttpResponse<String> post(String path, Map<?, ?> body) throws Exception {
-        String port = environment.getRequiredProperty("local.server.port");
-        return HTTP.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
+        return HTTP.send(HttpRequest.newBuilder(uri(path))
                 .timeout(Duration.ofSeconds(30))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
                 .build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> get(String path, String token) throws Exception {
+        return HTTP.send(HttpRequest.newBuilder(uri(path))
+                .timeout(Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + token)
+                .GET()
+                .build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private URI uri(String path) {
+        return URI.create("http://127.0.0.1:" + environment.getRequiredProperty("local.server.port") + path);
     }
 
     private static Map<String, String> request(String email, String phone, String identity) {

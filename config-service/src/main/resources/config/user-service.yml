@@ -13,6 +13,12 @@ nexus:
       key-id: ${JWT_KEY_ID:}
       private-key-path: ${JWT_PRIVATE_KEY_PATH:}
       public-key-path: ${JWT_PUBLIC_KEY_PATH:}
+  keycloak:
+    server-url: ${KEYCLOAK_SERVER_URL:http://localhost:18080}
+    realm: nexus
+    client-id: user-service
+    client-secret: ${KEYCLOAK_USER_SERVICE_CLIENT_SECRET:}
+    timeout: 5s
   security:
     jwt:
       issuer: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}

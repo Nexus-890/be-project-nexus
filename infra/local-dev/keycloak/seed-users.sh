@@ -14,7 +14,7 @@ while [ "$#" -gt 0 ]; do
     --container) IN_CONTAINER=1; shift ;;
     -h|--help)
       echo "Usage: seed-users.sh [--env-file PATH]"
-      echo "Set the three imported demo users' passwords from local-dev/.env."
+      echo "Set the three imported demo users' passwords and the user-service client secret from local-dev/.env."
       exit 0 ;;
     *) echo "ERROR: unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -27,7 +27,8 @@ if [ "$IN_CONTAINER" -eq 0 ]; then
 fi
 
 # Do not source .env as shell code or log values. Compose parses dotenv quoting.
-for key in KEYCLOAK_ADMIN KEYCLOAK_ADMIN_PASSWORD DEMO_ADMIN_PASSWORD DEMO_SELLER_PASSWORD DEMO_BUYER_PASSWORD; do
+for key in KEYCLOAK_ADMIN KEYCLOAK_ADMIN_PASSWORD DEMO_ADMIN_PASSWORD DEMO_SELLER_PASSWORD DEMO_BUYER_PASSWORD \
+    KEYCLOAK_USER_SERVICE_CLIENT_SECRET; do
   [ -n "${!key:-}" ] || { echo "ERROR: set $key in the env file" >&2; exit 1; }
 done
 
@@ -68,3 +69,14 @@ for i in "${!names[@]}"; do
     -s type=password -s "value=${!key}" -s temporary=false -n
   echo "Seeded ${names[$i]}@nexus.local (${ids[$i]})"
 done
+
+client="$(kc get clients -r nexus -q clientId=user-service --fields id --format csv --noquotes)"
+if [ -z "$client" ]; then
+  client="$(kc create clients -r nexus -s clientId=user-service -s enabled=true -s publicClient=false \
+    -s serviceAccountsEnabled=true -s standardFlowEnabled=false -s implicitFlowEnabled=false \
+    -s directAccessGrantsEnabled=false -s clientAuthenticatorType=client-secret -i)"
+fi
+kc update "clients/$client" -r nexus -s "secret=$KEYCLOAK_USER_SERVICE_CLIENT_SECRET" -n
+kc add-roles -r nexus --uusername service-account-user-service --cclientid realm-management \
+  --rolename manage-users --rolename view-users --rolename query-users --rolename view-realm
+echo "Seeded client user-service ($client)"

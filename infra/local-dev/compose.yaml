@@ -243,6 +243,7 @@ services:
       DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-}
       DEMO_SELLER_PASSWORD: ${DEMO_SELLER_PASSWORD:-}
       DEMO_BUYER_PASSWORD: ${DEMO_BUYER_PASSWORD:-}
+      KEYCLOAK_USER_SERVICE_CLIENT_SECRET: ${KEYCLOAK_USER_SERVICE_CLIENT_SECRET:-}
     volumes:
       - ./keycloak/seed-users.sh:/opt/nexus/seed-users.sh:ro
     depends_on:

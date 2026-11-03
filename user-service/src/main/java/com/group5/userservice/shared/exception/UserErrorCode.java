@@ -13,7 +13,9 @@ public enum UserErrorCode implements ErrorCode {
     USER_PHONE_ALREADY_USED(HttpStatus.CONFLICT, "phone is already used"),
     USER_IDENTITY_NUMBER_ALREADY_USED(HttpStatus.CONFLICT, "identityNumber is already used"),
     USER_PROFILE_CONFLICT(HttpStatus.CONFLICT, "Email or phone is already used"),
-    USER_REGISTRATION_ROLE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Default registration role is unavailable");
+    USER_REGISTRATION_ROLE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Default registration role is unavailable"),
+    USER_IDENTITY_REJECTED(HttpStatus.BAD_REQUEST, "The identity provider rejected the account details"),
+    USER_IDENTITY_PROVIDER_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "The identity provider is unavailable");
 
     private final HttpStatus status;
     private final String message;

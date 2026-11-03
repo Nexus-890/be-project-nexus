@@ -300,6 +300,7 @@ class ProfileTransactionTest {
 
     private UUID seedUser(String email, String phone, String fullName, String address) {
         User user = new User();
+        user.setId(UUID.randomUUID());
         user.setEmail(email);
         user.setPhone(phone);
         user.setPasswordHash(passwordEncoder.encode("original-password"));
@@ -314,7 +315,8 @@ class ProfileTransactionTest {
     }
 
     private UserService serviceUsing(UserRepository repository) {
-        return new UserService(repository, passwordEncoder, new IamProperties(), transactionManager);
+        return new UserService(repository, passwordEncoder, new IamProperties(), mock(KeycloakAdminClient.class),
+                transactionManager);
     }
 
     private void assertConflict(Runnable action) {
@@ -391,7 +393,7 @@ class ProfileTransactionTest {
         @Bean
         UserService userService(UserRepository repository, PlatformTransactionManager manager,
                                 PasswordEncoder encoder) {
-            return new UserService(repository, encoder, new IamProperties(), manager);
+            return new UserService(repository, encoder, new IamProperties(), mock(KeycloakAdminClient.class), manager);
         }
     }
 }

@@ -91,6 +91,7 @@ class AuthLockoutTransactionTest {
             // Flush deletes before reusing unique email/phone; Hibernate otherwise inserts first.
             userRepository.flush();
             User user = new User();
+            user.setId(UUID.randomUUID());
             user.setEmail(EMAIL);
             user.setPhone("0900000001");
             user.setFullName("Test Seller");
