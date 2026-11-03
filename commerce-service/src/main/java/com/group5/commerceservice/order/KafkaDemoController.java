@@ -3,6 +3,7 @@ package com.group5.commerceservice.order;
 import com.group5.commerceservice.order.dto.KafkaDemoRequest;
 import com.group5.commerceservice.order.dto.KafkaDemoResult;
 import jakarta.validation.Valid;
+import com.group5.common_core.model.ApiResponse;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,7 +24,7 @@ public class KafkaDemoController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public KafkaDemoResult publish(@Valid @RequestBody KafkaDemoRequest request) {
-        return publisher.publish(request);
+    public ApiResponse<KafkaDemoResult> publish(@Valid @RequestBody KafkaDemoRequest request) {
+        return ApiResponse.of(publisher.publish(request));
     }
 }

@@ -1,6 +1,6 @@
 package com.group5.userservice.iam;
 
-import com.group5.common_core.constant.ErrorCode;
+import com.group5.userservice.shared.exception.UserErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_web.exception.GlobalExceptionHandler;
 import com.group5.userservice.iam.dto.LoginRequest;
@@ -23,6 +23,7 @@ import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.hasItems;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -61,9 +62,11 @@ class AuthControllerTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
-                .andExpect(jsonPath("$.accessToken").value("signed-token"))
-                .andExpect(jsonPath("$.expiresIn").value(3600))
-                .andExpect(jsonPath("$.tokenType").value("Bearer"));
+                .andExpect(jsonPath("$.page").doesNotExist())
+                .andExpect(jsonPath("$.accessToken").doesNotExist())
+                .andExpect(jsonPath("$.data.accessToken").value("signed-token"))
+                .andExpect(jsonPath("$.data.expiresIn").value(3600))
+                .andExpect(jsonPath("$.data.tokenType").value("Bearer"));
 
         verifyNoInteractions(userService);
     }
@@ -76,6 +79,10 @@ class AuthControllerTest {
                                 {"email":"seller@nexus.local","password":""}
                                 """))
                 .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[0].code").isNotEmpty())
+                .andExpect(jsonPath("$.errors[0].detail").isNotEmpty())
                 .andExpect(jsonPath("$.errors[0].field").value("password"));
 
         verifyNoInteractions(authService, userService);
@@ -95,9 +102,27 @@ class AuthControllerTest {
     }
 
     @Test
+    void validationReportsEveryFailedFieldWithMachineAndHumanDetails() throws Exception {
+        mockMvc.perform(post(LOGIN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"","password":""}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[*].field", hasItems("email", "password")))
+                .andExpect(jsonPath("$.errors[0].code").isNotEmpty())
+                .andExpect(jsonPath("$.errors[0].detail").isNotEmpty())
+                .andExpect(jsonPath("$.errors[1].code").isNotEmpty())
+                .andExpect(jsonPath("$.errors[1].detail").isNotEmpty());
+
+        verifyNoInteractions(authService, userService);
+    }
+
+    @Test
     void rejectedLoginReturnsAProblemBodyWith401() throws Exception {
         when(authService.login(any(LoginRequest.class)))
-                .thenThrow(new DomainException(401, "Invalid email or password"));
+                .thenThrow(new DomainException(UserErrorCode.USER_INVALID_CREDENTIALS));
 
         mockMvc.perform(post(LOGIN)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -107,6 +132,7 @@ class AuthControllerTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.code").value("USER_INVALID_CREDENTIALS"))
                 .andExpect(jsonPath("$.detail").value("Invalid email or password"));
 
         verifyNoInteractions(userService);
@@ -120,7 +146,7 @@ class AuthControllerTest {
                 .setControllerAdvice(new GlobalExceptionHandler(tracer))
                 .build();
         when(authService.login(any(LoginRequest.class)))
-                .thenThrow(new DomainException(ErrorCode.ACCOUNT_LOCKED));
+                .thenThrow(new DomainException(UserErrorCode.USER_ACCOUNT_LOCKED));
 
         tracedMockMvc.perform(post(LOGIN)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -132,6 +158,7 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.type").value("urn:problem:domain-error"))
                 .andExpect(jsonPath("$.title").value("Locked"))
                 .andExpect(jsonPath("$.status").value(423))
+                .andExpect(jsonPath("$.code").value("USER_ACCOUNT_LOCKED"))
                 .andExpect(jsonPath("$.detail").value("Account is locked"))
                 .andExpect(jsonPath("$.instance").value(LOGIN))
                 .andExpect(jsonPath("$.traceId").value(TRACE_ID));
@@ -185,6 +212,7 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.type").value("urn:problem:domain-error"))
                 .andExpect(jsonPath("$.title").value("Locked"))
                 .andExpect(jsonPath("$.status").value(423))
+                .andExpect(jsonPath("$.code").value("USER_ACCOUNT_LOCKED"))
                 .andExpect(jsonPath("$.detail").value("Account is locked"))
                 .andExpect(jsonPath("$.instance").value(LOGIN))
                 .andExpect(jsonPath("$.traceId").value(TRACE_ID));

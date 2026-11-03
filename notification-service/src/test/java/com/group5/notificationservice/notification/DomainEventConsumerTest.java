@@ -1,0 +1,100 @@
+package com.group5.notificationservice.notification;
+
+import com.group5.common_events.EventEnvelope;
+import com.group5.common_events.Topics;
+import com.group5.common_outbox.IdempotentConsumer;
+
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import java.util.function.Consumer;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+class DomainEventConsumerTest {
+
+    private static final UUID BUYER_ID = UUID.fromString("00000000-0000-4000-8000-000000000002");
+
+    private final IdempotentConsumer idempotentConsumer = mock(IdempotentConsumer.class);
+    private final NotificationRepository repository = mock(NotificationRepository.class);
+    private final NotificationChannel channel = mock(NotificationChannel.class);
+    private final DomainEventConsumer consumer =
+            new DomainEventConsumer(idempotentConsumer, repository, List.of(channel));
+
+    @Test
+    void orderCreatedSavesOneNotificationForTheBuyer() {
+        runHandlerOnFirstDelivery();
+        when(repository.save(any(Notification.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        consumer.receive(record(Topics.COMMERCE, "OrderCreated", """
+                {"orderId":"00000000-0000-4000-8000-000000000001","buyerId":"%s",
+                 "orderNumber":"NX-20261120-0001","orderType":"STANDARD","referenceId":null}
+                """.formatted(BUYER_ID)));
+
+        ArgumentCaptor<Notification> saved = ArgumentCaptor.forClass(Notification.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getUserId()).isEqualTo(BUYER_ID);
+        assertThat(saved.getValue().getContent()).contains("NX-20261120-0001");
+        verify(channel).send(saved.getValue());
+    }
+
+    @Test
+    void anAlreadyHandledEventSavesNothing() {
+        when(idempotentConsumer.handle(eq(DomainEventConsumer.CONSUMER), any(), any())).thenReturn(false);
+
+        consumer.receive(record(Topics.COMMERCE, "OrderCreated", """
+                {"orderId":"00000000-0000-4000-8000-000000000001","buyerId":"%s",
+                 "orderNumber":"NX-20261120-0001","orderType":"STANDARD","referenceId":null}
+                """.formatted(BUYER_ID)));
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void categoryCreatedIsSkippedWithoutTouchingTheDatabase() {
+        consumer.receive(record(Topics.CATALOG, "CategoryCreated", """
+                {"categoryId":"00000000-0000-4000-8000-000000000007","name":"Electronics",
+                 "slug":"electronics","parentId":null}
+                """));
+
+        verifyNoInteractions(idempotentConsumer, repository, channel);
+    }
+
+    @Test
+    void anEventTypeWithoutATemplateIsSkipped() {
+        consumer.receive(record(Topics.COMMERCE, "OrderPaid", "{\"orderId\":\"00000000-0000-4000-8000-000000000001\"}"));
+
+        verifyNoInteractions(idempotentConsumer, repository, channel);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void runHandlerOnFirstDelivery() {
+        when(idempotentConsumer.handle(eq(DomainEventConsumer.CONSUMER), any(), any())).thenAnswer(invocation -> {
+            Consumer<EventEnvelope<JsonNode>> handler = invocation.getArgument(2);
+            handler.accept(invocation.getArgument(1));
+            return true;
+        });
+    }
+
+    private static ConsumerRecord<String, EventEnvelope<JsonNode>> record(String topic, String eventType, String payload) {
+        UUID aggregateId = UUID.randomUUID();
+        EventEnvelope<JsonNode> envelope = new EventEnvelope<>(UUID.randomUUID(), eventType, aggregateId.toString(),
+                Instant.parse("2026-11-20T10:00:00Z"), "4bf92f3577b34da6a3ce929d0e0e4736",
+                JsonMapper.shared().readTree(payload));
+        return new ConsumerRecord<>(topic, 0, 0L, aggregateId.toString(), envelope);
+    }
+}

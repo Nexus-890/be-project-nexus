@@ -1,5 +1,6 @@
 package com.group5.commerceservice.cart.entity;
 
+import com.group5.common_core.persistence.AuditedEntity;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -12,7 +13,7 @@ import java.util.UUID;
 @Setter
 @Entity
 @Table(name = "cart_items")
-public class CartItem {
+public class CartItem extends AuditedEntity {
 
     @Id
     @UuidGenerator

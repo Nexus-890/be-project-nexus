@@ -57,6 +57,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SecurityConfigTest {
     private static final String ID = "11111111-1111-4111-8111-111111111111";
     private static final String ME = "/api/v1/users/me";
+    private static final List<String> NOTIFICATION_PATHS = List.of(
+            "/api/v1/notifications", "/api/v1/notifications/unread-count");
     private static final String KEY_ID = "gateway-rs256-test";
     private static final RSAKey SIGNING_KEY = generateKey();
     private static final RSAKey FOREIGN_KEY = generateKey();
@@ -104,7 +106,7 @@ class SecurityConfigTest {
                 .expectBody().jsonPath("$.type").isEqualTo("https://nexus/errors/unauthorized")
                 .jsonPath("$.status").isEqualTo(401)
                 .jsonPath("$.instance").isEqualTo(ME)
-                .jsonPath("$.traceId").isNotEmpty();
+                .jsonPath("$.code").isNotEmpty();
         assertThat(SERVICE_LOG).isEmpty();
     }
 
@@ -115,6 +117,31 @@ class SecurityConfigTest {
                 .expectStatus().isOk().expectBody(String.class).isEqualTo("downstream");
         assertThat(SERVICE_LOG).containsExactly("GET " + ME);
         assertThat(FORWARDED_TOKENS).containsExactly(bearer);
+    }
+
+    @Test
+    void notificationReadsRequireTokenAndViewPrivilege() {
+        for (String path : NOTIFICATION_PATHS) {
+            client.get().uri(path).exchange().expectStatus().isUnauthorized();
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+
+        String withoutPrivilege = "Bearer " + token(SIGNING_KEY, c -> { });
+        for (String path : NOTIFICATION_PATHS) {
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, withoutPrivilege)
+                    .exchange().expectStatus().isForbidden();
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+
+        String withPrivilege = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("privileges", List.of("NOTIFICATION.VIEW")));
+        for (String path : NOTIFICATION_PATHS) {
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, withPrivilege)
+                    .exchange().expectStatus().isOk();
+        }
+        assertThat(SERVICE_LOG).containsExactly(
+                "GET /api/v1/notifications", "GET /api/v1/notifications/unread-count");
+        assertThat(FORWARDED_TOKENS).containsExactly(withPrivilege, withPrivilege);
     }
 
     @Test
@@ -189,7 +216,7 @@ class SecurityConfigTest {
                 }
                 response.expectStatus().isUnauthorized();
                 if (method != HttpMethod.HEAD) {
-                    response.expectBody().jsonPath("$.traceId").isNotEmpty();
+                    response.expectBody().jsonPath("$.code").isNotEmpty();
                 }
             }
         }
@@ -209,7 +236,7 @@ class SecurityConfigTest {
                     .exchange().expectStatus().isForbidden()
                     .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                     .expectBody().jsonPath("$.type").isEqualTo("https://nexus/errors/forbidden")
-                    .jsonPath("$.traceId").isNotEmpty();
+                    .jsonPath("$.code").isNotEmpty();
             assertThat(SERVICE_LOG).hasSize(requests);
             client.method(endpoint.method()).uri(path)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
@@ -250,7 +277,7 @@ class SecurityConfigTest {
     @Test
     void invalidBearerIsRejectedEvenOnPublicPaths() {
         client.get().uri("/api/v1/products").header(HttpHeaders.AUTHORIZATION, "Bearer not-a-jwt")
-                .exchange().expectStatus().isUnauthorized().expectBody().jsonPath("$.traceId").isNotEmpty();
+                .exchange().expectStatus().isUnauthorized().expectBody().jsonPath("$.code").isNotEmpty();
         assertThat(SERVICE_LOG).isEmpty();
     }
 
@@ -259,7 +286,7 @@ class SecurityConfigTest {
                 .expectStatus().isUnauthorized()
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody().jsonPath("$.type").isEqualTo("https://nexus/errors/unauthorized")
-                .jsonPath("$.traceId").isNotEmpty();
+                .jsonPath("$.code").isNotEmpty();
         assertThat(SERVICE_LOG).isEmpty();
     }
 
@@ -323,7 +350,9 @@ class SecurityConfigTest {
         RouteLocator routes(RouteLocatorBuilder builder) {
             return builder.routes().route("fixture", route -> route
                     .path("/api/v1/auth/**", "/api/v1/users/**", "/api/v1/products/**",
-                            "/api/v1/categories/**", "/api/v1/skus/**","/api/v1/carts/**", "/.well-known/**")
+                            "/api/v1/categories/**", "/api/v1/skus/**", "/api/v1/carts/**",
+                            "/api/v1/orders", "/api/v1/orders/**",
+                            "/api/v1/notifications", "/api/v1/notifications/**", "/.well-known/**")
                     .uri("http://127.0.0.1:" + DOWNSTREAM.getAddress().getPort())).build();
         }
     }

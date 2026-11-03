@@ -1,7 +1,7 @@
 package com.group5.userservice.iam;
 
 import com.group5.common_core.exception.DomainException;
-import com.group5.userservice.iam.dto.PageResponse;
+import com.group5.userservice.shared.exception.UserErrorCode;
 import com.group5.userservice.iam.dto.RegisterRequest;
 import com.group5.userservice.iam.dto.UpdateProfileRequest;
 import com.group5.userservice.iam.dto.UserListRequest;
@@ -12,6 +12,7 @@ import com.group5.userservice.iam.enums.Gender;
 import com.group5.userservice.shared.config.IamProperties;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.data.domain.Page;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -41,7 +42,7 @@ public class UserService {
 
     public UserResponse register(RegisterRequest request) {
         if (!iamProperties.isAllowSelfRegistration()) {
-            throw new DomainException(403, "Self-registration is disabled");
+            throw new DomainException(UserErrorCode.USER_REGISTRATION_DISABLED);
         }
         String roleCode = iamProperties.getDefaultUserRole();
         try {
@@ -63,18 +64,18 @@ public class UserService {
     public UserResponse getUser(UUID userId) {
         return transaction.execute(status -> {
             User user = userRepository.findByIdAndDeletedAtIsNull(userId)
-                    .orElseThrow(() -> new DomainException(404, "User not found"));
+                    .orElseThrow(() -> new DomainException(UserErrorCode.USER_NOT_FOUND));
             return UserResponse.from(user);
         });
     }
 
-    public PageResponse<UserResponse> listUsers(UserListRequest request) {
+    public Page<UserResponse> listUsers(UserListRequest request) {
         Specification<User> filter = UserSpecifications.notDeleted()
                 .and(UserSpecifications.matches(request.q()))
                 .and(UserSpecifications.hasStatus(request.status()))
                 .and(UserSpecifications.hasRole(request.role()));
-        return transaction.execute(status -> PageResponse.from(
-                userRepository.findAll(filter, request.pageable()).map(UserResponse::from)));
+        return transaction.execute(status ->
+                userRepository.findAll(filter, request.pageable()).map(UserResponse::from));
     }
 
     public UserResponse updateOwnProfile(UUID userId, UpdateProfileRequest request) {
@@ -87,7 +88,7 @@ public class UserService {
                 throw duplicate(field);
             }
             if (isProfileUniqueViolation(exception)) {
-                throw new DomainException(409, "Email or phone is already used");
+                throw new DomainException(UserErrorCode.USER_PROFILE_CONFLICT);
             }
             throw exception;
         }
@@ -95,7 +96,7 @@ public class UserService {
 
     private UserResponse updateProfileInTransaction(UUID userId, UpdateProfileRequest request) {
         User user = userRepository.findForProfileUpdate(userId)
-                .orElseThrow(() -> new DomainException(404, "User not found"));
+                .orElseThrow(() -> new DomainException(UserErrorCode.USER_NOT_FOUND));
 
         if (request.email() != null
                 && userRepository.existsByEmailAndIdNot(request.email(), userId)) {
@@ -143,7 +144,7 @@ public class UserService {
             throw duplicate("identityNumber");
         }
         Role role = userRepository.findRegistrationRole(roleCode)
-                .orElseThrow(() -> new DomainException(503, "Default registration role is unavailable"));
+                .orElseThrow(() -> new DomainException(UserErrorCode.USER_REGISTRATION_ROLE_UNAVAILABLE));
 
         User user = new User();
         user.setEmail(request.email().toLowerCase());
@@ -160,7 +161,13 @@ public class UserService {
     }
 
     private static DomainException duplicate(String field) {
-        return new DomainException(409, field + " is already used");
+        UserErrorCode code = switch (field) {
+            case "email" -> UserErrorCode.USER_EMAIL_ALREADY_USED;
+            case "phone" -> UserErrorCode.USER_PHONE_ALREADY_USED;
+            case "identityNumber" -> UserErrorCode.USER_IDENTITY_NUMBER_ALREADY_USED;
+            default -> throw new IllegalArgumentException("Unknown duplicate field: " + field);
+        };
+        return new DomainException(code);
     }
 
     private static String duplicateField(Throwable exception) {

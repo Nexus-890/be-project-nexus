@@ -1,0 +1,2 @@
+com.group5.common_outbox.autoconfigure.OutboxAutoConfiguration
+com.group5.common_outbox.autoconfigure.IdempotentConsumerAutoConfiguration

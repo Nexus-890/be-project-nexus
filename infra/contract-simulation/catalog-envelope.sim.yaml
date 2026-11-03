@@ -1,0 +1,5 @@
+simulation: commerce-catalog-envelope
+routing: path
+mocks:
+  - routeKey: catalog
+    path: ./catalog/config.yaml
