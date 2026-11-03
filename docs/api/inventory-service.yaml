@@ -998,10 +998,17 @@ paths:
                   quantity: 2
                   referenceId: 00000021-1111-4111-8111-111111111111
                   createdAt: '2026-11-05T10:00:00Z'
+                - id: 00000042-1111-4111-8111-111111111111
+                  skuId: 00000003-1111-4111-8111-111111111111
+                  warehouseId: 00000011-1111-4111-8111-111111111111
+                  movementType: ADJUSTMENT
+                  quantity: -1
+                  referenceId: null
+                  createdAt: '2026-11-05T11:00:00Z'
                 page:
                   number: 0
                   size: 10
-                  totalElements: 1
+                  totalElements: 2
                   totalPages: 1
         '401':
           description: 'Unauthorized. Codes: `UNAUTHENTICATED`.'
@@ -1772,7 +1779,7 @@ components:
         quantity:
           type: integer
           format: int32
-          minimum: 0
+          description: Signed, as stored in inventory_movements.quantity; an ADJUSTMENT that removes stock is negative.
         referenceId:
           type: string
           format: uuid

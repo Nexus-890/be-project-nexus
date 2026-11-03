@@ -1660,6 +1660,7 @@ components:
           type: number
           format: decimal
           minimum: 0
+          exclusiveMinimum: true
           description: Optional; defaults from config. numeric(19,2) in the database.
         startAt:
           type: string
@@ -1685,6 +1686,7 @@ components:
           type: number
           format: decimal
           minimum: 0
+          exclusiveMinimum: true
           description: numeric(19,2) in the database; a JSON number on the wire.
         startAt:
           type: string
