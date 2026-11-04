@@ -27,6 +27,20 @@ nexus:
   outbox:
     relay:
       enabled: false
+  health:
+    services:
+      - user-service
+      - catalog-service
+      - commerce-service
+      - auction-service
+      - inventory-service
+      - payment-service
+      - shipment-service
+      - rating-service
+      - notification-service
+    keycloak-realm-url: ${KEYCLOAK_REALM_URL:http://localhost:18080/realms/nexus}
+    timeout: 2s
+    broker-interval: PT15S
 
 springdoc:
   api-docs:
