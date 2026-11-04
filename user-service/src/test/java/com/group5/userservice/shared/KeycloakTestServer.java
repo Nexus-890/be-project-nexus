@@ -7,6 +7,7 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.MountableFile;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.net.URI;
 import java.net.URLDecoder;
@@ -116,22 +117,33 @@ public final class KeycloakTestServer {
         return roles;
     }
 
+    public static boolean bruteForceLocked(UUID userId) {
+        return admin("GET", "/attack-detection/brute-force/users/" + userId, null).get("disabled").asBoolean();
+    }
+
+    public static boolean emailVerified(UUID userId) {
+        return admin("GET", "/users/" + userId, null).get("emailVerified").asBoolean();
+    }
+
+    public static void markEmailVerified(UUID userId) {
+        ObjectNode user = (ObjectNode) admin("GET", "/users/" + userId, null);
+        user.put("emailVerified", true);
+        admin("PUT", "/users/" + userId, user.toString());
+    }
+
+    /** Submits a wrong password through the browser login form, which Keycloak counts as a failed login. */
+    public static void failSignIn(String username) throws Exception {
+        HttpResponse<String> login = submitLogin(username, random(12), challenge(random(48)), new LinkedHashMap<>());
+        if (login.statusCode() != 200) {
+            throw new IllegalStateException("Expected the login page again, got HTTP " + login.statusCode());
+        }
+    }
+
     /** Signs in through the browser Authorization Code + PKCE flow and returns the access token. */
     public static String signIn(String username, String password) throws Exception {
         String verifier = random(48);
-        String challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(
-                MessageDigest.getInstance("SHA-256").digest(verifier.getBytes(StandardCharsets.US_ASCII)));
         Map<String, String> cookies = new LinkedHashMap<>();
-        HttpResponse<String> page = send(HttpRequest.newBuilder(URI.create(issuer() + "/protocol/openid-connect/auth?"
-                + form(Map.of("client_id", "nexus-web", "response_type", "code", "scope", "openid",
-                "redirect_uri", REDIRECT, "state", "test-state", "code_challenge", challenge,
-                "code_challenge_method", "S256")))).GET(), cookies);
-        String action = loginAction(page.body());
-
-        HttpResponse<String> login = send(HttpRequest.newBuilder(URI.create(action))
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .POST(HttpRequest.BodyPublishers.ofString(form(Map.of(
-                        "username", username, "password", password, "credentialId", "")))), cookies);
+        HttpResponse<String> login = submitLogin(username, password, challenge(verifier), cookies);
         String location = login.headers().firstValue("Location").orElse("");
         if (login.statusCode() != 302 || !location.startsWith(REDIRECT)) {
             throw new IllegalStateException("Keycloak sign-in failed with HTTP " + login.statusCode());
@@ -147,6 +159,23 @@ public final class KeycloakTestServer {
             throw new IllegalStateException("Keycloak code exchange failed with HTTP " + token.statusCode());
         }
         return JSON.readTree(token.body()).get("access_token").asString();
+    }
+
+    private static HttpResponse<String> submitLogin(String username, String password, String challenge,
+                                                    Map<String, String> cookies) throws Exception {
+        HttpResponse<String> page = send(HttpRequest.newBuilder(URI.create(issuer() + "/protocol/openid-connect/auth?"
+                + form(Map.of("client_id", "nexus-web", "response_type", "code", "scope", "openid",
+                "redirect_uri", REDIRECT, "state", "test-state", "code_challenge", challenge,
+                "code_challenge_method", "S256")))).GET(), cookies);
+        return send(HttpRequest.newBuilder(URI.create(loginAction(page.body())))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(form(Map.of(
+                        "username", username, "password", password, "credentialId", "")))), cookies);
+    }
+
+    private static String challenge(String verifier) throws Exception {
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(
+                MessageDigest.getInstance("SHA-256").digest(verifier.getBytes(StandardCharsets.US_ASCII)));
     }
 
     private static void seed() {

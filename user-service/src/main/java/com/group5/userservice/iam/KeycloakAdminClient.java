@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -39,6 +40,7 @@ public class KeycloakAdminClient {
     private static final Duration TOKEN_REFRESH_MARGIN = Duration.ofSeconds(30);
     private static final int MEMBER_PAGE_SIZE = 500;
     private static final Set<String> BUILT_IN_ROLES = Set.of("offline_access", "uma_authorization");
+    private static final List<String> PROFILE_FIELDS = List.of("username", "firstName", "lastName", "attributes");
 
     private final KeycloakProperties properties;
     private final Clock clock;
@@ -170,7 +172,21 @@ public class KeycloakAdminClient {
         }
     }
 
-    public void updateEmail(UUID userId, String email) {
+    public Optional<EmailState> emailState(UUID userId) {
+        try {
+            return Optional.ofNullable(withToken(token -> client.get()
+                    .uri("/admin/realms/{realm}/users/{id}", properties.getRealm(), userId)
+                    .headers(headers -> headers.setBearerAuth(token))
+                    .retrieve()
+                    .body(EmailState.class)));
+        } catch (HttpClientErrorException.NotFound exception) {
+            return Optional.empty();
+        } catch (RestClientException exception) {
+            throw unavailable("read email of user " + userId, exception);
+        }
+    }
+
+    public void updateEmail(UUID userId, String email, boolean emailVerified) {
         try {
             withToken(token -> {
                 Map<String, Object> user = client.get()
@@ -181,13 +197,19 @@ public class KeycloakAdminClient {
                 if (user == null) {
                     throw new DomainException(UserErrorCode.USER_IDENTITY_PROVIDER_UNAVAILABLE);
                 }
-                user.put("email", email);
-                user.put("emailVerified", false);
+                Map<String, Object> change = new LinkedHashMap<>();
+                for (String field : PROFILE_FIELDS) {
+                    if (user.containsKey(field)) {
+                        change.put(field, user.get(field));
+                    }
+                }
+                change.put("email", email);
+                change.put("emailVerified", emailVerified);
                 return client.put()
                         .uri("/admin/realms/{realm}/users/{id}", properties.getRealm(), userId)
                         .headers(headers -> headers.setBearerAuth(token))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .body(user)
+                        .body(change)
                         .retrieve()
                         .toBodilessEntity();
             });
@@ -268,6 +290,9 @@ public class KeycloakAdminClient {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record RealmRole(String id, String name) { }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record EmailState(String email, boolean emailVerified) { }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record UserId(UUID id) { }

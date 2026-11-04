@@ -1,10 +1,12 @@
 package com.group5.userservice.iam;
 
+import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUserAuditor;
 import com.group5.common_security.autoconfigure.JpaAuditingAutoConfiguration;
 import com.group5.userservice.shared.KeycloakTestServer;
 import com.group5.userservice.shared.config.IamProperties;
 import com.group5.userservice.shared.PostgresTestDatabase;
+import com.group5.userservice.shared.exception.UserErrorCode;
 import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -17,6 +19,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -37,6 +40,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doAnswer;
 
 /**
  * HTTP tests against disposable PostgreSQL 18 and Keycloak 26.7 Testcontainers instances.
@@ -74,6 +79,7 @@ class RegistrationIntegrationTest {
     @Autowired private Environment environment;
     @Autowired private IamProperties iamProperties;
     @Autowired private ApplicationContext context;
+    @MockitoSpyBean private KeycloakAdminClient keycloak;
     private boolean configChanged;
 
     @DynamicPropertySource
@@ -164,6 +170,47 @@ class RegistrationIntegrationTest {
         assertThat(KeycloakTestServer.userIdByEmail("after@nexus.test")).contains(keycloakId);
         assertThat(KeycloakTestServer.userIdByEmail("before@nexus.test")).isEmpty();
         assertThat(KeycloakTestServer.signIn("after@nexus.test", PASSWORD)).isNotBlank();
+    }
+
+    @Test
+    void emailChangeKeepsATemporaryKeycloakLockout() throws Exception {
+        assertThat(post(REGISTER, request("locked@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+        UUID keycloakId = KeycloakTestServer.userIdByEmail("locked@nexus.test").orElseThrow();
+        String token = KeycloakTestServer.signIn("locked@nexus.test", PASSWORD);
+        for (int attempt = 0; attempt < 5; attempt++) {
+            KeycloakTestServer.failSignIn("locked@nexus.test");
+        }
+        assertThat(KeycloakTestServer.bruteForceLocked(keycloakId)).isTrue();
+
+        HttpResponse<String> updated = put("/api/v1/users/me", Map.of("email", "moved@nexus.test"), token);
+
+        assertThat(updated.statusCode()).isEqualTo(200);
+        assertThat(KeycloakTestServer.userIdByEmail("moved@nexus.test")).contains(keycloakId);
+        assertThat(KeycloakTestServer.bruteForceLocked(keycloakId)).isTrue();
+        assertThatThrownBy(() -> KeycloakTestServer.signIn("moved@nexus.test", PASSWORD))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void lostKeycloakResponseAfterTheEmailChangeRestoresTheOldEmail() throws Exception {
+        assertThat(post(REGISTER, request("kept@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+        UUID keycloakId = KeycloakTestServer.userIdByEmail("kept@nexus.test").orElseThrow();
+        KeycloakTestServer.markEmailVerified(keycloakId);
+        String token = KeycloakTestServer.signIn("kept@nexus.test", PASSWORD);
+        doAnswer(call -> {
+            call.callRealMethod();
+            throw new DomainException(UserErrorCode.USER_IDENTITY_PROVIDER_UNAVAILABLE);
+        }).when(keycloak).updateEmail(keycloakId, "lost@nexus.test", false);
+
+        HttpResponse<String> updated = put("/api/v1/users/me", Map.of("email", "lost@nexus.test"), token);
+
+        assertThat(updated.statusCode()).isEqualTo(503);
+        assertThat(JSON.readTree(updated.body()).get("code").asString()).isEqualTo("USER_IDENTITY_PROVIDER_UNAVAILABLE");
+        assertThat(jdbc.queryForObject("select email from users", String.class)).isEqualTo("kept@nexus.test");
+        assertThat(KeycloakTestServer.userIdByEmail("lost@nexus.test")).isEmpty();
+        assertThat(KeycloakTestServer.userIdByEmail("kept@nexus.test")).contains(keycloakId);
+        assertThat(KeycloakTestServer.emailVerified(keycloakId)).isTrue();
+        assertThat(KeycloakTestServer.signIn("kept@nexus.test", PASSWORD)).isNotBlank();
     }
 
     @Test

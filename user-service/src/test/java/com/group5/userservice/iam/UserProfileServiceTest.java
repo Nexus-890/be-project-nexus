@@ -29,6 +29,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -96,6 +97,7 @@ class UserProfileServiceTest {
     void threeFieldUpdateNormalizesEmailAndRetainsPhoneIdentityAndStatus() {
         givenCaller();
         when(userRepository.saveAndFlush(user)).thenReturn(user);
+        givenKeycloakAccount(false);
         givenKeycloakRoles();
 
         UserResponse response = userService.updateOwnProfile(USER_ID,
@@ -111,7 +113,7 @@ class UserProfileServiceTest {
         assertThat(user.getGender()).isEqualTo(Gender.MALE);
         assertThat(user.getStatus()).isEqualTo(UserStatus.LOCKED);
         verify(userRepository).existsByEmailAndIdNot("x@nexus.local", USER_ID);
-        verify(keycloak).updateEmail(USER_ID, "x@nexus.local");
+        verify(keycloak).updateEmail(USER_ID, "x@nexus.local", false);
         verify(transactionManager).commit(transactionStatus);
     }
 
@@ -172,7 +174,7 @@ class UserProfileServiceTest {
         assertThat(response.fullName()).isEqualTo("Changed Name");
         assertThat(response.roles()).containsExactly("BUYER");
         verify(keycloak, never()).realmRole(anyString());
-        verify(keycloak, never()).updateEmail(any(), anyString());
+        verify(keycloak, never()).updateEmail(any(), anyString(), anyBoolean());
     }
 
     @Test
@@ -237,6 +239,7 @@ class UserProfileServiceTest {
     void anEmailUniqueViolationAtCommitReturns409RatherThanASuccessfulUpdate() {
         givenCaller();
         when(userRepository.saveAndFlush(user)).thenReturn(user);
+        givenKeycloakAccount(true);
         doThrow(uniqueViolation("users_email_key")).when(transactionManager).commit(transactionStatus);
 
         DomainException error = catchThrowableOfType(DomainException.class,
@@ -245,8 +248,8 @@ class UserProfileServiceTest {
 
         assertThat(error.getCode()).isEqualTo(409);
         verify(transactionManager).commit(transactionStatus);
-        verify(keycloak).updateEmail(USER_ID, "changed@nexus.local");
-        verify(keycloak).updateEmail(USER_ID, "buyer@nexus.local");
+        verify(keycloak).updateEmail(USER_ID, "changed@nexus.local", false);
+        verify(keycloak).updateEmail(USER_ID, "buyer@nexus.local", true);
     }
 
     @Test
@@ -256,15 +259,16 @@ class UserProfileServiceTest {
 
         userService.updateOwnProfile(USER_ID, new UpdateProfileRequest(null, null, null, null, "Buyer@Nexus.Local"));
 
-        verify(keycloak, never()).updateEmail(any(), anyString());
+        verify(keycloak, never()).updateEmail(any(), anyString(), anyBoolean());
     }
 
     @Test
     void anEmailTakenInKeycloakReturns409AndRollsBackTheProfile() {
         givenCaller();
         when(userRepository.saveAndFlush(user)).thenReturn(user);
+        givenKeycloakAccount(true);
         doThrow(new DomainException(UserErrorCode.USER_EMAIL_ALREADY_USED))
-                .when(keycloak).updateEmail(USER_ID, "taken@nexus.local");
+                .when(keycloak).updateEmail(USER_ID, "taken@nexus.local", false);
 
         DomainException error = catchThrowableOfType(DomainException.class,
                 () -> userService.updateOwnProfile(USER_ID,
@@ -272,11 +276,82 @@ class UserProfileServiceTest {
 
         assertThat(error.getErrorCode()).isEqualTo("USER_EMAIL_ALREADY_USED");
         verify(transactionManager).rollback(transactionStatus);
-        verify(keycloak, times(1)).updateEmail(any(), anyString());
+        verify(keycloak, times(1)).updateEmail(any(), anyString(), anyBoolean());
+    }
+
+    @Test
+    void anUnknownKeycloakResultRestoresThePreviousEmailAndVerification() {
+        givenCaller();
+        when(userRepository.saveAndFlush(user)).thenReturn(user);
+        givenKeycloakAccount(true);
+        doThrow(new DomainException(UserErrorCode.USER_IDENTITY_PROVIDER_UNAVAILABLE))
+                .when(keycloak).updateEmail(USER_ID, "timeout@nexus.local", false);
+
+        DomainException error = catchThrowableOfType(DomainException.class,
+                () -> userService.updateOwnProfile(USER_ID,
+                        new UpdateProfileRequest(null, null, null, null, "timeout@nexus.local")));
+
+        assertThat(error.getErrorCode()).isEqualTo("USER_IDENTITY_PROVIDER_UNAVAILABLE");
+        verify(transactionManager).rollback(transactionStatus);
+        verify(keycloak).updateEmail(USER_ID, "buyer@nexus.local", true);
+    }
+
+    @Test
+    void aRejectedKeycloakEmailIsNotRestored() {
+        givenCaller();
+        when(userRepository.saveAndFlush(user)).thenReturn(user);
+        givenKeycloakAccount(true);
+        doThrow(new DomainException(UserErrorCode.USER_IDENTITY_REJECTED))
+                .when(keycloak).updateEmail(USER_ID, "rejected@nexus.local", false);
+
+        DomainException error = catchThrowableOfType(DomainException.class,
+                () -> userService.updateOwnProfile(USER_ID,
+                        new UpdateProfileRequest(null, null, null, null, "rejected@nexus.local")));
+
+        assertThat(error.getErrorCode()).isEqualTo("USER_IDENTITY_REJECTED");
+        verify(keycloak, never()).updateEmail(USER_ID, "buyer@nexus.local", true);
+    }
+
+    @Test
+    void aFailedRestoreKeepsTheOriginalErrorWithTheRestoreFailureSuppressed() {
+        givenCaller();
+        when(userRepository.saveAndFlush(user)).thenReturn(user);
+        givenKeycloakAccount(true);
+        doThrow(new DomainException(UserErrorCode.USER_IDENTITY_PROVIDER_UNAVAILABLE),
+                new DomainException(UserErrorCode.USER_IDENTITY_PROVIDER_UNAVAILABLE))
+                .when(keycloak).updateEmail(any(), anyString(), anyBoolean());
+
+        DomainException error = catchThrowableOfType(DomainException.class,
+                () -> userService.updateOwnProfile(USER_ID,
+                        new UpdateProfileRequest(null, null, null, null, "timeout@nexus.local")));
+
+        assertThat(error.getErrorCode()).isEqualTo("USER_IDENTITY_PROVIDER_UNAVAILABLE");
+        assertThat(error.getSuppressed()).hasSize(1);
+        verify(keycloak).updateEmail(USER_ID, "buyer@nexus.local", true);
+    }
+
+    @Test
+    void aProfileWithoutKeycloakAccountChangesOnlyTheProfileEmail() {
+        givenCaller();
+        when(userRepository.saveAndFlush(user)).thenReturn(user);
+        when(keycloak.emailState(USER_ID)).thenReturn(Optional.empty());
+        givenKeycloakRoles();
+
+        UserResponse response = userService.updateOwnProfile(USER_ID,
+                new UpdateProfileRequest(null, null, null, null, "legacy@nexus.local"));
+
+        assertThat(response.email()).isEqualTo("legacy@nexus.local");
+        verify(keycloak, never()).updateEmail(any(), anyString(), anyBoolean());
+        verify(transactionManager).commit(transactionStatus);
     }
 
     private void givenCaller() {
         when(userRepository.findForProfileUpdate(USER_ID)).thenReturn(Optional.of(user));
+    }
+
+    private void givenKeycloakAccount(boolean emailVerified) {
+        when(keycloak.emailState(USER_ID))
+                .thenReturn(Optional.of(new KeycloakAdminClient.EmailState("buyer@nexus.local", emailVerified)));
     }
 
     private void givenKeycloakRoles() {

@@ -10,6 +10,8 @@ import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.Gender;
 import com.group5.userservice.shared.config.IamProperties;
 import org.hibernate.exception.ConstraintViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
@@ -21,11 +23,17 @@ import java.time.LocalDate;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 public class UserService {
+    private static final Logger log = LoggerFactory.getLogger(UserService.class);
+    private static final Set<String> KEYCLOAK_REJECTIONS = Set.of(
+            UserErrorCode.USER_EMAIL_ALREADY_USED.code(), UserErrorCode.USER_IDENTITY_REJECTED.code());
+
     private final UserRepository userRepository;
     private final IamProperties iamProperties;
     private final KeycloakAdminClient keycloak;
@@ -89,20 +97,30 @@ public class UserService {
     }
 
     public UserResponse updateOwnProfile(UUID userId, UpdateProfileRequest request) {
-        AtomicReference<String> replacedEmail = new AtomicReference<>();
+        AtomicReference<KeycloakAdminClient.EmailState> replacedEmail = new AtomicReference<>();
         User user;
         try {
             user = transaction.execute(status -> updateProfileInTransaction(userId, request, replacedEmail));
         } catch (RuntimeException exception) {
             // The transaction has already rolled back before translating a database conflict.
             RuntimeException failure = profileFailure(exception);
-            String previousEmail = replacedEmail.get();
-            if (previousEmail != null) {
-                compensate(() -> keycloak.updateEmail(userId, previousEmail), failure);
+            KeycloakAdminClient.EmailState previous = replacedEmail.get();
+            if (previous != null) {
+                restoreEmail(userId, previous, failure);
             }
             throw failure;
         }
         return UserResponse.from(user, keycloak.realmRoles(userId));
+    }
+
+    private void restoreEmail(UUID userId, KeycloakAdminClient.EmailState previous, RuntimeException failure) {
+        try {
+            keycloak.updateEmail(userId, previous.email(), previous.emailVerified());
+        } catch (RuntimeException cleanup) {
+            failure.addSuppressed(cleanup);
+            log.error("Keycloak email of user {} could not be restored and may differ from the profile email",
+                    userId, cleanup);
+        }
     }
 
     private static RuntimeException profileFailure(RuntimeException exception) {
@@ -125,7 +143,7 @@ public class UserService {
     }
 
     private User updateProfileInTransaction(UUID userId, UpdateProfileRequest request,
-                                            AtomicReference<String> replacedEmail) {
+                                            AtomicReference<KeycloakAdminClient.EmailState> replacedEmail) {
         User user = userRepository.findForProfileUpdate(userId)
                 .orElseThrow(() -> new DomainException(UserErrorCode.USER_NOT_FOUND));
         String previousEmail = user.getEmail();
@@ -153,10 +171,27 @@ public class UserService {
 
         User saved = userRepository.saveAndFlush(user);
         if (request.email() != null && !request.email().equals(previousEmail)) {
-            keycloak.updateEmail(userId, request.email());
-            replacedEmail.set(previousEmail);
+            changeKeycloakEmail(userId, request.email(), replacedEmail);
         }
         return saved;
+    }
+
+    private void changeKeycloakEmail(UUID userId, String email,
+                                     AtomicReference<KeycloakAdminClient.EmailState> replacedEmail) {
+        Optional<KeycloakAdminClient.EmailState> before = keycloak.emailState(userId);
+        if (before.isEmpty()) {
+            log.warn("Profile {} has no Keycloak account, so its new email is stored only in user-service", userId);
+            return;
+        }
+        replacedEmail.set(before.get());
+        try {
+            keycloak.updateEmail(userId, email, false);
+        } catch (DomainException exception) {
+            if (KEYCLOAK_REJECTIONS.contains(exception.getErrorCode())) {
+                replacedEmail.set(null);
+            }
+            throw exception;
+        }
     }
 
     private static boolean isProfileUniqueViolation(Throwable exception) {
