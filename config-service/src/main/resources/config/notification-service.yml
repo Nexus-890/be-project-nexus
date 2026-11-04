@@ -11,6 +11,8 @@ spring:
       ddl-auto: validate
 
 nexus:
+  event-log:
+    group-id: nexus.notification.event-log.v1
   security:
     jwt:
       issuer: user-service
