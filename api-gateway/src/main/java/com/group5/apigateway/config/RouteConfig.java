@@ -55,7 +55,7 @@ public class RouteConfig {
                         .uri("lb://commerce-service"))
 
                 .route("payment-service", route -> route
-                        .path("/api/v1/payments", "/api/v1/payments/**")
+                        .path("/api/v1/payments", "/api/v1/payments/**", "/api/v1/refunds", "/api/v1/refunds/**")
                         .filters(filters -> filters.requestRateLimiter(config ->
                                 config.setRateLimiter(limiter)
                                         .setKeyResolver(resolver)

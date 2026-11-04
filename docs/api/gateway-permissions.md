@@ -59,6 +59,9 @@ independently, as required by ADR-006.
 | `/api/v1/notifications/read-all` | PATCH | NOTIFICATION.VIEW | #109 — Mark all own notifications as read |
 | `/api/v1/orders` | POST | ORDER.CREATE | #113 — Order creation from a cart; service also requires CHECKOUT.START |
 | `/api/v1/payments` | POST | CHECKOUT.START | #121 — Buyer reads own order group's immutable payment session |
+| `/api/v1/refunds` | POST | ORDER.REFUND | #247 — Request the refund of a cancelled, paid seller order |
+| `/api/v1/refunds` | GET | ORDER.REFUND | #247 — Read the refund of one order |
+| `/api/v1/refunds/{id}/complete` | POST | ORDER.REFUND | #247 — Record that the manual transfer is done |
 | `/api/v1/orders/{id}/history` | GET | ORDER.VIEW | #116 — Order state machine and status history |
 | `/api/v1/orders` | GET | ORDER.LIST | #117 — Order read endpoints; the caller's own orders only |
 | `/api/v1/orders/manage` | GET | ORDER.LIST | #190 — All orders; service additionally requires ADMIN or SUPPORT_STAFF |
@@ -205,6 +208,9 @@ Preserve the seven public method/path pairs above; none of these 14 paths is pub
 | GET | `/api/v1/orders/{id}/history` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #116 |
 | PATCH | `/api/v1/orders/{id}/status` | ADMIN | token only | none (role-only) | Service requires ADMIN; moves follow the order transition table, other moves return 409; audit actor and reason | #116 |
 | POST | `/api/v1/payments` | BUYER | CHECKOUT.START | CHECKOUT.START | Own PENDING group/session before dueAt; repeated call returns the same instructions | #120, #121 |
+| POST | `/api/v1/refunds` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Cancelled, paid order; one refund per order; same Idempotency-Key and body returns the stored refund | #247 |
+| GET | `/api/v1/refunds` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Refund of one order by orderId | #247 |
+| POST | `/api/v1/refunds/{id}/complete` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Records one manual REFUND transaction; repeating returns the completed refund | #247 |
 | GET | `/api/v1/notifications` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notifications only, including for ADMIN | #108 |
 | GET | `/api/v1/notifications/unread-count` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Count own unread notifications only | #108 |
 | PATCH | `/api/v1/notifications/{id}/read` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notification only; other caller returns 403 | #109 |

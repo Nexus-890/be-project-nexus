@@ -127,6 +127,15 @@ nexus:
       - method: POST
         path: /api/v1/payments
         privilege: CHECKOUT.START
+      - method: POST
+        path: /api/v1/refunds
+        privilege: ORDER.REFUND
+      - method: GET
+        path: /api/v1/refunds
+        privilege: ORDER.REFUND
+      - method: POST
+        path: /api/v1/refunds/{id}/complete
+        privilege: ORDER.REFUND
       - method: GET
         path: /api/v1/orders
         privilege: ORDER.LIST
