@@ -26,7 +26,11 @@ paths:
         payment_db, populated from the complete checkout event. A canceled, paid or
         expired session never gets a replacement QR. Unknown/not-yet-consumed groups
         return 404. ExpiresAt controls server acceptance; the bank-transfer QR itself
-        does not enforce the Nexus deadline at the bank.
+        does not enforce the Nexus deadline at the bank. ServerNow is sampled from
+        the payment service clock on every response so clients can calculate the
+        remaining time without relying on their device clock. For manual bank
+        transfers copy transferContent, which matches the QR description including
+        any bank-required prefix; memoCode remains the immutable session reference.
       security:
         - bearerAuth: []
       x-actor-roles: [BUYER]
@@ -44,7 +48,7 @@ paths:
                   format: uuid
       responses:
         '201':
-          description: Existing immutable instructions; same response on repeat with stable bank configuration
+          description: Existing immutable instructions with fresh serverNow; payment fields stay the same on repeat with stable bank configuration
           content:
             application/json:
               schema:
@@ -58,7 +62,9 @@ paths:
                   bankAccount: '0000000002'
                   amount: 350000
                   memoCode: NX20261105001
+                  transferContent: NX20261105001
                   expiresAt: '2026-11-05T10:15:00Z'
+                  serverNow: '2026-11-05T10:00:00Z'
         '400':
           description: Missing/invalid orderGroupId or malformed request body
           content:
@@ -112,7 +118,7 @@ components:
           $ref: '#/components/schemas/PaymentInitResponse'
     PaymentInitResponse:
       type: object
-      required: [sessionId, qrImageUrl, bankAccount, amount, memoCode, expiresAt]
+      required: [sessionId, qrImageUrl, bankAccount, amount, memoCode, transferContent, expiresAt, serverNow]
       properties:
         sessionId:
           type: string
@@ -133,10 +139,19 @@ components:
         memoCode:
           type: string
           pattern: '^[A-Z0-9]{1,32}$'
-          description: Immutable session memo; the QR description may prepend the bank-required prefix, such as SEVQR
+          description: Immutable session reference; use transferContent when copying bank transfer instructions
+        transferContent:
+          type: string
+          minLength: 1
+          description: Exact bank transfer content encoded in the QR description, including any configured bank-required prefix such as SEVQR
+          example: SEVQR NX20261105001
         expiresAt:
           type: string
           format: date-time
+        serverNow:
+          type: string
+          format: date-time
+          description: Current payment-service time sampled on this response; compare with expiresAt for the countdown
     Problem:
       type: object
       required: [type, title, status, detail]
