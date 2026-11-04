@@ -80,3 +80,19 @@ kc update "clients/$client" -r nexus -s "secret=$KEYCLOAK_USER_SERVICE_CLIENT_SE
 kc add-roles -r nexus --uusername service-account-user-service --cclientid realm-management \
   --rolename manage-users --rolename view-users --rolename query-users --rolename view-realm
 echo "Seeded client user-service ($client)"
+
+# CLIENT RIÊNG CHO notification-service: CHỈ ĐƯỢC ĐỌC USER (view-users) ĐỂ LẤY EMAIL NGƯỜI NHẬN (#191)
+if [ -n "${KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET:-}" ]; then
+  client="$(kc get clients -r nexus -q clientId=notification-service --fields id --format csv --noquotes)"
+  if [ -z "$client" ]; then
+    client="$(kc create clients -r nexus -s clientId=notification-service -s enabled=true -s publicClient=false \
+      -s serviceAccountsEnabled=true -s standardFlowEnabled=false -s implicitFlowEnabled=false \
+      -s directAccessGrantsEnabled=false -s clientAuthenticatorType=client-secret -i)"
+  fi
+  kc update "clients/$client" -r nexus -s "secret=$KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET" -n
+  kc add-roles -r nexus --uusername service-account-notification-service --cclientid realm-management \
+    --rolename view-users
+  echo "Seeded client notification-service ($client)"
+else
+  echo "Skipped client notification-service: KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET is empty"
+fi
