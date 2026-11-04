@@ -573,8 +573,8 @@ public class OrderService {
                 .sorted(Comparator.comparing(OrderItem::getId))
                 .map(this::toItemResponse)
                 .toList();
-        return new OrderResponse(order.getId(), order.getOrderNumber(), order.getSellerId(),
-                order.getStatus(), order.getTotalAmount(), items);
+        return new OrderResponse(order.getId(), order.getOrderNumber(), order.getUserId(), order.getSellerId(),
+                order.getOrderType(), order.getStatus(), order.getCreatedAt(), order.getTotalAmount(), items);
     }
 
     private OrderStatusHistoryResponse toHistoryResponse(OrderStatusHistory entry) {

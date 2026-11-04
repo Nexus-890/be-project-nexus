@@ -52,7 +52,8 @@ class OrderResponseContractTest {
     }
 
     @Test void orderOperationsWrapResultsAndPreserveCreationReplayAndListSemantics() throws Exception {
-        var order = new OrderResponse(id, "NX-TEST", user.id(), OrderStatus.PENDING, BigDecimal.TEN, List.of());
+        var order = new OrderResponse(id, "NX-TEST", user.id(), user.id(), OrderType.STANDARD,
+                OrderStatus.PENDING, OffsetDateTime.now(), BigDecimal.TEN, List.of());
         var group = new OrderGroupResponse(id, "PENDING", BigDecimal.TEN, "VND", OffsetDateTime.now(), List.of(order));
         when(service.create(eq(user), eq("key-1"), any())).thenReturn(
                 new OrderService.CreationResult(true, group), new OrderService.CreationResult(false, group));
@@ -85,7 +86,8 @@ class OrderResponseContractTest {
     }
 
     @Test void orderReadsWrapTheOrderAndPutThePageBesideTheList() throws Exception {
-        var order = new OrderResponse(id, "NX-TEST", user.id(), OrderStatus.PENDING, BigDecimal.TEN, List.of());
+        var order = new OrderResponse(id, "NX-TEST", user.id(), user.id(), OrderType.STANDARD,
+                OrderStatus.PENDING, OffsetDateTime.now(), BigDecimal.TEN, List.of());
         when(service.getOrder(user, id)).thenReturn(order);
         mvc.perform(get("/api/v1/orders/{id}", id)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0)).andExpect(jsonPath("$.data.orderId").value(id.toString()))
@@ -108,8 +110,9 @@ class OrderResponseContractTest {
         UUID sellerId = UUID.randomUUID();
         OffsetDateTime from = OffsetDateTime.parse("2026-11-01T00:00:00+07:00");
         OffsetDateTime to = OffsetDateTime.parse("2026-11-03T23:59:59+07:00");
-        var order = new OrderResponse(id, "NX-MANAGE", sellerId, OrderStatus.PAID,
-                new BigDecimal("150000.00"), List.of());
+        OffsetDateTime createdAt = OffsetDateTime.parse("2026-11-02T08:15:30Z");
+        var order = new OrderResponse(id, "NX-MANAGE", buyerId, sellerId, OrderType.AUCTION, OrderStatus.PAID,
+                createdAt, new BigDecimal("150000.00"), List.of());
         when(service.listManaged(user, buyerId, sellerId, OrderStatus.PAID, OrderType.AUCTION, from, to, 1, 2))
                 .thenReturn(new PageImpl<>(List.of(order), PageRequest.of(1, 2), 3));
 
@@ -121,7 +124,10 @@ class OrderResponseContractTest {
                 .andExpect(status().isOk()).andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.code").value(0)).andExpect(jsonPath("$.message").value("response success"))
                 .andExpect(jsonPath("$.data[0].orderId").value(id.toString()))
+                .andExpect(jsonPath("$.data[0].userId").value(buyerId.toString()))
                 .andExpect(jsonPath("$.data[0].sellerId").value(sellerId.toString()))
+                .andExpect(jsonPath("$.data[0].orderType").value("AUCTION"))
+                .andExpect(jsonPath("$.data[0].createdAt").value(createdAt.toString()))
                 .andExpect(jsonPath("$.page.number").value(1)).andExpect(jsonPath("$.page.size").value(2))
                 .andExpect(jsonPath("$.page.totalElements").value(3)).andExpect(jsonPath("$.page.totalPages").value(2))
                 .andExpect(jsonPath("$.data.content").doesNotExist());
@@ -133,8 +139,10 @@ class OrderResponseContractTest {
     @Test void salesRouteBindsItsFiltersWithoutAcceptingACallerSuppliedSellerScope() throws Exception {
         OffsetDateTime from = OffsetDateTime.parse("2026-11-01T00:00:00Z");
         OffsetDateTime to = OffsetDateTime.parse("2026-11-03T23:59:59Z");
-        var order = new OrderResponse(id, "NX-SALES", user.id(), OrderStatus.PENDING,
-                new BigDecimal("150000.00"), List.of());
+        UUID buyerId = UUID.randomUUID();
+        OffsetDateTime createdAt = OffsetDateTime.parse("2026-11-02T08:15:30Z");
+        var order = new OrderResponse(id, "NX-SALES", buyerId, user.id(), OrderType.STANDARD, OrderStatus.PENDING,
+                createdAt, new BigDecimal("150000.00"), List.of());
         when(service.listSales(user, OrderStatus.PENDING, from, to, 0, 5))
                 .thenReturn(new PageImpl<>(List.of(order), PageRequest.of(0, 5), 1));
 
@@ -143,6 +151,9 @@ class OrderResponseContractTest {
                         .param("sellerId", UUID.randomUUID().toString()).param("userId", UUID.randomUUID().toString()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data[0].orderId").value(id.toString()))
+                .andExpect(jsonPath("$.data[0].userId").value(buyerId.toString()))
+                .andExpect(jsonPath("$.data[0].orderType").value("STANDARD"))
+                .andExpect(jsonPath("$.data[0].createdAt").value(createdAt.toString()))
                 .andExpect(jsonPath("$.page.number").value(0)).andExpect(jsonPath("$.page.size").value(5))
                 .andExpect(jsonPath("$.page.totalElements").value(1)).andExpect(jsonPath("$.page.totalPages").value(1));
 
@@ -211,7 +222,8 @@ class OrderResponseContractTest {
     }
 
     @Test void cancellationWrapsTheGroupAndNamesItsFailures() throws Exception {
-        var order = new OrderResponse(id, "NX-TEST", user.id(), OrderStatus.CANCELED, BigDecimal.TEN, List.of());
+        var order = new OrderResponse(id, "NX-TEST", user.id(), user.id(), OrderType.STANDARD,
+                OrderStatus.CANCELED, OffsetDateTime.now(), BigDecimal.TEN, List.of());
         var group = new OrderGroupResponse(id, "CANCELED", BigDecimal.TEN, "VND", OffsetDateTime.now(), List.of(order));
         when(service.cancel(eq(user), eq(id), any())).thenReturn(group);
         mvc.perform(post("/api/v1/orders/{id}/cancel", id).contentType(MediaType.APPLICATION_JSON)

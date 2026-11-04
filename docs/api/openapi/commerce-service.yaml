@@ -922,7 +922,10 @@ paths:
                       -
                         orderId: "c8000000-0000-4000-8000-000000000005"
                         orderNumber: "NX-20261029-00000002"
+                        userId: "68000000-0000-4000-8000-000000000001"
                         sellerId: "68000000-0000-4000-8000-000000000003"
+                        orderType: STANDARD
+                        createdAt: "2026-10-29T08:00:00Z"
                         status: "PENDING"
                         totalAmount: 300000
                         items:
@@ -1318,7 +1321,10 @@ paths:
                         -
                           orderId: "c8000000-0000-4000-8000-000000000005"
                           orderNumber: "NX-20261029-00000001"
+                          userId: "68000000-0000-4000-8000-000000000001"
                           sellerId: "68000000-0000-4000-8000-000000000002"
+                          orderType: STANDARD
+                          createdAt: "2026-10-29T08:00:00Z"
                           status: "PENDING"
                           totalAmount: 150000
                           items: []
@@ -1345,7 +1351,10 @@ paths:
                         -
                           orderId: "c8000000-0000-4000-8000-000000000005"
                           orderNumber: "NX-20261029-00000001"
+                          userId: "68000000-0000-4000-8000-000000000001"
                           sellerId: "68000000-0000-4000-8000-000000000002"
+                          orderType: STANDARD
+                          createdAt: "2026-10-29T08:00:00Z"
                           status: "PENDING"
                           totalAmount: 150000
                           items: []
@@ -1973,7 +1982,10 @@ paths:
                     data:
                       - orderId: "c8000000-0000-4000-8000-000000000005"
                         orderNumber: NX-20261103-00000001
+                        userId: "68000000-0000-4000-8000-000000000001"
                         sellerId: "68000000-0000-4000-8000-000000000003"
+                        orderType: STANDARD
+                        createdAt: "2026-11-03T08:00:00Z"
                         status: PENDING
                         totalAmount: 150000
                         items: []
@@ -2183,7 +2195,10 @@ paths:
                     data:
                       - orderId: "c8000000-0000-4000-8000-000000000005"
                         orderNumber: NX-20261103-00000001
+                        userId: "68000000-0000-4000-8000-000000000001"
                         sellerId: "68000000-0000-4000-8000-000000000003"
+                        orderType: STANDARD
+                        createdAt: "2026-11-03T08:00:00Z"
                         status: PENDING
                         totalAmount: 150000
                         items: []
@@ -2366,7 +2381,10 @@ paths:
                     data:
                       orderId: "c8000000-0000-4000-8000-000000000005"
                       orderNumber: "NX-20261029-00000002"
+                      userId: "68000000-0000-4000-8000-000000000001"
                       sellerId: "68000000-0000-4000-8000-000000000003"
+                      orderType: STANDARD
+                      createdAt: "2026-10-29T08:00:00Z"
                       status: "PENDING"
                       totalAmount: 300000
                       items:
@@ -2773,7 +2791,10 @@ paths:
                     data:
                       orderId: "c8000000-0000-4000-8000-000000000005"
                       orderNumber: "NX-20261029-00000001"
+                      userId: "68000000-0000-4000-8000-000000000001"
                       sellerId: "68000000-0000-4000-8000-000000000002"
+                      orderType: STANDARD
+                      createdAt: "2026-10-29T08:00:00Z"
                       status: "PAID"
                       totalAmount: 150000
                       items: []
@@ -3269,7 +3290,10 @@ paths:
                         -
                           orderId: "c8000000-0000-4000-8000-000000000005"
                           orderNumber: "NX-20261030-00000001"
+                          userId: "68000000-0000-4000-8000-000000000001"
                           sellerId: "68000000-0000-4000-8000-000000000003"
+                          orderType: STANDARD
+                          createdAt: "2026-10-30T08:00:00Z"
                           status: "CANCELED"
                           totalAmount: 150000
                           items: []
@@ -5032,8 +5056,11 @@ components:
       required:
         - "orderId"
         - "orderNumber"
+        - "userId"
         - "sellerId"
+        - "orderType"
         - "status"
+        - "createdAt"
         - "totalAmount"
         - "items"
       properties:
@@ -5042,11 +5069,21 @@ components:
           format: "uuid"
         orderNumber:
           type: "string"
+        userId:
+          type: "string"
+          format: "uuid"
+          description: "Buyer who placed the order."
         sellerId:
           type: "string"
           format: "uuid"
+        orderType:
+          type: "string"
+          enum: [STANDARD, AUCTION]
         status:
           $ref: "#/components/schemas/OrderStatus"
+        createdAt:
+          type: "string"
+          format: "date-time"
         totalAmount:
           type: "number"
           minimum: 0

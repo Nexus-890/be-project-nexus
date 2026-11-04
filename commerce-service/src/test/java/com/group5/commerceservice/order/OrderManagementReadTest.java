@@ -16,6 +16,7 @@ import com.group5.common_security.CurrentUser;
 import com.group5.common_security.CurrentUserAuditor;
 import jakarta.persistence.EntityManagerFactory;
 import org.flywaydb.core.Flyway;
+import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -39,10 +40,13 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import javax.sql.DataSource;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -60,6 +64,7 @@ class OrderManagementReadTest {
 
     @Autowired private OrderService orderService;
     @Autowired private DataSource dataSource;
+    @Autowired private EntityManagerFactory entityManagerFactory;
     private UUID buyerA;
     private UUID buyerB;
     private CurrentUser sellerA;
@@ -117,6 +122,20 @@ class OrderManagementReadTest {
     }
 
     @Test
+    void managementResponsesIncludeThePersistedBuyerTypeAndCreationTime() {
+        for (CurrentUser manager : List.of(ADMIN, SUPPORT)) {
+            Page<OrderResponse> result = managed(manager, buyerA, sellerB.id(), OrderStatus.COMPLETED,
+                    OrderType.AUCTION, AT, AT, 0, 10);
+
+            assertIds(result, auction);
+            OrderResponse response = result.getContent().getFirst();
+            assertThat(response.userId()).isEqualTo(buyerA);
+            assertThat(response.orderType()).isEqualTo(OrderType.AUCTION);
+            assertThat(response.createdAt()).isEqualTo(AT);
+        }
+    }
+
+    @Test
     void dateBoundsAreInclusiveAndCompareInstantsAcrossOffsets() {
         OffsetDateTime sameInstantInVietnam = OffsetDateTime.parse("2026-11-03T17:00:00+07:00");
 
@@ -146,6 +165,50 @@ class OrderManagementReadTest {
         assertThat(beyond.getTotalElements()).isEqualTo(6);
         assertThat(beyond.getTotalPages()).isEqualTo(3);
         assertThat(managed(ADMIN, null, null, null, null, null, null, 0, 100).getSize()).isEqualTo(100);
+    }
+
+    @Test
+    void fullManagementAndSalesPagesLoadItemsInABoundedNumberOfQueries() {
+        OffsetDateTime from = AT.plusHours(2);
+        List<UUID> expected = new ArrayList<>();
+        for (int i = 0; i < 105; i++) {
+            UUID id = order(10 + i, buyerA, sellerA.id(), OrderStatus.PAID, OrderType.STANDARD,
+                    from.plusMinutes(i));
+            jdbc().update("""
+                    INSERT INTO order_items (order_id, product_id, sku_id, product_name, quantity, unit_price, total_price)
+                    VALUES (?, ?, ?, ?, 2, 50.00, 100.00)
+                    """, id, UUID.randomUUID(), UUID.randomUUID(), "Batch item " + id);
+            expected.add(id);
+        }
+        Collections.reverse(expected);
+        var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        List<Supplier<Page<OrderResponse>>> firstPages = List.of(
+                () -> managed(ADMIN, buyerA, sellerA.id(), OrderStatus.PAID, OrderType.STANDARD,
+                        from, null, 0, 100),
+                () -> orderService.listSales(sellerA, OrderStatus.PAID, from, null, 0, 100));
+
+        for (Supplier<Page<OrderResponse>> read : firstPages) {
+            statistics.clear();
+            Page<OrderResponse> result = read.get();
+
+            assertIds(result, expected.subList(0, 100).toArray(UUID[]::new));
+            assertThat(result.getTotalElements()).isEqualTo(105);
+            assertThat(result.getTotalPages()).isEqualTo(2);
+            assertThat(result.getContent()).allSatisfy(response -> {
+                assertThat(response.sellerId()).isEqualTo(sellerA.id());
+                assertThat(response.items()).hasSize(2);
+                assertThat(response.items()).extracting("productName")
+                        .containsExactlyInAnyOrder("Management snapshot", "Batch item " + response.orderId());
+            });
+            assertThat(statistics.getPrepareStatementCount())
+                    .as("100 orders need only the page, count and one batched items query")
+                    .isLessThanOrEqualTo(3);
+        }
+
+        assertIds(managed(ADMIN, buyerA, sellerA.id(), OrderStatus.PAID, OrderType.STANDARD,
+                from, null, 1, 100), expected.subList(100, 105).toArray(UUID[]::new));
+        assertIds(orderService.listSales(sellerA, OrderStatus.PAID, from, null, 1, 100),
+                expected.subList(100, 105).toArray(UUID[]::new));
     }
 
     @Test
@@ -274,7 +337,9 @@ class OrderManagementReadTest {
             factory.setDataSource(source);
             factory.setPackagesToScan(Cart.class.getPackageName(), Order.class.getPackageName());
             factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
-            factory.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto", "validate"));
+            factory.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto", "validate",
+                    "hibernate.generate_statistics", "true",
+                    "hibernate.query.fail_on_pagination_over_collection_fetch", "true"));
             return factory;
         }
 
