@@ -58,14 +58,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(
         classes = SecurityAutoConfigurationTest.TestApplication.class,
         properties = {
-                "nexus.security.jwt.issuer=user-service",
+                "nexus.security.jwt.issuer=http://localhost:18080/realms/nexus",
                 "nexus.security.jwt.audience=nexus-services",
                 "nexus.security.public-endpoints[0].method=GET",
                 "nexus.security.public-endpoints[0].path=/test/public"
         })
 class SecurityAutoConfigurationTest {
 
-    private static final String ISSUER = "user-service";
+    private static final String ISSUER = "http://localhost:18080/realms/nexus";
     private static final String AUDIENCE = "nexus-services";
     private static final String KEY_ID = "nexus-rs256-test";
     private static final UUID USER_ID = UUID.fromString("64fba061-3a91-4a35-a853-221798344510");
@@ -143,6 +143,17 @@ class SecurityAutoConfigurationTest {
     @Test
     void wrongAudienceIsRejected() throws Exception {
         expectUnauthorized(token(SIGNING_KEY, claims -> claims.audience("another-system")));
+    }
+
+    @Test
+    void missingAudienceIsRejected() throws Exception {
+        expectUnauthorized(token(SIGNING_KEY, claims -> claims.audience((List<String>) null)));
+    }
+
+    @Test
+    void legacyUserServiceTokenIsRejected() throws Exception {
+        expectUnauthorized(token(FOREIGN_KEY, claims -> claims.issuer("user-service")));
+        expectUnauthorized(token(SIGNING_KEY, claims -> claims.issuer("user-service")));
     }
 
     @Test

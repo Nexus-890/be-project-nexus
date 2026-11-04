@@ -64,9 +64,9 @@ class EnumMigrationTest {
         assertThat(jdbc.queryForObject("""
                 select count(*) from information_schema.columns
                 where table_schema = 'enum_fresh' and column_name in ('created_by', 'updated_by')
-                  and table_name in ('users', 'refresh_tokens', 'password_reset_tokens')
+                  and table_name = 'users'
                   and data_type = 'uuid' and is_nullable = 'NO'
-                """, Integer.class)).isEqualTo(6);
+                """, Integer.class)).isEqualTo(2);
     }
 
     private static void verifyEnumColumns(JdbcTemplate jdbc, String schema) {

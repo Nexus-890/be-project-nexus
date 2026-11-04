@@ -22,6 +22,6 @@ nexus:
     group-id: nexus.rating.order-completed.v1
   security:
     jwt:
-      issuer: ${JWT_ISSUER:user-service}
+      issuer: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
       audience: nexus-services
-      jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:8081/.well-known/jwks.json}
+      jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:18080/realms/nexus/protocol/openid-connect/certs}

@@ -50,8 +50,8 @@ nexus:
     allow-self-registration: true
 ```
 
-These bind to the existing `IamProperties` registration fields. Login, registration,
-and JWKS remain public by their configured HTTP methods; `/users/me` remains protected.
+These bind to the existing `IamProperties` registration fields. Registration remains
+public by its configured HTTP method; `/users/me` remains protected.
 The gateway additionally enforces its existing `PROFILE.VIEW`/`PROFILE.UPDATE` policy.
 
 ## Verification

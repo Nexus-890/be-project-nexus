@@ -17,34 +17,34 @@ class UserServiceIamConfigTest {
     private EnvironmentRepository environmentRepository;
 
     @Test
-    void nativeRepositoryServesTheUserServiceLockoutSettings() {
+    void nativeRepositoryServesNoTokenOrLockoutSettingsNowThatKeycloakSignsUsersIn() {
         Environment environment = environmentRepository.findOne("user-service", "default", null);
 
         assertThat(environment.getName()).isEqualTo("user-service");
         assertThat(environment.getPropertySources()).isNotEmpty();
-        assertThat(propertyValue(environment, "nexus.iam.max-login-attempts")).isEqualTo("5");
-        assertThat(propertyValue(environment, "nexus.iam.lock-duration-minutes")).isEqualTo("15");
+        assertThat(environment.getPropertySources().stream()
+                .flatMap(source -> source.getSource().keySet().stream())
+                .map(Object::toString))
+                .noneMatch(key -> key.startsWith("nexus.iam.jwt.")
+                        || key.equals("nexus.iam.access-token-expiry-minutes")
+                        || key.equals("nexus.iam.max-login-attempts")
+                        || key.equals("nexus.iam.lock-duration-minutes"));
     }
 
     @Test
-    void nativeRepositoryServesRegistrationDefaultsAndKeepsOnlyAuthEndpointsPublic() {
+    void nativeRepositoryServesRegistrationDefaultsAndKeepsOnlyRegistrationPublic() {
         Environment environment = environmentRepository.findOne("user-service", "default", null);
 
         assertThat(propertyValue(environment, "nexus.iam.default-user-role")).isEqualTo("BUYER");
         assertThat(propertyValue(environment, "nexus.iam.allow-self-registration")).isEqualTo("true");
         assertThat(propertyValue(environment, "nexus.security.public-endpoints[0].method")).isEqualTo("POST");
         assertThat(propertyValue(environment, "nexus.security.public-endpoints[0].path"))
-                .isEqualTo("/api/v1/auth/login");
-        assertThat(propertyValue(environment, "nexus.security.public-endpoints[1].method")).isEqualTo("POST");
-        assertThat(propertyValue(environment, "nexus.security.public-endpoints[1].path"))
                 .isEqualTo("/api/v1/auth/register");
-        assertThat(propertyValue(environment, "nexus.security.public-endpoints[2].method")).isEqualTo("GET");
-        assertThat(propertyValue(environment, "nexus.security.public-endpoints[2].path"))
-                .isEqualTo("/.well-known/jwks.json");
+        assertThat(propertyValue(environment, "nexus.security.public-endpoints[1].path")).isNull();
         assertThat(environment.getPropertySources().stream()
                 .flatMap(source -> source.getSource().values().stream())
                 .map(Object::toString))
-                .doesNotContain("/api/v1/users/me");
+                .doesNotContain("/api/v1/users/me", "/api/v1/auth/login", "/.well-known/jwks.json");
     }
 
     private static String propertyValue(Environment environment, String key) {

@@ -1,6 +1,5 @@
 package com.group5.userservice.iam.dto;
 
-import com.group5.userservice.iam.entity.Role;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.Gender;
 import com.group5.userservice.iam.enums.UserStatus;
@@ -22,11 +21,11 @@ public record UserResponse(
         UserStatus status,
         OffsetDateTime createdAt
 ) {
-    public static UserResponse from(User user) {
+    public static UserResponse from(User user, List<String> roles) {
         return new UserResponse(
                 user.getId(), user.getEmail(), user.getPhone(), user.getFullName(),
                 user.getGender(), user.getAddress(), user.getDateOfBirth(),
-                user.getRoles().stream().map(Role::getCode).sorted().toList(),
+                roles.stream().sorted().toList(),
                 user.getStatus(), user.getCreatedAt());
     }
 }
