@@ -63,7 +63,8 @@ public class RouteConfig {
                         .uri("lb://payment-service"))
 
                 .route("notification-service", route -> route
-                        .path("/api/v1/notifications", "/api/v1/notifications/**")
+                        .path("/api/v1/notifications", "/api/v1/notifications/**",
+                                "/api/v1/system/health", "/api/v1/system/health/**")
                         .filters(filters -> filters.requestRateLimiter(config ->
                                 config.setRateLimiter(limiter)
                                         .setKeyResolver(resolver)

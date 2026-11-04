@@ -152,6 +152,12 @@ nexus:
       - method: PATCH
         path: /api/v1/notifications/read-all
         privilege: NOTIFICATION.VIEW
+      - method: GET
+        path: /api/v1/system/health
+        privilege: SYSTEM.HEALTH.VIEW
+      - method: GET
+        path: /api/v1/system/health/brokers
+        privilege: SYSTEM.HEALTH.VIEW
       - method: POST
         path: /api/v1/products/{id}/images
         privilege: PRODUCT.UPDATE
