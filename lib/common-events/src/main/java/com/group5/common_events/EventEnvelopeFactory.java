@@ -5,7 +5,9 @@ import io.micrometer.tracing.Tracer;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Function;
 
 public class EventEnvelopeFactory {
 
@@ -25,6 +27,19 @@ public class EventEnvelopeFactory {
                 Instant.now(clock),
                 currentTraceId(),
                 payload);
+    }
+
+    public <T> EventEnvelope<T> createWithTimestamp(String eventType, String aggregateId,
+                                                   Function<Instant, T> payloadFactory) {
+        Objects.requireNonNull(payloadFactory, "payloadFactory must not be null");
+        Instant occurredAt = Instant.now(clock);
+        return new EventEnvelope<>(
+                UUID.randomUUID(),
+                eventType,
+                aggregateId,
+                occurredAt,
+                currentTraceId(),
+                payloadFactory.apply(occurredAt));
     }
 
     private String currentTraceId() {
