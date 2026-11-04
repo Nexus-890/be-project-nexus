@@ -2,17 +2,14 @@ server:
   port: 8081
 nexus:
   iam:
-    access-token-expiry-minutes: 60
-    max-login-attempts: 5
-    lock-duration-minutes: 15
     default-user-role: BUYER
     allow-self-registration: true
-    jwt:
-      issuer: user-service
-      audience: nexus-services
-      key-id: ${JWT_KEY_ID:}
-      private-key-path: ${JWT_PRIVATE_KEY_PATH:}
-      public-key-path: ${JWT_PUBLIC_KEY_PATH:}
+  keycloak:
+    server-url: ${KEYCLOAK_SERVER_URL:http://localhost:18080}
+    realm: nexus
+    client-id: user-service
+    client-secret: ${KEYCLOAK_USER_SERVICE_CLIENT_SECRET:}
+    timeout: 5s
   security:
     jwt:
       issuer: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
@@ -20,11 +17,7 @@ nexus:
       jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:18080/realms/nexus/protocol/openid-connect/certs}
     public-endpoints:
       - method: POST
-        path: /api/v1/auth/login
-      - method: POST
         path: /api/v1/auth/register
-      - method: GET
-        path: /.well-known/jwks.json
 
 spring:
   datasource:

@@ -3,7 +3,7 @@ package com.group5.userservice.iam;
 import com.group5.userservice.shared.exception.UserErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_web.filter.TraceIdFilter;
-import com.group5.userservice.iam.dto.LoginRequest;
+import com.group5.userservice.iam.dto.RegisterRequest;
 import com.jayway.jsonpath.JsonPath;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
@@ -34,12 +34,12 @@ import static org.mockito.Mockito.when;
 
 /**
  * Real embedded HTTP server and Boot's inherited Brave/Micrometer tracing configuration.
- * The service is mocked only to trigger the account-locked error; tracing is never mocked.
+ * The service is mocked only to trigger the identity-provider error; tracing is never mocked.
  */
 class AuthTracingHttpTest {
 
     @Test
-    void aLockedAccountReturnsAProblemWithTheRealHttpRequestTraceId() throws Exception {
+    void anIdentityProviderOutageReturnsAProblemWithTheRealHttpRequestTraceId() throws Exception {
         SpringApplication application = new SpringApplication(TestApplication.class);
         try (ConfigurableApplicationContext context = application.run(
                 "--spring.config.name=auth-tracing-http-test",
@@ -55,40 +55,42 @@ class AuthTracingHttpTest {
                 "--spring.main.banner-mode=off")) {
 
             Tracer tracer = context.getBean(Tracer.class);
-            AuthService authService = context.getBean(AuthService.class);
+            UserService userService = context.getBean(UserService.class);
             AtomicReference<String> requestTraceId = new AtomicReference<>();
-            when(authService.login(any(LoginRequest.class))).thenAnswer(invocation -> {
+            when(userService.register(any(RegisterRequest.class))).thenAnswer(invocation -> {
                 Span span = tracer.currentSpan();
                 assertThat(span).as("HTTP observation must create an active tracing span").isNotNull();
                 requestTraceId.set(span.context().traceId());
-                throw new DomainException(UserErrorCode.USER_ACCOUNT_LOCKED);
+                throw new DomainException(UserErrorCode.USER_IDENTITY_PROVIDER_UNAVAILABLE);
             });
 
             int port = context.getEnvironment().getRequiredProperty("local.server.port", Integer.class);
             HttpRequest request = HttpRequest.newBuilder(
-                            URI.create("http://127.0.0.1:" + port + "/api/v1/auth/login"))
+                            URI.create("http://127.0.0.1:" + port + "/api/v1/auth/register"))
                     .timeout(Duration.ofSeconds(10))
                     .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                     .POST(HttpRequest.BodyPublishers.ofString("""
-                            {"email":"seller@nexus.local","password":"correct-password"}
+                            {"email":"buyer@nexus.local","phone":"0901234567","password":"correct-password",
+                             "fullName":"Buyer One","identityNumber":"ID123456","gender":"MALE",
+                             "address":"1 Main Street","dateOfBirth":"2000-01-01"}
                             """))
                     .build();
             try (HttpClient client = HttpClient.newBuilder()
                     .connectTimeout(Duration.ofSeconds(5)).build()) {
                 HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
-                assertThat(response.statusCode()).isEqualTo(423);
+                assertThat(response.statusCode()).isEqualTo(503);
                 MediaType responseType = MediaType.parseMediaType(
                         response.headers().firstValue("Content-Type").orElseThrow());
                 assertThat(responseType.isCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)).isTrue();
 
                 var problem = JsonPath.parse(response.body());
                 assertThat(problem.read("$.type", String.class)).isEqualTo("urn:problem:domain-error");
-                assertThat(problem.read("$.title", String.class)).isEqualTo("Locked");
-                assertThat(problem.read("$.status", Integer.class)).isEqualTo(423);
-                assertThat(problem.read("$.code", String.class)).isEqualTo("USER_ACCOUNT_LOCKED");
-                assertThat(problem.read("$.detail", String.class)).isEqualTo("Account is locked");
-                assertThat(problem.read("$.instance", String.class)).isEqualTo("/api/v1/auth/login");
+                assertThat(problem.read("$.title", String.class)).isEqualTo("Service Unavailable");
+                assertThat(problem.read("$.status", Integer.class)).isEqualTo(503);
+                assertThat(problem.read("$.code", String.class)).isEqualTo("USER_IDENTITY_PROVIDER_UNAVAILABLE");
+                assertThat(problem.read("$.detail", String.class)).isEqualTo("The identity provider is unavailable");
+                assertThat(problem.read("$.instance", String.class)).isEqualTo("/api/v1/auth/register");
                 assertThat(requestTraceId.get()).matches("[0-9a-f]{32}");
                 assertThat(problem.read("$.traceId", String.class)).isEqualTo(requestTraceId.get());
                 assertThat(response.headers().firstValue(TraceIdFilter.TRACE_ID_HEADER))
@@ -108,18 +110,13 @@ class AuthTracingHttpTest {
     static class TestApplication {
 
         @Bean
-        AuthService authService() {
-            return mock(AuthService.class);
-        }
-
-        @Bean
         UserService userService() {
             return mock(UserService.class);
         }
 
         @Bean
-        AuthController authController(AuthService authService, UserService userService) {
-            return new AuthController(authService, userService);
+        AuthController authController(UserService userService) {
+            return new AuthController(userService);
         }
     }
 }

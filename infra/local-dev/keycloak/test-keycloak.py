@@ -174,6 +174,7 @@ def run(full_lockout):
         # Exercise dotenv quoting and punctuation without putting credentials in Git.
         for role in ("ADMIN", "SELLER", "BUYER"):
             values[f"DEMO_{role}_PASSWORD"] = '-p' + secrets.token_urlsafe(20) + '#$"\\ space'
+        values["KEYCLOAK_USER_SERVICE_CLIENT_SECRET"] = secrets.token_urlsafe(32)
         env_file = directory / ".env"
         env_file.write_text("\n".join(f"{k}='{v}'" for k, v in values.items()) + "\n")
         if os.name != "nt":
@@ -212,6 +213,13 @@ def run(full_lockout):
             compose("run", "--rm", "--no-deps", "-T", "auth-seed")
             compose("run", "--rm", "--no-deps", "-T", "auth-seed")
             print("PASS: seed-users.sh sets passwords starting with -p and containing punctuation; repeatable", flush=True)
+            status, _, body = form(f"{base}/realms/nexus/protocol/openid-connect/token", {
+                "grant_type": "client_credentials", "client_id": "user-service",
+                "client_secret": values["KEYCLOAK_USER_SERVICE_CLIENT_SECRET"]})
+            check(status == 200, "user-service client_credentials grant failed")
+            status, _, body = http(f"{base}/admin/realms/nexus/roles/BUYER", token=json.loads(body)["access_token"])
+            check(status == 200 and json.loads(body)["name"] == "BUYER", "user-service service account cannot read realm roles")
+            print("PASS: seed-users.sh provisions the confidential user-service client and its service account", flush=True)
             spec = importlib.util.spec_from_file_location("realm_contract", HERE / "test-realm.py")
             contracts = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(contracts)

@@ -1,10 +1,12 @@
 package com.group5.userservice.iam;
 
+import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUserAuditor;
 import com.group5.common_security.autoconfigure.JpaAuditingAutoConfiguration;
+import com.group5.userservice.shared.KeycloakTestServer;
 import com.group5.userservice.shared.config.IamProperties;
 import com.group5.userservice.shared.PostgresTestDatabase;
-import com.nimbusds.jwt.SignedJWT;
+import com.group5.userservice.shared.exception.UserErrorCode;
 import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -15,9 +17,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -27,9 +29,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.KeyPairGenerator;
 import java.time.Duration;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,9 +40,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doAnswer;
 
 /**
- * HTTP tests against a disposable PostgreSQL 18 Testcontainers database.
+ * HTTP tests against disposable PostgreSQL 18 and Keycloak 26.7 Testcontainers instances.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.location=optional:file:${nexus.registration.test-config}",
@@ -55,17 +57,11 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.kafka.admin.auto-create=false",
         "spring.jpa.hibernate.ddl-auto=validate",
         "spring.jpa.open-in-view=false",
-        "nexus.security.jwt.issuer=user-service",
         "nexus.security.jwt.audience=nexus-services",
-        // These tests only call public auth endpoints and the test-only refresh endpoint;
-        // no bearer token is decoded, so the JWKS URL is never contacted.
-        "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/.well-known/jwks.json",
         "nexus.security.public-endpoints[0].method=POST",
         "nexus.security.public-endpoints[0].path=/api/v1/auth/register",
         "nexus.security.public-endpoints[1].method=POST",
-        "nexus.security.public-endpoints[1].path=/api/v1/auth/login",
-        "nexus.security.public-endpoints[2].method=POST",
-        "nexus.security.public-endpoints[2].path=/actuator/refresh",
+        "nexus.security.public-endpoints[1].path=/actuator/refresh",
         "management.endpoints.web.exposure.include=health,refresh",
         "management.tracing.enabled=false",
         "spring.jpa.properties.hibernate.session_factory.statement_inspector="
@@ -82,8 +78,8 @@ class RegistrationIntegrationTest {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private Environment environment;
     @Autowired private IamProperties iamProperties;
-    @Autowired private PasswordEncoder encoder;
     @Autowired private ApplicationContext context;
+    @MockitoSpyBean private KeycloakAdminClient keycloak;
     private boolean configChanged;
 
     @DynamicPropertySource
@@ -91,22 +87,17 @@ class RegistrationIntegrationTest {
         registry.add("spring.datasource.url", PostgresTestDatabase::jdbcUrl);
         registry.add("spring.datasource.username", PostgresTestDatabase::username);
         registry.add("spring.datasource.password", PostgresTestDatabase::password);
-        registry.add("nexus.iam.jwt.issuer", () -> "user-service");
-        registry.add("nexus.iam.jwt.audience", () -> "nexus-services");
-        registry.add("nexus.iam.jwt.key-id", () -> "registration-test");
-        registry.add("nexus.iam.jwt.private-key-path", () -> TEMP.resolve("private.pem").toString());
-        registry.add("nexus.iam.jwt.public-key-path", () -> TEMP.resolve("public.pem").toString());
+        registry.add("nexus.keycloak.server-url", KeycloakTestServer::baseUrl);
+        registry.add("nexus.keycloak.client-secret", () -> KeycloakTestServer.CLIENT_SECRET);
+        registry.add("nexus.security.jwt.issuer", KeycloakTestServer::issuer);
+        registry.add("nexus.security.jwt.jwk-set-uri", KeycloakTestServer::jwkSetUri);
     }
 
     @BeforeEach
     void prepareFixtures() {
         // These rows exist only in the disposable Testcontainers database.
-        jdbc.update("delete from user_roles");
         jdbc.update("delete from users");
-        jdbc.update("""
-                insert into roles(code, name) values ('BUYER', 'Buyer'), ('SELLER', 'Seller')
-                on conflict (code) do nothing
-                """);
+        KeycloakTestServer.deleteRegisteredUsers();
         SqlCapture.STATEMENTS.clear();
     }
 
@@ -120,9 +111,7 @@ class RegistrationIntegrationTest {
 
     @AfterAll
     static void removeTestFiles() throws Exception {
-        for (String name : List.of("private.pem", "public.pem", "registration.properties")) {
-            Files.deleteIfExists(TEMP.resolve(name));
-        }
+        Files.deleteIfExists(TEMP.resolve("registration.properties"));
         Files.deleteIfExists(TEMP);
         System.clearProperty("nexus.registration.test-config");
     }
@@ -142,6 +131,126 @@ class RegistrationIntegrationTest {
     }
 
     @Test
+    void registrationReturns201WithTheKeycloakUserIdAsProfileId() throws Exception {
+        HttpResponse<String> response = post(REGISTER, request("buyer@nexus.test", "0901234567", "001234"));
+
+        assertThat(response.statusCode()).isEqualTo(201);
+        UUID keycloakId = KeycloakTestServer.userIdByEmail("buyer@nexus.test").orElseThrow();
+        assertThat(JSON.readTree(response.body()).get("data").get("id").asString()).isEqualTo(keycloakId.toString());
+        assertThat(jdbc.queryForObject("select id from users", UUID.class)).isEqualTo(keycloakId);
+        assertThat(KeycloakTestServer.realmRoles(keycloakId)).contains("BUYER");
+    }
+
+    @Test
+    void newAccountSignsInThroughKeycloakAndReadsItsOwnProfile() throws Exception {
+        assertThat(post(REGISTER, request("login@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+        UUID keycloakId = KeycloakTestServer.userIdByEmail("login@nexus.test").orElseThrow();
+
+        String token = KeycloakTestServer.signIn("LOGIN@NEXUS.TEST", PASSWORD);
+        HttpResponse<String> profile = get("/api/v1/users/me", token);
+
+        assertThat(profile.statusCode()).isEqualTo(200);
+        JsonNode body = JSON.readTree(profile.body()).get("data");
+        assertThat(body.get("id").asString()).isEqualTo(keycloakId.toString());
+        assertThat(body.get("email").asString()).isEqualTo("login@nexus.test");
+        assertThat(body.get("fullName").asString()).isEqualTo("Registered Buyer");
+        assertThat(body.get("roles").toString()).isEqualTo("[\"BUYER\"]");
+    }
+
+    @Test
+    void profileEmailChangeMovesTheKeycloakSignIn() throws Exception {
+        assertThat(post(REGISTER, request("before@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+        UUID keycloakId = KeycloakTestServer.userIdByEmail("before@nexus.test").orElseThrow();
+        String token = KeycloakTestServer.signIn("before@nexus.test", PASSWORD);
+
+        HttpResponse<String> updated = put("/api/v1/users/me", Map.of("email", "After@Nexus.Test"), token);
+
+        assertThat(updated.statusCode()).isEqualTo(200);
+        assertThat(JSON.readTree(updated.body()).get("data").get("email").asString()).isEqualTo("after@nexus.test");
+        assertThat(KeycloakTestServer.userIdByEmail("after@nexus.test")).contains(keycloakId);
+        assertThat(KeycloakTestServer.userIdByEmail("before@nexus.test")).isEmpty();
+        assertThat(KeycloakTestServer.signIn("after@nexus.test", PASSWORD)).isNotBlank();
+    }
+
+    @Test
+    void emailChangeKeepsATemporaryKeycloakLockout() throws Exception {
+        assertThat(post(REGISTER, request("locked@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+        UUID keycloakId = KeycloakTestServer.userIdByEmail("locked@nexus.test").orElseThrow();
+        String token = KeycloakTestServer.signIn("locked@nexus.test", PASSWORD);
+        for (int attempt = 0; attempt < 5; attempt++) {
+            KeycloakTestServer.failSignIn("locked@nexus.test");
+        }
+        assertThat(KeycloakTestServer.bruteForceLocked(keycloakId)).isTrue();
+
+        HttpResponse<String> updated = put("/api/v1/users/me", Map.of("email", "moved@nexus.test"), token);
+
+        assertThat(updated.statusCode()).isEqualTo(200);
+        assertThat(KeycloakTestServer.userIdByEmail("moved@nexus.test")).contains(keycloakId);
+        assertThat(KeycloakTestServer.bruteForceLocked(keycloakId)).isTrue();
+        assertThatThrownBy(() -> KeycloakTestServer.signIn("moved@nexus.test", PASSWORD))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void lostKeycloakResponseAfterTheEmailChangeRestoresTheOldEmail() throws Exception {
+        assertThat(post(REGISTER, request("kept@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+        UUID keycloakId = KeycloakTestServer.userIdByEmail("kept@nexus.test").orElseThrow();
+        KeycloakTestServer.markEmailVerified(keycloakId);
+        String token = KeycloakTestServer.signIn("kept@nexus.test", PASSWORD);
+        doAnswer(call -> {
+            call.callRealMethod();
+            throw new DomainException(UserErrorCode.USER_IDENTITY_PROVIDER_UNAVAILABLE);
+        }).when(keycloak).updateEmail(keycloakId, "lost@nexus.test", false);
+
+        HttpResponse<String> updated = put("/api/v1/users/me", Map.of("email", "lost@nexus.test"), token);
+
+        assertThat(updated.statusCode()).isEqualTo(503);
+        assertThat(JSON.readTree(updated.body()).get("code").asString()).isEqualTo("USER_IDENTITY_PROVIDER_UNAVAILABLE");
+        assertThat(jdbc.queryForObject("select email from users", String.class)).isEqualTo("kept@nexus.test");
+        assertThat(KeycloakTestServer.userIdByEmail("lost@nexus.test")).isEmpty();
+        assertThat(KeycloakTestServer.userIdByEmail("kept@nexus.test")).contains(keycloakId);
+        assertThat(KeycloakTestServer.emailVerified(keycloakId)).isTrue();
+        assertThat(KeycloakTestServer.signIn("kept@nexus.test", PASSWORD)).isNotBlank();
+    }
+
+    @Test
+    void profileEmailHeldByAnotherKeycloakAccountReturns409AndKeepsBothRecords() throws Exception {
+        assertThat(post(REGISTER, request("keep@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+        UUID keycloakId = KeycloakTestServer.userIdByEmail("keep@nexus.test").orElseThrow();
+        String token = KeycloakTestServer.signIn("keep@nexus.test", PASSWORD);
+
+        HttpResponse<String> rejected = put("/api/v1/users/me", Map.of("email", KeycloakTestServer.DEMO_ADMIN), token);
+
+        assertThat(rejected.statusCode()).isEqualTo(409);
+        assertThat(JSON.readTree(rejected.body()).get("code").asString()).isEqualTo("USER_EMAIL_ALREADY_USED");
+        assertThat(jdbc.queryForObject("select email from users", String.class)).isEqualTo("keep@nexus.test");
+        assertThat(KeycloakTestServer.userIdByEmail("keep@nexus.test")).contains(keycloakId);
+    }
+
+    @Test
+    void adminListFiltersByKeycloakRoleAndShowsKeycloakRoles() throws Exception {
+        assertThat(post(REGISTER, request("buyer@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+        configChanged = true;
+        writeConfig("SELLER", true);
+        assertThat(post("/actuator/refresh", Map.of()).statusCode()).isEqualTo(200);
+        assertThat(post(REGISTER, request("seller@nexus.test", "0901234568", "001235")).statusCode()).isEqualTo(201);
+        String admin = KeycloakTestServer.signIn(KeycloakTestServer.DEMO_ADMIN, KeycloakTestServer.DEMO_ADMIN_PASSWORD);
+
+        HttpResponse<String> sellers = get("/api/v1/users?role=seller", admin);
+        HttpResponse<String> everyone = get("/api/v1/users?sort=email", admin);
+
+        assertThat(sellers.statusCode()).isEqualTo(200);
+        JsonNode sellerPage = JSON.readTree(sellers.body()).get("data");
+        assertThat(sellerPage.size()).isEqualTo(1);
+        assertThat(sellerPage.get(0).get("email").asString()).isEqualTo("seller@nexus.test");
+        assertThat(sellerPage.get(0).get("roles").toString()).isEqualTo("[\"SELLER\"]");
+        assertThat(everyone.statusCode()).isEqualTo(200);
+        JsonNode everyonePage = JSON.readTree(everyone.body()).get("data");
+        assertThat(everyonePage.size()).isEqualTo(2);
+        assertThat(everyonePage.get(0).get("roles").toString()).isEqualTo("[\"BUYER\"]");
+    }
+
+    @Test
     void createsOneBuyerRoleAndNeverReturnsSecrets() throws Exception {
         HttpResponse<String> response = post(REGISTER, request("buyer@nexus.test", "0901234567", "001234"));
         assertThat(response.statusCode()).isEqualTo(201);
@@ -152,24 +261,7 @@ class RegistrationIntegrationTest {
         assertThat(body.has("identityNumber")).isFalse();
         assertThat(body.has("password")).isFalse();
         assertThat(count("users")).isEqualTo(1);
-        assertThat(count("user_roles")).isEqualTo(1);
-        assertThat(jdbc.queryForObject("""
-                select r.code from user_roles ur join roles r on r.id = ur.role_id
-                """, String.class)).isEqualTo("BUYER");
-    }
-
-    @Test
-    void newAccountLogsInWithItsRegisteredPasswordAndCostTwelveHash() throws Exception {
-        assertThat(post(REGISTER, request("login@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
-        String hash = jdbc.queryForObject("select password_hash from users", String.class);
-        assertThat(hash).startsWith("$2a$12$");
-        assertThat(encoder.matches(PASSWORD, hash)).isTrue();
-
-        HttpResponse<String> login = post("/api/v1/auth/login",
-                Map.of("email", "LOGIN@NEXUS.TEST", "password", PASSWORD));
-        assertThat(login.statusCode()).isEqualTo(200);
-        String token = JSON.readTree(login.body()).get("data").get("accessToken").asString();
-        assertThat(SignedJWT.parse(token).getJWTClaimsSet().getStringListClaim("roles")).containsExactly("BUYER");
+        assertThat(KeycloakTestServer.registeredUserCount()).isEqualTo(1);
     }
 
     @Test
@@ -178,6 +270,7 @@ class RegistrationIntegrationTest {
                 .statusCode()).isEqualTo(201);
         assertThat(jdbc.queryForObject("select email from users", String.class)).isEqualTo("buyer@nexus.test");
         assertThat(jdbc.queryForObject("select phone from users", String.class)).isEqualTo("0901234567");
+        assertThat(KeycloakTestServer.userIdByEmail("buyer@nexus.test")).isPresent();
     }
 
     @Test
@@ -199,18 +292,44 @@ class RegistrationIntegrationTest {
     void simultaneousEmailRegistrationsReturnExactly201And409() throws Exception {
         concurrent(request("race@nexus.test", "0901234567", "001234"),
                 request("race@nexus.test", "0901234568", "001235"));
+        assertThat(KeycloakTestServer.registeredUserCount()).isEqualTo(1);
     }
 
     @Test
     void simultaneousPhoneRegistrationsReturnExactly201And409() throws Exception {
         concurrent(request("first@nexus.test", "0901234567", "001234"),
                 request("second@nexus.test", "0901234567", "001235"));
+        assertThat(KeycloakTestServer.registeredUserCount()).isEqualTo(1);
     }
 
     @Test
     void simultaneousIdentityRegistrationsReturnExactly201And409WithoutSchemaChanges() throws Exception {
         concurrent(request("first@nexus.test", "0901234567", "001234"),
                 request("second@nexus.test", "0901234568", "001234"));
+        assertThat(KeycloakTestServer.registeredUserCount()).isEqualTo(1);
+    }
+
+    @Test
+    void failedProfileInsertRemovesTheKeycloakAccount() throws Exception {
+        jdbc.execute("""
+                create function reject_registration() returns trigger language plpgsql as $$
+                begin
+                    raise exception 'registration rejected by test trigger';
+                end $$
+                """);
+        jdbc.execute("create trigger reject_registration before insert on users "
+                + "for each row execute function reject_registration()");
+        HttpResponse<String> response;
+        try {
+            response = post(REGISTER, request("orphan@nexus.test", "0901234567", "001234"));
+        } finally {
+            jdbc.execute("drop trigger reject_registration on users");
+            jdbc.execute("drop function reject_registration()");
+        }
+        assertThat(response.statusCode()).isEqualTo(500);
+        assertThat(count("users")).isZero();
+        assertThat(KeycloakTestServer.userIdByEmail("orphan@nexus.test")).isEmpty();
+        assertThat(KeycloakTestServer.registeredUserCount()).isZero();
     }
 
     @Test
@@ -240,26 +359,21 @@ class RegistrationIntegrationTest {
     }
 
     @Test
-    void overlongUtf8PasswordNamesTheFieldAndProducesNoInsert() throws Exception {
-        Map<String, String> request = request("buyer@nexus.test", "0901234567", "001234");
-        request.put("password", "é".repeat(37));
-        invalid(request, "password");
-    }
-
-    @Test
     void missingConfiguredRoleLeavesNoAccount() throws Exception {
         configChanged = true;
         writeConfig("MISSING_ROLE", true);
         assertThat(post("/actuator/refresh", Map.of()).statusCode()).isEqualTo(200);
-        assertThat(post(REGISTER, request("buyer@nexus.test", "0901234567", "001234"))
-                .statusCode()).isEqualTo(503);
+        HttpResponse<String> response = post(REGISTER, request("buyer@nexus.test", "0901234567", "001234"));
+        assertThat(response.statusCode()).isEqualTo(503);
+        assertThat(JSON.readTree(response.body()).get("code").asString())
+                .isEqualTo("USER_REGISTRATION_ROLE_UNAVAILABLE");
         assertThat(count("users")).isZero();
-        assertThat(count("user_roles")).isZero();
+        assertThat(KeycloakTestServer.registeredUserCount()).isZero();
         assertNoInsert();
     }
 
     @Test
-    void refreshedDefaultRoleIsPersistedAndReturnedInsteadOfHardcodedBuyer() throws Exception {
+    void refreshedDefaultRoleIsAssignedInKeycloakInsteadOfHardcodedBuyer() throws Exception {
         configChanged = true;
         writeConfig("SELLER", true);
         assertThat(post("/actuator/refresh", Map.of()).statusCode()).isEqualTo(200);
@@ -267,9 +381,8 @@ class RegistrationIntegrationTest {
         HttpResponse<String> response = post(REGISTER, request("seller@nexus.test", "0901234567", "001234"));
         assertThat(response.statusCode()).isEqualTo(201);
         assertThat(JSON.readTree(response.body()).get("data").get("roles").get(0).asString()).isEqualTo("SELLER");
-        assertThat(jdbc.queryForObject("""
-                select r.code from user_roles ur join roles r on r.id = ur.role_id
-                """, String.class)).isEqualTo("SELLER");
+        UUID keycloakId = KeycloakTestServer.userIdByEmail("seller@nexus.test").orElseThrow();
+        assertThat(KeycloakTestServer.realmRoles(keycloakId)).contains("SELLER").doesNotContain("BUYER");
     }
 
     @Test
@@ -283,7 +396,7 @@ class RegistrationIntegrationTest {
         assertThat(post(REGISTER, request("buyer@nexus.test", "0901234567", "001234"))
                 .statusCode()).isEqualTo(403);
         assertThat(count("users")).isZero();
-        assertThat(count("user_roles")).isZero();
+        assertThat(KeycloakTestServer.registeredUserCount()).isZero();
         assertNoInsert();
         assertThat(context.getBean(UserService.class)).isSameAs(original);
         assertThat(context.getStartupDate()).isEqualTo(started);
@@ -303,7 +416,7 @@ class RegistrationIntegrationTest {
         assertThat(duplicate.statusCode()).isEqualTo(409);
         assertThat(JSON.readTree(duplicate.body()).get("detail").asString()).contains(field);
         assertThat(count("users")).isEqualTo(1);
-        assertThat(count("user_roles")).isEqualTo(1);
+        assertThat(KeycloakTestServer.registeredUserCount()).isEqualTo(1);
         assertNoInsert();
     }
 
@@ -312,6 +425,7 @@ class RegistrationIntegrationTest {
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(JSON.readTree(response.body()).get("errors").toString()).contains("\"field\":\"" + field + "\"");
         assertThat(count("users")).isZero();
+        assertThat(KeycloakTestServer.registeredUserCount()).isZero();
         assertNoInsert();
     }
 
@@ -327,7 +441,6 @@ class RegistrationIntegrationTest {
                     .containsExactlyInAnyOrder(201, 409);
         }
         assertThat(count("users")).isEqualTo(1);
-        assertThat(count("user_roles")).isEqualTo(1);
     }
 
     private int count(String table) {
@@ -340,12 +453,32 @@ class RegistrationIntegrationTest {
     }
 
     private HttpResponse<String> post(String path, Map<?, ?> body) throws Exception {
-        String port = environment.getRequiredProperty("local.server.port");
-        return HTTP.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
+        return HTTP.send(HttpRequest.newBuilder(uri(path))
                 .timeout(Duration.ofSeconds(30))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
                 .build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> put(String path, Map<?, ?> body, String token) throws Exception {
+        return HTTP.send(HttpRequest.newBuilder(uri(path))
+                .timeout(Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + token)
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
+                .build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> get(String path, String token) throws Exception {
+        return HTTP.send(HttpRequest.newBuilder(uri(path))
+                .timeout(Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + token)
+                .GET()
+                .build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private URI uri(String path) {
+        return URI.create("http://127.0.0.1:" + environment.getRequiredProperty("local.server.port") + path);
     }
 
     private static Map<String, String> request(String email, String phone, String identity) {
@@ -369,14 +502,6 @@ class RegistrationIntegrationTest {
     private static Path createTestFiles() {
         try {
             Path directory = Files.createTempDirectory("nexus-registration-test-");
-            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-            generator.initialize(2048);
-            var pair = generator.generateKeyPair();
-            var base64 = Base64.getMimeEncoder(64, new byte[]{'\n'});
-            Files.writeString(directory.resolve("private.pem"), "-----BEGIN PRIVATE KEY-----\n"
-                    + base64.encodeToString(pair.getPrivate().getEncoded()) + "\n-----END PRIVATE KEY-----\n");
-            Files.writeString(directory.resolve("public.pem"), "-----BEGIN PUBLIC KEY-----\n"
-                    + base64.encodeToString(pair.getPublic().getEncoded()) + "\n-----END PUBLIC KEY-----\n");
             Files.writeString(directory.resolve("registration.properties"),
                     "nexus.iam.default-user-role=BUYER\nnexus.iam.allow-self-registration=true\n");
             System.setProperty("nexus.registration.test-config", directory.resolve("registration.properties").toString());
