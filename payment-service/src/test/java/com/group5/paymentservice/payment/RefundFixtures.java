@@ -111,7 +111,7 @@ final class RefundFixtures {
     Map<String, Object> refund(UUID orderId) {
         return jdbc.queryForMap("""
                 SELECT id, order_id, amount, status::text AS status, idempotency_key, requested_by, version,
-                       completed_transaction_id
+                       completed_by, completed_transaction_id
                 FROM refunds WHERE order_id = ?
                 """, orderId);
     }

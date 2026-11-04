@@ -169,6 +169,71 @@ class RefundApiTest extends PaymentDatabaseTestSupport {
                 .andExpect(jsonPath("$.page.totalElements").value(1));
     }
 
+    @Test
+    void completingARefundRecordsOneRefundTransactionAndOneEvent() throws Exception {
+        UUID orderId = cancelledPaidOrder();
+        String refundId = requested(orderId, "key-complete");
+
+        complete(refundId, "support").andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.data.completedAt").isNotEmpty());
+
+        var stored = fixtures.refund(orderId);
+        assertThat(stored.get("completed_by")).isEqualTo(SUPPORT);
+        var transfer = jdbc.queryForMap("SELECT * FROM payment_transactions WHERE id = ?",
+                stored.get("completed_transaction_id"));
+        assertThat(transfer.get("type")).hasToString("REFUND");
+        assertThat(transfer.get("status")).hasToString("SUCCESS");
+        assertThat(transfer.get("provider")).isEqualTo("MANUAL_TRANSFER");
+        assertThat((BigDecimal) transfer.get("amount")).isEqualByComparingTo(RefundFixtures.BIG);
+        assertThat(fixtures.outbox("OrderRefundCompleted", orderId)).isEqualTo(1);
+        var payload = fixtures.lastPayload("OrderRefundCompleted", orderId);
+        assertThat(payload.get("refundVersion").asLong()).isEqualTo(1);
+        assertThat(payload.get("completedTransactionId").asString())
+                .isEqualTo(stored.get("completed_transaction_id").toString());
+        assertThat(payload.get("actorId").asString()).isEqualTo(SUPPORT.toString());
+    }
+
+    @Test
+    void completingTwiceReturnsTheSameRefundAndWritesOnce() throws Exception {
+        UUID orderId = cancelledPaidOrder();
+        String refundId = requested(orderId, "key-twice");
+
+        complete(refundId, "support").andExpect(status().isOk());
+        complete(refundId, "support").andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("COMPLETED"));
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM payment_transactions WHERE idempotency_key = ?",
+                Long.class, "refund:" + refundId)).isEqualTo(1);
+        assertThat(fixtures.outbox("OrderRefundCompleted", orderId)).isEqualTo(1);
+    }
+
+    @Test
+    void completingAnUnknownRefundIsNotFound() throws Exception {
+        complete(UUID.randomUUID().toString(), "support").andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PAYMENT_REFUND_NOT_FOUND"));
+    }
+
+    @Test
+    void withoutOrderRefundCompletingIsForbidden() throws Exception {
+        UUID orderId = cancelledPaidOrder();
+        String refundId = requested(orderId, "key-buyer-complete");
+
+        complete(refundId, "buyer").andExpect(status().isForbidden());
+        assertThat(fixtures.refund(orderId).get("status")).hasToString("REQUESTED");
+        assertThat(fixtures.outbox("OrderRefundCompleted", orderId)).isZero();
+    }
+
+    private String requested(UUID orderId, String key) throws Exception {
+        String response = refund(key, body(orderId, null, "Seller out of stock"))
+                .andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
+        return mapper.readTree(response).get("data").get("refundId").asString();
+    }
+
+    private ResultActions complete(String refundId, String token) throws Exception {
+        return perform(post("/api/v1/refunds/" + refundId + "/complete").header("Authorization", "Bearer " + token));
+    }
+
     private UUID cancelledPaidOrder() {
         var group = fixtures.paidGroup();
         jdbc.update("UPDATE payment_instructions SET canceled_at = now() WHERE order_id = ?", group.bigOrder());

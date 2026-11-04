@@ -17,18 +17,24 @@ import com.group5.paymentservice.payment.enums.PaymentInstructionStatus;
 import com.group5.paymentservice.payment.enums.PaymentTransactionStatus;
 import com.group5.paymentservice.payment.enums.PaymentTransactionType;
 import com.group5.paymentservice.payment.event.payload.OrderCancelled;
+import com.group5.paymentservice.payment.enums.RefundStatus;
+import com.group5.paymentservice.payment.event.payload.OrderRefundCompleted;
 import com.group5.paymentservice.payment.event.payload.OrderRefundRequested;
 import com.group5.paymentservice.payment.repository.PaymentInstructionRepository;
 import com.group5.paymentservice.payment.repository.PaymentSessionRepository;
+import com.group5.paymentservice.payment.repository.PaymentTransactionRepository;
 import com.group5.paymentservice.payment.repository.RefundRepository;
 import com.group5.paymentservice.shared.exception.PaymentErrorCode;
 import jakarta.validation.Validator;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -40,21 +46,25 @@ public class RefundService {
     static final UUID SYSTEM_ACTOR = new UUID(0, 0);
     private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("[\\x21-\\x7E]{1,100}");
     private static final String SYSTEM_KEY_PREFIX = "system:";
+    private static final String MANUAL_TRANSFER = "MANUAL_TRANSFER";
 
     private final IdempotentConsumer consumer;
     private final PaymentSessionRepository sessions;
     private final PaymentInstructionRepository instructions;
+    private final PaymentTransactionRepository transactions;
     private final RefundRepository refunds;
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
     private final Validator validator;
 
     public RefundService(IdempotentConsumer consumer, PaymentSessionRepository sessions,
-                         PaymentInstructionRepository instructions, RefundRepository refunds,
-                         OutboxWriter outbox, EventEnvelopeFactory envelopes, Validator validator) {
+                         PaymentInstructionRepository instructions, PaymentTransactionRepository transactions,
+                         RefundRepository refunds, OutboxWriter outbox, EventEnvelopeFactory envelopes,
+                         Validator validator) {
         this.consumer = consumer;
         this.sessions = sessions;
         this.instructions = instructions;
+        this.transactions = transactions;
         this.refunds = refunds;
         this.outbox = outbox;
         this.envelopes = envelopes;
@@ -163,6 +173,55 @@ public class RefundService {
         return result(saved);
     }
 
+    @Transactional
+    public RefundView complete(CurrentUser user, UUID refundId) {
+        if (user == null || user.id() == null) {
+            throw new DomainException(PaymentErrorCode.UNAUTHENTICATED);
+        }
+        Refund known = refunds.findById(refundId)
+                .orElseThrow(() -> new DomainException(PaymentErrorCode.REFUND_NOT_FOUND));
+        PaymentInstruction located = instructions.findByOrderId(known.getOrderId()).orElseThrow();
+        // CÙNG THỨ TỰ KHÓA GROUP -> INSTRUCTION -> REFUND: 2 SUPPORT BẤM CÙNG LÚC THÌ NGƯỜI SAU CHỜ
+        sessions.lockKey("payment-group:" + located.getSession().getOrderGroupId());
+        PaymentInstruction instruction = instructions.findLockedByOrderId(known.getOrderId()).orElseThrow();
+        Refund refund = refunds.findLockedById(refundId).orElseThrow();
+        // BẤM LẠI SAU KHI ĐÃ XONG -> TRẢ KẾT QUẢ CŨ, KHÔNG TẠO GIAO DỊCH HAY EVENT THỨ 2
+        if (refund.getStatus() == RefundStatus.COMPLETED) {
+            return view(refund);
+        }
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
+        // TIỀN ĐÃ CHUYỂN TAY NGOÀI HỆ THỐNG -> GHI 1 GIAO DỊCH REFUND ĐỂ ĐỐI SOÁT
+        // KEY "refund:{id}" UNIQUE -> 1 REFUND KHÔNG BAO GIỜ CÓ 2 GIAO DỊCH
+        PaymentTransaction transfer = new PaymentTransaction();
+        transfer.setSessionId(instruction.getSession().getId());
+        transfer.setProvider(MANUAL_TRANSFER);
+        transfer.setAmount(refund.getAmount());
+        transfer.setCurrency(refund.getCurrency());
+        transfer.setStatus(PaymentTransactionStatus.SUCCESS);
+        transfer.setType(PaymentTransactionType.REFUND);
+        transfer.setIdempotencyKey("refund:" + refund.getId());
+        transfer.setReceivedAt(now);
+        transfer.setCreatedBy(user.id());
+        transfer.setUpdatedBy(user.id());
+        PaymentTransaction saved = transactions.saveAndFlush(transfer);
+
+        refund.setStatus(RefundStatus.COMPLETED);
+        refund.setCompletedBy(user.id());
+        refund.setCompletedAt(now);
+        refund.setCompletedTransactionId(saved.getId());
+        refund.setUpdatedBy(user.id());
+        Refund completed;
+        try {
+            completed = refunds.saveAndFlush(refund);
+        } catch (ObjectOptimisticLockingFailureException exception) {
+            throw new DomainException(PaymentErrorCode.REFUND_CONFLICT);
+        }
+        outbox.write("Refund", Topics.PAYMENT, envelopes.create("OrderRefundCompleted",
+                completed.getOrderId().toString(), completedEvent(completed, instruction, user.id())));
+        return view(completed);
+    }
+
     @Transactional(readOnly = true)
     public List<RefundView> list(UUID orderId) {
         return refunds.findByOrderId(orderId).map(RefundService::view).stream().toList();
@@ -207,6 +266,16 @@ public class RefundService {
                 instruction.getFundedTransaction().getId(), money(refund.getAmount()), refund.getCurrency(),
                 refund.getStatus().name(), refund.getReason(), actorId, refund.getVersion(),
                 instruction.getVersion(), refund.getRequestedAt().toInstant().toString());
+    }
+
+    // refundVersion = 1 KHI COMPLETED -> COMMERCE BỎ QUA EVENT CŨ HƠN BẢN ĐÃ ÁP DỤNG
+    private static OrderRefundCompleted completedEvent(Refund refund, PaymentInstruction instruction, UUID actorId) {
+        return new OrderRefundCompleted(refund.getId(), refund.getOrderId(),
+                instruction.getSession().getOrderGroupId(), instruction.getSession().getId(), instruction.getId(),
+                instruction.getFundedTransaction().getId(), money(refund.getAmount()), refund.getCurrency(),
+                refund.getStatus().name(), refund.getReason(), actorId, refund.getVersion(),
+                instruction.getVersion(), refund.getRequestedAt().toInstant().toString(),
+                refund.getCompletedTransactionId(), refund.getCompletedAt().toInstant().toString());
     }
 
     static String money(BigDecimal amount) {

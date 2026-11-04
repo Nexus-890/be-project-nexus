@@ -204,6 +204,63 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /api/v1/refunds/{id}/complete:
+    post:
+      tags: [Refunds]
+      operationId: completeRefund
+      summary: Record that the manual transfer back to the buyer is done
+      description: >-
+        Requires ORDER.REFUND. Records one REFUND payment transaction (MANUAL_TRANSFER) and
+        emits OrderRefundCompleted. Calling it again on a completed refund returns the stored
+        refund without a second transaction or event.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [ADMIN, SUPPORT_STAFF]
+      x-required-privileges: [ORDER.REFUND]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Refund completed, or already completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundApiResponse'
+        '400':
+          description: Malformed refund id (INVALID_PARAMETER)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing/invalid bearer token (UNAUTHENTICATED)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Missing ORDER.REFUND (FORBIDDEN)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Unknown refund (PAYMENT_REFUND_NOT_FOUND)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Refund changed by a concurrent request (PAYMENT_REFUND_CONFLICT)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
 components:
   securitySchemes:
     bearerAuth:
@@ -318,6 +375,18 @@ components:
           type: string
           format: date-time
           nullable: true
+    RefundApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          $ref: '#/components/schemas/Refund'
     RefundListApiResponse:
       type: object
       required: [code, message, data, page]
