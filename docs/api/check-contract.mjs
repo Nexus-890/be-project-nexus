@@ -25,6 +25,7 @@ const services = {
   ],
   'payment-service': [
     'src/main/java/com/group5/paymentservice/payment/controller/PaymentController.java',
+    'src/main/java/com/group5/paymentservice/payment/controller/RefundController.java',
   ],
 };
 const normalize = (route) => route.replace(/\{[^}]+\}/g, '{}');
