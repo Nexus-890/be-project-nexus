@@ -11,12 +11,15 @@ import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.TransientDataAccessResourceException;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -35,6 +38,8 @@ import java.util.*;
 import java.util.concurrent.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.*;
+import static org.awaitility.Awaitility.await;
 
 /** Real broker -> production consumer -> migrated PostgreSQL -> HTTP + RS256/JWKS.
  * Identities are test keys/claims, not a live Keycloak login. */
@@ -86,7 +91,7 @@ class EventLogIntegrationTest {
     @LocalServerPort int port;
     @Autowired JdbcTemplate jdbc;
     @Autowired JsonMapper mapper;
-    @Autowired EventLogRecorder recorder;
+    @MockitoSpyBean EventLogRecorder recorder;
     @Autowired PlatformTransactionManager transactions;
     @Autowired KafkaListenerEndpointRegistry listeners;
     private final HttpClient http = HttpClient.newHttpClient();
@@ -99,6 +104,7 @@ class EventLogIntegrationTest {
             Thread.sleep(50);
         }
         jdbc.update("DELETE FROM event_logs");
+        jdbc.update("DELETE FROM event_log_rejections");
     }
 
     @AfterAll static void stop() { JWKS.stop(0); }
@@ -134,6 +140,70 @@ class EventLogIntegrationTest {
             awaitEvent(mapper.readTree(raw).get("eventId").asText(), System.nanoTime() + Duration.ofSeconds(5).toNanos());
         }
         assertThat(jdbc.queryForObject("SELECT count(DISTINCT source_topic) FROM event_logs", Integer.class)).isEqualTo(8);
+    }
+
+    @Test void invalidRecordsAreRetainedAndDoNotBlockTheNextRecordOrOffsetCommit() throws Exception {
+        String valid = envelope("CategoryCreated", "after-invalid", "{}");
+        var invalid = new ArrayList<String>();
+        invalid.add(valid.replace("\"traceId\":\"issue192-trace\",", ""));
+        invalid.add("{broken-json");
+        invalid.add(valid.replace(mapper.readTree(valid).get("eventId").asText(), "invalid-uuid"));
+        invalid.add(valid.replace("2026-11-04T00:00:00Z", "invalid-time"));
+        invalid.add(valid.replace("\"payload\":{}", "\"payload\":null"));
+        invalid.add(valid.replace("issue192-trace", "x".repeat(65)));
+        invalid.add(null); // Tombstones must not block later events either.
+        var positions = new ArrayList<RecordMetadata>();
+        for (String raw : invalid) positions.add(publish(Topics.CATALOG, raw));
+        RecordMetadata last = publish(Topics.CATALOG, valid);
+        awaitEvent(mapper.readTree(valid).get("eventId").asText(), System.nanoTime() + Duration.ofSeconds(5).toNanos());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM event_log_rejections", Integer.class)).isEqualTo(invalid.size());
+        for (int i = 0; i < invalid.size(); i++) {
+            var position = positions.get(i);
+            var rejected = jdbc.queryForMap("""
+                    SELECT record_key, raw_envelope, failure_type FROM event_log_rejections
+                    WHERE source_topic = ? AND source_partition = ? AND source_offset = ?
+                    """, position.topic(), position.partition(), position.offset());
+            assertThat(rejected.get("raw_envelope")).isEqualTo(invalid.get(i));
+            assertThat(rejected.get("record_key")).isEqualTo("issue192");
+            assertThat(rejected.get("failure_type")).isNotNull();
+            // A recovery repeated after an offset-commit crash preserves the first row.
+            recorder.reject(position.topic(), position.partition(), position.offset(), "different-key", "changed", "changed");
+            assertThat(jdbc.queryForMap("SELECT record_key, raw_envelope, failure_type FROM event_log_rejections WHERE source_topic = ? AND source_partition = ? AND source_offset = ?",
+                    position.topic(), position.partition(), position.offset())).isEqualTo(rejected);
+        }
+        try (var admin = AdminClient.create(Map.of("bootstrap.servers", KAFKA.getBootstrapServers()))) {
+            var partition = new org.apache.kafka.common.TopicPartition(last.topic(), last.partition());
+            await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+                var offset = admin.listConsumerGroupOffsets("event-log-integration").partitionsToOffsetAndMetadata().get(2, TimeUnit.SECONDS).get(partition);
+                assertThat(offset).isNotNull();
+                assertThat(offset.offset()).isGreaterThan(last.offset());
+            });
+        }
+        System.out.println("ISSUE192_REVIEW invalid JSON/envelopes retained; next valid record visible and Kafka offset advanced");
+    }
+
+    @Test void databaseFailureRetriesInsteadOfRejectingAValidEvent() throws Exception {
+        String raw = envelope("CategoryCreated", "database-retry", "{}");
+        doThrow(new TransientDataAccessResourceException("simulated database outage"))
+                .doThrow(new TransientDataAccessResourceException("simulated database outage"))
+                .doCallRealMethod().when(recorder).recordRaw(raw, Topics.CATALOG);
+        publish(Topics.CATALOG, raw);
+        awaitEvent(mapper.readTree(raw).get("eventId").asText(), System.nanoTime() + Duration.ofSeconds(10).toNanos());
+        verify(recorder, atLeast(3)).recordRaw(raw, Topics.CATALOG);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM event_log_rejections", Integer.class)).isZero();
+    }
+
+    @Test void failedRejectionWriteMustRecoverBeforeThePartitionContinues() throws Exception {
+        String invalid = envelope("CategoryCreated", "reject-write-failure", "{}").replace("\"traceId\":\"issue192-trace\",", "");
+        doThrow(new TransientDataAccessResourceException("simulated rejection storage outage"))
+                .doCallRealMethod().when(recorder).reject(eq(Topics.CATALOG), anyInt(), anyLong(), eq("issue192"), eq(invalid), anyString());
+        RecordMetadata position = publish(Topics.CATALOG, invalid);
+        String valid = envelope("CategoryCreated", "after-rejection-retry", "{}");
+        publish(Topics.CATALOG, valid);
+        awaitEvent(mapper.readTree(valid).get("eventId").asText(), System.nanoTime() + Duration.ofSeconds(10).toNanos());
+        verify(recorder, atLeast(2)).reject(eq(Topics.CATALOG), eq(position.partition()), eq(position.offset()), eq("issue192"), eq(invalid), anyString());
+        assertThat(jdbc.queryForObject("SELECT raw_envelope FROM event_log_rejections WHERE source_topic = ? AND source_partition = ? AND source_offset = ?",
+                String.class, position.topic(), position.partition(), position.offset())).isEqualTo(invalid);
     }
 
     @Test void criticalActionsUseActorAndOriginalEntityAndConfigCanBeRecordedWithoutKafka() throws Exception {
@@ -207,10 +277,10 @@ class EventLogIntegrationTest {
         return "{ \"eventId\":\""+UUID.randomUUID()+"\",\"eventType\":\""+type+"\",\"aggregateId\":\""+aggregateId+
                 "\",\"occurredAt\":\"2026-11-04T00:00:00Z\",\"traceId\":\"issue192-trace\",\"futureField\":7,\"payload\":"+payload+" }";
     }
-    private void publish(String topic, String raw) throws Exception {
+    private RecordMetadata publish(String topic, String raw) throws Exception {
         try (var producer = new KafkaProducer<String,String>(Map.of("bootstrap.servers", KAFKA.getBootstrapServers(),
                 "key.serializer", StringSerializer.class, "value.serializer", StringSerializer.class))) {
-            producer.send(new ProducerRecord<>(topic,"issue192",raw)).get(10,TimeUnit.SECONDS);
+            return producer.send(new ProducerRecord<>(topic,"issue192",raw)).get(10,TimeUnit.SECONDS);
         }
     }
     private JsonNode awaitEvent(String eventId, long deadline) throws Exception {

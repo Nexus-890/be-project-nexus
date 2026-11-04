@@ -29,6 +29,30 @@ public class EventLogRecorder {
 
     @Transactional
     public boolean recordRaw(String raw, String topic) {
+        Metadata metadata = metadata(raw);
+        // raw_envelope preserves original bytes as text, including unknown fields.
+        // jsonb is only an additional queryable representation of that envelope.
+        return jdbc.update("""
+                INSERT INTO event_logs (event_id, event_type, aggregate_type, aggregate_id,
+                    operator_id, trace_id, payload, raw_envelope, source_topic, occurred_at)
+                VALUES (?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?)
+                ON CONFLICT (event_id) DO NOTHING
+                """, metadata.eventId(), metadata.type(), aggregateType(metadata.type()), metadata.aggregateId(),
+                metadata.actor(), metadata.traceId(), raw, raw, topic, Timestamp.from(metadata.occurredAt())) == 1;
+    }
+
+    /** The error handler must commit this write before treating a record as recovered. */
+    @Transactional
+    public void reject(String topic, int partition, long offset, String key, String raw, String failureType) {
+        jdbc.update("""
+                INSERT INTO event_log_rejections
+                    (source_topic, source_partition, source_offset, record_key, raw_envelope, failure_type)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT (source_topic, source_partition, source_offset) DO NOTHING
+                """, topic, partition, offset, key, raw, failureType);
+    }
+
+    private Metadata metadata(String raw) {
         JsonNode envelope = mapper.readTree(raw);
         UUID eventId = UUID.fromString(required(envelope, "eventId"));
         String type = required(envelope, "eventType");
@@ -39,16 +63,13 @@ public class EventLogRecorder {
         if (payload == null || payload.isNull()) throw new IllegalArgumentException("payload is required");
         UUID actor = optionalUuid(payload, "actorId");
         if (actor == null) actor = optionalUuid(payload, "operatorId");
-        // raw_envelope preserves original bytes as text, including unknown fields.
-        // jsonb is only an additional queryable representation of that envelope.
-        return jdbc.update("""
-                INSERT INTO event_logs (event_id, event_type, aggregate_type, aggregate_id,
-                    operator_id, trace_id, payload, raw_envelope, source_topic, occurred_at)
-                VALUES (?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?)
-                ON CONFLICT (event_id) DO NOTHING
-                """, eventId, type, aggregateType(type), aggregateId, actor, traceId, raw, raw, topic,
-                Timestamp.from(occurredAt)) == 1;
+        if (type.length() > 80 || aggregateId.length() > 100 || traceId.length() > 64) {
+            throw new IllegalArgumentException("event metadata exceeds storage limits");
+        }
+        return new Metadata(eventId, type, aggregateId, traceId, occurredAt, actor);
     }
+
+    private record Metadata(UUID eventId, String type, String aggregateId, String traceId, Instant occurredAt, UUID actor) { }
 
     private static String required(JsonNode node, String name) {
         JsonNode value = node.get(name);

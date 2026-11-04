@@ -6,6 +6,8 @@
 flowchart LR
   K[8 domain topics] --> C[EventLogConsumer: group riêng]
   C --> R[EventLogRecorder.recordRaw]
+  C -->|JSON / envelope không hợp lệ| X[event_log_rejections]
+  X --> N[Đọc tiếp partition sau khi commit rejected row]
   I[Producer nội bộ notification / health / config] --> R
   R --> T[PostgreSQL transaction]
   T --> E[event_logs: unique event_id]
@@ -36,12 +38,25 @@ trạng thái log đã commit nhưng audit chưa commit. Nếu producer nội b�
 cùng transaction đó. Đừng gọi recorder từ một transaction quản lý database khác
 rồi coi hai database là atomic.
 
-DB lỗi thì listener throw; error handler retry mỗi giây không giới hạn, không
-acknowledge/bỏ record lỗi. Record JSON/envelope hỏng sẽ chặn partition cho tới khi
-được xử lý vận hành; không có DLT tự động trong task này. Không bật consumer auto
-commit. Không sửa eventId khi retry. Migrations V1–V3 giữ nguyên; V4 tạo unique
+DB/transaction lỗi thì listener throw; error handler retry mỗi giây không giới hạn,
+không acknowledge/bỏ record chưa lưu. JSON/envelope không hợp lệ **không retry vô
+hạn**: recoverer gọi `EventLogRecorder.reject()` lưu nguyên record vào
+`event_log_rejections`, rồi mới cho đọc tiếp partition. Rejected row có topic,
+partition, offset, key, raw envelope, failure type và rejectedAt; unique theo
+topic/partition/offset vì envelope hỏng có thể thiếu eventId. Không lưu exception
+message có thể chứa payload vào log/row. Kafka tombstone được lưu raw null.
+
+Nếu ghi rejected row thất bại, recoverer throw nên record chưa được coi là recovered,
+consumer retry và chỉ đi tiếp sau khi lưu được. Crash sau DB commit nhưng trước
+offset commit có thể gọi recoverer lần nữa; ON CONFLICT giữ nguyên rejected row đầu.
+Đây là quarantine trong PostgreSQL, không thêm topic DLT hay public API ghi/xóa.
+Vận hành đọc bảng qua DB với quyền phù hợp, xác minh publisher rồi sửa dữ liệu nguồn
+và replay envelope hợp lệ; không sửa rejected row để giả thành event đã xử lý.
+`failure_type` chỉ là tên class lỗi, không có thông tin credentials hoặc stack trace.
+
+Không bật consumer auto commit. Không sửa eventId khi retry. Migrations V1–V3 giữ nguyên; V4 tạo unique
 index, raw/source columns và audit view. Nếu DB cũ đã có eventId trùng, V4 fail để
-người vận hành đối chiếu dữ liệu, không tự xóa lịch sử.
+người vận hành đối chiếu dữ liệu, không tự xóa lịch sử. V5 tạo bảng rejected.
 
 ## Audit và metadata
 
@@ -102,6 +117,7 @@ contract inventory 46 operations và OpenAPI lint không warning. Test publish
 CategoryCreated → HTTP ghi nhận 263 ms trong lần chạy toàn bộ với UTC.
 Lần chạy đầu test cũ NotificationMarkReadIntegrationTest gặp timezone alias
 Asia/Saigon không được postgres:18 chấp nhận; chạy với UTC pass, không sửa assertion.
+Đây là kết quả tại bản đầu a5e8ce7; đợt sửa review bổ sung regression ở phần dưới.
 
 Từ `be-project-nexus`, JDK 21 và Docker đang chạy:
 
@@ -122,6 +138,24 @@ integration của broker/DB/service với **danh tính test**, không phải log
 end-to-end. Gateway tests dùng HTTP/JWKS thật và downstream fixture; test riêng
 kiểm tra predicate/URI của RouteConfig production.
 
+Regression sau review Vinh: publish record thiếu traceId, JSON hỏng, UUID/time sai,
+payload null, metadata quá dài và tombstone rồi publish event hợp lệ **cùng partition**.
+Test assert raw rejected row, idempotency source offset, event sau đọc được qua HTTP
+và Kafka group offset đã đi qua record đó. Hai test khác tiêm lỗi DB vào lần ghi event
+và lần ghi rejected để kiểm tra retry thật qua listener, không được bỏ record.
+`KeycloakTokenTrustTest` mock repository/recorder vì test chủ động exclude DataSource;
+decoder/JWKS, issuer, audience và privilege assertions vẫn giữ nguyên.
+
+Đợt sửa review Vinh ngày 04/11/2026 sau merge develop `0d0a36a`: **53 test
+notification pass** (gồm 3 Keycloak và 9 event-log integration), **22 test gateway
+pass**, không skip; contract inventory **45 operations pass**. Số operation giảm
+do API auth legacy đã bị gỡ trên develop, không phải bỏ API event/audit.
+
+Sau merge develop ngày 04/11/2026, cấu hình deployment trust Keycloak realm nexus,
+không còn issuer user-service. Key test JWT trong EventLogIntegrationTest là fixture
+độc lập với config deployment. Khi demo Postman, dùng token đúng issuer mà service
+và gateway đang cấu hình; không dùng token legacy cho config Keycloak.
+
 Demo local bằng Kafka UI/console producer (dữ liệu thử): publish envelope
 CategoryCreated theo catalogue với eventId mới; ghi lại eventId; gọi event list
 `?q=<eventId>` bằng token Support. Lấy `data[0].id` gọi detail và đối chiếu payload.
@@ -135,6 +169,7 @@ hoặc ví dụ JSON trong tài liệu là evidence runtime.
 2. `EventLogKafkaConfiguration` → StringDeserializer, earliest, retry.
 3. `EventLogRecorder` → parse metadata, nguyên envelope, insert/idempotency/transaction.
 4. `V4__event_log_recorder.sql` → unique eventId và audit view.
+   `V5__event_log_rejections.sql` → quarantine theo Kafka source position.
 5. `EventLogController` / `AuditLogController` → privileges, ApiResponse.
 6. `EventLogRepository` → bind SQL, filters, order whitelist và paging.
 7. Gateway `RouteConfig` + `api-gateway.yml` → routing và authorization.
