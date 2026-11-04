@@ -1,0 +1,2246 @@
+openapi: 3.0.3
+info:
+  title: Project Nexus — Auction API shapes (#124)
+  version: 0.1.0-draft
+  description: |
+    Draft for frontend mocks, not an implementation or proof of gateway enforcement. Access per path is in `docs/api/gateway-permissions.md`, section "API shapes draft (#124)".
+
+    The runnable frontend guide is in `docs/api/inventory-service.yaml`, under `info.description`, "Frontend quick start". This mock runs on `http://localhost:4013`.
+servers:
+- url: http://localhost:4013
+  description: Prism mock
+tags:
+- name: Auctions
+  description: 'Auction sessions: create, schedule, read and cancel.'
+- name: Bids
+  description: Placing bids and reading bid history.
+security:
+- bearerAuth: []
+paths:
+  /api/v1/auctions:
+    post:
+      tags:
+      - Auctions
+      operationId: createAuction
+      summary: Create an auction
+      x-service: auction-service
+      x-catalogue-id: AUC-01
+      x-owning-issue: '#140, #141, #142'
+      x-actor-roles:
+      - ADMIN
+      - SELLER
+      x-gateway-privilege: AUCTION.CREATE
+      description: The new auction has status CREATED, currentPrice = startingPrice and originalEndAt
+        = endAt. A SKU can have one live auction (CREATED, SCHEDULED or ACTIVE). AUCTION_REPUTATION_TOO_LOW
+        applies only with FEATURE_REPUTATION_ENFORCEMENT on (#214).
+      x-required-privileges:
+      - AUCTION.CREATE
+      x-ownership: Seller of the product; ADMIN on behalf of a seller
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAuctionRequest'
+            example:
+              productId: 00000002-1111-4111-8111-111111111111
+              skuId: 00000003-1111-4111-8111-111111111111
+              title: Vintage film camera
+              startingPrice: 1000000.0
+              bidIncrement: 50000.0
+              startAt: '2026-11-05T10:00:00Z'
+              endAt: '2026-11-06T10:00:00Z'
+      responses:
+        '201':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAuctionResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  id: 00000051-1111-4111-8111-111111111111
+                  productId: 00000002-1111-4111-8111-111111111111
+                  skuId: 00000003-1111-4111-8111-111111111111
+                  sellerId: 00000061-1111-4111-8111-111111111111
+                  title: Vintage film camera
+                  imageUrl: https://cdn.example.com/products/camera.jpg
+                  startingPrice: 1000000.0
+                  bidIncrement: 50000.0
+                  currentPrice: 1000000.0
+                  bidCount: 0
+                  currency: VND
+                  startAt: '2026-11-05T10:00:00Z'
+                  endAt: '2026-11-06T10:00:00Z'
+                  originalEndAt: '2026-11-06T10:00:00Z'
+                  extensionCount: 0
+                  status: CREATED
+                  finalPrice: null
+                  paymentDueAt: null
+                  orderId: null
+                  cancelledBy: null
+                  cancelledReason: null
+        '400':
+          description: 'Bad Request. Codes: `VALIDATION_FAILED`, `AUCTION_INVALID_WINDOW`, `AUCTION_DURATION_OUT_OF_BOUNDS`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                VALIDATION_FAILED:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/auctions
+                    code: VALIDATION_FAILED
+                    errors:
+                    - field: productId
+                      code: VALIDATION_NOT_NULL
+                      detail: must not be null
+                AUCTION_INVALID_WINDOW:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: endAt must be after startAt
+                    instance: /api/v1/auctions
+                    code: AUCTION_INVALID_WINDOW
+                AUCTION_DURATION_OUT_OF_BOUNDS:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: The auction duration is outside the configured bounds
+                    instance: /api/v1/auctions
+                    code: AUCTION_DURATION_OUT_OF_BOUNDS
+        '401':
+          description: 'Unauthorized. Codes: `UNAUTHENTICATED`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                UNAUTHENTICATED:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/auctions
+                    code: UNAUTHENTICATED
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge.
+              schema:
+                type: string
+                example: Bearer
+        '403':
+          description: 'Forbidden. Codes: `FORBIDDEN`, `AUCTION_FORBIDDEN`, `AUCTION_REPUTATION_TOO_LOW`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                FORBIDDEN:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/auctions
+                    code: FORBIDDEN
+                AUCTION_FORBIDDEN:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: Only the owner can do this
+                    instance: /api/v1/auctions
+                    code: AUCTION_FORBIDDEN
+                AUCTION_REPUTATION_TOO_LOW:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: The caller's reputation is below the required minimum
+                    instance: /api/v1/auctions
+                    code: AUCTION_REPUTATION_TOO_LOW
+        '404':
+          description: 'Not Found. Codes: `AUCTION_PRODUCT_NOT_FOUND`, `AUCTION_SKU_NOT_FOUND`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                AUCTION_PRODUCT_NOT_FOUND:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Product not found
+                    instance: /api/v1/auctions
+                    code: AUCTION_PRODUCT_NOT_FOUND
+                AUCTION_SKU_NOT_FOUND:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: SKU not found
+                    instance: /api/v1/auctions
+                    code: AUCTION_SKU_NOT_FOUND
+        '409':
+          description: 'Conflict. Codes: `AUCTION_LIVE_AUCTION_EXISTS`, `AUCTION_SELLER_LIMIT_REACHED`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                AUCTION_LIVE_AUCTION_EXISTS:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: This SKU already has a live auction
+                    instance: /api/v1/auctions
+                    code: AUCTION_LIVE_AUCTION_EXISTS
+                AUCTION_SELLER_LIMIT_REACHED:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: The seller has reached the active auction limit
+                    instance: /api/v1/auctions
+                    code: AUCTION_SELLER_LIMIT_REACHED
+        '503':
+          description: 'Service Unavailable. Codes: `AUCTION_CATALOG_UNAVAILABLE`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                AUCTION_CATALOG_UNAVAILABLE:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Service Unavailable
+                    status: 503
+                    detail: catalog-service is unavailable
+                    instance: /api/v1/auctions
+                    code: AUCTION_CATALOG_UNAVAILABLE
+    get:
+      tags:
+      - Auctions
+      operationId: listAuctions
+      summary: List auctions, ending soonest first
+      x-service: auction-service
+      x-catalogue-id: AUC-05
+      x-owning-issue: '#143'
+      x-actor-roles:
+      - public
+      x-gateway-privilege: public
+      security: []
+      parameters:
+      - name: status
+        in: query
+        description: Filter by status.
+        schema:
+          type: string
+          enum:
+          - CREATED
+          - SCHEDULED
+          - ACTIVE
+          - ENDED
+          - WON
+          - SETTLED
+          - FAILED
+          - PAYMENT_TIMEOUT
+          - CANCELLED
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAuctionsResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                - id: 00000051-1111-4111-8111-111111111111
+                  productId: 00000002-1111-4111-8111-111111111111
+                  skuId: 00000003-1111-4111-8111-111111111111
+                  sellerId: 00000061-1111-4111-8111-111111111111
+                  title: Vintage film camera
+                  imageUrl: https://cdn.example.com/products/camera.jpg
+                  startingPrice: 1000000.0
+                  bidIncrement: 50000.0
+                  currentPrice: 1200000.0
+                  bidCount: 3
+                  currency: VND
+                  startAt: '2026-11-05T10:00:00Z'
+                  endAt: '2026-11-06T10:00:00Z'
+                  originalEndAt: '2026-11-06T10:00:00Z'
+                  extensionCount: 0
+                  status: ACTIVE
+                  finalPrice: null
+                  paymentDueAt: null
+                  orderId: null
+                  cancelledBy: null
+                  cancelledReason: null
+                page:
+                  number: 0
+                  size: 10
+                  totalElements: 1
+                  totalPages: 1
+        '400':
+          description: 'Bad Request. Codes: `INVALID_PARAMETER`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                INVALID_PARAMETER:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
+                    status: 400
+                    detail: A request parameter is invalid
+                    instance: /api/v1/auctions
+                    code: INVALID_PARAMETER
+  /api/v1/auctions/{id}:
+    put:
+      tags:
+      - Auctions
+      operationId: updateAuction
+      summary: Change an auction before it starts
+      x-service: auction-service
+      x-catalogue-id: AUC-02
+      x-owning-issue: '#197'
+      x-actor-roles:
+      - ADMIN
+      - SELLER
+      x-gateway-privilege: AUCTION.UPDATE
+      x-required-privileges:
+      - AUCTION.UPDATE
+      x-ownership: Owner of the auction; frozen once it has started
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Resource id.
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAuctionRequest'
+            example:
+              startingPrice: 1100000.0
+              bidIncrement: 50000.0
+              startAt: '2026-11-05T12:00:00Z'
+              endAt: '2026-11-06T12:00:00Z'
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateAuctionResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  id: 00000051-1111-4111-8111-111111111111
+                  productId: 00000002-1111-4111-8111-111111111111
+                  skuId: 00000003-1111-4111-8111-111111111111
+                  sellerId: 00000061-1111-4111-8111-111111111111
+                  title: Vintage film camera
+                  imageUrl: https://cdn.example.com/products/camera.jpg
+                  startingPrice: 1100000.0
+                  bidIncrement: 50000.0
+                  currentPrice: 1100000.0
+                  bidCount: 0
+                  currency: VND
+                  startAt: '2026-11-05T12:00:00Z'
+                  endAt: '2026-11-06T12:00:00Z'
+                  originalEndAt: '2026-11-06T12:00:00Z'
+                  extensionCount: 0
+                  status: CREATED
+                  finalPrice: null
+                  paymentDueAt: null
+                  orderId: null
+                  cancelledBy: null
+                  cancelledReason: null
+        '400':
+          description: 'Bad Request. Codes: `VALIDATION_FAILED`, `AUCTION_DURATION_OUT_OF_BOUNDS`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                VALIDATION_FAILED:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111
+                    code: VALIDATION_FAILED
+                    errors:
+                    - field: startingPrice
+                      code: VALIDATION_NOT_NULL
+                      detail: must not be null
+                AUCTION_DURATION_OUT_OF_BOUNDS:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: The auction duration is outside the configured bounds
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111
+                    code: AUCTION_DURATION_OUT_OF_BOUNDS
+        '401':
+          description: 'Unauthorized. Codes: `UNAUTHENTICATED`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                UNAUTHENTICATED:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111
+                    code: UNAUTHENTICATED
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge.
+              schema:
+                type: string
+                example: Bearer
+        '403':
+          description: 'Forbidden. Codes: `FORBIDDEN`, `AUCTION_FORBIDDEN`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                FORBIDDEN:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111
+                    code: FORBIDDEN
+                AUCTION_FORBIDDEN:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: Only the owner can do this
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111
+                    code: AUCTION_FORBIDDEN
+        '404':
+          description: 'Not Found. Codes: `AUCTION_NOT_FOUND`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                AUCTION_NOT_FOUND:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Auction not found
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111
+                    code: AUCTION_NOT_FOUND
+        '409':
+          description: 'Conflict. Codes: `AUCTION_NOT_EDITABLE`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                AUCTION_NOT_EDITABLE:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: The auction has started; its configuration is frozen
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111
+                    code: AUCTION_NOT_EDITABLE
+    get:
+      tags:
+      - Auctions
+      operationId: getAuction
+      summary: Read an auction
+      x-service: auction-service
+      x-catalogue-id: AUC-04
+      x-owning-issue: '#143'
+      x-actor-roles:
+      - public
+      x-gateway-privilege: public
+      description: 'Public. Reads auction-service''s own tables only. No bidder id is exposed: use the
+        state endpoint for the masked leader name.'
+      security: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Resource id.
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAuctionResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  id: 00000051-1111-4111-8111-111111111111
+                  productId: 00000002-1111-4111-8111-111111111111
+                  skuId: 00000003-1111-4111-8111-111111111111
+                  sellerId: 00000061-1111-4111-8111-111111111111
+                  title: Vintage film camera
+                  imageUrl: https://cdn.example.com/products/camera.jpg
+                  startingPrice: 1000000.0
+                  bidIncrement: 50000.0
+                  currentPrice: 1200000.0
+                  bidCount: 3
+                  currency: VND
+                  startAt: '2026-11-05T10:00:00Z'
+                  endAt: '2026-11-06T10:00:00Z'
+                  originalEndAt: '2026-11-06T10:00:00Z'
+                  extensionCount: 0
+                  status: ACTIVE
+                  finalPrice: null
+                  paymentDueAt: null
+                  orderId: null
+                  cancelledBy: null
+                  cancelledReason: null
+        '400':
+          description: 'Bad Request. Codes: `INVALID_PARAMETER`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                INVALID_PARAMETER:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
+                    status: 400
+                    detail: A request parameter is invalid
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111
+                    code: INVALID_PARAMETER
+        '404':
+          description: 'Not Found. Codes: `AUCTION_NOT_FOUND`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                AUCTION_NOT_FOUND:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Auction not found
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111
+                    code: AUCTION_NOT_FOUND
+  /api/v1/auctions/{id}/schedule:
+    post:
+      tags:
+      - Auctions
+      operationId: scheduleAuction
+      summary: Schedule an auction
+      x-service: auction-service
+      x-catalogue-id: AUC-03
+      x-owning-issue: '#144'
+      x-actor-roles:
+      - ADMIN
+      - SELLER
+      x-gateway-privilege: AUCTION.UPDATE
+      x-required-privileges:
+      - AUCTION.UPDATE
+      x-ownership: Owner of the auction; only from CREATED
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Resource id.
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleAuctionResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  id: 00000051-1111-4111-8111-111111111111
+                  productId: 00000002-1111-4111-8111-111111111111
+                  skuId: 00000003-1111-4111-8111-111111111111
+                  sellerId: 00000061-1111-4111-8111-111111111111
+                  title: Vintage film camera
+                  imageUrl: https://cdn.example.com/products/camera.jpg
+                  startingPrice: 1000000.0
+                  bidIncrement: 50000.0
+                  currentPrice: 1000000.0
+                  bidCount: 0
+                  currency: VND
+                  startAt: '2026-11-05T10:00:00Z'
+                  endAt: '2026-11-06T10:00:00Z'
+                  originalEndAt: '2026-11-06T10:00:00Z'
+                  extensionCount: 0
+                  status: SCHEDULED
+                  finalPrice: null
+                  paymentDueAt: null
+                  orderId: null
+                  cancelledBy: null
+                  cancelledReason: null
+        '401':
+          description: 'Unauthorized. Codes: `UNAUTHENTICATED`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                UNAUTHENTICATED:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/schedule
+                    code: UNAUTHENTICATED
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge.
+              schema:
+                type: string
+                example: Bearer
+        '403':
+          description: 'Forbidden. Codes: `FORBIDDEN`, `AUCTION_FORBIDDEN`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                FORBIDDEN:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/schedule
+                    code: FORBIDDEN
+                AUCTION_FORBIDDEN:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: Only the owner can do this
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/schedule
+                    code: AUCTION_FORBIDDEN
+        '404':
+          description: 'Not Found. Codes: `AUCTION_NOT_FOUND`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                AUCTION_NOT_FOUND:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Auction not found
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/schedule
+                    code: AUCTION_NOT_FOUND
+        '409':
+          description: 'Conflict. Codes: `AUCTION_ILLEGAL_TRANSITION`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                AUCTION_ILLEGAL_TRANSITION:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: The auction cannot move to this status from its current status
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/schedule
+                    code: AUCTION_ILLEGAL_TRANSITION
+  /api/v1/auctions/{id}/state:
+    get:
+      tags:
+      - Auctions
+      operationId: getAuctionState
+      summary: Read the live state of an auction
+      x-service: auction-service
+      x-catalogue-id: AUC-06
+      x-owning-issue: '#168'
+      x-actor-roles:
+      - public
+      x-gateway-privilege: public
+      description: Public. Cached 1 second; serverTime is read after the cache.
+      security: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Resource id.
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAuctionStateResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  auctionId: 00000051-1111-4111-8111-111111111111
+                  currentPrice: 1200000.0
+                  bidCount: 3
+                  bidIncrement: 50000.0
+                  leaderBidderName: Ng**** V**
+                  endAt: '2026-11-06T10:00:00Z'
+                  status: ACTIVE
+                  serverTime: '2026-11-05T15:30:00Z'
+        '400':
+          description: 'Bad Request. Codes: `INVALID_PARAMETER`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                INVALID_PARAMETER:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
+                    status: 400
+                    detail: A request parameter is invalid
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/state
+                    code: INVALID_PARAMETER
+        '404':
+          description: 'Not Found. Codes: `AUCTION_NOT_FOUND`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                AUCTION_NOT_FOUND:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Auction not found
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/state
+                    code: AUCTION_NOT_FOUND
+  /api/v1/auctions/{id}/cancel:
+    post:
+      tags:
+      - Auctions
+      operationId: cancelAuction
+      summary: Cancel an auction with no valid bid
+      x-service: auction-service
+      x-catalogue-id: AUC-07
+      x-owning-issue: '#197'
+      x-actor-roles:
+      - ADMIN
+      - SELLER
+      x-gateway-privilege: AUCTION.CANCEL
+      x-required-privileges:
+      - AUCTION.CANCEL
+      x-ownership: Owner of the auction; only while it has no valid bid
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Resource id.
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelAuctionRequest'
+            example:
+              reason: Listed by mistake
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelAuctionResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  id: 00000051-1111-4111-8111-111111111111
+                  productId: 00000002-1111-4111-8111-111111111111
+                  skuId: 00000003-1111-4111-8111-111111111111
+                  sellerId: 00000061-1111-4111-8111-111111111111
+                  title: Vintage film camera
+                  imageUrl: https://cdn.example.com/products/camera.jpg
+                  startingPrice: 1000000.0
+                  bidIncrement: 50000.0
+                  currentPrice: 1000000.0
+                  bidCount: 0
+                  currency: VND
+                  startAt: '2026-11-05T10:00:00Z'
+                  endAt: '2026-11-06T10:00:00Z'
+                  originalEndAt: '2026-11-06T10:00:00Z'
+                  extensionCount: 0
+                  status: CANCELLED
+                  finalPrice: null
+                  paymentDueAt: null
+                  orderId: null
+                  cancelledBy: SELLER
+                  cancelledReason: Listed by mistake
+        '400':
+          description: 'Bad Request. Codes: `VALIDATION_FAILED`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                VALIDATION_FAILED:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/cancel
+                    code: VALIDATION_FAILED
+                    errors:
+                    - field: reason
+                      code: VALIDATION_NOT_NULL
+                      detail: must not be null
+        '401':
+          description: 'Unauthorized. Codes: `UNAUTHENTICATED`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                UNAUTHENTICATED:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/cancel
+                    code: UNAUTHENTICATED
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge.
+              schema:
+                type: string
+                example: Bearer
+        '403':
+          description: 'Forbidden. Codes: `FORBIDDEN`, `AUCTION_FORBIDDEN`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                FORBIDDEN:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/cancel
+                    code: FORBIDDEN
+                AUCTION_FORBIDDEN:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: Only the owner can do this
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/cancel
+                    code: AUCTION_FORBIDDEN
+        '404':
+          description: 'Not Found. Codes: `AUCTION_NOT_FOUND`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                AUCTION_NOT_FOUND:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Auction not found
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/cancel
+                    code: AUCTION_NOT_FOUND
+        '409':
+          description: 'Conflict. Codes: `AUCTION_HAS_BIDS`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                AUCTION_HAS_BIDS:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: The auction is not eligible for cancellation
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/cancel
+                    code: AUCTION_HAS_BIDS
+  /api/v1/auctions/{id}/admin-cancel:
+    post:
+      tags:
+      - Auctions
+      operationId: adminCancelAuction
+      summary: Cancel any auction as an admin
+      x-service: auction-service
+      x-catalogue-id: AUC-08
+      x-owning-issue: '#197'
+      x-actor-roles:
+      - ADMIN
+      x-gateway-privilege: AUCTION.ADMIN_CANCEL
+      x-required-privileges:
+      - AUCTION.ADMIN_CANCEL
+      x-ownership: Any auction not yet settled or cancelled; audit actor and reason
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Resource id.
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelAuctionRequest'
+            example:
+              reason: Listing breaks the rules
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCancelAuctionResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  id: 00000051-1111-4111-8111-111111111111
+                  productId: 00000002-1111-4111-8111-111111111111
+                  skuId: 00000003-1111-4111-8111-111111111111
+                  sellerId: 00000061-1111-4111-8111-111111111111
+                  title: Vintage film camera
+                  imageUrl: https://cdn.example.com/products/camera.jpg
+                  startingPrice: 1000000.0
+                  bidIncrement: 50000.0
+                  currentPrice: 1200000.0
+                  bidCount: 3
+                  currency: VND
+                  startAt: '2026-11-05T10:00:00Z'
+                  endAt: '2026-11-06T10:00:00Z'
+                  originalEndAt: '2026-11-06T10:00:00Z'
+                  extensionCount: 0
+                  status: CANCELLED
+                  finalPrice: null
+                  paymentDueAt: null
+                  orderId: null
+                  cancelledBy: ADMIN
+                  cancelledReason: Listing breaks the rules
+        '400':
+          description: 'Bad Request. Codes: `VALIDATION_FAILED`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                VALIDATION_FAILED:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/admin-cancel
+                    code: VALIDATION_FAILED
+                    errors:
+                    - field: reason
+                      code: VALIDATION_NOT_NULL
+                      detail: must not be null
+        '401':
+          description: 'Unauthorized. Codes: `UNAUTHENTICATED`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                UNAUTHENTICATED:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/admin-cancel
+                    code: UNAUTHENTICATED
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge.
+              schema:
+                type: string
+                example: Bearer
+        '403':
+          description: 'Forbidden. Codes: `FORBIDDEN`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                FORBIDDEN:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/admin-cancel
+                    code: FORBIDDEN
+        '404':
+          description: 'Not Found. Codes: `AUCTION_NOT_FOUND`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                AUCTION_NOT_FOUND:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Auction not found
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/admin-cancel
+                    code: AUCTION_NOT_FOUND
+        '409':
+          description: 'Conflict. Codes: `AUCTION_ILLEGAL_TRANSITION`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                AUCTION_ILLEGAL_TRANSITION:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: The auction cannot move to this status from its current status
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/admin-cancel
+                    code: AUCTION_ILLEGAL_TRANSITION
+  /api/v1/auctions/mine:
+    get:
+      tags:
+      - Auctions
+      operationId: listMyAuctions
+      summary: List the seller's own auctions, any status
+      x-service: auction-service
+      x-catalogue-id: AUC-10
+      x-owning-issue: '#198'
+      x-actor-roles:
+      - SELLER
+      x-gateway-privilege: AUCTION.LIST
+      x-required-privileges:
+      - AUCTION.LIST
+      x-ownership: Own auctions only
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: status
+        in: query
+        description: Filter by status.
+        schema:
+          type: string
+          enum:
+          - CREATED
+          - SCHEDULED
+          - ACTIVE
+          - ENDED
+          - WON
+          - SETTLED
+          - FAILED
+          - PAYMENT_TIMEOUT
+          - CANCELLED
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListMyAuctionsResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                - id: 00000051-1111-4111-8111-111111111111
+                  productId: 00000002-1111-4111-8111-111111111111
+                  skuId: 00000003-1111-4111-8111-111111111111
+                  sellerId: 00000061-1111-4111-8111-111111111111
+                  title: Vintage film camera
+                  imageUrl: https://cdn.example.com/products/camera.jpg
+                  startingPrice: 1000000.0
+                  bidIncrement: 50000.0
+                  currentPrice: 1200000.0
+                  bidCount: 3
+                  currency: VND
+                  startAt: '2026-11-05T10:00:00Z'
+                  endAt: '2026-11-06T10:00:00Z'
+                  originalEndAt: '2026-11-06T10:00:00Z'
+                  extensionCount: 0
+                  status: ACTIVE
+                  finalPrice: null
+                  paymentDueAt: null
+                  orderId: null
+                  cancelledBy: null
+                  cancelledReason: null
+                page:
+                  number: 0
+                  size: 10
+                  totalElements: 1
+                  totalPages: 1
+        '401':
+          description: 'Unauthorized. Codes: `UNAUTHENTICATED`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                UNAUTHENTICATED:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/auctions/mine
+                    code: UNAUTHENTICATED
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge.
+              schema:
+                type: string
+                example: Bearer
+        '403':
+          description: 'Forbidden. Codes: `FORBIDDEN`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                FORBIDDEN:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/auctions/mine
+                    code: FORBIDDEN
+  /api/v1/auctions/{id}/bids:
+    post:
+      tags:
+      - Bids
+      operationId: placeBid
+      summary: Place a bid
+      x-service: auction-service
+      x-catalogue-id: BID-01
+      x-owning-issue: '#146, #147'
+      x-actor-roles:
+      - BUYER
+      x-gateway-privilege: AUCTION.BID
+      description: 'A new bid returns 201. A key seen before returns 200 with the first response. In the
+        mock, 200 is the default because Prism picks the lowest 2xx: send `Prefer: code=201` for a new
+        bid. AUCTION_REPUTATION_TOO_LOW applies only with FEATURE_REPUTATION_ENFORCEMENT on (#214).'
+      x-required-privileges:
+      - AUCTION.BID
+      x-ownership: Not the auction's seller; caller-scoped idempotency key
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Resource id.
+        schema:
+          type: string
+          format: uuid
+      - name: Idempotency-Key
+        in: header
+        required: true
+        description: One UUID per bid attempt.
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaceBidRequest'
+            example:
+              amount: 1250000.0
+      responses:
+        '200':
+          description: The first response, when the key was seen before.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceBidReplayResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  bidId: 00000081-1111-4111-8111-111111111111
+                  currentPrice: 1250000.0
+                  leaderBidderId: 00000071-1111-4111-8111-111111111111
+        '201':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceBidResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  bidId: 00000081-1111-4111-8111-111111111111
+                  currentPrice: 1250000.0
+                  leaderBidderId: 00000071-1111-4111-8111-111111111111
+        '400':
+          description: 'Bad Request. Codes: `AUCTION_IDEMPOTENCY_KEY_REQUIRED`, `AUCTION_BID_TOO_LOW`,
+            `VALIDATION_FAILED`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/BidProblem'
+              examples:
+                AUCTION_IDEMPOTENCY_KEY_REQUIRED:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: The Idempotency-Key header is required
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/bids
+                    code: AUCTION_IDEMPOTENCY_KEY_REQUIRED
+                AUCTION_BID_TOO_LOW:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: The bid is below the minimum
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/bids
+                    code: AUCTION_BID_TOO_LOW
+                    minimum: 1300000.0
+                VALIDATION_FAILED:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/bids
+                    code: VALIDATION_FAILED
+                    errors:
+                    - field: amount
+                      code: VALIDATION_NOT_NULL
+                      detail: must not be null
+        '401':
+          description: 'Unauthorized. Codes: `UNAUTHENTICATED`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                UNAUTHENTICATED:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/bids
+                    code: UNAUTHENTICATED
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge.
+              schema:
+                type: string
+                example: Bearer
+        '403':
+          description: 'Forbidden. Codes: `FORBIDDEN`, `AUCTION_REPUTATION_TOO_LOW`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                FORBIDDEN:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/bids
+                    code: FORBIDDEN
+                AUCTION_REPUTATION_TOO_LOW:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: The caller's reputation is below the required minimum
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/bids
+                    code: AUCTION_REPUTATION_TOO_LOW
+        '404':
+          description: 'Not Found. Codes: `AUCTION_NOT_FOUND`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                AUCTION_NOT_FOUND:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Auction not found
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/bids
+                    code: AUCTION_NOT_FOUND
+        '409':
+          description: 'Conflict. Codes: `AUCTION_NOT_ACTIVE`, `AUCTION_SELLER_CANNOT_BID`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                AUCTION_NOT_ACTIVE:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: The auction is not ACTIVE
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/bids
+                    code: AUCTION_NOT_ACTIVE
+                AUCTION_SELLER_CANNOT_BID:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: The seller cannot bid on their own auction
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/bids
+                    code: AUCTION_SELLER_CANNOT_BID
+    get:
+      tags:
+      - Bids
+      operationId: listAuctionBids
+      summary: Read an auction's bid history, newest first
+      x-service: auction-service
+      x-catalogue-id: BID-02
+      x-owning-issue: '#169'
+      x-actor-roles:
+      - public
+      x-gateway-privilege: public
+      description: Public. No full name and no bidder id leaves the service. An auction with no bid returns
+        an empty page.
+      security: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Resource id.
+        schema:
+          type: string
+          format: uuid
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAuctionBidsResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                - amount: 1200000.0
+                  bidderName: Ng**** V**
+                  placedAt: '2026-11-05T15:00:00Z'
+                page:
+                  number: 0
+                  size: 10
+                  totalElements: 1
+                  totalPages: 1
+        '400':
+          description: 'Bad Request. Codes: `INVALID_PARAMETER`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                INVALID_PARAMETER:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
+                    status: 400
+                    detail: A request parameter is invalid
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/bids
+                    code: INVALID_PARAMETER
+        '404':
+          description: 'Not Found. Codes: `AUCTION_NOT_FOUND`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                AUCTION_NOT_FOUND:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Auction not found
+                    instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/bids
+                    code: AUCTION_NOT_FOUND
+  /api/v1/bids/mine:
+    get:
+      tags:
+      - Bids
+      operationId: listMyBids
+      summary: List the caller's own bids
+      x-service: auction-service
+      x-catalogue-id: BID-03
+      x-owning-issue: '#198'
+      x-actor-roles:
+      - BUYER
+      x-gateway-privilege: AUCTION.VIEW_BID_HISTORY
+      x-required-privileges:
+      - AUCTION.VIEW_BID_HISTORY
+      x-ownership: Own bids only
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListMyBidsResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                - auctionId: 00000051-1111-4111-8111-111111111111
+                  title: Vintage film camera
+                  amount: 1200000.0
+                  placedAt: '2026-11-05T15:00:00Z'
+                  auctionStatus: ACTIVE
+                  leading: true
+                  won: false
+                page:
+                  number: 0
+                  size: 10
+                  totalElements: 1
+                  totalPages: 1
+        '401':
+          description: 'Unauthorized. Codes: `UNAUTHENTICATED`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                UNAUTHENTICATED:
+                  value:
+                    type: urn:problem:unauthorized
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid bearer token is required
+                    instance: /api/v1/bids/mine
+                    code: UNAUTHENTICATED
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge.
+              schema:
+                type: string
+                example: Bearer
+        '403':
+          description: 'Forbidden. Codes: `FORBIDDEN`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                FORBIDDEN:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: The required privilege is missing
+                    instance: /api/v1/bids/mine
+                    code: FORBIDDEN
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: RS256 JWT issued by user-service. Prism checks that the header is present, not its
+        signature, roles or ownership.
+  parameters:
+    Page:
+      name: page
+      in: query
+      description: Zero-based page number.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    Size:
+      name: size
+      in: query
+      description: Page size.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 10
+  schemas:
+    Problem:
+      type: object
+      required:
+      - type
+      - title
+      - status
+      - detail
+      - instance
+      - code
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+        code:
+          type: string
+          pattern: \S
+          minLength: 1
+          description: Stable symbolic identifier. Branch on code and status; tolerate future unknown
+            codes.
+        traceId:
+          type: string
+          pattern: \S
+          minLength: 1
+          description: Active trace/correlation identifier when available; optional without tracing.
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationError'
+    ValidationError:
+      type: object
+      required:
+      - field
+      - code
+      - detail
+      properties:
+        field:
+          type: string
+        code:
+          type: string
+        detail:
+          type: string
+    PageInfo:
+      type: object
+      additionalProperties: false
+      required:
+      - number
+      - size
+      - totalElements
+      - totalPages
+      properties:
+        number:
+          type: integer
+          minimum: 0
+        size:
+          type: integer
+          minimum: 1
+        totalElements:
+          type: integer
+          format: int64
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+    CreateAuctionRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - productId
+      - skuId
+      - title
+      - startingPrice
+      - startAt
+      - endAt
+      properties:
+        productId:
+          type: string
+          format: uuid
+        skuId:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+        startingPrice:
+          type: number
+          format: decimal
+          minimum: 0
+          description: numeric(19,2) in the database; a JSON number on the wire.
+        bidIncrement:
+          type: number
+          format: decimal
+          minimum: 0
+          exclusiveMinimum: true
+          description: Optional; defaults from config. numeric(19,2) in the database.
+        startAt:
+          type: string
+          format: date-time
+        endAt:
+          type: string
+          format: date-time
+    UpdateAuctionRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - startingPrice
+      - bidIncrement
+      - startAt
+      - endAt
+      properties:
+        startingPrice:
+          type: number
+          format: decimal
+          minimum: 0
+          description: numeric(19,2) in the database; a JSON number on the wire.
+        bidIncrement:
+          type: number
+          format: decimal
+          minimum: 0
+          exclusiveMinimum: true
+          description: numeric(19,2) in the database; a JSON number on the wire.
+        startAt:
+          type: string
+          format: date-time
+        endAt:
+          type: string
+          format: date-time
+    CancelAuctionRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - reason
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 255
+    Auction:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - productId
+      - skuId
+      - sellerId
+      - title
+      - startingPrice
+      - bidIncrement
+      - currentPrice
+      - bidCount
+      - currency
+      - startAt
+      - endAt
+      - originalEndAt
+      - extensionCount
+      - status
+      properties:
+        id:
+          type: string
+          format: uuid
+        productId:
+          type: string
+          format: uuid
+        skuId:
+          type: string
+          format: uuid
+        sellerId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        imageUrl:
+          type: string
+          nullable: true
+        startingPrice:
+          type: number
+          format: decimal
+          minimum: 0
+          description: numeric(19,2) in the database; a JSON number on the wire.
+        bidIncrement:
+          type: number
+          format: decimal
+          minimum: 0
+          description: numeric(19,2) in the database; a JSON number on the wire.
+        currentPrice:
+          type: number
+          format: decimal
+          minimum: 0
+          description: numeric(19,2) in the database; a JSON number on the wire.
+        bidCount:
+          type: integer
+          format: int32
+          minimum: 0
+        currency:
+          type: string
+        startAt:
+          type: string
+          format: date-time
+        endAt:
+          type: string
+          format: date-time
+        originalEndAt:
+          type: string
+          format: date-time
+        extensionCount:
+          type: integer
+          format: int32
+          minimum: 0
+        status:
+          type: string
+          enum:
+          - CREATED
+          - SCHEDULED
+          - ACTIVE
+          - ENDED
+          - WON
+          - SETTLED
+          - FAILED
+          - PAYMENT_TIMEOUT
+          - CANCELLED
+        finalPrice:
+          type: number
+          format: decimal
+          minimum: 0
+          description: numeric(19,2) in the database; a JSON number on the wire.
+          nullable: true
+        paymentDueAt:
+          type: string
+          format: date-time
+          nullable: true
+        orderId:
+          type: string
+          format: uuid
+          nullable: true
+        cancelledBy:
+          type: string
+          enum:
+          - SELLER
+          - ADMIN
+          - null
+          nullable: true
+        cancelledReason:
+          type: string
+          nullable: true
+    AuctionState:
+      type: object
+      additionalProperties: false
+      required:
+      - auctionId
+      - currentPrice
+      - bidCount
+      - bidIncrement
+      - endAt
+      - status
+      - serverTime
+      properties:
+        auctionId:
+          type: string
+          format: uuid
+        currentPrice:
+          type: number
+          format: decimal
+          minimum: 0
+          description: numeric(19,2) in the database; a JSON number on the wire.
+        bidCount:
+          type: integer
+          format: int32
+          minimum: 0
+        bidIncrement:
+          type: number
+          format: decimal
+          minimum: 0
+          description: numeric(19,2) in the database; a JSON number on the wire.
+        leaderBidderName:
+          type: string
+          nullable: true
+          description: Masked. null while there is no bid.
+        endAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum:
+          - CREATED
+          - SCHEDULED
+          - ACTIVE
+          - ENDED
+          - WON
+          - SETTLED
+          - FAILED
+          - PAYMENT_TIMEOUT
+          - CANCELLED
+        serverTime:
+          type: string
+          format: date-time
+          description: Read after the 1 second cache.
+    PlaceBidRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - amount
+      properties:
+        amount:
+          type: number
+          format: decimal
+          minimum: 0
+          description: numeric(19,2) in the database; a JSON number on the wire.
+          exclusiveMinimum: true
+    PlacedBid:
+      type: object
+      additionalProperties: false
+      required:
+      - bidId
+      - currentPrice
+      - leaderBidderId
+      properties:
+        bidId:
+          type: string
+          format: uuid
+        currentPrice:
+          type: number
+          format: decimal
+          minimum: 0
+          description: numeric(19,2) in the database; a JSON number on the wire.
+        leaderBidderId:
+          type: string
+          format: uuid
+    PublicBid:
+      type: object
+      additionalProperties: false
+      required:
+      - amount
+      - bidderName
+      - placedAt
+      properties:
+        amount:
+          type: number
+          format: decimal
+          minimum: 0
+          description: numeric(19,2) in the database; a JSON number on the wire.
+        bidderName:
+          type: string
+          description: Masked.
+        placedAt:
+          type: string
+          format: date-time
+    MyBid:
+      type: object
+      additionalProperties: false
+      required:
+      - auctionId
+      - title
+      - amount
+      - placedAt
+      - auctionStatus
+      - leading
+      - won
+      properties:
+        auctionId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        amount:
+          type: number
+          format: decimal
+          minimum: 0
+          description: numeric(19,2) in the database; a JSON number on the wire.
+        placedAt:
+          type: string
+          format: date-time
+        auctionStatus:
+          type: string
+          enum:
+          - CREATED
+          - SCHEDULED
+          - ACTIVE
+          - ENDED
+          - WON
+          - SETTLED
+          - FAILED
+          - PAYMENT_TIMEOUT
+          - CANCELLED
+        leading:
+          type: boolean
+        won:
+          type: boolean
+    BidProblem:
+      allOf:
+      - $ref: '#/components/schemas/Problem'
+      - type: object
+        properties:
+          minimum:
+            type: number
+            format: decimal
+            minimum: 0
+            description: Sent only with AUCTION_BID_TOO_LOW.
+    CreateAuctionResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - data
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          $ref: '#/components/schemas/Auction'
+    UpdateAuctionResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - data
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          $ref: '#/components/schemas/Auction'
+    ScheduleAuctionResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - data
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          $ref: '#/components/schemas/Auction'
+    GetAuctionResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - data
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          $ref: '#/components/schemas/Auction'
+    ListAuctionsResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - data
+      - page
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Auction'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+    GetAuctionStateResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - data
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          $ref: '#/components/schemas/AuctionState'
+    CancelAuctionResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - data
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          $ref: '#/components/schemas/Auction'
+    AdminCancelAuctionResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - data
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          $ref: '#/components/schemas/Auction'
+    ListMyAuctionsResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - data
+      - page
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Auction'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+    PlaceBidResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - data
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          $ref: '#/components/schemas/PlacedBid'
+    PlaceBidReplayResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - data
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          $ref: '#/components/schemas/PlacedBid'
+    ListAuctionBidsResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - data
+      - page
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicBid'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+    ListMyBidsResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - data
+      - page
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyBid'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+x-business-error-codes:
+  AUCTION_BID_TOO_LOW:
+    status: 400
+    detail: The bid is below the minimum
+  AUCTION_CATALOG_UNAVAILABLE:
+    status: 503
+    detail: catalog-service is unavailable
+  AUCTION_DURATION_OUT_OF_BOUNDS:
+    status: 400
+    detail: The auction duration is outside the configured bounds
+  AUCTION_FORBIDDEN:
+    status: 403
+    detail: Only the owner can do this
+  AUCTION_HAS_BIDS:
+    status: 409
+    detail: The auction is not eligible for cancellation
+  AUCTION_IDEMPOTENCY_KEY_REQUIRED:
+    status: 400
+    detail: The Idempotency-Key header is required
+  AUCTION_ILLEGAL_TRANSITION:
+    status: 409
+    detail: The auction cannot move to this status from its current status
+  AUCTION_INVALID_WINDOW:
+    status: 400
+    detail: endAt must be after startAt
+  AUCTION_LIVE_AUCTION_EXISTS:
+    status: 409
+    detail: This SKU already has a live auction
+  AUCTION_NOT_ACTIVE:
+    status: 409
+    detail: The auction is not ACTIVE
+  AUCTION_NOT_EDITABLE:
+    status: 409
+    detail: The auction has started; its configuration is frozen
+  AUCTION_NOT_FOUND:
+    status: 404
+    detail: Auction not found
+  AUCTION_PRODUCT_NOT_FOUND:
+    status: 404
+    detail: Product not found
+  AUCTION_REPUTATION_TOO_LOW:
+    status: 403
+    detail: The caller's reputation is below the required minimum
+  AUCTION_SELLER_CANNOT_BID:
+    status: 409
+    detail: The seller cannot bid on their own auction
+  AUCTION_SELLER_LIMIT_REACHED:
+    status: 409
+    detail: The seller has reached the active auction limit
+  AUCTION_SKU_NOT_FOUND:
+    status: 404
+    detail: SKU not found
