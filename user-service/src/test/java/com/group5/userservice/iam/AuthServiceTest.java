@@ -107,6 +107,8 @@ class AuthServiceTest {
                 () -> authService.login(new LoginRequest("nobody@nexus.local", PASSWORD)));
 
         assertThat(wrongPassword.getCode()).isEqualTo(401);
+        assertThat(wrongPassword.getErrorCode()).isEqualTo("USER_INVALID_CREDENTIALS");
+        assertThat(unknownEmail.getErrorCode()).isEqualTo(wrongPassword.getErrorCode());
         assertThat(unknownEmail.getCode()).isEqualTo(401);
         assertThat(unknownEmail.getMessage()).isEqualTo(wrongPassword.getMessage());
         verify(jwtIssuer, never()).issueAccessToken(any(), any(), any());

@@ -1,0 +1,9 @@
+spring:
+  application:
+    name: inventory-service
+
+  config:
+    import:
+      - optional:file:../infra/local-dev/.env[.properties]
+      - optional:file:./infra/local-dev/.env[.properties]
+      - configserver:http://localhost:8888

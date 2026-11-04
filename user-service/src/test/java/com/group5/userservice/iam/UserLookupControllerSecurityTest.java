@@ -1,11 +1,11 @@
 package com.group5.userservice.iam;
 
 import com.group5.common_core.exception.DomainException;
-import com.group5.userservice.iam.dto.PageResponse;
 import com.group5.userservice.iam.dto.UserListRequest;
 import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.enums.Gender;
 import com.group5.userservice.iam.enums.UserStatus;
+import com.group5.userservice.shared.exception.UserErrorCode;
 import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -33,6 +33,7 @@ import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
 import org.springframework.boot.kafka.autoconfigure.KafkaAutoConfiguration;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpHeaders;
@@ -125,8 +126,8 @@ class UserLookupControllerSecurityTest {
 
         mockMvc.perform(get(USERS + "/" + CALLER_ID).header(HttpHeaders.AUTHORIZATION, bearer("BUYER")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(CALLER_ID.toString()))
-                .andExpect(jsonPath("$.passwordHash").doesNotExist());
+                .andExpect(jsonPath("$.data.id").value(CALLER_ID.toString()))
+                .andExpect(jsonPath("$.data.passwordHash").doesNotExist());
     }
 
     @Test
@@ -146,16 +147,17 @@ class UserLookupControllerSecurityTest {
         mockMvc.perform(get(USERS + "/" + OTHER_ID)
                         .header(HttpHeaders.AUTHORIZATION, bearer(role, "USER.VIEW")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(OTHER_ID.toString()));
+                .andExpect(jsonPath("$.data.id").value(OTHER_ID.toString()));
     }
 
     @Test
     void anUnknownIdGets404ForACallerWithUserView() throws Exception {
-        when(userService.getUser(OTHER_ID)).thenThrow(new DomainException(404, "User not found"));
+        when(userService.getUser(OTHER_ID)).thenThrow(new DomainException(UserErrorCode.USER_NOT_FOUND));
 
         mockMvc.perform(get(USERS + "/" + OTHER_ID)
                         .header(HttpHeaders.AUTHORIZATION, bearer("ADMIN", "USER.VIEW")))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
     }
 
     @Test
@@ -188,20 +190,40 @@ class UserLookupControllerSecurityTest {
     @ValueSource(strings = {"ADMIN", "SUPPORT_STAFF"})
     void staffWithUserListGetOnePageAndTheTotal(String role) throws Exception {
         when(userService.listUsers(any(UserListRequest.class)))
-                .thenReturn(new PageResponse<>(List.of(user(CALLER_ID), user(OTHER_ID)), 0, 2, 5, 3));
+                .thenReturn(new PageImpl<>(List.of(user(CALLER_ID), user(OTHER_ID)), PageRequest.of(0, 2), 5));
 
         mockMvc.perform(get(USERS).param("page", "0").param("size", "2")
                         .header(HttpHeaders.AUTHORIZATION, bearer(role, "USER.LIST")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content.length()").value(2))
-                .andExpect(jsonPath("$.totalElements").value(5))
-                .andExpect(jsonPath("$.content[0].passwordHash").doesNotExist())
-                .andExpect(jsonPath("$.content[1].passwordHash").doesNotExist());
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.content").doesNotExist())
+                .andExpect(jsonPath("$.page.number").value(0))
+                .andExpect(jsonPath("$.page.size").value(2))
+                .andExpect(jsonPath("$.page.totalElements").value(5))
+                .andExpect(jsonPath("$.page.totalPages").value(3))
+                .andExpect(jsonPath("$.data[0].passwordHash").doesNotExist())
+                .andExpect(jsonPath("$.data[1].passwordHash").doesNotExist());
 
         ArgumentCaptor<UserListRequest> request = ArgumentCaptor.forClass(UserListRequest.class);
         verify(userService).listUsers(request.capture());
         assertThat(request.getValue().pageable())
                 .isEqualTo(PageRequest.of(0, 2, Sort.by("fullName").and(Sort.by("id"))));
+    }
+
+    @Test
+    void emptyUserListKeepsTheEnvelopeAndPageMetadata() throws Exception {
+        when(userService.listUsers(any(UserListRequest.class)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+        mockMvc.perform(get(USERS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer("ADMIN", "USER.LIST")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data").isEmpty())
+                .andExpect(jsonPath("$.page.number").value(0))
+                .andExpect(jsonPath("$.page.size").value(20))
+                .andExpect(jsonPath("$.page.totalElements").value(0))
+                .andExpect(jsonPath("$.page.totalPages").value(0));
     }
 
     @ParameterizedTest

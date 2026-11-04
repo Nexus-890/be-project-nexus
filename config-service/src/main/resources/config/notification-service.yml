@@ -11,11 +11,22 @@ spring:
       ddl-auto: validate
 
 nexus:
+  security:
+    jwt:
+      issuer: user-service
+      audience: nexus-services
+      jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:8081/.well-known/jwks.json}
   kafka:
     demo:
       group-id: nexus.notification.kafka-demo.v1
       client-id: notification-demo
       processing-delay-ms: 0
+  notification:
+    email-enabled: ${EMAIL_NOTIFICATION_ENABLED:false}
+    group-id: nexus.notification.domain-events.v1
+  outbox:
+    relay:
+      enabled: false
 
 springdoc:
   api-docs:

@@ -1,13 +1,15 @@
 package com.group5.userservice.iam;
 
+import com.group5.common_security.CurrentUserAuditor;
+import com.group5.common_security.autoconfigure.JpaAuditingAutoConfiguration;
 import com.group5.userservice.shared.config.IamProperties;
+import com.group5.userservice.shared.PostgresTestDatabase;
 import com.nimbusds.jwt.SignedJWT;
 import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
@@ -31,6 +33,7 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -39,11 +42,8 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Opt-in HTTP tests against a disposable PostgreSQL 18 database, never user_db.
- * Set REGISTRATION_TEST_DB_URL to jdbc:postgresql://127.0.0.1:<port>/registration_test
- * and REGISTRATION_TEST_DB_PASSWORD to the disposable database password.
+ * HTTP tests against a disposable PostgreSQL 18 Testcontainers database.
  */
-@EnabledIfEnvironmentVariable(named = "REGISTRATION_TEST_DB_URL", matches = ".+")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.location=optional:file:${nexus.registration.test-config}",
         "spring.cloud.config.enabled=false",
@@ -88,13 +88,9 @@ class RegistrationIntegrationTest {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        String url = System.getenv("REGISTRATION_TEST_DB_URL");
-        if (url == null || !url.matches("jdbc:postgresql://127\\.0\\.0\\.1:[0-9]+/registration_test")) {
-            throw new IllegalStateException("Integration tests require an isolated registration_test database");
-        }
-        registry.add("spring.datasource.url", () -> url);
-        registry.add("spring.datasource.username", () -> "registration_test");
-        registry.add("spring.datasource.password", () -> System.getenv("REGISTRATION_TEST_DB_PASSWORD"));
+        registry.add("spring.datasource.url", PostgresTestDatabase::jdbcUrl);
+        registry.add("spring.datasource.username", PostgresTestDatabase::username);
+        registry.add("spring.datasource.password", PostgresTestDatabase::password);
         registry.add("nexus.iam.jwt.issuer", () -> "user-service");
         registry.add("nexus.iam.jwt.audience", () -> "nexus-services");
         registry.add("nexus.iam.jwt.key-id", () -> "registration-test");
@@ -104,7 +100,7 @@ class RegistrationIntegrationTest {
 
     @BeforeEach
     void prepareFixtures() {
-        // These rows exist only in the opt-in disposable test database.
+        // These rows exist only in the disposable Testcontainers database.
         jdbc.update("delete from user_roles");
         jdbc.update("delete from users");
         jdbc.update("""
@@ -132,10 +128,24 @@ class RegistrationIntegrationTest {
     }
 
     @Test
+    void productionAutoConfigurationAuditsRegistrationWithoutTestAuditingConfiguration() throws Exception {
+        assertThat(context.getBeansOfType(JpaAuditingAutoConfiguration.class)).hasSize(1);
+        assertThat(context.getBeansOfType(CurrentUserAuditor.class)).containsOnlyKeys("currentUserAuditor");
+        assertThat(context.containsBean("testAuditor")).isFalse();
+
+        assertThat(post(REGISTER, request("audited@nexus.test", "0901234567", "001234"))
+                .statusCode()).isEqualTo(201);
+        assertThat(jdbc.queryForObject("select created_by from users", UUID.class))
+                .isEqualTo(CurrentUserAuditor.SYSTEM_ID);
+        assertThat(jdbc.queryForObject("select updated_by from users", UUID.class))
+                .isEqualTo(CurrentUserAuditor.SYSTEM_ID);
+    }
+
+    @Test
     void createsOneBuyerRoleAndNeverReturnsSecrets() throws Exception {
         HttpResponse<String> response = post(REGISTER, request("buyer@nexus.test", "0901234567", "001234"));
         assertThat(response.statusCode()).isEqualTo(201);
-        JsonNode body = JSON.readTree(response.body());
+        JsonNode body = JSON.readTree(response.body()).get("data");
         assertThat(body.get("roles").get(0).asString()).isEqualTo("BUYER");
         assertThat(body.get("roles").size()).isEqualTo(1);
         assertThat(body.has("passwordHash")).isFalse();
@@ -158,7 +168,7 @@ class RegistrationIntegrationTest {
         HttpResponse<String> login = post("/api/v1/auth/login",
                 Map.of("email", "LOGIN@NEXUS.TEST", "password", PASSWORD));
         assertThat(login.statusCode()).isEqualTo(200);
-        String token = JSON.readTree(login.body()).get("accessToken").asString();
+        String token = JSON.readTree(login.body()).get("data").get("accessToken").asString();
         assertThat(SignedJWT.parse(token).getJWTClaimsSet().getStringListClaim("roles")).containsExactly("BUYER");
     }
 
@@ -256,7 +266,7 @@ class RegistrationIntegrationTest {
         assertThat(iamProperties.getDefaultUserRole()).isEqualTo("SELLER");
         HttpResponse<String> response = post(REGISTER, request("seller@nexus.test", "0901234567", "001234"));
         assertThat(response.statusCode()).isEqualTo(201);
-        assertThat(JSON.readTree(response.body()).get("roles").get(0).asString()).isEqualTo("SELLER");
+        assertThat(JSON.readTree(response.body()).get("data").get("roles").get(0).asString()).isEqualTo("SELLER");
         assertThat(jdbc.queryForObject("""
                 select r.code from user_roles ur join roles r on r.id = ur.role_id
                 """, String.class)).isEqualTo("SELLER");

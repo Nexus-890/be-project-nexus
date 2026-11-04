@@ -1,0 +1,155 @@
+openapi: 3.0.3
+info:
+  title: Nexus payment initiation
+  version: 1.0.0
+  description: >-
+    Issue #121 bank-transfer VietQR initiation. HTTP 201 returns an ApiResponse with
+    code, message and data containing a numeric whole-VND amount, including repeated reads.
+    CheckoutPaymentRequested creates the immutable session and seller instructions;
+    the HTTP endpoint never creates a transaction, memo or replacement session.
+servers:
+  - url: http://localhost:8080
+    description: API gateway
+  - url: http://localhost:8087
+    description: Payment service
+tags:
+  - name: Payments
+    description: Read payment instructions for an existing order-group session
+paths:
+  /api/v1/payments:
+    post:
+      tags: [Payments]
+      operationId: initiateGroupPayment
+      summary: Read the buyer's existing group payment instructions
+      description: >-
+        Requires CHECKOUT.START and ownership of the session. Data comes only from
+        payment_db, populated from the complete checkout event. A canceled, paid or
+        expired session never gets a replacement QR. Unknown/not-yet-consumed groups
+        return 404. ExpiresAt controls server acceptance; the bank-transfer QR itself
+        does not enforce the Nexus deadline at the bank.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [BUYER]
+      x-required-privileges: [CHECKOUT.START]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderGroupId]
+              properties:
+                orderGroupId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Existing immutable instructions; same response on repeat with stable bank configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentInitApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  sessionId: ec2a083f-868b-4d3e-9dda-1904a9c7bbdd
+                  qrImageUrl: https://vietqr.app/img?acc=0000000002&bank=970416&amount=350000&des=NX20261105001&template=compact&showinfo=true&holder=DO%20VAN%20A
+                  bankAccount: '0000000002'
+                  amount: 350000
+                  memoCode: NX20261105001
+                  expiresAt: '2026-11-05T10:15:00Z'
+        '400':
+          description: Missing/invalid orderGroupId or malformed request body
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing/invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Missing CHECKOUT.START or session owned by another buyer
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Payment session is not available
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Session is not payable, instructions are inconsistent, or amount cannot be represented as VietQR
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    PaymentInitApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          default: response success
+          example: response success
+        data:
+          $ref: '#/components/schemas/PaymentInitResponse'
+    PaymentInitResponse:
+      type: object
+      required: [sessionId, qrImageUrl, bankAccount, amount, memoCode, expiresAt]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        qrImageUrl:
+          type: string
+          format: uri
+          description: SePay vietqr.app/img URL using the session amount and memo, plus any host-configured bank transfer prefix
+        bankAccount:
+          type: string
+          description: Host-configured receiving account; preserve leading zeros
+        amount:
+          type: number
+          minimum: 1
+          maximum: 9999999999999
+          multipleOf: 1
+          example: 350000
+        memoCode:
+          type: string
+          pattern: '^[A-Z0-9]{1,32}$'
+          description: Immutable session memo; the QR description may prepend the bank-required prefix, such as SEVQR
+        expiresAt:
+          type: string
+          format: date-time
+    Problem:
+      type: object
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        code:
+          type: string
+        traceId:
+          type: string

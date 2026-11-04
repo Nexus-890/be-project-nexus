@@ -1,9 +1,13 @@
 package com.group5.commerceservice.cart.entity;
 
+import com.group5.commerceservice.cart.CartStatus;
+import com.group5.common_core.persistence.AuditedEntity;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UuidGenerator;
+import org.hibernate.type.SqlTypes;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -12,7 +16,7 @@ import java.util.UUID;
 @Setter
 @Entity
 @Table(name = "carts")
-public class Cart {
+public class Cart extends AuditedEntity {
 
     @Id
     @UuidGenerator
@@ -24,8 +28,10 @@ public class Cart {
     @Column(name = "guest_token", length = 255)
     private String guestToken;
 
-    @Column(name = "status", nullable = false, length = 20)
-    private String status;
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "status", nullable = false, columnDefinition = "cart_status")
+    private CartStatus status;
 
     @Column(name = "promo_code", length = 50)
     private String promoCode;
@@ -49,7 +55,7 @@ public class Cart {
         }
 
         if (status == null) {
-            status = "ACTIVE";
+            status = CartStatus.ACTIVE;
         }
     }
 

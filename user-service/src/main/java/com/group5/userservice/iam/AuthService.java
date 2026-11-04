@@ -1,6 +1,5 @@
 package com.group5.userservice.iam;
 
-import com.group5.common_core.constant.ErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.userservice.iam.UserRepository.RoleGrant;
 import com.group5.userservice.iam.dto.LoginRequest;
@@ -8,6 +7,7 @@ import com.group5.userservice.iam.dto.LoginResponse;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.UserStatus;
 import com.group5.userservice.shared.config.IamProperties;
+import com.group5.userservice.shared.exception.UserErrorCode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -100,7 +100,7 @@ public class AuthService {
         OffsetDateTime lockedUntil = user.getLockedUntil();
         if (lockedUntil == null || lockedUntil.isAfter(now)) {
             log.warn("Login rejected: reason=ACCOUNT_LOCKED, userId={}", user.getId());
-            throw new DomainException(ErrorCode.ACCOUNT_LOCKED);
+            throw new DomainException(UserErrorCode.USER_ACCOUNT_LOCKED);
         }
         user.setStatus(UserStatus.ACTIVE);
         user.setFailedLoginCount((short) 0);
@@ -118,6 +118,6 @@ public class AuthService {
     }
 
     private DomainException invalidCredentials() {
-        return new DomainException(ErrorCode.INVALID_CREDENTIALS);
+        return new DomainException(UserErrorCode.USER_INVALID_CREDENTIALS);
     }
 }

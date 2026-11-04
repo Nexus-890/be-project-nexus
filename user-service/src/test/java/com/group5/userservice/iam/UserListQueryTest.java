@@ -1,6 +1,6 @@
 package com.group5.userservice.iam;
 
-import com.group5.userservice.iam.dto.PageResponse;
+import org.springframework.data.domain.Page;
 import com.group5.userservice.iam.dto.UserListRequest;
 import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.entity.Role;
@@ -16,8 +16,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import com.group5.userservice.shared.PostgresTestDatabase;
+import com.group5.userservice.shared.PostgresAuditingTestConfiguration;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.SharedEntityManagerCreator;
@@ -70,16 +72,16 @@ class UserListQueryTest {
 
     @Test
     void fiveUsersPagedByTwoGiveTwoRowsAndTheTotalSortedByFullName() {
-        PageResponse<UserResponse> page = userService.listUsers(request(null, null, null, 0, 2, null, null));
+        Page<UserResponse> page = userService.listUsers(request(null, null, null, 0, 2, null, null));
 
-        assertThat(page.content()).extracting(UserResponse::fullName).containsExactly("An Nguyen", "Binh Tran");
-        assertThat(page.totalElements()).isEqualTo(5);
-        assertThat(page.totalPages()).isEqualTo(3);
+        assertThat(page.getContent()).extracting(UserResponse::fullName).containsExactly("An Nguyen", "Binh Tran");
+        assertThat(page.getTotalElements()).isEqualTo(5);
+        assertThat(page.getTotalPages()).isEqualTo(3);
     }
 
     @Test
     void aDeletedUserIsNeverListed() {
-        assertThat(userService.listUsers(request(null, null, null, 0, 20, null, null)).content())
+        assertThat(userService.listUsers(request(null, null, null, 0, 20, null, null)).getContent())
                 .extracting(UserResponse::email)
                 .doesNotContain("deleted@nexus.test");
     }
@@ -105,14 +107,14 @@ class UserListQueryTest {
 
     @Test
     void rolesOfAWholePageAreLoadedWithoutOneQueryPerUser() {
-        PageResponse<UserResponse> page = userService.listUsers(request(null, null, null, 0, 20, null, null));
+        Page<UserResponse> page = userService.listUsers(request(null, null, null, 0, 20, null, null));
 
-        assertThat(page.content()).allSatisfy(user -> assertThat(user.roles()).isNotEmpty());
+        assertThat(page.getContent()).allSatisfy(user -> assertThat(user.roles()).isNotEmpty());
         assertThat(STATEMENTS).hasSizeLessThanOrEqualTo(3);
     }
 
     private List<String> names(UserListRequest request) {
-        return userService.listUsers(request).content().stream().map(UserResponse::fullName).toList();
+        return userService.listUsers(request).getContent().stream().map(UserResponse::fullName).toList();
     }
 
     private static UserListRequest request(String q, UserStatus status, String role, int page, int size,
@@ -142,17 +144,13 @@ class UserListQueryTest {
     }
 
     @TestConfiguration(proxyBeanMethods = false)
+    @Import(PostgresAuditingTestConfiguration.class)
     @EnableJpaRepositories(basePackageClasses = UserRepository.class)
     static class JpaTestConfig {
 
         @Bean
         DataSource dataSource() {
-            DriverManagerDataSource source = new DriverManagerDataSource();
-            source.setDriverClassName("org.h2.Driver");
-            source.setUrl("jdbc:h2:mem:user-list;DB_CLOSE_DELAY=-1");
-            source.setUsername("sa");
-            source.setPassword("");
-            return source;
+            return PostgresTestDatabase.migratedDataSource("user_list");
         }
 
         @Bean
@@ -162,7 +160,7 @@ class UserListQueryTest {
             factory.setPackagesToScan(User.class.getPackageName());
             factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
             factory.setJpaPropertyMap(Map.of(
-                    "hibernate.hbm2ddl.auto", "create-drop",
+                    "hibernate.hbm2ddl.auto", "validate",
                     "hibernate.session_factory.statement_inspector", (StatementInspector) sql -> {
                         STATEMENTS.add(sql);
                         return sql;

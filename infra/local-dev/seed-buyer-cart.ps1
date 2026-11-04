@@ -97,7 +97,7 @@ SELECT json_build_object(
         'lineTotal',(i.price*i.quantity)::numeric(19,2)::text
     ) ORDER BY i.product_id,i.sku_id) FROM cart_items i WHERE i.cart_id=c.id),
     'subtotal',(SELECT sum(i.price*i.quantity)::numeric(19,2)::text FROM cart_items i WHERE i.cart_id=c.id),
-    'currency','VND', 'updatedAt',to_char(c.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+    'userId',c.user_id::text, 'currency','VND', 'updatedAt',to_char(c.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
 ) FROM carts c WHERE c.id='$cartId' AND c.user_id='$buyerId' AND c.status='ACTIVE';
 "@ | ConvertFrom-Json
 if (@($cart.items).Count -ne 10 -or ($cart.items | Measure-Object quantity -Sum).Sum -ne 10) {
@@ -120,7 +120,7 @@ $fixtureJson = ConvertTo-Json -InputObject $cart -Depth 10
 $fixtureSource = @"
 // Generated from local PostgreSQL by be-project-nexus/infra/local-dev/seed-buyer-cart.ps1.
 // Sprint 1 fixture: cart endpoints are still mocked until the commerce implementation lands.
-import type { Cart } from "../types/cart/response/type";
+import type { Cart } from "../types/cartResponseType";
 
 export const buyerCartSeedUserId = "$buyerId";
 export const buyerCartSeedEmail = "$buyerEmail";

@@ -1,0 +1,9 @@
+spring:
+  application:
+    name: payment-service
+
+  config:
+    import:
+      - optional:file:../infra/local-dev/.env[.properties]
+      - optional:file:./infra/local-dev/.env[.properties]
+      - configserver:${CONFIG_SERVER_URL:http://localhost:8888}
