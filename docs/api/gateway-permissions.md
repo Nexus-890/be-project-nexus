@@ -63,6 +63,8 @@ independently, as required by ADR-006.
 | `/api/v1/payments` | POST | CHECKOUT.START | #121 — Buyer reads own order group's immutable payment session |
 | `/api/v1/orders/{id}/history` | GET | ORDER.VIEW | #116 — Order state machine and status history |
 | `/api/v1/orders` | GET | ORDER.LIST | #117 — Order read endpoints; the caller's own orders only |
+| `/api/v1/orders/manage` | GET | ORDER.LIST | #190 — All orders; service additionally requires ADMIN or SUPPORT_STAFF |
+| `/api/v1/orders/sales` | GET | ORDER.LIST | #190 — Seller orders; service additionally requires SELLER and JWT seller ownership |
 | `/api/v1/orders/{id}` | GET | ORDER.VIEW | #117 — Order read endpoints; the owner or ADMIN |
 | `/api/v1/orders/{id}/cancel` | POST | ORDER.CANCEL | #189 — Order cancellation; the buyer, ADMIN or SUPPORT_STAFF |
 | Any other path | Any other method/path pair | Token required; add the SRS privilege before exposing a new endpoint | Gateway JWT filter and permit list; future owning issue |
@@ -76,6 +78,28 @@ the #88 commerce mock is superseded; it is not a runtime payment endpoint.
 `GET /api/v1/users/{id}` (#76) has no row on purpose: a caller may read their own
 record without `USER.VIEW`, which the gateway cannot decide. Any valid token passes
 the gateway and user-service allows the caller's own id or `USER.VIEW`.
+
+## Order management and sales (#190)
+
+Both order-list operations require `ORDER.LIST` at the gateway and service. They
+also enforce the role restrictions defined by ORD-10 and ORD-11 downstream:
+`/api/v1/orders/manage` requires either `ADMIN` or `SUPPORT_STAFF`, while
+`/api/v1/orders/sales` requires `SELLER`. A `BUYER` with `ORDER.LIST` still receives
+403 on both paths. The gateway's single-privilege rows do not replace those role
+checks. `/api/v1/orders` retains its existing caller-as-buyer scope for every role.
+
+The management list reads all orders when no filter is supplied. Optional
+`userId` (buyer), `sellerId`, `status`, `orderType`, `from` and `to` filters combine
+with AND. The sales list supports `status`, `from` and `to`; its `seller_id` is
+always the validated JWT subject, so a caller cannot select another seller.
+Both lists use inclusive `createdAt` bounds expressed as ISO-8601 timestamps with
+an offset. Encode a positive offset's `+` as `%2B` in a URL, or use `Z` for UTC.
+`from > to` returns 400 `COMMERCE_INVALID_ORDER_FILTER`. Paging is zero-based with
+`page=0`, `size=10`, a size limit of 1–100, and newest-first ordering by
+`createdAt DESC, orderNumber DESC`. Invalid paging also returns
+`COMMERCE_INVALID_ORDER_FILTER`; malformed UUID/enum/date parameters retain the
+shared `INVALID_PARAMETER` Problem Details response. A page beyond the result set
+returns 200 with empty `data` and the actual `page` totals.
 
 ## Matching and JWT contract
 
