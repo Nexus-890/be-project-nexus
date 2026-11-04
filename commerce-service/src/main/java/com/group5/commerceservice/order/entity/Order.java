@@ -5,6 +5,7 @@ import com.group5.commerceservice.order.OrderType;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -92,5 +93,6 @@ public class Order {
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL)
     @OrderBy("id ASC")
+    @BatchSize(size = 100)
     private List<OrderItem> items = new ArrayList<>();
 }
