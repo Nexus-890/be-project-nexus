@@ -44,6 +44,7 @@ public class InventoryBalance extends AuditedEntity {
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
+    // OPTIMISTIC LOCK: 2 NGƯỜI SỬA CÙNG 1 DÒNG QUA JPA THÌ NGƯỜI SAU BỊ LỖI, KHÔNG GHI ĐÈ SỐ CỦA NHAU
     @Version
     @Column(name = "version", nullable = false)
     private long version;

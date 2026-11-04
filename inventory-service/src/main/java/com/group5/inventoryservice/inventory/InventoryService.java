@@ -29,6 +29,7 @@ public class InventoryService {
     public BalanceResponse intake(IntakeRequest request, CurrentUser currentUser) {
         UUID warehouseId = resolveWarehouse(request.warehouseId());
         balances.intake(request.skuId(), warehouseId, request.quantity(), currentUser.id());
+        // ĐỌC LẠI DÒNG SAU KHI UPSERT ĐỂ TRẢ VỀ SỐ MỚI NHẤT (clearAutomatically ĐÃ XÓA CACHE CŨ)
         return balances.findBySkuIdAndWarehouseId(request.skuId(), warehouseId)
                 .map(BalanceResponse::from)
                 .orElseThrow();
@@ -41,6 +42,7 @@ public class InventoryService {
             }
             return warehouseId;
         }
+        // KHÔNG GỬI warehouseId -> LẤY KHO MẶC ĐỊNH THEO CODE TRONG CONFIG (WH_001), KHÔNG HARDCODE UUID
         return warehouses.findByCode(properties.defaultWarehouseCode())
                 .map(Warehouse::getId)
                 .orElseThrow(() -> new DomainException(InventoryErrorCode.DEFAULT_WAREHOUSE_NOT_FOUND));

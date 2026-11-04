@@ -12,6 +12,9 @@ public interface InventoryBalanceRepository extends JpaRepository<InventoryBalan
 
     Optional<InventoryBalance> findBySkuIdAndWarehouseId(UUID skuId, UUID warehouseId);
 
+    // 1 CÂU SQL DUY NHẤT: CHƯA CÓ DÒNG (SKU + KHO) THÌ INSERT, CÓ RỒI THÌ CỘNG DỒN TOTAL VÀ AVAILABLE
+    // 2 REQUEST NHẬP KHO CÙNG LÚC -> POSTGRES TỰ XẾP HÀNG, KHÔNG TẠO 2 DÒNG, KHÔNG MẤT SỐ LƯỢNG
+    // SQL NATIVE KHÔNG ĐI QUA @Version NÊN PHẢI TỰ TĂNG version + 1
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(nativeQuery = true, value = """
             INSERT INTO inventory_balances

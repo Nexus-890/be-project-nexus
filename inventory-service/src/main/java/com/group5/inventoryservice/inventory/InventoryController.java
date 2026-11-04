@@ -25,6 +25,7 @@ public class InventoryController {
 
     @PostMapping("/intake")
     @ResponseStatus(HttpStatus.CREATED)
+    // GATEWAY CHỈ CHECK TOKEN (SRS KHÔNG CÓ PRIVILEGE INVENTORY.*) -> SERVICE TỰ CHẶN, CHỈ ADMIN ĐƯỢC NHẬP KHO
     @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<BalanceResponse> intake(@Valid @RequestBody IntakeRequest request, CurrentUser currentUser) {
         return ApiResponse.of(service.intake(request, currentUser));
