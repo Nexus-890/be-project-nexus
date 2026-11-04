@@ -13,6 +13,9 @@ tags:
   -
     name: "Notifications"
     description: "Own notifications and unread count."
+  -
+    name: "System Health"
+    description: "Service, Keycloak and message broker health for ADMIN and SUPPORT_STAFF."
 
 security:
   -
@@ -1085,6 +1088,341 @@ paths:
                     detail: "An unexpected error occurred"
                     instance: "/api/v1/notifications/read-all"
                     code: "INTERNAL_ERROR"
+  /api/v1/system/health:
+    get:
+      tags: [System Health]
+      operationId: getSystemHealth
+      summary: "Read the health of every service, Keycloak and the message broker"
+      description: "Requires SYSTEM.HEALTH.VIEW (ADMIN, SUPPORT_STAFF). Each configured service is looked up in Eureka and its /actuator/health is called with a 2 second timeout; a service that is missing from Eureka or does not answer is DOWN and the response is still 200. Keycloak is UP when its realm discovery document answers. Brokers come from the last BrokerHealthJob run."
+      security:
+        - bearerAuth: []
+      x-required-privileges: [SYSTEM.HEALTH.VIEW]
+      x-required-roles: []
+      x-gateway-privilege: SYSTEM.HEALTH.VIEW
+      x-ownership: "Not user-owned; system-wide status."
+      responses:
+        "200":
+          description: "Current status of every service and broker."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemHealthResponse"
+              examples:
+                catalogDown:
+                  value:
+                    code: 0
+                    message: "response success"
+                    data:
+                      services:
+                        - {name: "user-service", status: "UP"}
+                        - {name: "catalog-service", status: "DOWN"}
+                        - {name: "payment-service", status: "UP"}
+                        - {name: "keycloak", status: "UP"}
+                      brokers:
+                        - {name: "kafka", status: "UP", lastCheckedAt: "2026-11-04T09:30:15+07:00"}
+        "401":
+          description: "Unauthorized. Codes: UNAUTHENTICATED."
+          headers:
+            WWW-Authenticate:
+              schema: {type: string}
+              description: Bearer challenge for security failures.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [401]}
+                      code:
+                        type: string
+                        enum: ["UNAUTHENTICATED"]
+              examples:
+                UNAUTHENTICATED:
+                  value:
+                    type: "urn:problem:unauthenticated"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "A valid access token is required to access this resource"
+                    instance: "/api/v1/system/health"
+                    code: "UNAUTHENTICATED"
+        "403":
+          description: "Forbidden. Codes: FORBIDDEN."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [403]}
+                      code:
+                        type: string
+                        enum: ["FORBIDDEN"]
+              examples:
+                FORBIDDEN:
+                  value:
+                    type: "urn:problem:forbidden"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission to access this resource"
+                    instance: "/api/v1/system/health"
+                    code: "FORBIDDEN"
+        "405":
+          description: "Method Not Allowed. Codes: METHOD_NOT_ALLOWED."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [405]}
+                      code:
+                        type: string
+                        enum: ["METHOD_NOT_ALLOWED"]
+              examples:
+                METHOD_NOT_ALLOWED:
+                  value:
+                    type: "urn:problem:method-not-allowed"
+                    title: "Method Not Allowed"
+                    status: 405
+                    detail: "The HTTP method is not supported for this endpoint"
+                    instance: "/api/v1/system/health"
+                    code: "METHOD_NOT_ALLOWED"
+        "406":
+          description: "Not Acceptable. Codes: NOT_ACCEPTABLE."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [406]}
+                      code:
+                        type: string
+                        enum: ["NOT_ACCEPTABLE"]
+              examples:
+                NOT_ACCEPTABLE:
+                  value:
+                    type: "urn:problem:not-acceptable"
+                    title: "Not Acceptable"
+                    status: 406
+                    detail: "The requested response format is not supported"
+                    instance: "/api/v1/system/health"
+                    code: "NOT_ACCEPTABLE"
+        "429":
+          description: "Too Many Requests. Codes: RATE_LIMITED."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [429]}
+                      code:
+                        type: string
+                        enum: ["RATE_LIMITED"]
+              examples:
+                RATE_LIMITED:
+                  value:
+                    type: "urn:problem:rate-limited"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many requests; retry after the indicated delay"
+                    instance: "/api/v1/system/health"
+                    code: "RATE_LIMITED"
+        "500":
+          description: "Internal Server Error. Codes: INTERNAL_ERROR."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [500]}
+                      code:
+                        type: string
+                        enum: ["INTERNAL_ERROR"]
+              examples:
+                INTERNAL_ERROR:
+                  value:
+                    type: "urn:problem:internal-error"
+                    title: "Internal Server Error"
+                    status: 500
+                    detail: "An unexpected error occurred"
+                    instance: "/api/v1/system/health"
+                    code: "INTERNAL_ERROR"
+  /api/v1/system/health/brokers:
+    get:
+      tags: [System Health]
+      operationId: listBrokerHealth
+      summary: "List message brokers with their last failure and recovery times"
+      description: "Requires SYSTEM.HEALTH.VIEW (ADMIN, SUPPORT_STAFF). BrokerHealthJob checks Kafka every 15 seconds and marks it DOWN only when one retry also fails. lastFailureAt is set when a broker goes DOWN and lastRecoveredAt when it comes back UP. The complete list is one logical page."
+      security:
+        - bearerAuth: []
+      x-required-privileges: [SYSTEM.HEALTH.VIEW]
+      x-required-roles: []
+      x-gateway-privilege: SYSTEM.HEALTH.VIEW
+      x-ownership: "Not user-owned; system-wide status."
+      responses:
+        "200":
+          description: "Every broker the job has checked, ordered by name."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrokerHealthListResponse"
+              examples:
+                recovered:
+                  value:
+                    code: 0
+                    message: "response success"
+                    data:
+                      - name: "kafka"
+                        status: "UP"
+                        lastCheckedAt: "2026-11-04T09:31:00+07:00"
+                        lastFailureAt: "2026-11-04T09:25:30+07:00"
+                        lastRecoveredAt: "2026-11-04T09:30:45+07:00"
+                    page: {number: 0, size: 1, totalElements: 1, totalPages: 1}
+        "401":
+          description: "Unauthorized. Codes: UNAUTHENTICATED."
+          headers:
+            WWW-Authenticate:
+              schema: {type: string}
+              description: Bearer challenge for security failures.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [401]}
+                      code:
+                        type: string
+                        enum: ["UNAUTHENTICATED"]
+              examples:
+                UNAUTHENTICATED:
+                  value:
+                    type: "urn:problem:unauthenticated"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "A valid access token is required to access this resource"
+                    instance: "/api/v1/system/health/brokers"
+                    code: "UNAUTHENTICATED"
+        "403":
+          description: "Forbidden. Codes: FORBIDDEN."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [403]}
+                      code:
+                        type: string
+                        enum: ["FORBIDDEN"]
+              examples:
+                FORBIDDEN:
+                  value:
+                    type: "urn:problem:forbidden"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission to access this resource"
+                    instance: "/api/v1/system/health/brokers"
+                    code: "FORBIDDEN"
+        "405":
+          description: "Method Not Allowed. Codes: METHOD_NOT_ALLOWED."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [405]}
+                      code:
+                        type: string
+                        enum: ["METHOD_NOT_ALLOWED"]
+              examples:
+                METHOD_NOT_ALLOWED:
+                  value:
+                    type: "urn:problem:method-not-allowed"
+                    title: "Method Not Allowed"
+                    status: 405
+                    detail: "The HTTP method is not supported for this endpoint"
+                    instance: "/api/v1/system/health/brokers"
+                    code: "METHOD_NOT_ALLOWED"
+        "406":
+          description: "Not Acceptable. Codes: NOT_ACCEPTABLE."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [406]}
+                      code:
+                        type: string
+                        enum: ["NOT_ACCEPTABLE"]
+              examples:
+                NOT_ACCEPTABLE:
+                  value:
+                    type: "urn:problem:not-acceptable"
+                    title: "Not Acceptable"
+                    status: 406
+                    detail: "The requested response format is not supported"
+                    instance: "/api/v1/system/health/brokers"
+                    code: "NOT_ACCEPTABLE"
+        "429":
+          description: "Too Many Requests. Codes: RATE_LIMITED."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [429]}
+                      code:
+                        type: string
+                        enum: ["RATE_LIMITED"]
+              examples:
+                RATE_LIMITED:
+                  value:
+                    type: "urn:problem:rate-limited"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many requests; retry after the indicated delay"
+                    instance: "/api/v1/system/health/brokers"
+                    code: "RATE_LIMITED"
+        "500":
+          description: "Internal Server Error. Codes: INTERNAL_ERROR."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [500]}
+                      code:
+                        type: string
+                        enum: ["INTERNAL_ERROR"]
+              examples:
+                INTERNAL_ERROR:
+                  value:
+                    type: "urn:problem:internal-error"
+                    title: "Internal Server Error"
+                    status: 500
+                    detail: "An unexpected error occurred"
+                    instance: "/api/v1/system/health/brokers"
+                    code: "INTERNAL_ERROR"
 components:
   securitySchemes:
     bearerAuth:
@@ -1237,6 +1575,88 @@ components:
               type: "integer"
               format: "int64"
               minimum: 0
+      additionalProperties: false
+    HealthStatus:
+      type: "string"
+      enum: ["UP", "DOWN"]
+    ServiceHealth:
+      type: "object"
+      required: ["name", "status"]
+      properties:
+        name:
+          type: "string"
+          description: "Eureka service id, or keycloak."
+        status:
+          $ref: "#/components/schemas/HealthStatus"
+    BrokerStatus:
+      type: "object"
+      required: ["name", "status", "lastCheckedAt"]
+      properties:
+        name:
+          type: "string"
+        status:
+          $ref: "#/components/schemas/HealthStatus"
+        lastCheckedAt:
+          type: "string"
+          format: "date-time"
+    BrokerHealth:
+      type: "object"
+      required: ["name", "status", "lastCheckedAt", "lastFailureAt", "lastRecoveredAt"]
+      properties:
+        name:
+          type: "string"
+        status:
+          $ref: "#/components/schemas/HealthStatus"
+        lastCheckedAt:
+          type: "string"
+          format: "date-time"
+        lastFailureAt:
+          type: "string"
+          format: "date-time"
+          nullable: true
+        lastRecoveredAt:
+          type: "string"
+          format: "date-time"
+          nullable: true
+    SystemHealthResponse:
+      type: "object"
+      required: ["code", "message", "data"]
+      properties:
+        code:
+          type: "integer"
+          default: 0
+        message:
+          type: "string"
+          default: "response success"
+        data:
+          type: "object"
+          required: ["services", "brokers"]
+          properties:
+            services:
+              type: "array"
+              items:
+                $ref: "#/components/schemas/ServiceHealth"
+            brokers:
+              type: "array"
+              items:
+                $ref: "#/components/schemas/BrokerStatus"
+      additionalProperties: false
+    BrokerHealthListResponse:
+      type: "object"
+      required: ["code", "message", "data", "page"]
+      properties:
+        code:
+          type: "integer"
+          default: 0
+        message:
+          type: "string"
+          default: "response success"
+        data:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/BrokerHealth"
+        page:
+          $ref: "#/components/schemas/PageInfo"
       additionalProperties: false
 x-service: "notification-service"
 x-business-error-codes:
