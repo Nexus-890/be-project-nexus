@@ -22,6 +22,7 @@ const services = {
   ],
   'notification-service': [
     'src/main/java/com/group5/notificationservice/notification/NotificationController.java',
+    'src/main/java/com/group5/notificationservice/delivery/DeliveryController.java',
   ],
   'payment-service': [
     'src/main/java/com/group5/paymentservice/payment/controller/PaymentController.java',

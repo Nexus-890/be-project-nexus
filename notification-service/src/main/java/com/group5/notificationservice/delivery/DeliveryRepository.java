@@ -5,6 +5,7 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -106,6 +107,41 @@ public class DeliveryRepository {
                 WHERE id = ?
                 """, status, nextAttemptAt == null ? null : Timestamp.from(nextAttemptAt), Timestamp.from(now),
                 deliveryId);
+    }
+
+    public List<DeliveryRow> findByNotification(UUID notificationId) {
+        return jdbc.query("""
+                SELECT id, channel::text AS channel, status::text AS status, attempt_count, next_attempt_at,
+                       created_at, updated_at
+                FROM notification_deliveries
+                WHERE notification_id = ?
+                ORDER BY created_at, id
+                """, (rs, i) -> new DeliveryRow(rs.getObject("id", UUID.class), rs.getString("channel"),
+                rs.getString("status"), rs.getInt("attempt_count"),
+                rs.getObject("next_attempt_at", OffsetDateTime.class), rs.getObject("created_at", OffsetDateTime.class),
+                rs.getObject("updated_at", OffsetDateTime.class)), notificationId);
+    }
+
+    public List<AttemptRow> findAttemptsByNotification(UUID notificationId) {
+        return jdbc.query("""
+                SELECT a.id, a.delivery_id, a.attempt_number, a.status::text AS status, a.attempted_at,
+                       a.completed_at, a.error_code, a.retryable
+                FROM notification_delivery_attempts a
+                JOIN notification_deliveries d ON d.id = a.delivery_id
+                WHERE d.notification_id = ?
+                ORDER BY a.attempt_number
+                """, (rs, i) -> new AttemptRow(rs.getObject("id", UUID.class),
+                rs.getObject("delivery_id", UUID.class), rs.getInt("attempt_number"), rs.getString("status"),
+                rs.getObject("attempted_at", OffsetDateTime.class), rs.getObject("completed_at", OffsetDateTime.class),
+                rs.getString("error_code"), rs.getBoolean("retryable")), notificationId);
+    }
+
+    public record DeliveryRow(UUID id, String channel, String status, int attemptCount,
+                              OffsetDateTime nextAttemptAt, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+    }
+
+    public record AttemptRow(UUID id, UUID deliveryId, int attemptNumber, String status, OffsetDateTime attemptedAt,
+                             OffsetDateTime completedAt, String errorCode, boolean retryable) {
     }
 
     public record DueDelivery(UUID id, UUID notificationId, int attemptCount, UUID userId, String title,
