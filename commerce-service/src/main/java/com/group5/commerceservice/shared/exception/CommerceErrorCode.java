@@ -17,6 +17,7 @@ public enum CommerceErrorCode implements ErrorCode {
     CATALOG_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Catalog is unavailable"),
     INVALID_CONFIGURATION(HttpStatus.INTERNAL_SERVER_ERROR, "Expiration-days must be greater or equal to 1"),
     INVALID_ORDER_REQUEST(HttpStatus.BAD_REQUEST, "The order request is invalid"),
+    INVALID_ORDER_FILTER(HttpStatus.BAD_REQUEST, "The order list filters are invalid"),
     CART_EMPTY(HttpStatus.BAD_REQUEST, "Cart is empty"),
     INVALID_PRICING_CONFIGURATION(HttpStatus.INTERNAL_SERVER_ERROR, "Checkout price revalidation must be enabled"),
     FORBIDDEN(HttpStatus.FORBIDDEN, "You do not have permission"),

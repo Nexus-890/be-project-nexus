@@ -49,8 +49,6 @@ neither merge nor the existing inventory stub proves stock availability.
 | Path | Method | Public or required privilege | Owning issue                                            |
 |---|---|---|---------------------------------------------------------|
 | `/api/v1/auth/register` | POST | Public | #74 — User registration with a default role             |
-| `/api/v1/auth/login` | POST | Public | #71 — Login endpoint                                    |
-| `/.well-known/jwks.json` | GET | Public | #72 — JWKS endpoint                                     |
 | `/api/v1/products` | GET | Public | #99 — Product lists                                     |
 | `/api/v1/products/{id}` | GET | Public | #83 — Product create, update and read                   |
 | `/api/v1/categories/{id}` | GET | Public | #80 — Category create, update and read                  |
@@ -87,6 +85,8 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/payments` | POST | CHECKOUT.START | #121 — Buyer reads own order group's immutable payment session |
 | `/api/v1/orders/{id}/history` | GET | ORDER.VIEW | #116 — Order state machine and status history |
 | `/api/v1/orders` | GET | ORDER.LIST | #117 — Order read endpoints; the caller's own orders only |
+| `/api/v1/orders/manage` | GET | ORDER.LIST | #190 — All orders; service additionally requires ADMIN or SUPPORT_STAFF |
+| `/api/v1/orders/sales` | GET | ORDER.LIST | #190 — Seller orders; service additionally requires SELLER and JWT seller ownership |
 | `/api/v1/orders/{id}` | GET | ORDER.VIEW | #117 — Order read endpoints; the owner or ADMIN |
 | `/api/v1/orders/{id}/cancel` | POST | ORDER.CANCEL | #189 — Order cancellation; the buyer, ADMIN or SUPPORT_STAFF |
 | `/api/v1/carts/me/pricing` | GET | CART.VIEW | CRT-05 — Read-only cart pricing |
@@ -104,9 +104,31 @@ the #88 commerce mock is superseded; it is not a runtime payment endpoint.
 record without `USER.VIEW`, which the gateway cannot decide. Any valid token passes
 the gateway and user-service allows the caller's own id or `USER.VIEW`.
 
+## Order management and sales (#190)
+
+Both order-list operations require `ORDER.LIST` at the gateway and service. They
+also enforce the role restrictions defined by ORD-10 and ORD-11 downstream:
+`/api/v1/orders/manage` requires either `ADMIN` or `SUPPORT_STAFF`, while
+`/api/v1/orders/sales` requires `SELLER`. A `BUYER` with `ORDER.LIST` still receives
+403 on both paths. The gateway's single-privilege rows do not replace those role
+checks. `/api/v1/orders` retains its existing caller-as-buyer scope for every role.
+
+The management list reads all orders when no filter is supplied. Optional
+`userId` (buyer), `sellerId`, `status`, `orderType`, `from` and `to` filters combine
+with AND. The sales list supports `status`, `from` and `to`; its `seller_id` is
+always the validated JWT subject, so a caller cannot select another seller.
+Both lists use inclusive `createdAt` bounds expressed as ISO-8601 timestamps with
+an offset. Encode a positive offset's `+` as `%2B` in a URL, or use `Z` for UTC.
+`from > to` returns 400 `COMMERCE_INVALID_ORDER_FILTER`. Paging is zero-based with
+`page=0`, `size=10`, a size limit of 1–100, and newest-first ordering by
+`createdAt DESC, orderNumber DESC`. Invalid paging also returns
+`COMMERCE_INVALID_ORDER_FILTER`; malformed UUID/enum/date parameters retain the
+shared `INVALID_PARAMETER` Problem Details response. A page beyond the result set
+returns 200 with empty `data` and the actual `page` totals.
+
 ## Matching and JWT contract
 
-- Exactly ten method/path pairs are public, plus four explicit anonymous guest-cart exceptions. No public `/**`, method-less rule,
+- Exactly seven method/path pairs are public. No public `/**`, method-less rule,
   or implicit public HEAD/OPTIONS, Swagger or Actuator exception. TRACE is rejected
   earlier by Spring Security's HTTP firewall with 400, never forwarded.
 - `{id}` is a UUID. UUID-constrained matchers keep `/products/mine`,
@@ -135,11 +157,11 @@ the gateway and user-service allows the caller's own id or `USER.VIEW`.
 From `be-project-nexus/api-gateway`, run `./mvnw verify` using Java 21.
 Tests use real RS256 tokens and a local HTTP JWKS fixture, not a mocked decoder.
 A real gateway HTTP route forwards accepted requests to an instrumented HTTP
-service; rejected requests leave its request log empty. Tests cover all nine
+service; rejected requests leave its request log empty. Tests cover all seven
 public pairs, other methods, listed privileges, invalid tokens, and fallback.
 The permission test binds the same YAML properties consumed by `SecurityConfig`
 and compares all explicit rows (including privileges) in both directions. It also
-independently checks the nine public pairs. Newly public undocumented pairs,
+independently checks the seven public pairs. Newly public undocumented pairs,
 stale document rows, duplicates, and missing owners fail.
 Configuration-binding tests verify that changed paths/privileges are honored;
 invalid methods, missing paths/privileges, and duplicate policies are rejected.
@@ -196,7 +218,7 @@ from the catalogue is dropped, combined into a new string, or treated as OR.
 Roles are canonical JWT `roles` codes mapped to `ROLE_<code>`; privileges are
 exact JWT `privileges` strings without prefixes. Ownership checks use validated
 JWT `sub`; do not accept a caller-controlled `userId` for another account.
-Preserve the nine public method/path pairs above; none of these 14 paths is public.
+Preserve the seven public method/path pairs above; none of these 14 paths is public.
 
 | Method | Path | Actor roles (reference; ADMIN gate only for ORD-06) | Gateway privilege | Required service privileges (all) | Ownership / business restriction | Owning issue |
 |---|---|---|---|---|---|---|

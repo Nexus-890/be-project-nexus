@@ -8,9 +8,9 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          # Fetch keys directly from user-service, never through this gateway.
-          jwk-set-uri: ${USER_SERVICE_JWKS_URI:http://localhost:8081/.well-known/jwks.json}
-          issuer-uri: user-service
+          # Fetch realm keys directly from Keycloak, never through this gateway.
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:18080/realms/nexus/protocol/openid-connect/certs}
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
           audiences:
             - nexus-services
   data:
@@ -54,10 +54,6 @@ nexus:
     public-endpoints:
       - method: POST
         path: /api/v1/auth/register
-      - method: POST
-        path: /api/v1/auth/login
-      - method: GET
-        path: /.well-known/jwks.json
       - method: GET
         path: /api/v1/products
       - method: GET
@@ -151,6 +147,12 @@ nexus:
         privilege: CHECKOUT.START
       - method: GET
         path: /api/v1/orders
+        privilege: ORDER.LIST
+      - method: GET
+        path: /api/v1/orders/manage
+        privilege: ORDER.LIST
+      - method: GET
+        path: /api/v1/orders/sales
         privilege: ORDER.LIST
       - method: GET
         path: /api/v1/orders/{id}

@@ -31,9 +31,9 @@ nexus:
       - method: DELETE
         path: /api/v1/carts/me/items/{id}
     jwt:
-      issuer: user-service
+      issuer: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
       audience: nexus-services
-      jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:8081/.well-known/jwks.json}
+      jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:18080/realms/nexus/protocol/openid-connect/certs}
   cart:
     max-active-per-user: 1
     allow-guest-cart: ${ALLOW_GUEST_CART:false}

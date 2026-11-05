@@ -51,7 +51,7 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "eureka.client.enabled=false",
                 "spring.cloud.discovery.enabled=false",
                 "management.tracing.export.zipkin.enabled=false",
-                "spring.security.oauth2.resourceserver.jwt.issuer-uri=user-service",
+                "spring.security.oauth2.resourceserver.jwt.issuer-uri=http://localhost:18080/realms/nexus",
                 "spring.security.oauth2.resourceserver.jwt.audiences[0]=nexus-services"
         })
 class SecurityConfigTest {
@@ -155,6 +155,35 @@ class SecurityConfigTest {
     }
 
     @Test
+    void operationalOrderListsRequireOrderListBeforeForwardingToTheService() {
+        List<String> paths = List.of("/api/v1/orders/manage", "/api/v1/orders/sales");
+        for (String path : paths) {
+            client.get().uri(path).exchange().expectStatus().isUnauthorized()
+                    .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+
+        String detailPrivilege = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("privileges", List.of("ORDER.VIEW")));
+        for (String path : paths) {
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, detailPrivilege)
+                    .exchange().expectStatus().isForbidden()
+                    .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                    .expectBody().jsonPath("$.code").isEqualTo("FORBIDDEN");
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+
+        String listPrivilege = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("privileges", List.of("ORDER.LIST")));
+        for (String path : paths) {
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, listPrivilege)
+                    .exchange().expectStatus().isOk().expectBody(String.class).isEqualTo("downstream");
+        }
+        assertThat(SERVICE_LOG).containsExactly("GET /api/v1/orders/manage", "GET /api/v1/orders/sales");
+        assertThat(FORWARDED_TOKENS).containsExactly(listPrivilege, listPrivilege);
+    }
+
+    @Test
     void paymentInitiationRequiresCheckoutPrivilegeAndForwardsBuyerBearer() {
         String path = "/api/v1/payments";
         client.post().uri(path).exchange().expectStatus().isUnauthorized();
@@ -200,6 +229,12 @@ class SecurityConfigTest {
     }
 
     @Test
+    void rejectsLegacyUserServiceTokenEvenIfIssuerClaimsToBeKeycloak() {
+        expectInvalidToken(token(FOREIGN_KEY, c -> c.issuer("user-service")));
+        expectInvalidToken(token(FOREIGN_KEY, c -> c.claim("privileges", List.of("PROFILE.VIEW"))));
+    }
+
+    @Test
     void rejectsAlgorithmsOtherThanRs256() throws Exception {
         SignedJWT jwt = SignedJWT.parse(token(SIGNING_KEY, c -> { }));
         SignedJWT rs512 = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS512).keyID(KEY_ID).build(),
@@ -213,14 +248,14 @@ class SecurityConfigTest {
     }
 
     @Test
-    void allPublicPairsWorkWithoutBearerToken() {
+    void allSevenPublicPairsWorkWithoutBearerToken() {
         for (SecurityConfig.Endpoint endpoint : permissions.endpoints()) {
             if (endpoint.isPublic()) {
                 client.method(endpoint.method()).uri(endpoint.path().replace("{id}", ID))
                         .exchange().expectStatus().isOk();
             }
         }
-        assertThat(SERVICE_LOG).hasSize(10);
+        assertThat(SERVICE_LOG).hasSize(7);
     }
 
     @Test
@@ -333,7 +368,7 @@ class SecurityConfigTest {
 
     private static String token(RSAKey key, Consumer<JWTClaimsSet.Builder> customizer) {
         Instant now = Instant.now();
-        var claims = new JWTClaimsSet.Builder().issuer("user-service").audience("nexus-services")
+        var claims = new JWTClaimsSet.Builder().issuer("http://localhost:18080/realms/nexus").audience("nexus-services")
                 .subject(ID).claim("roles", List.of("SELLER")).claim("privileges", List.of())
                 .issueTime(Date.from(now)).expirationTime(Date.from(now.plusSeconds(3600)))
                 .jwtID(UUID.randomUUID().toString());

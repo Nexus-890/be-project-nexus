@@ -43,10 +43,10 @@ class RegisterRequestTest {
     }
 
     @Test
-    void passwordOverBcryptByteLimitViolatesThePasswordField() {
-        Set<String> fields = violationFields(validRequestWithPassword("a".repeat(73)));
+    void passwordBeyondTheOldBcryptByteLimitIsAccepted() {
+        Set<String> fields = violationFields(validRequestWithPassword("é".repeat(37)));
 
-        assertThat(fields).contains("password");
+        assertThat(fields).doesNotContain("password");
     }
 
     @Test
