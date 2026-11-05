@@ -1,0 +1,219 @@
+openapi: 3.0.3
+info:
+  title: Nexus gateway session
+  version: 1.0.0
+  description: >-
+    Issue #252. The refresh token Keycloak issues to the browser is kept by the gateway in an
+    HttpOnly cookie, so JavaScript only ever holds the short-lived access token. The three
+    operations are public at the gateway (no bearer token): the one-time code or the cookie is the
+    credential. Each one needs the header X-Requested-With: nexus-web and, when the browser sends
+    an Origin, an Origin from nexus.security.cors-allowed-origins; otherwise the answer is 403.
+servers:
+  - url: http://localhost:8080
+    description: API gateway
+tags:
+  - name: Session
+    description: Sign-in exchange, renew and sign-out for the refresh-token cookie
+paths:
+  /api/v1/auth/session:
+    post:
+      tags: [Session]
+      operationId: createSession
+      security: []
+      summary: Exchange the sign-in code for an access token and set the refresh cookie
+      description: >-
+        Called once from the OIDC callback page with the authorization code and the PKCE verifier.
+        The gateway trades them at Keycloak's token endpoint. The access and ID tokens are returned
+        in the body; the refresh token is returned only as the HttpOnly cookie nexus_rt.
+      parameters:
+        - $ref: '#/components/parameters/AppHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/SignedIn'
+        '400':
+          description: A field is missing or has a wrong length
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Keycloak refused the code (used, expired or not for this verifier)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          $ref: '#/components/responses/NotFromTheApp'
+        '503':
+          $ref: '#/components/responses/KeycloakUnavailable'
+  /api/v1/auth/refresh:
+    post:
+      tags: [Session]
+      operationId: refreshSession
+      security: []
+      summary: Trade the refresh cookie for a new access token and a new cookie
+      description: >-
+        Used on page load and before the access token expires. Keycloak rotates the refresh token, so
+        the cookie is replaced on every call; sending an old value again is refused and ends the
+        Keycloak session.
+      parameters:
+        - $ref: '#/components/parameters/AppHeader'
+      responses:
+        '200':
+          $ref: '#/components/responses/SignedIn'
+        '204':
+          description: >-
+            There is no session cookie, so there is nothing to refresh and Keycloak is not called. The app
+            calls this on every page load, so an anonymous visitor gets 204 rather than an error.
+        '401':
+          description: >-
+            Keycloak refused the cookie (expired, revoked or already used). The cookie is cleared in the
+            same response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          $ref: '#/components/responses/NotFromTheApp'
+        '503':
+          $ref: '#/components/responses/KeycloakUnavailable'
+  /api/v1/auth/logout:
+    post:
+      tags: [Session]
+      operationId: endSession
+      security: []
+      summary: End the Keycloak session and clear the refresh cookie
+      description: >-
+        Always answers 204 and clears the cookie, even when there was no cookie or Keycloak could not be
+        reached, so the browser can always finish signing out locally.
+      parameters:
+        - $ref: '#/components/parameters/AppHeader'
+      responses:
+        '204':
+          description: Session ended; nexus_rt is cleared (Max-Age=0)
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/ClearedCookie'
+        '403':
+          $ref: '#/components/responses/NotFromTheApp'
+components:
+  parameters:
+    AppHeader:
+      name: X-Requested-With
+      in: header
+      required: true
+      description: Must be nexus-web. A foreign site cannot add it without passing CORS, which blocks it.
+      schema:
+        type: string
+        enum: [nexus-web]
+  headers:
+    SessionCookie:
+      description: >-
+        nexus_rt=<refresh token>; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth; Max-Age=<seconds>.
+        JavaScript cannot read it and the browser sends it only to /api/v1/auth.
+      schema:
+        type: string
+    ClearedCookie:
+      description: nexus_rt=; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth; Max-Age=0
+      schema:
+        type: string
+  responses:
+    SignedIn:
+      description: New short-lived tokens in the body and the replaced refresh cookie
+      headers:
+        Set-Cookie:
+          $ref: '#/components/headers/SessionCookie'
+        Cache-Control:
+          description: no-store, because the body holds a bearer token
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SessionApiResponse'
+          example:
+            code: 0
+            message: response success
+            data:
+              accessToken: eyJhbGciOiJSUzI1NiJ9.example.access
+              idToken: eyJhbGciOiJSUzI1NiJ9.example.id
+              expiresIn: 3600
+    NotFromTheApp:
+      description: The X-Requested-With header is missing or wrong, or the Origin is not an allowed frontend origin
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    KeycloakUnavailable:
+      description: Keycloak did not answer or answered with an error. The cookie is left as it was.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    SessionRequest:
+      type: object
+      required: [code, codeVerifier, redirectUri]
+      properties:
+        code:
+          type: string
+          maxLength: 2048
+          description: One-time authorization code from the callback URL
+        codeVerifier:
+          type: string
+          minLength: 43
+          maxLength: 128
+          description: The PKCE verifier the browser kept from the sign-in redirect
+        redirectUri:
+          type: string
+          maxLength: 2048
+          description: The redirect_uri used in the authorization request; Keycloak checks it matches
+    SessionApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          default: response success
+          example: response success
+        data:
+          $ref: '#/components/schemas/Session'
+    Session:
+      type: object
+      required: [accessToken, idToken, expiresIn]
+      properties:
+        accessToken:
+          type: string
+          description: Bearer token for the API; keep it in memory only
+        idToken:
+          type: string
+          description: Used for the sign-out hint and the nonce check
+        expiresIn:
+          type: integer
+          description: Access token lifetime in seconds
+    Problem:
+      type: object
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        code:
+          type: string
+        traceId:
+          type: string

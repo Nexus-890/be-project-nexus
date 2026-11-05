@@ -111,6 +111,45 @@ class SecurityConfigTest {
     }
 
     @Test
+    void preflightFromTheFrontendIsAnsweredWithoutATokenAndAllowsCredentials() {
+        client.options().uri("/api/v1/auth/register")
+                .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "content-type,idempotency-key,x-requested-with")
+                .exchange().expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000")
+                .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true")
+                .expectHeader().value(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, v -> assertThat(v).contains("POST"));
+        assertThat(SERVICE_LOG).isEmpty();
+    }
+
+    @Test
+    void preflightFromAnotherOriginIsRefused() {
+        client.options().uri(ME)
+                .header(HttpHeaders.ORIGIN, "http://evil.example")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                .exchange().expectStatus().isForbidden()
+                .expectHeader().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN);
+        assertThat(SERVICE_LOG).isEmpty();
+    }
+
+    @Test
+    void theActualResponseCarriesTheAllowOriginHeaderAndStillNeedsTheToken() {
+        client.get().uri(ME).header(HttpHeaders.ORIGIN, "http://localhost:3000").exchange()
+                .expectStatus().isUnauthorized()
+                .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000")
+                .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true");
+    }
+
+    @Test
+    void aWildcardOriginIsRejectedAtStartupBecauseItCannotBeUsedWithCookies() {
+        SecurityConfig.GatewaySecurityProperties properties = new SecurityConfig.GatewaySecurityProperties();
+        properties.setCorsAllowedOrigins(List.of("*"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new SecurityConfig().corsConfigurationSource(properties))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("wildcard");
+    }
+
+    @Test
     void markingNotificationsRequiresBearerTokenAtTheGateway() {
         for (String path : List.of("/api/v1/notifications/" + ID + "/read", "/api/v1/notifications/read-all")) {
             client.patch().uri(path).exchange().expectStatus().isUnauthorized()
@@ -248,14 +287,16 @@ class SecurityConfigTest {
     }
 
     @Test
-    void allSevenPublicPairsWorkWithoutBearerToken() {
+    void everyPublicPairWorksWithoutBearerToken() {
         for (SecurityConfig.Endpoint endpoint : permissions.endpoints()) {
             if (endpoint.isPublic()) {
                 client.method(endpoint.method()).uri(endpoint.path().replace("{id}", ID))
                         .exchange().expectStatus().isOk();
             }
         }
-        assertThat(SERVICE_LOG).hasSize(7);
+        // số cặp public lấy từ cấu hình, không ghi cứng, để thêm endpoint public không làm test này lỗi oan
+        long publicPairs = permissions.endpoints().stream().filter(SecurityConfig.Endpoint::isPublic).count();
+        assertThat(SERVICE_LOG).hasSize((int) publicPairs);
     }
 
     @Test

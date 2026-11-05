@@ -24,6 +24,9 @@ class GatewayPermissionsTest {
 
     private static final Set<Row> EXPECTED_PUBLIC = Set.of(
             new Row("/api/v1/auth/register", "POST", "Public"),
+            new Row("/api/v1/auth/session", "POST", "Public"),
+            new Row("/api/v1/auth/refresh", "POST", "Public"),
+            new Row("/api/v1/auth/logout", "POST", "Public"),
             new Row("/api/v1/products", "GET", "Public"),
             new Row("/api/v1/products/{id}", "GET", "Public"),
             new Row("/api/v1/categories/{id}", "GET", "Public"),
