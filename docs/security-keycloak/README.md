@@ -109,6 +109,16 @@ The harness:
 The harness prints only assertions and created product UUIDs, not passwords or
 bearer tokens. Redirect stdout/stderr to a local evidence log if desired.
 
+For #245, also build the payment-service executable jar and run
+`python docs/security-keycloak/test-token-trust.py --service-split --evidence-dir <empty-directory>`.
+This adds a real payment-service and isolated payment database. Genuine Keycloak
+tokens exercise gateway 401/403, an owned session returning 201, service-side
+ownership denial (403) and expired-session rejection (409). Payment plans are
+seeded directly into the disposable database; this does not test Kafka event
+consumption or provider callbacks, and performs no bank transfer/provider request.
+The seed container receives a generated user-service client secret required by
+the merged #238 fixture; operator credentials and the running local stack are untouched.
+
 ## Automated coverage
 
 - Config Server: default issuer/JWKS/audience for Gateway and all nine business
