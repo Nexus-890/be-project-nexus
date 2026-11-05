@@ -41,12 +41,9 @@ nexus:
     guest-token-secret: ${CART_GUEST_TOKEN_SECRET:}
     expiration-days: 7
   checkout:
-    # BR-103: fixed true; invalid overrides fail configuration validation.
     price-revalidation: ${CHECKOUT_PRICE_REVALIDATION:true}
-    # BR-200: VND threshold; used once shipping quote #201 is available.
     free-shipping-threshold: ${FREE_SHIPPING_THRESHOLD:1000000}
   order:
     idempotency-enabled: ${ORDER_IDEMPOTENCY_ENABLED:true}
-    # Sprint 3 disables this flag when wiring a real InventoryClient.
     inventory-stub-enabled: true
     payment-timeout-minutes: 15

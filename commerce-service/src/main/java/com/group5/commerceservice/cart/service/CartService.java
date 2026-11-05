@@ -53,7 +53,6 @@ public class CartService {
     }
 
     public CartResponse getMyCart(CurrentUser user, String guestToken) {
-        // Viewing does not extend the inactivity deadline (BR-095).
         return toResponse(resolveCart(user, guestToken, true));
     }
 
@@ -115,16 +114,17 @@ public class CartService {
         UUID userId = requireUserId(user);
         if (!user.hasRole("BUYER") || !user.hasPrivilege("CART.UPDATE")) throw new DomainException(CommerceErrorCode.FORBIDDEN);
         requireGuestEnabled();
+        //kiểm tra config cho merge hông
         if (!properties.isMergeOnLogin()) throw new DomainException(CommerceErrorCode.CART_MERGE_DISABLED);
-        // Guest writes use this same lock. A second merge waits, then finds no ACTIVE source.
+        //lấy ra 2 cái cart để gộp
         Cart guest = guestCart(guestToken);
         Cart target = getOrCreateActiveCart(userId);
+        //đưa các dòng trong giỏ ( buyer đã login ) vào Map với key là skuId -> tiện cho việc tìm nhanh sku đã tồn tại khi duyệt các dòng của giỏ guest
         var targetLines = new HashMap<UUID, CartItem>();
-        cartItemRepository.findByCart_Id(target.getId()).forEach(line -> targetLines.put(line.getSkuId(), line));
+        cartItemRepository.findByCart_Id(target.getId()).forEach(line -> targetLines.put(line.getSkuId(), line));//ném cartItem vô Map
         List<CartIssue> issues = new ArrayList<>();
-        for (CartItem source : cartItemRepository.findByCart_Id(guest.getId())) {
-            // Each SKU belongs to one canonical product/seller. Seller identity never comes from the caller.
-            CartItem line = targetLines.get(source.getSkuId());
+        for (CartItem source : cartItemRepository.findByCart_Id(guest.getId())) {//source là cartItem của bên guest nhe
+            CartItem line = targetLines.get(source.getSkuId());//kiểm tra xem trong cartBuyer có item giống ở cartGuest hông
             long quantity = source.getQuantity().longValue() + (line == null ? 0L : line.getQuantity().longValue());
             if (line == null) {
                 line = new CartItem();
@@ -139,7 +139,6 @@ public class CartService {
         }
         touch(target);
         cartItemRepository.flush();
-        // Catalog failures roll back both carts so the source can be retried safely.
         issues.addAll(pricing.mergeIssues(user));
         guest.setStatus(CartStatus.MERGED);
         touch(guest);
@@ -153,13 +152,13 @@ public class CartService {
             return guestCart(guestToken);
         }
         UUID userId = requireUserId(user);
-        return create ? getOrCreateActiveCart(userId) : cartRepository.findActiveForUpdate(userId)
+        return create ? getOrCreateActiveCart(userId) : cartRepository.findForUpdateByUserIdAndStatus(userId, CartStatus.ACTIVE)
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.CART_NOT_FOUND));
     }
 
     private Cart guestCart(String token) {
         guestTokens.validate(token);
-        Cart cart = cartRepository.findGuestForUpdate(token)
+        Cart cart = cartRepository.findForUpdateByGuestTokenAndUserIdIsNullAndStatus(token, CartStatus.ACTIVE)
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.GUEST_CART_NOT_FOUND));
         if (properties.getExpirationDays() < 1) throw new DomainException(CommerceErrorCode.INVALID_CONFIGURATION);
         if (!cart.getUpdatedAt().plusDays(properties.getExpirationDays()).isAfter(OffsetDateTime.now())) {
@@ -174,10 +173,10 @@ public class CartService {
     }
 
     private Cart getOrCreateActiveCart(UUID userId) {
-        // Checkout/expiry can retire a cart between INSERT ... ON CONFLICT and SELECT FOR UPDATE.
+        //
         for (int attempt = 0; attempt < 2; attempt++) {
             cartRepository.createActiveCartIfAbsent(UUID.randomUUID(), userId, userId);
-            var cart = cartRepository.findActiveForUpdate(userId);
+            var cart = cartRepository.findForUpdateByUserIdAndStatus(userId, CartStatus.ACTIVE);
             if (cart.isPresent()) return cart.get();
         }
         throw new DomainException(CommerceErrorCode.DB_ERROR);

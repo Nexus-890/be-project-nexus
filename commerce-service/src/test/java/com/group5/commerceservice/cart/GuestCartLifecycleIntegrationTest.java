@@ -102,7 +102,6 @@ class GuestCartLifecycleIntegrationTest {
         GuestCartResponse guest = guestWith(2);
         service.addItem(buyer, request(3));
         assertThat(service.mergeGuestCart(buyer, guest.guestToken()).getItems().getFirst().getQuantity()).isEqualTo(5);
-        // Cart only consults catalog; no inventory reservation is part of merge.
         verify(catalog).getProductById(productId);
     }
 
@@ -183,7 +182,6 @@ class GuestCartLifecycleIntegrationTest {
         assertCode(service::createGuestCart, "COMMERCE_GUEST_CART_DISABLED");
         assertCode(() -> service.getMyCart(null, guest.guestToken()), "COMMERCE_GUEST_CART_DISABLED");
         assertThat(carts.findById(guest.cart().getId()).orElseThrow().getStatus()).isEqualTo(CartStatus.ACTIVE);
-        // User cart operations remain available when guest access is disabled.
         assertThat(service.getMyCart(buyer).getUserId()).isEqualTo(buyer.id());
     }
 

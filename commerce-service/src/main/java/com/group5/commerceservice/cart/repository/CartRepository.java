@@ -17,12 +17,10 @@ public interface CartRepository extends JpaRepository<Cart, UUID> {
     Optional<Cart> findByUserIdAndStatus(UUID userId, CartStatus status);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select c from Cart c where c.userId = :userId and c.status = 'ACTIVE'")
-    Optional<Cart> findActiveForUpdate(@Param("userId") UUID userId);
+    Optional<Cart> findForUpdateByUserIdAndStatus(UUID userId, CartStatus status);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select c from Cart c where c.guestToken = :token and c.userId is null and c.status = 'ACTIVE'")
-    Optional<Cart> findGuestForUpdate(@Param("token") String token);
+    Optional<Cart> findForUpdateByGuestTokenAndUserIdIsNullAndStatus(String guestToken, CartStatus status);
 
     // ON CONFLICT dựa trên partial unique index idx_carts_one_active
     // (user_id WHERE status='ACTIVE' AND user_id IS NOT NULL).

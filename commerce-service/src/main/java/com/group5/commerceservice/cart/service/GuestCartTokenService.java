@@ -14,12 +14,14 @@ import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.UUID;
 
-/** Opaque owner capability. Cart state and inactivity determine its lifetime. */
 @Service
 @RequiredArgsConstructor
 public class GuestCartTokenService {
     private final CartProperties properties;
 
+    //CartService sẽ lưu toàn bộ token vào carts.guest_token và trả token cho FE.
+    //mục đích là tạo GuestToken cho guestCart
+    //cấu trúc nó như dị nè : v1.<UUID ngẫu nhiên>.<chữ ký> - v1.550e8400-e29b-41d4-a716-446655440000.<chữ ký>
     public String create() {
         String owner = "v1." + UUID.randomUUID();
         return owner + "." + sign(owner);
@@ -29,17 +31,19 @@ public class GuestCartTokenService {
         if (token == null || !token.matches("v1\\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.[A-Za-z0-9_-]{43}")) {
             throw new DomainException(CommerceErrorCode.GUEST_CART_NOT_FOUND);
         }
-        int separator = token.lastIndexOf('.');
-        byte[] expected = sign(token.substring(0, separator)).getBytes(StandardCharsets.US_ASCII);
-        byte[] actual = token.substring(separator + 1).getBytes(StandardCharsets.US_ASCII);
+        int separator = token.lastIndexOf('.');//lấy ra được số 1
+        byte[] expected = sign(token.substring(0, separator)).getBytes(StandardCharsets.US_ASCII);//chữ ký BE tính lại -> CHU_KY_A
+        byte[] actual = token.substring(separator + 1).getBytes(StandardCharsets.US_ASCII);//chữ ký được gửi xún -> CHU_KY_A
         if (!MessageDigest.isEqual(expected, actual)) {
             throw new DomainException(CommerceErrorCode.GUEST_CART_NOT_FOUND);
         }
     }
-
+    //phần chữ ký
+    //chữ ký = HMAC-SHA256(secretKey, owner)
     private String sign(String owner) {
         byte[] key;
         try {
+            //giải mã cái cấu hình secretKey
             key = Base64.getDecoder().decode(properties.getGuestTokenSecret());
         } catch (IllegalArgumentException | NullPointerException exception) {
             throw new DomainException(CommerceErrorCode.INVALID_GUEST_CONFIGURATION);

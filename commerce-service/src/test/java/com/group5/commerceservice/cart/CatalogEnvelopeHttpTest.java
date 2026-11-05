@@ -59,7 +59,7 @@ class CatalogEnvelopeHttpTest {
             cart.setId(UUID.randomUUID());
             cart.setUserId(USER);
             cart.setStatus(CartStatus.ACTIVE);
-            when(carts.findActiveForUpdate(USER)).thenReturn(Optional.of(cart));
+            when(carts.findForUpdateByUserIdAndStatus(USER, CartStatus.ACTIVE)).thenReturn(Optional.of(cart));
             when(carts.touchActiveCart(cart.getId(), USER)).thenReturn(1);
             // Capture the actual write and expose its result to the service's readback.
             doAnswer(invocation -> {
