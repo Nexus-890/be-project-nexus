@@ -72,6 +72,14 @@ public class RouteConfig {
                                         .setThrowOnLimit(true)))
                         .uri("lb://notification-service"))
 
+                .route("auction-service", route -> route
+                        .path("/api/v1/auctions", "/api/v1/auctions/**")
+                        .filters(filters -> filters.requestRateLimiter(config -> config
+                                .setRateLimiter(limiter)
+                                .setKeyResolver(resolver)
+                                .setThrowOnLimit(true)))
+                        .uri("lb://auction-service"))
+
                 .build();
     }
 
