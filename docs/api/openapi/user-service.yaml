@@ -11,7 +11,7 @@ servers:
 tags:
   -
     name: "Authentication"
-    description: "Public authentication and registration."
+    description: "Public registration. Sign-in goes through Keycloak."
   -
     name: "Users"
     description: "Own profile and privileged user reads."
@@ -19,428 +19,13 @@ security:
   -
     bearerAuth: []
 paths:
-  /api/v1/auth/login:
-    post:
-      tags:
-        - "Authentication"
-      operationId: "login"
-      summary: "Issue an access token"
-      description: "Failed logins count toward the configured lockout; an already locked account returns 423. Success resets failed attempts. Does not return a refresh token. Access: public (a supplied invalid bearer token is rejected). Ownership/business restriction: None."
-      security: []
-      x-required-privileges: []
-      x-required-roles: []
-      x-ownership: "None."
-      x-error-codes:
-        "400":
-          - "INVALID_PARAMETER"
-          - "VALIDATION_FAILED"
-          - "INVALID_REQUEST_BODY"
-        "401":
-          - "UNAUTHENTICATED"
-          - "USER_INVALID_CREDENTIALS"
-        "405":
-          - "METHOD_NOT_ALLOWED"
-        "406":
-          - "NOT_ACCEPTABLE"
-        "415":
-          - "UNSUPPORTED_MEDIA_TYPE"
-        "423":
-          - "USER_ACCOUNT_LOCKED"
-        "429":
-          - "RATE_LIMITED"
-        "500":
-          - "INTERNAL_ERROR"
-        "503":
-          - "SERVICE_UNAVAILABLE"
-        "504":
-          - "GATEWAY_TIMEOUT"
-      requestBody:
-        required: true
-        content:
-          "application/json":
-            schema:
-              $ref: "#/components/schemas/Login"
-            example:
-              email: "seller@example.com"
-              password: "example-password"
-      responses:
-        "200":
-          description: "Successful response."
-          headers:
-            Cache-Control:
-              description: "Token/profile data must not be cached."
-              schema:
-                type: "string"
-                enum:
-                  - "no-store"
-          content:
-            "application/json":
-              schema:
-                $ref: "#/components/schemas/LoginResponse"
-              examples:
-                success:
-                  summary: "Success"
-                  value:
-                    code: 0
-                    message: "response success"
-                    data:
-                      accessToken: "example.jwt.signature"
-                      expiresIn: 3600
-                      tokenType: "Bearer"
-        "400":
-          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`."
-          content:
-            "application/problem+json":
-              schema:
-                allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
-                    properties:
-                      status:
-                        type: "integer"
-                        enum:
-                          - 400
-                      code:
-                        type: "string"
-                        enum:
-                          - "INVALID_PARAMETER"
-                          - "VALIDATION_FAILED"
-                          - "INVALID_REQUEST_BODY"
-              examples:
-                INVALID_PARAMETER:
-                  summary: "INVALID_PARAMETER"
-                  value:
-                    type: "urn:problem:invalid-parameter"
-                    title: "Bad Request"
-                    status: 400
-                    detail: "A request parameter is invalid"
-                    instance: "/api/v1/auth/login"
-                    code: "INVALID_PARAMETER"
-                VALIDATION_FAILED:
-                  summary: "VALIDATION_FAILED"
-                  value:
-                    type: "urn:problem:validation-error"
-                    title: "Bad Request"
-                    status: 400
-                    detail: "The request data is invalid"
-                    instance: "/api/v1/auth/login"
-                    code: "VALIDATION_FAILED"
-                    errors:
-                      -
-                        field: "email"
-                        code: "VALIDATION_NOT_BLANK"
-                        detail: "Invalid value for email"
-                      -
-                        field: "password"
-                        code: "VALIDATION_NOT_BLANK"
-                        detail: "Invalid value for password"
-                INVALID_REQUEST_BODY:
-                  summary: "INVALID_REQUEST_BODY"
-                  value:
-                    type: "urn:problem:invalid-request-body"
-                    title: "Bad Request"
-                    status: 400
-                    detail: "The request body is invalid or malformed"
-                    instance: "/api/v1/auth/login"
-                    code: "INVALID_REQUEST_BODY"
-        "401":
-          description: "Unauthorized. Codes: `UNAUTHENTICATED`, `USER_INVALID_CREDENTIALS`."
-          headers:
-            WWW-Authenticate:
-              description: "Bearer challenge is present for security-layer authentication failure. A domain login error does not promise this header."
-              schema:
-                type: "string"
-                example: "Bearer"
-          content:
-            "application/problem+json":
-              schema:
-                allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
-                    properties:
-                      status:
-                        type: "integer"
-                        enum:
-                          - 401
-                      code:
-                        type: "string"
-                        enum:
-                          - "UNAUTHENTICATED"
-                          - "USER_INVALID_CREDENTIALS"
-              examples:
-                UNAUTHENTICATED:
-                  summary: "UNAUTHENTICATED"
-                  value:
-                    type: "urn:problem:unauthorized"
-                    title: "Unauthorized"
-                    status: 401
-                    detail: "A valid access token is required to access this resource"
-                    instance: "/api/v1/auth/login"
-                    code: "UNAUTHENTICATED"
-                USER_INVALID_CREDENTIALS:
-                  summary: "USER_INVALID_CREDENTIALS"
-                  value:
-                    type: "urn:problem:domain-error"
-                    title: "Unauthorized"
-                    status: 401
-                    detail: "Invalid email or password"
-                    instance: "/api/v1/auth/login"
-                    code: "USER_INVALID_CREDENTIALS"
-        "405":
-          description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
-          headers:
-            Allow:
-              description: "Methods supported by this resource when known."
-              schema:
-                type: "string"
-          content:
-            "application/problem+json":
-              schema:
-                allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
-                    properties:
-                      status:
-                        type: "integer"
-                        enum:
-                          - 405
-                      code:
-                        type: "string"
-                        enum:
-                          - "METHOD_NOT_ALLOWED"
-              examples:
-                METHOD_NOT_ALLOWED:
-                  summary: "METHOD_NOT_ALLOWED"
-                  value:
-                    type: "urn:problem:method-not-allowed"
-                    title: "Method Not Allowed"
-                    status: 405
-                    detail: "The HTTP method is not supported for this endpoint"
-                    instance: "/api/v1/auth/login"
-                    code: "METHOD_NOT_ALLOWED"
-        "406":
-          description: "Not Acceptable. Codes: `NOT_ACCEPTABLE`."
-          content:
-            "application/problem+json":
-              schema:
-                allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
-                    properties:
-                      status:
-                        type: "integer"
-                        enum:
-                          - 406
-                      code:
-                        type: "string"
-                        enum:
-                          - "NOT_ACCEPTABLE"
-              examples:
-                NOT_ACCEPTABLE:
-                  summary: "NOT_ACCEPTABLE"
-                  value:
-                    type: "urn:problem:not-acceptable"
-                    title: "Not Acceptable"
-                    status: 406
-                    detail: "The requested response format is not supported"
-                    instance: "/api/v1/auth/login"
-                    code: "NOT_ACCEPTABLE"
-        "415":
-          description: "Unsupported Media Type. Codes: `UNSUPPORTED_MEDIA_TYPE`."
-          content:
-            "application/problem+json":
-              schema:
-                allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
-                    properties:
-                      status:
-                        type: "integer"
-                        enum:
-                          - 415
-                      code:
-                        type: "string"
-                        enum:
-                          - "UNSUPPORTED_MEDIA_TYPE"
-              examples:
-                UNSUPPORTED_MEDIA_TYPE:
-                  summary: "UNSUPPORTED_MEDIA_TYPE"
-                  value:
-                    type: "urn:problem:unsupported-media-type"
-                    title: "Unsupported Media Type"
-                    status: 415
-                    detail: "The request content type is not supported"
-                    instance: "/api/v1/auth/login"
-                    code: "UNSUPPORTED_MEDIA_TYPE"
-        "423":
-          description: "Locked. Codes: `USER_ACCOUNT_LOCKED`."
-          content:
-            "application/problem+json":
-              schema:
-                allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
-                    properties:
-                      status:
-                        type: "integer"
-                        enum:
-                          - 423
-                      code:
-                        type: "string"
-                        enum:
-                          - "USER_ACCOUNT_LOCKED"
-              examples:
-                USER_ACCOUNT_LOCKED:
-                  summary: "USER_ACCOUNT_LOCKED"
-                  value:
-                    type: "urn:problem:domain-error"
-                    title: "Locked"
-                    status: 423
-                    detail: "Account is locked"
-                    instance: "/api/v1/auth/login"
-                    code: "USER_ACCOUNT_LOCKED"
-        "429":
-          description: "Too Many Requests. Codes: `RATE_LIMITED`."
-          headers:
-            Retry-After:
-              description: "When provided by the gateway limiter, delay in seconds before retrying."
-              schema:
-                type: "string"
-                pattern: "^[0-9]+$"
-                example: "30"
-          content:
-            "application/problem+json":
-              schema:
-                allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
-                    properties:
-                      status:
-                        type: "integer"
-                        enum:
-                          - 429
-                      code:
-                        type: "string"
-                        enum:
-                          - "RATE_LIMITED"
-              examples:
-                RATE_LIMITED:
-                  summary: "RATE_LIMITED"
-                  value:
-                    type: "https://nexus/errors/too-many-requests"
-                    title: "Too Many Requests"
-                    status: 429
-                    detail: "Too many requests; retry after the indicated delay"
-                    instance: "/api/v1/auth/login"
-                    code: "RATE_LIMITED"
-        "500":
-          description: "Internal Server Error. Codes: `INTERNAL_ERROR`."
-          content:
-            "application/problem+json":
-              schema:
-                allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
-                    properties:
-                      status:
-                        type: "integer"
-                        enum:
-                          - 500
-                      code:
-                        type: "string"
-                        enum:
-                          - "INTERNAL_ERROR"
-              examples:
-                INTERNAL_ERROR:
-                  summary: "INTERNAL_ERROR"
-                  value:
-                    type: "urn:problem:internal-server-error"
-                    title: "Internal Server Error"
-                    status: 500
-                    detail: "An unexpected error occurred"
-                    instance: "/api/v1/auth/login"
-                    code: "INTERNAL_ERROR"
-        "503":
-          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
-          content:
-            "application/problem+json":
-              schema:
-                allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
-                    properties:
-                      status:
-                        type: "integer"
-                        enum:
-                          - 503
-                      code:
-                        type: "string"
-                        enum:
-                          - "SERVICE_UNAVAILABLE"
-              examples:
-                SERVICE_UNAVAILABLE:
-                  summary: "SERVICE_UNAVAILABLE"
-                  value:
-                    type: "https://nexus/errors/service-unavailable"
-                    title: "Service Unavailable"
-                    status: 503
-                    detail: "A required service is unavailable"
-                    instance: "/api/v1/auth/login"
-                    code: "SERVICE_UNAVAILABLE"
-        "504":
-          description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
-          content:
-            "application/problem+json":
-              schema:
-                allOf:
-                  -
-                    $ref: "#/components/schemas/Problem"
-                  -
-                    type: "object"
-                    properties:
-                      status:
-                        type: "integer"
-                        enum:
-                          - 504
-                      code:
-                        type: "string"
-                        enum:
-                          - "GATEWAY_TIMEOUT"
-              examples:
-                GATEWAY_TIMEOUT:
-                  summary: "GATEWAY_TIMEOUT"
-                  value:
-                    type: "https://nexus/errors/gateway-timeout"
-                    title: "Gateway Timeout"
-                    status: 504
-                    detail: "The service did not answer in time"
-                    instance: "/api/v1/auth/login"
-                    code: "GATEWAY_TIMEOUT"
   /api/v1/auth/register:
     post:
       tags:
         - "Authentication"
       operationId: "register"
       summary: "Register with the configured default role"
-      description: "Requires self-registration to be enabled. Identity values are normalized before uniqueness checks. Field-validation/password-confirmation workflow changes remain owned by #238. Access: public (a supplied invalid bearer token is rejected). Ownership/business restriction: None."
+      description: "Requires self-registration to be enabled. Identity values are normalized before uniqueness checks. Creates the Keycloak account with the password and the configured realm role, then stores the profile under the Keycloak user id; the Keycloak account is removed when the profile cannot be stored. Sign-in goes through Keycloak; user-service issues no tokens. Access: public (a supplied invalid bearer token is rejected). Ownership/business restriction: None."
       security: []
       x-required-privileges: []
       x-required-roles: []
@@ -450,6 +35,7 @@ paths:
           - "INVALID_PARAMETER"
           - "VALIDATION_FAILED"
           - "INVALID_REQUEST_BODY"
+          - "USER_IDENTITY_REJECTED"
         "401":
           - "UNAUTHENTICATED"
         "403":
@@ -471,6 +57,7 @@ paths:
         "503":
           - "SERVICE_UNAVAILABLE"
           - "USER_REGISTRATION_ROLE_UNAVAILABLE"
+          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           - "GATEWAY_TIMEOUT"
       requestBody:
@@ -493,7 +80,7 @@ paths:
           description: "Created."
           headers:
             Cache-Control:
-              description: "Token/profile data must not be cached."
+              description: "Profile data must not be cached."
               schema:
                 type: "string"
                 enum:
@@ -521,7 +108,7 @@ paths:
                       status: "ACTIVE"
                       createdAt: "2026-10-23T00:00:00Z"
         "400":
-          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`."
+          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `USER_IDENTITY_REJECTED`."
           content:
             "application/problem+json":
               schema:
@@ -541,6 +128,7 @@ paths:
                           - "INVALID_PARAMETER"
                           - "VALIDATION_FAILED"
                           - "INVALID_REQUEST_BODY"
+                          - "USER_IDENTITY_REJECTED"
               examples:
                 INVALID_PARAMETER:
                   summary: "INVALID_PARAMETER"
@@ -578,11 +166,20 @@ paths:
                     detail: "The request body is invalid or malformed"
                     instance: "/api/v1/auth/register"
                     code: "INVALID_REQUEST_BODY"
+                USER_IDENTITY_REJECTED:
+                  summary: "USER_IDENTITY_REJECTED"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "The identity provider rejected the account details"
+                    instance: "/api/v1/auth/register"
+                    code: "USER_IDENTITY_REJECTED"
         "401":
           description: "Unauthorized. Codes: `UNAUTHENTICATED`."
           headers:
             WWW-Authenticate:
-              description: "Bearer challenge is present for security-layer authentication failure. A domain login error does not promise this header."
+              description: "Bearer challenge is present for security-layer authentication failure."
               schema:
                 type: "string"
                 example: "Bearer"
@@ -849,7 +446,7 @@ paths:
                     instance: "/api/v1/auth/register"
                     code: "INTERNAL_ERROR"
         "503":
-          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`, `USER_REGISTRATION_ROLE_UNAVAILABLE`."
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`, `USER_REGISTRATION_ROLE_UNAVAILABLE`, `USER_IDENTITY_PROVIDER_UNAVAILABLE`."
           content:
             "application/problem+json":
               schema:
@@ -868,6 +465,7 @@ paths:
                         enum:
                           - "SERVICE_UNAVAILABLE"
                           - "USER_REGISTRATION_ROLE_UNAVAILABLE"
+                          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
               examples:
                 SERVICE_UNAVAILABLE:
                   summary: "SERVICE_UNAVAILABLE"
@@ -887,6 +485,15 @@ paths:
                     detail: "Default registration role is unavailable"
                     instance: "/api/v1/auth/register"
                     code: "USER_REGISTRATION_ROLE_UNAVAILABLE"
+                USER_IDENTITY_PROVIDER_UNAVAILABLE:
+                  summary: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "The identity provider is unavailable"
+                    instance: "/api/v1/auth/register"
+                    code: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
           content:
@@ -950,6 +557,7 @@ paths:
           - "INTERNAL_ERROR"
         "503":
           - "SERVICE_UNAVAILABLE"
+          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           - "GATEWAY_TIMEOUT"
       responses:
@@ -1010,7 +618,7 @@ paths:
           description: "Unauthorized. Codes: `UNAUTHENTICATED`."
           headers:
             WWW-Authenticate:
-              description: "Bearer challenge is present for security-layer authentication failure. A domain login error does not promise this header."
+              description: "Bearer challenge is present for security-layer authentication failure."
               schema:
                 type: "string"
                 example: "Bearer"
@@ -1228,7 +836,7 @@ paths:
                     instance: "/api/v1/users/me"
                     code: "INTERNAL_ERROR"
         "503":
-          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`, `USER_IDENTITY_PROVIDER_UNAVAILABLE`."
           content:
             "application/problem+json":
               schema:
@@ -1246,6 +854,7 @@ paths:
                         type: "string"
                         enum:
                           - "SERVICE_UNAVAILABLE"
+                          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
               examples:
                 SERVICE_UNAVAILABLE:
                   summary: "SERVICE_UNAVAILABLE"
@@ -1256,6 +865,15 @@ paths:
                     detail: "A required service is unavailable"
                     instance: "/api/v1/users/me"
                     code: "SERVICE_UNAVAILABLE"
+                USER_IDENTITY_PROVIDER_UNAVAILABLE:
+                  summary: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "The identity provider is unavailable"
+                    instance: "/api/v1/users/me"
+                    code: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
           content:
@@ -1290,7 +908,7 @@ paths:
         - "Users"
       operationId: "updateOwnProfile"
       summary: "Update editable fields of the current profile"
-      description: "Preserves existing partial-update behavior even though the delivered method is PUT: omitted/null properties retain stored values. Access: requires PROFILE.UPDATE. Ownership/business restriction: JWT subject only."
+      description: "Preserves existing partial-update behavior even though the delivered method is PUT: omitted/null properties retain stored values. A changed email is also set on the Keycloak account; an email another Keycloak account holds returns 409. Access: requires PROFILE.UPDATE. Ownership/business restriction: JWT subject only."
       security:
         -
           bearerAuth: []
@@ -1304,6 +922,7 @@ paths:
           - "INVALID_PARAMETER"
           - "VALIDATION_FAILED"
           - "INVALID_REQUEST_BODY"
+          - "USER_IDENTITY_REJECTED"
         "401":
           - "UNAUTHENTICATED"
         "403":
@@ -1327,6 +946,7 @@ paths:
           - "INTERNAL_ERROR"
         "503":
           - "SERVICE_UNAVAILABLE"
+          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           - "GATEWAY_TIMEOUT"
       requestBody:
@@ -1363,7 +983,7 @@ paths:
                       status: "ACTIVE"
                       createdAt: "2026-10-23T00:00:00Z"
         "400":
-          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`."
+          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `USER_IDENTITY_REJECTED`."
           content:
             "application/problem+json":
               schema:
@@ -1383,6 +1003,7 @@ paths:
                           - "INVALID_PARAMETER"
                           - "VALIDATION_FAILED"
                           - "INVALID_REQUEST_BODY"
+                          - "USER_IDENTITY_REJECTED"
               examples:
                 INVALID_PARAMETER:
                   summary: "INVALID_PARAMETER"
@@ -1420,11 +1041,20 @@ paths:
                     detail: "The request body is invalid or malformed"
                     instance: "/api/v1/users/me"
                     code: "INVALID_REQUEST_BODY"
+                USER_IDENTITY_REJECTED:
+                  summary: "USER_IDENTITY_REJECTED"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "The identity provider rejected the account details"
+                    instance: "/api/v1/users/me"
+                    code: "USER_IDENTITY_REJECTED"
         "401":
           description: "Unauthorized. Codes: `UNAUTHENTICATED`."
           headers:
             WWW-Authenticate:
-              description: "Bearer challenge is present for security-layer authentication failure. A domain login error does not promise this header."
+              description: "Bearer challenge is present for security-layer authentication failure."
               schema:
                 type: "string"
                 example: "Bearer"
@@ -1730,7 +1360,7 @@ paths:
                     instance: "/api/v1/users/me"
                     code: "INTERNAL_ERROR"
         "503":
-          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`, `USER_IDENTITY_PROVIDER_UNAVAILABLE`."
           content:
             "application/problem+json":
               schema:
@@ -1748,6 +1378,7 @@ paths:
                         type: "string"
                         enum:
                           - "SERVICE_UNAVAILABLE"
+                          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
               examples:
                 SERVICE_UNAVAILABLE:
                   summary: "SERVICE_UNAVAILABLE"
@@ -1758,6 +1389,15 @@ paths:
                     detail: "A required service is unavailable"
                     instance: "/api/v1/users/me"
                     code: "SERVICE_UNAVAILABLE"
+                USER_IDENTITY_PROVIDER_UNAVAILABLE:
+                  summary: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "The identity provider is unavailable"
+                    instance: "/api/v1/users/me"
+                    code: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
           content:
@@ -1820,6 +1460,7 @@ paths:
           - "INTERNAL_ERROR"
         "503":
           - "SERVICE_UNAVAILABLE"
+          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           - "GATEWAY_TIMEOUT"
       parameters:
@@ -1889,7 +1530,7 @@ paths:
           description: "Unauthorized. Codes: `UNAUTHENTICATED`."
           headers:
             WWW-Authenticate:
-              description: "Bearer challenge is present for security-layer authentication failure. A domain login error does not promise this header."
+              description: "Bearer challenge is present for security-layer authentication failure."
               schema:
                 type: "string"
                 example: "Bearer"
@@ -2107,7 +1748,7 @@ paths:
                     instance: "/api/v1/users/c8000000-0000-4000-8000-000000000002"
                     code: "INTERNAL_ERROR"
         "503":
-          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`, `USER_IDENTITY_PROVIDER_UNAVAILABLE`."
           content:
             "application/problem+json":
               schema:
@@ -2125,6 +1766,7 @@ paths:
                         type: "string"
                         enum:
                           - "SERVICE_UNAVAILABLE"
+                          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
               examples:
                 SERVICE_UNAVAILABLE:
                   summary: "SERVICE_UNAVAILABLE"
@@ -2135,6 +1777,15 @@ paths:
                     detail: "A required service is unavailable"
                     instance: "/api/v1/users/c8000000-0000-4000-8000-000000000002"
                     code: "SERVICE_UNAVAILABLE"
+                USER_IDENTITY_PROVIDER_UNAVAILABLE:
+                  summary: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "The identity provider is unavailable"
+                    instance: "/api/v1/users/c8000000-0000-4000-8000-000000000002"
+                    code: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
           content:
@@ -2203,6 +1854,7 @@ paths:
           - "INTERNAL_ERROR"
         "503":
           - "SERVICE_UNAVAILABLE"
+          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           - "GATEWAY_TIMEOUT"
       parameters:
@@ -2228,7 +1880,7 @@ paths:
           name: "role"
           in: "query"
           required: false
-          description: "Role code is trimmed and uppercased before filtering."
+          description: "Keycloak realm role name, trimmed and uppercased before filtering."
           schema:
             type: "string"
         -
@@ -2367,7 +2019,7 @@ paths:
           description: "Unauthorized. Codes: `UNAUTHENTICATED`."
           headers:
             WWW-Authenticate:
-              description: "Bearer challenge is present for security-layer authentication failure. A domain login error does not promise this header."
+              description: "Bearer challenge is present for security-layer authentication failure."
               schema:
                 type: "string"
                 example: "Bearer"
@@ -2556,7 +2208,7 @@ paths:
                     instance: "/api/v1/users"
                     code: "INTERNAL_ERROR"
         "503":
-          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`, `USER_IDENTITY_PROVIDER_UNAVAILABLE`."
           content:
             "application/problem+json":
               schema:
@@ -2574,6 +2226,7 @@ paths:
                         type: "string"
                         enum:
                           - "SERVICE_UNAVAILABLE"
+                          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
               examples:
                 SERVICE_UNAVAILABLE:
                   summary: "SERVICE_UNAVAILABLE"
@@ -2584,6 +2237,15 @@ paths:
                     detail: "A required service is unavailable"
                     instance: "/api/v1/users"
                     code: "SERVICE_UNAVAILABLE"
+                USER_IDENTITY_PROVIDER_UNAVAILABLE:
+                  summary: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "The identity provider is unavailable"
+                    instance: "/api/v1/users"
+                    code: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
         "504":
           description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
           content:
@@ -2747,41 +2409,6 @@ components:
         createdAt:
           type: "string"
           format: "date-time"
-    Login:
-      type: "object"
-      required:
-        - "email"
-        - "password"
-      properties:
-        email:
-          type: "string"
-          pattern: "\\S"
-          format: "email"
-          minLength: 1
-          maxLength: 255
-        password:
-          type: "string"
-          pattern: "\\S"
-          format: "password"
-          minLength: 1
-    LoginResult:
-      type: "object"
-      required:
-        - "accessToken"
-        - "expiresIn"
-        - "tokenType"
-      properties:
-        accessToken:
-          type: "string"
-          description: "RS256 JWT; opaque to clients except standard claims. Example is intentionally not a real token."
-        expiresIn:
-          type: "integer"
-          format: "int64"
-          description: "Token lifetime in seconds."
-        tokenType:
-          type: "string"
-          enum:
-            - "Bearer"
     Register:
       type: "object"
       required:
@@ -2810,8 +2437,7 @@ components:
           pattern: "\\S"
           format: "password"
           minLength: 8
-          x-max-utf8-bytes: 72
-          description: "At least 8 Java characters, at most 72 UTF-8 bytes (bcrypt input limit)."
+          description: "At least 8 characters. Sent only to Keycloak, which applies the realm password policy; user-service stores no password."
         fullName:
           type: "string"
           pattern: "\\S"
@@ -2872,24 +2498,6 @@ components:
           description: "Trimmed and lowercased. Omitted/null retains current value."
           nullable: true
       description: "Only listed editable fields are consumed. Unknown properties are ignored; callers cannot change roles, status, phone or identity number through this API."
-    LoginResponse:
-      type: "object"
-      required:
-        - "code"
-        - "message"
-        - "data"
-      properties:
-        code:
-          type: "integer"
-          default: 0
-          description: "Numeric success code; omitted or null values default to 0 during response construction. Explicit values are preserved."
-        message:
-          type: "string"
-          default: "response success"
-          description: "Omitted or null values default to response success during response construction. Explicit messages are preserved."
-        data:
-          $ref: "#/components/schemas/LoginResult"
-      additionalProperties: false
     RegisterResponse:
       type: "object"
       required:
@@ -2987,12 +2595,6 @@ components:
       additionalProperties: false
 x-service: "user-service"
 x-business-error-codes:
-  USER_INVALID_CREDENTIALS:
-    status: 401
-    detail: "Invalid email or password"
-  USER_ACCOUNT_LOCKED:
-    status: 423
-    detail: "Account is locked"
   USER_REGISTRATION_DISABLED:
     status: 403
     detail: "Self-registration is disabled"
@@ -3014,3 +2616,9 @@ x-business-error-codes:
   USER_REGISTRATION_ROLE_UNAVAILABLE:
     status: 503
     detail: "Default registration role is unavailable"
+  USER_IDENTITY_REJECTED:
+    status: 400
+    detail: "The identity provider rejected the account details"
+  USER_IDENTITY_PROVIDER_UNAVAILABLE:
+    status: 503
+    detail: "The identity provider is unavailable"

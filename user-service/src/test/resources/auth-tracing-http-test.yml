@@ -6,4 +6,4 @@ nexus:
       jwk-set-uri: http://127.0.0.1/.well-known/jwks.json
     public-endpoints:
       - method: POST
-        path: /api/v1/auth/login
+        path: /api/v1/auth/register

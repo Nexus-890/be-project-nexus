@@ -5,7 +5,7 @@ param(
 
 if ($Help) {
     Write-Output 'Usage: .\keycloak\seed-users.ps1 [-EnvFile PATH]'
-    Write-Output 'Set the three imported demo users'' passwords from local-dev/.env.'
+    Write-Output 'Set the three imported demo users'' passwords and the user-service client secret from local-dev/.env.'
     exit 0
 }
 
