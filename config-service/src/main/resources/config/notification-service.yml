@@ -18,6 +18,8 @@ spring:
       mail.smtp.writetimeout: 5000
 
 nexus:
+  event-log:
+    group-id: nexus.notification.event-log.v1
   security:
     jwt:
       issuer: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
