@@ -176,6 +176,18 @@ nexus:
       - method: PUT
         path: /api/v1/products/{id}/images/order
         privilege: PRODUCT.UPDATE
+      - method: POST
+        path: /api/v1/auctions
+        privilege: AUCTION.CREATE
+      - method: GET
+        path: /api/v1/event-logs
+        privilege: EVENT_LOG.VIEW
+      - method: GET
+        path: /api/v1/event-logs/{id}
+        privilege: EVENT_LOG.VIEW_DETAIL
+      - method: GET
+        path: /api/v1/audit-logs
+        privilege: AUDIT_LOG.VIEW
   gateway:
     rate-limit:
       # Có thể đổi qua Config Server và /actuator/refresh; đủ cho polling 2 giây.

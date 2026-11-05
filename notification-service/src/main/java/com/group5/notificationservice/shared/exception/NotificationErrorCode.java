@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 public enum NotificationErrorCode implements ErrorCode {
     DATA_INVALID(HttpStatus.BAD_REQUEST, "Invalid data"),
     NOT_FOUND(HttpStatus.NOT_FOUND, "Notification not found"),
+    EVENT_LOG_NOT_FOUND(HttpStatus.NOT_FOUND, "Event log not found"),
     NOT_OWNER(HttpStatus.FORBIDDEN, "Notification belongs to another user"),
     UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "Unauthenticated!");
 

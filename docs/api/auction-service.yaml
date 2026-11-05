@@ -1655,6 +1655,7 @@ components:
           type: number
           format: decimal
           minimum: 0
+          exclusiveMinimum: true
           description: numeric(19,2) in the database; a JSON number on the wire.
         bidIncrement:
           type: number
@@ -1665,6 +1666,7 @@ components:
         startAt:
           type: string
           format: date-time
+          description: Must not precede server time by more than 5 seconds.
         endAt:
           type: string
           format: date-time

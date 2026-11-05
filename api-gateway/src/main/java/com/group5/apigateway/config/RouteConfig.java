@@ -63,12 +63,22 @@ public class RouteConfig {
                         .uri("lb://payment-service"))
 
                 .route("notification-service", route -> route
-                        .path("/api/v1/notifications", "/api/v1/notifications/**")
+                        .path("/api/v1/notifications", "/api/v1/notifications/**",
+                                "/api/v1/event-logs", "/api/v1/event-logs/**",
+                                "/api/v1/audit-logs", "/api/v1/audit-logs/**")
                         .filters(filters -> filters.requestRateLimiter(config ->
                                 config.setRateLimiter(limiter)
                                         .setKeyResolver(resolver)
                                         .setThrowOnLimit(true)))
                         .uri("lb://notification-service"))
+
+                .route("auction-service", route -> route
+                        .path("/api/v1/auctions", "/api/v1/auctions/**")
+                        .filters(filters -> filters.requestRateLimiter(config -> config
+                                .setRateLimiter(limiter)
+                                .setKeyResolver(resolver)
+                                .setThrowOnLimit(true)))
+                        .uri("lb://auction-service"))
 
                 .build();
     }
