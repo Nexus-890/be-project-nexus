@@ -70,6 +70,10 @@ for i in "${!names[@]}"; do
   echo "Seeded ${names[$i]}@nexus.local (${ids[$i]})"
 done
 
+# Realm đã tạo từ trước không nhận lại realm-nexus.json, nên bật xoay refresh token ở đây (chạy lại được nhiều lần)
+kc update realms/nexus -s revokeRefreshToken=true -s refreshTokenMaxReuse=0
+echo "Refresh token rotation is on"
+
 client="$(kc get clients -r nexus -q clientId=user-service --fields id --format csv --noquotes)"
 if [ -z "$client" ]; then
   client="$(kc create clients -r nexus -s clientId=user-service -s enabled=true -s publicClient=false \
