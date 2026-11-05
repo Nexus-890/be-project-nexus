@@ -2,7 +2,9 @@ package com.group5.paymentservice.payment;
 
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.Topics;
+import com.group5.paymentservice.payment.event.payload.CheckoutPaymentRequested;
 import com.group5.paymentservice.payment.event.payload.OrderCancelled;
+import com.group5.paymentservice.payment.event.payload.OrderGroupCancelled;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -13,6 +15,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -115,6 +118,51 @@ final class RefundFixtures {
                 UPDATE payment_instructions SET status = 'PAID', funded_transaction_id = ?, paid_at = now()
                 WHERE order_id = ?
                 """, transactionId, orderId);
+    }
+
+    CheckoutPaymentRequested manifest() {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant due = now.plusSeconds(900);
+        return new CheckoutPaymentRequested(UUID.randomUUID(), UUID.randomUUID(), "VND", new BigDecimal("500000.00"),
+                due, now, 2, List.of(
+                new CheckoutPaymentRequested.SellerOrder(UUID.randomUUID(), UUID.randomUUID(), new BigDecimal(BIG), due, 0L),
+                new CheckoutPaymentRequested.SellerOrder(UUID.randomUUID(), UUID.randomUUID(), new BigDecimal(SMALL), due, 0L)));
+    }
+
+    EventEnvelope<CheckoutPaymentRequested> checkout(CheckoutPaymentRequested manifest) {
+        return new EventEnvelope<>(UUID.randomUUID(), "CheckoutPaymentRequested", manifest.orderGroupId().toString(),
+                manifest.occurredAt(), "refund-test", manifest);
+    }
+
+    EventEnvelope<OrderGroupCancelled> groupCancelled(CheckoutPaymentRequested manifest) {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        OrderGroupCancelled payload = new OrderGroupCancelled(manifest.orderGroupId(), manifest.buyerId(), 1L,
+                "BUYER_CANCELLED", manifest.buyerId(), now, manifest.orders().stream()
+                .map(order -> new OrderGroupCancelled.CancelledOrder(order.orderId(), 3L)).toList());
+        return new EventEnvelope<>(UUID.randomUUID(), "OrderGroupCancelled", manifest.orderGroupId().toString(), now,
+                "refund-test", payload);
+    }
+
+    void fundGroup(UUID groupId) {
+        UUID sessionId = jdbc.queryForObject("SELECT id FROM payment_sessions WHERE order_group_id = ?",
+                UUID.class, groupId);
+        UUID transactionId = jdbc.queryForObject("""
+                INSERT INTO payment_transactions (session_id, provider, txn_reference, amount, currency, status, type,
+                                                  idempotency_key, received_at)
+                SELECT id, 'SEPAY', ?, total_amount, currency, 'SUCCESS', 'NORMAL', ?, now()
+                FROM payment_sessions WHERE id = ?
+                RETURNING id
+                """, UUID.class, "FT" + groupId, "sepay:" + groupId, sessionId);
+        jdbc.update("""
+                UPDATE payment_instructions SET status = 'PAID', funded_transaction_id = ?, paid_at = now()
+                WHERE session_id = ?
+                """, transactionId, sessionId);
+        jdbc.update("UPDATE payment_sessions SET status = 'PAID', paid_at = now() WHERE id = ?", sessionId);
+    }
+
+    String sessionStatus(UUID groupId) {
+        return jdbc.queryForObject("SELECT status::text FROM payment_sessions WHERE order_group_id = ?",
+                String.class, groupId);
     }
 
     int pending(UUID orderId) {

@@ -1,7 +1,7 @@
 package com.group5.paymentservice.payment;
 
 import com.group5.paymentservice.payment.event.PaymentSessionEventConsumer;
-import com.group5.paymentservice.payment.service.RefundService;
+import com.group5.paymentservice.payment.job.PendingOrderCancellationJob;
 import io.micrometer.tracing.Tracer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class RefundCancellationTest extends PaymentDatabaseTestSupport {
     @Autowired private PaymentSessionEventConsumer listener;
-    @Autowired private RefundService refunds;
+    @Autowired private PendingOrderCancellationJob job;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private JsonMapper mapper;
     @Autowired private Tracer tracer;
@@ -110,19 +110,19 @@ class RefundCancellationTest extends PaymentDatabaseTestSupport {
     }
 
     @Test
-    void aPendingCancellationIsRefundedOnlyAfterFundingAndThenRemoved() {
+    void theJobRefundsAPendingCancellationOnlyAfterFundingAndThenRemovesIt() {
         UUID orderId = fixtures.unpaidOrder();
         UUID groupId = fixtures.groupOf(orderId);
         fixtures.traced(() -> listener.receive(fixtures.record(
                 fixtures.cancelled(orderId, groupId, UUID.randomUUID(), "100000.00"))));
 
-        fixtures.traced(() -> refunds.applyPendingCancellations(groupId));
+        fixtures.traced(job::applyFundedCancellations);
         assertThat(fixtures.pending(orderId)).isEqualTo(1);
         assertThat(fixtures.refunds(orderId)).isZero();
 
         fixtures.fund(orderId);
-        fixtures.traced(() -> refunds.applyPendingCancellations(groupId));
-        fixtures.traced(() -> refunds.applyPendingCancellations(groupId));
+        fixtures.traced(job::applyFundedCancellations);
+        fixtures.traced(job::applyFundedCancellations);
 
         assertThat(fixtures.pending(orderId)).isZero();
         assertThat(fixtures.refunds(orderId)).isEqualTo(1);
@@ -133,6 +133,70 @@ class RefundCancellationTest extends PaymentDatabaseTestSupport {
         assertThat(fixtures.outbox("OrderRefundRequested", orderId)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT canceled_at IS NOT NULL FROM payment_instructions WHERE order_id = ?",
                 Boolean.class, orderId)).isTrue();
+    }
+
+    @Test
+    void aGroupCancellationAfterFundingWonRefundsEveryPaidOrderOnce() {
+        var manifest = fixtures.manifest();
+        UUID groupId = manifest.orderGroupId();
+        UUID big = manifest.orders().get(0).orderId();
+        UUID small = manifest.orders().get(1).orderId();
+        fixtures.traced(() -> listener.receive(fixtures.record(fixtures.checkout(manifest))));
+        var early = fixtures.cancelled(big, groupId, manifest.buyerId(), "0.00");
+        fixtures.traced(() -> listener.receive(fixtures.record(early)));
+        assertThat(fixtures.marker(early.eventId())).isEqualTo(1);
+        assertThat(fixtures.refunds(big)).isZero();
+        assertThat(fixtures.pending(big)).isZero();
+
+        fixtures.fundGroup(groupId);
+        var group = fixtures.groupCancelled(manifest);
+        fixtures.traced(() -> listener.receive(fixtures.record(group)));
+
+        assertThat(fixtures.marker(group.eventId())).isEqualTo(1);
+        assertThat(fixtures.sessionStatus(groupId)).isEqualTo("PAID");
+        assertThat((BigDecimal) fixtures.refund(big).get("amount")).isEqualByComparingTo(RefundFixtures.BIG);
+        assertThat((BigDecimal) fixtures.refund(small).get("amount")).isEqualByComparingTo(RefundFixtures.SMALL);
+        assertThat(fixtures.refund(big).get("idempotency_key")).isEqualTo("system:cancel-refund:" + big);
+        assertThat(fixtures.outbox("OrderRefundRequested", big)).isEqualTo(1);
+        assertThat(fixtures.outbox("OrderRefundRequested", small)).isEqualTo(1);
+        assertThat(jdbc.queryForList("""
+                SELECT status::text AS status, canceled_at IS NOT NULL AS cancelled, last_order_version
+                FROM payment_instructions WHERE order_id IN (?, ?)
+                """, big, small)).allSatisfy(row -> {
+            assertThat(row.get("status")).isEqualTo("PAID");
+            assertThat(row.get("cancelled")).isEqualTo(true);
+            assertThat(row.get("last_order_version")).isEqualTo(3L);
+        });
+
+        fixtures.traced(() -> listener.receive(fixtures.record(fixtures.groupCancelled(manifest))));
+        fixtures.traced(() -> listener.receive(fixtures.record(
+                fixtures.cancelled(small, groupId, manifest.buyerId(), "0.00"))));
+        fixtures.traced(job::applyFundedCancellations);
+
+        assertThat(fixtures.refunds(big)).isEqualTo(1);
+        assertThat(fixtures.refunds(small)).isEqualTo(1);
+        assertThat(fixtures.outbox("OrderRefundRequested", big)).isEqualTo(1);
+        assertThat(fixtures.outbox("OrderRefundRequested", small)).isEqualTo(1);
+    }
+
+    @Test
+    void aGroupCancellationBeforeFundingClosesThePlanWithoutARefund() {
+        var manifest = fixtures.manifest();
+        UUID groupId = manifest.orderGroupId();
+        fixtures.traced(() -> listener.receive(fixtures.record(fixtures.checkout(manifest))));
+        for (var order : manifest.orders()) {
+            fixtures.traced(() -> listener.receive(fixtures.record(
+                    fixtures.cancelled(order.orderId(), groupId, manifest.buyerId(), "0.00"))));
+        }
+
+        fixtures.traced(() -> listener.receive(fixtures.record(fixtures.groupCancelled(manifest))));
+
+        assertThat(fixtures.sessionStatus(groupId)).isEqualTo("CANCELED");
+        for (var order : manifest.orders()) {
+            assertThat(fixtures.refunds(order.orderId())).isZero();
+            assertThat(fixtures.pending(order.orderId())).isZero();
+            assertThat(fixtures.outbox("OrderRefundRequested", order.orderId())).isZero();
+        }
     }
 
     @Test

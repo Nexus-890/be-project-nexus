@@ -215,6 +215,11 @@ public class PaymentSessionEventHandler {
         if (plan.stream().anyMatch(instruction -> versions.get(instruction.getOrderId()) < instruction.getLastOrderVersion())) {
             return;
         }
+        // TIỀN VỀ TRƯỚC KHI XỬ LÝ HỦY NHÓM -> GIỮ SESSION PAID, HOÀN TIỀN TỪNG ĐƠN ĐÃ CÓ TIỀN
+        if (session.getStatus() == PaymentSessionStatus.PAID) {
+            refunds.refundFundedPlan(plan, versions, reason, actorId, cancelledAt, eventAt);
+            return;
+        }
         if (session.getStatus() != PaymentSessionStatus.PENDING) {
             return;
         }

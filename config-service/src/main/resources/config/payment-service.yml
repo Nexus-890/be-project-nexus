@@ -20,6 +20,9 @@ nexus:
     provider: ${PAYMENT_PROVIDER:SEPAY}
     retry-limit: ${PAYMENT_RETRY_LIMIT:3}
     consumer-group: payment-session-events
+    pending-cancellations:
+      cron: ${PAYMENT_PENDING_CANCELLATIONS_CRON:*/30 * * * * *}
+      batch-size: ${PAYMENT_PENDING_CANCELLATIONS_BATCH_SIZE:100}
     sepay:
       bank-id: ${SEPAY_BANK_ID:970415}
       bank-account: ${SEPAY_BANK_ACCOUNT:}

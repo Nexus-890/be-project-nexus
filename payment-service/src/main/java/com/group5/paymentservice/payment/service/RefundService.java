@@ -31,6 +31,7 @@ import jakarta.validation.Validator;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -38,6 +39,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -111,7 +113,7 @@ public class RefundService {
         }
     }
 
-    // GỌI KHI INSTRUCTION CỦA NHÓM ĐÃ CÓ BẰNG CHỨNG FUNDING (WEBHOOK, MANIFEST GỬI LẠI)
+    // GỌI KHI INSTRUCTION CỦA NHÓM ĐÃ CÓ BẰNG CHỨNG FUNDING: PendingOrderCancellationJob, WEBHOOK, MANIFEST GỬI LẠI
     // MANIFEST MỚI TẠO CHƯA ĐỦ ĐỂ COI LÀ ĐÃ TRẢ -> ĐƠN CHƯA FUNDED VẪN NẰM PENDING
     @Transactional
     public void applyPendingCancellations(UUID groupId) {
@@ -127,6 +129,22 @@ public class RefundService {
             }
             // CHỈ XÓA SAU KHI ÁP DỤNG THÀNH CÔNG (HOẶC BẢN PENDING ĐÃ CŨ HƠN INSTRUCTION)
             pendingOrders.delete(pending);
+        }
+    }
+
+    // HỦY NHÓM ĐẾN SAU KHI TIỀN ĐÃ VỀ (WEBHOOK THẮNG): COMMERCE ĐÃ HỦY ĐƠN NHƯNG PAYMENT ĐÃ GHI PAID
+    // OrderCancelled TỪNG ĐƠN (paidAmount = 0) CÓ THỂ ĐÃ BỊ BỎ QUA LÚC CHƯA CÓ TIỀN -> HOÀN TẠI ĐÂY
+    // NGƯỜI GỌI ĐÃ GIỮ KHÓA GROUP + INSTRUCTION, CHẠY CHUNG TRANSACTION VỚI MARKER CỦA EVENT HỦY NHÓM
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void refundFundedPlan(List<PaymentInstruction> plan, Map<UUID, Long> versions, String reason,
+                                 UUID actorId, OffsetDateTime cancelledAt, OffsetDateTime occurredAt) {
+        for (PaymentInstruction instruction : plan) {
+            if (!isFunded(instruction)) {
+                continue;
+            }
+            pendingOrders.findLockedByOrderId(instruction.getOrderId()).ifPresent(pendingOrders::delete);
+            applyCancellation(instruction, versions.get(instruction.getOrderId()), reason, actorId,
+                    cancelledAt, occurredAt);
         }
     }
 
