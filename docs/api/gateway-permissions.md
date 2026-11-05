@@ -2,7 +2,7 @@
 
 The delivered JSON response/error contract introduced by #248 is documented in
 [ADR-008](../adr/ADR-008-api-contract.md), the [style guide](style-guide.md), and
-[`openapi/`](openapi/). Its 24 delivered application operations use `{data,page?}`
+[`openapi/`](openapi/). Delivered application operations use `{data,page?}`
 and symbolic Problem Details `code` values. The older **#88 draft** below retains
 its original scope and historical contract; its former page/error-shape text does
 not override #248 for already delivered endpoints. Access-policy rows remain the
@@ -66,8 +66,8 @@ independently, as required by ADR-006.
 | `/api/v1/orders/{id}` | GET | ORDER.VIEW | #117 — Order read endpoints; the owner or ADMIN |
 | `/api/v1/orders/{id}/cancel` | POST | ORDER.CANCEL | #189 — Order cancellation; the buyer, ADMIN or SUPPORT_STAFF |
 | `/api/v1/webhooks/sepay` | POST | Public | #155 — payment-service; provider authentication remains downstream |
-| `/api/v1/webhooks/carriers/ghn` | POST | Public | #203 / #245 — shipment-service; concrete GHN callback, see integration status below |
-| `/api/v1/webhooks/carriers/ghtk` | POST | Public | #203 / #245 — shipment-service; concrete GHTK callback, see integration status below |
+| `/api/v1/webhooks/carriers/ghn` | POST | Public | #203 / #245 — shipment-service; owner-confirmed GHN callback |
+| `/api/v1/webhooks/carriers/ghtk` | POST | Public | #203 / #245 — shipment-service; owner-confirmed GHTK callback |
 | `/api/v1/shipping/provinces` | GET | Public | #201 — shipment-service address list |
 | `/api/v1/shipping/districts` | GET | Public | #201 — shipment-service address list; provinceCode query required downstream |
 | `/api/v1/shipping/wards` | GET | Public | #201 — shipment-service address list; districtCode query required downstream |
@@ -88,6 +88,10 @@ independently, as required by ADR-006.
 | `/api/v1/reputations/{userId}` | GET | REPUTATION.VIEW | #213 — rating-service |
 | `/api/v1/reputations/{userId}/adjustments` | POST | USER.REPUTATION.ADJUST | #213 — rating-service; reason and score bounds checked downstream |
 | `/api/v1/reputations/{userId}/history` | GET | USER.REPUTATION.VIEW | #213 — rating-service |
+| `/api/v1/auctions` | POST | AUCTION.CREATE | #140 — Create as SELLER; `sellerId` comes from the JWT subject |
+| `/api/v1/event-logs` | GET | EVENT_LOG.VIEW | #192 — Event log consumer and audit log |
+| `/api/v1/event-logs/{id}` | GET | EVENT_LOG.VIEW_DETAIL | #192 — Event log consumer and audit log |
+| `/api/v1/audit-logs` | GET | AUDIT_LOG.VIEW | #192 — Event log consumer and audit log |
 | Any other path | Any other method/path pair | Token required; add the SRS privilege before exposing a new endpoint | Gateway JWT filter and permit list; future owning issue |
 
 PAY-01 is owned by payment-service at `POST /api/v1/payments` (#121), with
@@ -143,12 +147,13 @@ and descendants. Routing and public access are separate: the carrier callback
 prefix has one owner, but only the two explicit POST paths above bypass bearer
 authentication. No catch-all webhook route or public policy exists.
 
-**Carrier contract decision pending #203 review:** the local endpoint catalogue
+**Carrier callback contract (#203 / #245):** the local endpoint catalogue
 (`Endpoints!F132:G132`) defines POST `/api/v1/webhooks/carriers/{carrier}`.
 SRS 2.6 and the BR workbook's `Config & Validation!A43:B44` name GHN and GHTK.
-#245 expands that template to the lowercase `ghn` and `ghtk` paths above. The
-sources do not specify URL casing; the #203 owner must reconcile these exact
-method/path pairs before merge. Uppercase names, other carriers, child paths and
+#203's owner confirmed on 2026-11-05 that the concrete callbacks are exactly
+`POST /api/v1/webhooks/carriers/ghn` and
+`POST /api/v1/webhooks/carriers/ghtk`, with lowercase carrier names. These are the
+only supported public expansions of the template. Uppercase names, other carriers, child paths and
 other HTTP methods receive no public exception. Provider signatures/tokens and
 payload validation remain in shipment-service; SePay verification remains in
 payment-service. Public does not mean the payload is trusted.
@@ -233,9 +238,10 @@ public pairs, internal/Keycloak/obsolete payment paths not forwarding, and 429 w
 Retry-After. A test-only HMAC callback protocol verifies raw-body/header forwarding
 and preserves downstream 401; actual SePay/GHN/GHTK verification remains #155/#203.
 
-Validation on 2026-11-05 with Java 21 after integrating local develop `0d0a36a`:
-gateway `verify` passed 53 tests; Config Server `verify` passed 5 tests, with zero
-failures/errors/skips. `node docs/api/check-contract.mjs` passed all 42 delivered
+Validation on 2026-11-05 with Java 21 after integrating origin/develop `cfe10df`:
+gateway `verify` passed 55 tests (24 in SecurityConfigTest and 7 in
+GatewayPermissionsTest); Config Server `verify` passed 5 tests, with zero
+failures/errors/skips. `node docs/api/check-contract.mjs` passed all 46 delivered
 operations; the former #111 documentation gap has been fixed on develop.
 
 Live acceptance on the same integrated baseline passed using the real merged
@@ -263,8 +269,8 @@ POST quotes returning gateway 401, missing-privilege 403, and valid Keycloak-tok
 forwarding for available APIs. For callback evidence, record the owning service's
 receipt as well as the response: a bad provider signature can produce a service
 401 after passing the gateway. Record which services/endpoints are unimplemented
-and distinguish fixture results from real business/API success. Reconcile the
-lowercase carrier paths with #203 before merge. The merged #237 trust configuration
+and distinguish fixture results from real business/API success. The lowercase
+carrier callback contract is recorded above. The merged #237 trust configuration
 is retained; use the real-token harness below to reproduce live authorization checks.
 
 References: [ADR-006](../adr/ADR-006-service-authentication-RS256.md),
@@ -486,10 +492,10 @@ and Prism cannot demonstrate runtime authorization.
 
 These **26 method/path contracts** are drafts (`0.1.0-draft`) for the
 [inventory contract](inventory-service.yaml) and the
-[auction contract](auction-service.yaml). A draft does not expose a runtime
-endpoint: `RouteConfig` has no inventory or auction route yet, and this section
-changes neither `api-gateway.yml` nor `SecurityConfig`. Each owning issue registers
-its row, enforces the service rule and copies its operations into `openapi/`.
+[auction contract](auction-service.yaml). For the implemented create operation,
+see [the delivered #140 contract](openapi/auction-service.yaml) and the gateway
+permission table above. The rows below describe the intended Sprint 2 scope,
+including rules planned for later issues.
 Each method/path appears exactly once below, with a role, the word `public`, or
 `system` for the two paths the gateway never routes.
 

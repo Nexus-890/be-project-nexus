@@ -188,6 +188,41 @@ class SecurityConfigTest {
     }
 
     @Test
+    void eventAndAuditLogsApplyBuyerSupportAndIndependentDetailPrivileges() {
+        String list = "/api/v1/event-logs";
+        String detail = list + "/" + ID;
+        String audit = "/api/v1/audit-logs";
+        String buyer = "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of("BUYER")));
+        String support = "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of("SUPPORT_STAFF"))
+                .claim("privileges", List.of("EVENT_LOG.VIEW", "EVENT_LOG.VIEW_DETAIL")));
+        for (String path : List.of(list, detail, audit)) {
+            client.get().uri(path).exchange().expectStatus().isUnauthorized();
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, buyer).exchange().expectStatus().isForbidden();
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+        client.get().uri(list).header(HttpHeaders.AUTHORIZATION, support).exchange().expectStatus().isOk();
+        client.get().uri(detail).header(HttpHeaders.AUTHORIZATION, support).exchange().expectStatus().isOk();
+        client.get().uri(audit).header(HttpHeaders.AUTHORIZATION, support).exchange().expectStatus().isForbidden();
+        String listOnly = "Bearer " + token(SIGNING_KEY, c -> c.claim("privileges", List.of("EVENT_LOG.VIEW")));
+        client.get().uri(detail).header(HttpHeaders.AUTHORIZATION, listOnly).exchange().expectStatus().isForbidden();
+        String auditOnly = "Bearer " + token(SIGNING_KEY, c -> c.claim("privileges", List.of("AUDIT_LOG.VIEW")));
+        client.get().uri(audit).header(HttpHeaders.AUTHORIZATION, auditOnly).exchange().expectStatus().isOk();
+        assertThat(SERVICE_LOG).containsExactly("GET " + list, "GET " + detail, "GET " + audit);
+    }
+
+    @Test
+    void productionRoutesSendAllLogPathsToNotificationService() {
+        var route = routeLocator.getRoutes().filter(r -> r.getId().equals("notification-service")).blockFirst();
+        assertThat(route).isNotNull();
+        assertThat(route.getUri().toString()).isEqualTo("lb://notification-service");
+        for (String path : List.of("/api/v1/event-logs", "/api/v1/event-logs/" + ID, "/api/v1/audit-logs")) {
+            var exchange = org.springframework.mock.web.server.MockServerWebExchange.from(
+                    org.springframework.mock.http.server.reactive.MockServerHttpRequest.get(path));
+            assertThat(reactor.core.publisher.Mono.from(route.getPredicate().apply(exchange)).block()).as(path).isTrue();
+        }
+    }
+
+    @Test
     void operationalOrderListsRequireOrderListBeforeForwardingToTheService() {
         List<String> paths = List.of("/api/v1/orders/manage", "/api/v1/orders/sales");
         for (String path : paths) {
