@@ -470,7 +470,7 @@ class SecurityConfigTest {
                             "/api/v1/orders", "/api/v1/orders/**",
                             "/api/v1/notifications", "/api/v1/notifications/**", "/.well-known/**",
                             "/api/v1/payments", "/api/v1/payments/**",
-                            "/api/v1/checkout/**"),
+                            "/api/v1/checkout/**", "/api/v1/auctions",
                             "/api/v1/event-logs", "/api/v1/event-logs/**", "/api/v1/audit-logs", "/api/v1/audit-logs/**")
                     .uri("http://127.0.0.1:" + DOWNSTREAM.getAddress().getPort())).build();
         }
