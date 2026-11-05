@@ -7,6 +7,7 @@ import org.springframework.core.env.PropertiesPropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpMethod;
+import org.springframework.mock.env.MockEnvironment;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -32,7 +33,13 @@ class GatewayPermissionsTest {
             new Row("/api/v1/categories/{id}", "GET", "Public"),
             new Row("/api/v1/categories/tree", "GET", "Public"),
             new Row("/api/v1/products/{id}/skus", "GET", "Public"),
-            new Row("/api/v1/skus/{id}", "GET", "Public"));
+            new Row("/api/v1/skus/{id}", "GET", "Public"),
+            new Row("/api/v1/webhooks/sepay", "POST", "Public"),
+            new Row("/api/v1/webhooks/carriers/ghn", "POST", "Public"),
+            new Row("/api/v1/webhooks/carriers/ghtk", "POST", "Public"),
+            new Row("/api/v1/shipping/provinces", "GET", "Public"),
+            new Row("/api/v1/shipping/districts", "GET", "Public"),
+            new Row("/api/v1/shipping/wards", "GET", "Public"));
 
     @Test
     void documentAndSecurityConfigContainTheSameGatewayPermissionRows() throws Exception {
@@ -123,7 +130,47 @@ class GatewayPermissionsTest {
 
     private static Set<Row> readRows(Path path) throws Exception {
         List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+        return readRows(lines);
+    }
+
+    @Test
+    void documentRejectsDuplicateMethodPathEvenWithDifferentPrivileges() {
+        assertThatThrownBy(() -> readRows(List.of(
+                "| `/api/v1/payments` | POST | CHECKOUT.START | #121 |",
+                "| `/api/v1/payments` | POST | ORDER.REFUND | #121 |")))
+                .isInstanceOf(AssertionError.class);
+    }
+
+    @Test
+    void configRejectsDuplicateMethodPathAcrossPublicAndProtectedLists() {
+        Properties yaml = gatewayYaml();
+        yaml.setProperty("nexus.security.public-endpoints[0].path", "/api/v1/products");
+        assertThatThrownBy(() -> bind(yaml).endpoints()).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void gatewayTrustsKeycloakRealmWithDeploymentOverridesAndServicesAudience() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.getPropertySources().addLast(new PropertiesPropertySource("gateway-yaml", gatewayYaml()));
+        String jwt = "spring.security.oauth2.resourceserver.jwt.";
+        assertThat(environment.getProperty(jwt + "issuer-uri"))
+                .isEqualTo("http://localhost:18080/realms/nexus");
+        assertThat(environment.getProperty(jwt + "jwk-set-uri"))
+                .isEqualTo("http://localhost:18080/realms/nexus/protocol/openid-connect/certs");
+        assertThat(environment.getProperty(jwt + "audiences[0]")).isEqualTo("nexus-services");
+
+        environment.setProperty("KEYCLOAK_ISSUER_URI", "https://identity.example.test/realms/nexus");
+        environment.setProperty("KEYCLOAK_JWK_SET_URI", "http://identity-internal/realms/nexus/protocol/openid-connect/certs");
+        assertThat(environment.getProperty(jwt + "issuer-uri"))
+                .isEqualTo("https://identity.example.test/realms/nexus");
+        assertThat(environment.getProperty(jwt + "jwk-set-uri"))
+                .isEqualTo("http://identity-internal/realms/nexus/protocol/openid-connect/certs");
+        assertThat(environment.getProperty(jwt + "audiences[0]")).isEqualTo("nexus-services");
+    }
+
+    private static Set<Row> readRows(List<String> lines) {
         Set<Row> rows = new HashSet<>();
+        Set<String> pairs = new HashSet<>();
         for (String line : lines) {
             if (!line.startsWith("|")) {
                 continue;
@@ -135,6 +182,8 @@ class GatewayPermissionsTest {
             assertThat(columns).hasSize(5);
             assertThat(columns[4].trim()).as("owning issue for %s", columns[1]).isNotBlank();
             Row row = new Row(unquote(columns[1]), columns[2].trim(), unquote(columns[3]));
+            assertThat(pairs.add(row.method() + " " + row.path()))
+                    .as("duplicate method/path %s %s", row.method(), row.path()).isTrue();
             assertThat(rows.add(row)).as("duplicate permission row %s", row).isTrue();
         }
         return rows;

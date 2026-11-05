@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from urllib.error import URLError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -37,7 +38,7 @@ def port():
         return sock.getsockname()[1]
 
 
-def run(evidence_dir=None):
+def run(evidence_dir=None, service_split=False):
     evidence_dir = evidence_dir.resolve() if evidence_dir else None
     sources = [Path(__file__), *sorted((ROOT / "config-service/src/main/resources/config").glob("*.yml"))]
     report = {"started_at_utc": datetime.now(timezone.utc).isoformat(), "status": "running",
@@ -72,7 +73,8 @@ def run(evidence_dir=None):
         admin_password = secrets.token_urlsafe(24)
         demo_password = secrets.token_urlsafe(24)
         init = directory / "init.sql"
-        init.write_text("CREATE DATABASE auth_db;\nCREATE DATABASE catalog_db;\nCREATE DATABASE user_db;\n")
+        init.write_text("CREATE DATABASE auth_db;\nCREATE DATABASE catalog_db;\nCREATE DATABASE user_db;\n"
+                        + ("CREATE DATABASE payment_db;\n" if service_split else ""))
         compose_config = {
             "services": {
                 "postgres": {
@@ -98,6 +100,7 @@ def run(evidence_dir=None):
                     "entrypoint": ["/bin/bash", "/opt/nexus/seed-users.sh", "--container"],
                     "environment": {"KEYCLOAK_SERVER_URL": "http://auth-service:8080",
                                     "KEYCLOAK_ADMIN": "test-admin", "KEYCLOAK_ADMIN_PASSWORD": admin_password,
+                                    "KEYCLOAK_USER_SERVICE_CLIENT_SECRET": secrets.token_urlsafe(32),
                                     **{f"DEMO_{role}_PASSWORD": demo_password for role in ("ADMIN", "SELLER", "BUYER")}},
                     "volumes": [f"{KEYCLOAK / 'seed-users.sh'}:/opt/nexus/seed-users.sh:ro"]}}}
         compose_file = directory / "compose.json"
@@ -115,13 +118,13 @@ def run(evidence_dir=None):
             check(result.returncode == 0, f"Compose {' '.join(args[:2])} failed: {result.stderr[-1500:]}")
             return result.stdout.strip()
 
-        def wait(url, process=None, timeout=180):
+        def wait(url, process=None, timeout=180, token=None, data=None, expected=200):
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
                 if process and process.poll() is not None:
                     raise AssertionError(f"Service exited before readiness: {url}; see temporary service logs")
                 try:
-                    if kc.http(url)[0] == 200:
+                    if kc.http(url, data, token)[0] == expected:
                         return
                 except (URLError, TimeoutError, ConnectionError):
                     pass
@@ -176,7 +179,18 @@ def run(evidence_dir=None):
                             f"--server.port={catalog_port}"], app_env)
             catalog_url = f"http://127.0.0.1:{catalog_port}"
             wait(catalog_url + "/api/v1/categories/tree", catalog)
-            gateway = start("api-gateway", [*common, "--spring.application.name=api-gateway",
+            payment_args = []
+            if service_split:
+                check("CHECKOUT.START" not in claims["privileges"], "Seller must lack checkout for negative test")
+                payment_port = port()
+                payment = start("payment-service", [*common, "--spring.application.name=payment-service",
+                                f"--server.port={payment_port}", "--nexus.payment.sepay.bank-account=0000000000",
+                                "--nexus.payment.sepay.account-name=GATEWAY TEST FIXTURE"], app_env)
+                payment_url = f"http://127.0.0.1:{payment_port}"
+                wait(payment_url + "/api/v1/payments", payment, token=token,
+                     data={"orderGroupId": str(uuid.uuid4())}, expected=403)
+                payment_args = [f"--spring.cloud.discovery.client.simple.instances.payment-service[0].uri={payment_url}"]
+            gateway = start("api-gateway", [*common, *payment_args, "--spring.application.name=api-gateway",
                             f"--server.port={gateway_port}",
                             f"--spring.cloud.discovery.client.simple.instances.catalog-service[0].uri={catalog_url}",
                             f"--spring.data.redis.port={port()}"], app_env)
@@ -205,6 +219,48 @@ def run(evidence_dir=None):
                 status, _, _ = kc.http(target + "/api/v1/products", payload, buyer_tokens["access_token"])
                 check(status == 403, f"Valid Buyer without privilege expected 403, got {status}")
             record("PASS: genuine Keycloak Buyer without PRODUCT.CREATE -> 403 at Gateway AND direct Catalog")
+
+            if service_split:
+                buyer_token = buyer_tokens["access_token"]
+                check("CHECKOUT.START" in buyer_claims["privileges"], "Buyer lacks checkout privilege")
+                group, session, denied_group, expired_group = [str(uuid.uuid4()) for _ in range(4)]
+                buyer_id = buyer_claims["sub"]
+                sql = []
+                for group_id, session_id, owner, due in (
+                        (group, session, buyer_id, "now() + interval '1 hour'"),
+                        (denied_group, str(uuid.uuid4()), SELLER, "now() + interval '1 hour'"),
+                        (expired_group, str(uuid.uuid4()), buyer_id, "now() - interval '1 hour'")):
+                    sql.append("INSERT INTO payment_sessions "
+                               "(id,order_group_id,buyer_id,total_amount,currency,memo_code,due_at,source_event_id,idempotency_key) "
+                               f"VALUES ('{session_id}','{group_id}','{owner}',350000,'VND',"
+                               f"'GW{secrets.token_hex(6).upper()}',{due},'{uuid.uuid4()}','{uuid.uuid4()}');")
+                for amount in (200000, 150000):
+                    sql.append("INSERT INTO payment_instructions (order_id,session_id,buyer_id,amount,currency,due_at) "
+                               f"SELECT '{uuid.uuid4()}',id,buyer_id,{amount},currency,due_at "
+                               f"FROM payment_sessions WHERE id='{session}';")
+                compose("exec", "-T", "postgres", "psql", "-v", "ON_ERROR_STOP=1", "-U", "nexus_test",
+                        "-d", "payment_db", input="BEGIN;\n" + "\n".join(sql) + "\nCOMMIT;")
+                for label, bearer, group_id, expected_status, expected_code in (
+                        ("missing bearer", None, group, 401, "UNAUTHENTICATED"),
+                        ("Keycloak seller missing CHECKOUT.START", token, group, 403, "FORBIDDEN"),
+                        ("Keycloak buyer owns session", buyer_token, group, 201, None),
+                        ("Keycloak buyer accessing another owner's session", buyer_token, denied_group, 403, "PAYMENT_SESSION_ACCESS_DENIED"),
+                        ("Keycloak buyer with expired payment session", buyer_token, expired_group, 409, "PAYMENT_SESSION_NOT_PAYABLE")):
+                    status, _, body = kc.http(gateway_url + "/api/v1/payments", {"orderGroupId": group_id}, bearer)
+                    response = json.loads(body)
+                    check(status == expected_status, f"Payment {label}: expected {expected_status}, got {status}")
+                    if expected_code:
+                        check(response.get("code") == expected_code, f"Payment {label}: wrong error code")
+                    else:
+                        check(response["data"]["sessionId"] == session and response["data"]["amount"] == 350000,
+                              "Payment session/amount mismatch")
+                    record(f"PASS: real Gateway -> Payment: {label} = {status}", http_status=status,
+                           source="gateway" if expected_code in ("UNAUTHENTICATED", "FORBIDDEN") else "payment-service",
+                           expected_code=expected_code, fixture="isolated PostgreSQL payment plan; Kafka consumption not tested")
+                transactions = compose("exec", "-T", "postgres", "psql", "-U", "nexus_test", "-d", "payment_db",
+                                       "-Atc", "SELECT count(*) FROM payment_transactions;")
+                check(transactions == "0", "Payment initiation must not create financial transactions")
+                record("PASS: payment smoke leaves zero financial transactions; no provider/bank request made")
 
             # Remove only the mapper in the DISPOSABLE realm to obtain a genuinely
             # Keycloak-signed token without aud; editing JWT payload would only test signatures.
@@ -283,5 +339,6 @@ def run(evidence_dir=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evidence-dir", type=Path, help="Empty directory for sanitized results; never saves raw JWTs or credentials")
+    parser.add_argument("--service-split", action="store_true", help="Also smoke-test real payment-service through Gateway (#245); requires its built jar")
     args = parser.parse_args()
-    run(args.evidence_dir)
+    run(args.evidence_dir, service_split=args.service_split)

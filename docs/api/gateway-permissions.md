@@ -2,7 +2,7 @@
 
 The delivered JSON response/error contract introduced by #248 is documented in
 [ADR-008](../adr/ADR-008-api-contract.md), the [style guide](style-guide.md), and
-[`openapi/`](openapi/). Its 24 delivered application operations use `{data,page?}`
+[`openapi/`](openapi/). Delivered application operations use `{data,page?}`
 and symbolic Problem Details `code` values. The older **#88 draft** below retains
 its original scope and historical contract; its former page/error-shape text does
 not override #248 for already delivered endpoints. Access-policy rows remain the
@@ -68,6 +68,29 @@ independently, as required by ADR-006.
 | `/api/v1/orders/sales` | GET | ORDER.LIST | #190 — Seller orders; service additionally requires SELLER and JWT seller ownership |
 | `/api/v1/orders/{id}` | GET | ORDER.VIEW | #117 — Order read endpoints; the owner or ADMIN |
 | `/api/v1/orders/{id}/cancel` | POST | ORDER.CANCEL | #189 — Order cancellation; the buyer, ADMIN or SUPPORT_STAFF |
+| `/api/v1/webhooks/sepay` | POST | Public | #155 — payment-service; provider authentication remains downstream |
+| `/api/v1/webhooks/carriers/ghn` | POST | Public | #203 / #245 — shipment-service; owner-confirmed GHN callback |
+| `/api/v1/webhooks/carriers/ghtk` | POST | Public | #203 / #245 — shipment-service; owner-confirmed GHTK callback |
+| `/api/v1/shipping/provinces` | GET | Public | #201 — shipment-service address list |
+| `/api/v1/shipping/districts` | GET | Public | #201 — shipment-service address list; provinceCode query required downstream |
+| `/api/v1/shipping/wards` | GET | Public | #201 — shipment-service address list; districtCode query required downstream |
+| `/api/v1/payments` | GET | ORDER.REFUND | #207 — payment-service; service enforces actor and order visibility |
+| `/api/v1/refunds` | POST | ORDER.REFUND | #247 — payment-service; funded amount and idempotency enforced downstream |
+| `/api/v1/refunds` | GET | ORDER.REFUND | #247 — payment-service; order visibility enforced downstream |
+| `/api/v1/refunds/{id}/complete` | POST | ORDER.REFUND | #247 — payment-service; manual transfer confirmation enforced downstream |
+| `/api/v1/shipping/quotes` | POST | SHIPPING.QUOTE | #201 — shipment-service |
+| `/api/v1/carriers` | GET | SHIPPING.QUOTE | #201 — shipment-service; SHP-11 |
+| `/api/v1/shipments` | POST | SHIPPING.CREATE_SHIPMENT | #202 — shipment-service; manual creation |
+| `/api/v1/shipments` | GET | SHIPPING.VIEW_SHIPMENT | #202 — shipment-service; own-order visibility enforced downstream |
+| `/api/v1/shipments/{id}` | GET | SHIPPING.VIEW_SHIPMENT | #202 — shipment-service; own-order visibility enforced downstream |
+| `/api/v1/shipments/{id}/tracking` | GET | SHIPPING.VIEW_SHIPMENT | #203 — shipment-service; own-order visibility enforced downstream |
+| `/api/v1/shipments/{id}/status` | PATCH | SHIPPING.UPDATE_STATUS | #203 — shipment-service |
+| `/api/v1/shipments/{id}/override` | POST | SHIPPING.MANUAL_OVERRIDE | #203 — shipment-service; reason required downstream |
+| `/api/v1/ratings` | POST | REPUTATION.RATE | #212 — rating-service; completed-order eligibility checked downstream |
+| `/api/v1/ratings` | GET | REPUTATION.VIEW | #212 — rating-service; userId is a query parameter |
+| `/api/v1/reputations/{userId}` | GET | REPUTATION.VIEW | #213 — rating-service |
+| `/api/v1/reputations/{userId}/adjustments` | POST | USER.REPUTATION.ADJUST | #213 — rating-service; reason and score bounds checked downstream |
+| `/api/v1/reputations/{userId}/history` | GET | USER.REPUTATION.VIEW | #213 — rating-service |
 | `/api/v1/auctions` | POST | AUCTION.CREATE | #140 — Create as SELLER; `sellerId` comes from the JWT subject |
 | `/api/v1/event-logs` | GET | EVENT_LOG.VIEW | #192 — Event log consumer and audit log |
 | `/api/v1/event-logs/{id}` | GET | EVENT_LOG.VIEW_DETAIL | #192 — Event log consumer and audit log |
@@ -106,9 +129,65 @@ an offset. Encode a positive offset's `+` as `%2B` in a URL, or use `Z` for UTC.
 shared `INVALID_PARAMETER` Problem Details response. A page beyond the result set
 returns 200 with empty `data` and the actual `page` totals.
 
+## Service split integration (#245)
+
+The table above is the **active gateway configuration**, including policies
+registered ahead of their downstream implementation. It does not assert that a
+feature API exists. Payment initiation (#121) is implemented on the integrated
+develop baseline. Callbacks (#155/#203), shipping (#201/#202), payment reads/refunds
+(#207/#247), and rating/reputation (#212/#213) require their owning implementations
+for live business acceptance. The older API-shape drafts below do not add runtime policies.
+
+| Destination | Owned paths |
+|---|---|
+| `lb://payment-service` | payments, refunds, and the exact `/api/v1/webhooks/sepay` path |
+| `lb://shipment-service` | shipments, shipping, carriers, and `/api/v1/webhooks/carriers/**` |
+| `lb://rating-service` | ratings and reputations |
+| `lb://inventory-service` | inventory and warehouses |
+
+Business prefixes in this table are under `/api/v1/` and include their base path
+and descendants. Routing and public access are separate: the carrier callback
+prefix has one owner, but only the two explicit POST paths above bypass bearer
+authentication. No catch-all webhook route or public policy exists.
+
+**Carrier callback contract (#203 / #245):** the local endpoint catalogue
+(`Endpoints!F132:G132`) defines POST `/api/v1/webhooks/carriers/{carrier}`.
+SRS 2.6 and the BR workbook's `Config & Validation!A43:B44` name GHN and GHTK.
+#203's owner confirmed on 2026-11-05 that the concrete callbacks are exactly
+`POST /api/v1/webhooks/carriers/ghn` and
+`POST /api/v1/webhooks/carriers/ghtk`, with lowercase carrier names. These are the
+only supported public expansions of the template. Uppercase names, other carriers, child paths and
+other HTTP methods receive no public exception. Provider signatures/tokens and
+payload validation remain in shipment-service; SePay verification remains in
+payment-service. Public does not mean the payload is trusted.
+
+`POST /api/v1/payments` takes `{orderGroupId}` and requires `CHECKOUT.START`
+(#121 / !100). The former commerce draft `/api/v1/orders/{id}/payment` is obsolete
+and has no gateway route. Schema tables do not create extra HTTP APIs.
+For GET payments, query parameters do not select a gateway policy: #207's
+`ORDER.REFUND` list policy also applies to `?orderId=...`. The #207 owner must
+reconcile any buyer-read exception before exposing it; the gateway cannot infer
+ownership from an ID or query string.
+
+Inventory/warehouse routes require a valid token through the fallback. SRS 2.7
+defines no `INVENTORY.*` or `WAREHOUSE.*` privileges; no invented privilege or
+draft public stock endpoint is enabled here. Owning contracts must register any
+future privilege/public changes and enforce service-side roles and business
+authorization. The unmerged #124 draft does not override #245's protected boundary.
+
+`/internal/v1/**`, `/realms/**` and `/admin/realms/**` have no gateway route,
+including for authenticated callers. #238's merged auth cutover is retained: legacy login/JWKS policies are absent;
+Keycloak endpoints are accessed directly and are not gateway proxy routes.
+
+The gateway retains the merged #236/#237 realm, issuer/JWKS, flat claims and
+matching downstream trust configuration. #238's removal of legacy login/JWKS
+public policies is preserved. Payment initiation #121 is implemented on develop;
+its policy and route are registered once. Callback and other feature APIs still
+require their owning implementations.
+
 ## Matching and JWT contract
 
-- Exactly seven method/path pairs are public. No public `/**`, method-less rule,
+- Exactly thirteen method/path pairs are public. No public `/**`, method-less rule,
   or implicit public HEAD/OPTIONS, Swagger or Actuator exception. TRACE is rejected
   earlier by Spring Security's HTTP firewall with 400, never forwarded.
 - `{id}` is a UUID. UUID-constrained matchers keep `/products/mine`,
@@ -116,13 +195,15 @@ returns 200 with empty `data` and the actual `page` totals.
   inheriting public product-detail access. Category `tree` has its own public row.
 - Category updates use PATCH in the current controller; the external endpoint
   catalogue says PUT. A later contract change must update both files.
-- RS256 only; issuer `user-service`; audience includes `nexus-services`; `exp`
+- RS256 only; issuer defaults to `http://localhost:18080/realms/nexus` (#237);
+  audience includes `nexus-services`; `exp`
   is mandatory. Expiry and `nbf` retain Spring Security's 60-second clock skew.
 - JWT segments must use canonical unpadded base64url. A changed last character
   is rejected even when only unused encoding bits, not signature bytes, change.
 - Config Server's `spring.security.oauth2.resourceserver.jwt.jwk-set-uri` points
-  directly at `http://localhost:8081/.well-known/jwks.json`. Override
-  `USER_SERVICE_JWKS_URI` for the deployment network. The reactive decoder caches
+  directly at `http://localhost:18080/realms/nexus/protocol/openid-connect/certs`.
+  Override `KEYCLOAK_ISSUER_URI` and `KEYCLOAK_JWK_SET_URI` for the deployment network.
+  The reactive decoder caches
   public keys; validation does not call the login API or loop through gateway.
 - Missing/invalid tokens return 401 `application/problem+json` with `type`,
   `title`, `status`, `detail`, `instance`, `code: UNAUTHENTICATED`, and
@@ -137,11 +218,11 @@ returns 200 with empty `data` and the actual `page` totals.
 From `be-project-nexus/api-gateway`, run `./mvnw verify` using Java 21.
 Tests use real RS256 tokens and a local HTTP JWKS fixture, not a mocked decoder.
 A real gateway HTTP route forwards accepted requests to an instrumented HTTP
-service; rejected requests leave its request log empty. Tests cover all seven
+service; rejected requests leave its request log empty. Tests cover all thirteen
 public pairs, other methods, listed privileges, invalid tokens, and fallback.
 The permission test binds the same YAML properties consumed by `SecurityConfig`
 and compares all explicit rows (including privileges) in both directions. It also
-independently checks the seven public pairs. Newly public undocumented pairs,
+independently checks the thirteen public pairs. Newly public undocumented pairs,
 stale document rows, duplicates, and missing owners fail.
 Configuration-binding tests verify that changed paths/privileges are honored;
 invalid methods, missing paths/privileges, and duplicate policies are rejected.
@@ -150,8 +231,50 @@ This follows Vinh's configuration-driven public endpoint pattern in commits
 (`user-service.yml`), while keeping the gateway reactive and its public list exact.
 
 Fixtures prove gateway behavior, not the existence of unmerged service endpoints.
-Live register/login/product/profile acceptance also requires their owning issues,
+Live registration, Keycloak sign-in, product and profile acceptance require their owning issues,
 running services, test data, and matching downstream permit/privilege rules.
+
+The #245 HTTP tests now import production `RouteConfig` and use LoadBalancer with
+separate instrumented fixtures for the four new service identities. They check
+base/child prefixes, destination isolation, 401/403 without forwarding, all thirteen
+public pairs, internal/Keycloak/obsolete payment paths not forwarding, and 429 with
+Retry-After. A test-only HMAC callback protocol verifies raw-body/header forwarding
+and preserves downstream 401; actual SePay/GHN/GHTK verification remains #155/#203.
+
+Validation on 2026-11-05 with Java 21 after integrating origin/develop `cfe10df`:
+gateway `verify` passed 55 tests (24 in SecurityConfigTest and 7 in
+GatewayPermissionsTest); Config Server `verify` passed 5 tests, with zero
+failures/errors/skips. `node docs/api/check-contract.mjs` passed all 46 delivered
+operations; the former #111 documentation gap has been fixed on develop.
+
+Live acceptance on the same integrated baseline passed using the real merged
+Keycloak realm, Config Server, Gateway, Catalog and Payment services, with isolated
+PostgreSQL databases. A genuine buyer token produced payment 201 for its owned
+session; absent bearer produced gateway 401, and a genuine seller token without
+CHECKOUT.START produced gateway 403. The buyer's access to another owner's plan
+returned service code PAYMENT_SESSION_ACCESS_DENIED (403); an expired plan returned
+PAYMENT_SESSION_NOT_PAYABLE (409). Real Keycloak tokens without audience and
+legacy-key/issuer tokens were rejected. Catalog creation persisted the seller
+from the validated JWT. All isolated containers/processes were cleaned up.
+
+Reproduce from the backend root with Java 21, Docker and OpenSSL on PATH, after
+building current Config Server, Gateway, Catalog and Payment jars:
+`python docs/security-keycloak/test-token-trust.py --service-split --evidence-dir <empty-directory>`.
+The harness emits sanitized summary.log/evidence.json without bearer tokens or
+passwords. Payment plans are direct database fixtures: this verifies actual
+payment HTTP/security/business checks, not checkout event consumption, a real
+bank transfer or provider callbacks. Shipping/rating/inventory feature routes
+remain covered by controlled downstream fixtures while their APIs are unavailable.
+
+Before live acceptance, rebuild/restart Config Server and gateway and verify the
+four Eureka identities. Capture the three public address GETs, unauthenticated
+POST quotes returning gateway 401, missing-privilege 403, and valid Keycloak-token
+forwarding for available APIs. For callback evidence, record the owning service's
+receipt as well as the response: a bad provider signature can produce a service
+401 after passing the gateway. Record which services/endpoints are unimplemented
+and distinguish fixture results from real business/API success. The lowercase
+carrier callback contract is recorded above. The merged #237 trust configuration
+is retained; use the real-token harness below to reproduce live authorization checks.
 
 References: [ADR-006](../adr/ADR-006-service-authentication-RS256.md),
 [SRS 2.7](https://docs.google.com/document/d/1nw7_WwZoWhjgA1WiZJzu37ps_MisI5Ls/edit),
@@ -161,7 +284,8 @@ References: [ADR-006](../adr/ADR-006-service-authentication-RS256.md),
 
 ## API shapes draft (#88) — commerce and notifications
 
-These **14 method/path contracts are fixed for callers**, while DTO field names
+These historical **14 method/path contracts** include the payment row superseded
+by #121 and reconciled below. The remaining DTO field names
 remain drafts (`0.1.0-draft`). This section is the permission handoff for the
 [commerce contract](commerce-service.yaml) and
 [notification contract](notification-service.yaml). The active table above
@@ -198,7 +322,7 @@ from the catalogue is dropped, combined into a new string, or treated as OR.
 Roles are canonical JWT `roles` codes mapped to `ROLE_<code>`; privileges are
 exact JWT `privileges` strings without prefixes. Ownership checks use validated
 JWT `sub`; do not accept a caller-controlled `userId` for another account.
-Preserve the seven public method/path pairs above; none of these 14 paths is public.
+These older drafts add no public method/path pairs to the active table above.
 
 | Method | Path | Actor roles (reference; ADMIN gate only for ORD-06) | Gateway privilege | Required service privileges (all) | Ownership / business restriction | Owning issue |
 |---|---|---|---|---|---|---|
