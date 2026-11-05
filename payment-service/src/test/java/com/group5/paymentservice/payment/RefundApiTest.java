@@ -12,6 +12,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.web.context.WebApplicationContext;
@@ -21,6 +22,12 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.reset;
@@ -79,6 +86,47 @@ class RefundApiTest extends PaymentDatabaseTestSupport {
 
         refund("key-conflict", body(orderId, null, "Something else")).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("PAYMENT_REFUND_IDEMPOTENCY_CONFLICT"));
+        assertThat(fixtures.refunds(orderId)).isEqualTo(1);
+    }
+
+    @Test
+    void aPartialAmountThenTheSameKeyWithoutAmountIsAConflict() throws Exception {
+        UUID orderId = cancelledPaidOrder();
+        refund("key-partial-then-full", body(orderId, "120000.50", "Partial goodwill")).andExpect(status().isAccepted());
+
+        refund("key-partial-then-full", body(orderId, null, "Partial goodwill")).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PAYMENT_REFUND_IDEMPOTENCY_CONFLICT"));
+        assertThat(fixtures.refunds(orderId)).isEqualTo(1);
+        assertThat((BigDecimal) fixtures.refund(orderId).get("amount")).isEqualByComparingTo("120000.50");
+    }
+
+    @Test
+    void noAmountThenTheFullAmountWithTheSameKeyIsTheSameRefund() throws Exception {
+        UUID orderId = cancelledPaidOrder();
+        String refundId = requested(orderId, "key-default-then-full");
+
+        refund("key-default-then-full", body(orderId, RefundFixtures.BIG, "Seller out of stock"))
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.data.refundId").value(refundId));
+        assertThat(fixtures.refunds(orderId)).isEqualTo(1);
+    }
+
+    @Test
+    void theFullAmountThenNoAmountWithTheSameKeyIsTheSameRefund() throws Exception {
+        UUID orderId = cancelledPaidOrder();
+        String refundId = requestedWith(orderId, "key-full-then-default", RefundFixtures.BIG, "Seller out of stock");
+
+        refund("key-full-then-default", body(orderId, null, "Seller out of stock"))
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.data.refundId").value(refundId));
+        assertThat(fixtures.refunds(orderId)).isEqualTo(1);
+    }
+
+    @Test
+    void theSameAmountWithAnotherScaleIsTheSameRefund() throws Exception {
+        UUID orderId = cancelledPaidOrder();
+        String refundId = requestedWith(orderId, "key-scale", "100.0", "Partial goodwill");
+
+        refund("key-scale", body(orderId, "100.00", "Partial goodwill"))
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.data.refundId").value(refundId));
         assertThat(fixtures.refunds(orderId)).isEqualTo(1);
     }
 
@@ -209,6 +257,38 @@ class RefundApiTest extends PaymentDatabaseTestSupport {
     }
 
     @Test
+    void twoCompletionsAtTheSameTimeBothReturnTheRefundAndWriteOnce() throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            for (int round = 0; round < 5; round++) {
+                UUID orderId = cancelledPaidOrder();
+                String refundId = requested(orderId, "key-race-" + round);
+                CyclicBarrier start = new CyclicBarrier(2);
+                Callable<MvcResult> click = () -> {
+                    start.await(5, TimeUnit.SECONDS);
+                    return complete(refundId, "support").andReturn();
+                };
+
+                for (Future<MvcResult> response : pool.invokeAll(List.of(click, click))) {
+                    MvcResult result = response.get(30, TimeUnit.SECONDS);
+                    assertThat(result.getResponse().getStatus()).isEqualTo(200);
+                    var data = mapper.readTree(result.getResponse().getContentAsString()).get("data");
+                    assertThat(data.get("refundId").asString()).isEqualTo(refundId);
+                    assertThat(data.get("status").asString()).isEqualTo("COMPLETED");
+                }
+                assertThat(jdbc.queryForObject("""
+                        SELECT count(*) FROM payment_transactions transfer
+                        JOIN payment_instructions instruction ON instruction.session_id = transfer.session_id
+                        WHERE instruction.order_id = ? AND transfer.type = 'REFUND'
+                        """, Long.class, orderId)).isEqualTo(1);
+                assertThat(fixtures.outbox("OrderRefundCompleted", orderId)).isEqualTo(1);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
     void completingAnUnknownRefundIsNotFound() throws Exception {
         complete(UUID.randomUUID().toString(), "support").andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PAYMENT_REFUND_NOT_FOUND"));
@@ -225,7 +305,11 @@ class RefundApiTest extends PaymentDatabaseTestSupport {
     }
 
     private String requested(UUID orderId, String key) throws Exception {
-        String response = refund(key, body(orderId, null, "Seller out of stock"))
+        return requestedWith(orderId, key, null, "Seller out of stock");
+    }
+
+    private String requestedWith(UUID orderId, String key, String amount, String reason) throws Exception {
+        String response = refund(key, body(orderId, amount, reason))
                 .andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
         return mapper.readTree(response).get("data").get("refundId").asString();
     }

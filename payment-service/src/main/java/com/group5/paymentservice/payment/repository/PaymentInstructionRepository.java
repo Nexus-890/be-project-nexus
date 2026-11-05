@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -19,7 +20,11 @@ public interface PaymentInstructionRepository extends JpaRepository<PaymentInstr
     @Query("select instruction from PaymentInstruction instruction where instruction.session.id = :sessionId order by instruction.orderId")
     List<PaymentInstruction> findSessionForUpdate(@Param("sessionId") UUID sessionId);
 
-    Optional<PaymentInstruction> findByOrderId(UUID orderId);
+    @Query("select instruction.session.orderGroupId from PaymentInstruction instruction where instruction.orderId = :orderId")
+    Optional<UUID> findGroupIdByOrderId(@Param("orderId") UUID orderId);
+
+    @Query("select instruction.amount from PaymentInstruction instruction where instruction.orderId = :orderId")
+    Optional<BigDecimal> findAmountByOrderId(@Param("orderId") UUID orderId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select instruction from PaymentInstruction instruction where instruction.orderId = :orderId")

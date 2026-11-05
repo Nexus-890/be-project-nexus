@@ -80,8 +80,8 @@ public class RefundService {
 
     private void refundCancelledOrder(EventEnvelope<OrderCancelled> event) {
         OrderCancelled cancellation = event.payload();
-        Optional<PaymentInstruction> known = instructions.findByOrderId(cancellation.orderId());
-        if (known.isEmpty()) {
+        Optional<UUID> groupId = instructions.findGroupIdByOrderId(cancellation.orderId());
+        if (groupId.isEmpty()) {
             // ĐƠN CHƯA TRẢ TIỀN MÀ CHƯA CÓ MANIFEST THÌ KHÔNG CÓ GÌ ĐỂ HOÀN -> BỎ QUA
             // COMMERCE NÓI ĐÃ TRẢ MÀ PAYMENT CHƯA CÓ INSTRUCTION = SAI THỨ TỰ -> NÉM LỖI ĐỂ KAFKA THỬ LẠI
             if (!isZero(cancellation.paidAmount())) {
@@ -90,7 +90,7 @@ public class RefundService {
             return;
         }
         // KHÓA CÙNG THỨ TỰ VỚI #121: GROUP -> INSTRUCTION -> REFUND, TRÁNH DEADLOCK VỚI WEBHOOK/HỦY NHÓM
-        sessions.lockKey("payment-group:" + known.get().getSession().getOrderGroupId());
+        sessions.lockKey("payment-group:" + groupId.get());
         PaymentInstruction instruction = instructions.findLockedByOrderId(cancellation.orderId()).orElseThrow();
         Optional<Refund> existing = refunds.findLockedByOrderId(cancellation.orderId());
         if (cancellation.orderVersion() < instruction.getLastOrderVersion() || !isFunded(instruction)) {
@@ -131,15 +131,15 @@ public class RefundService {
         sessions.lockKey("refund-key:" + idempotencyKey);
         Optional<Refund> replay = refunds.findByIdempotencyKey(idempotencyKey);
         if (replay.isPresent()) {
-            if (!sameRequest(replay.get(), body)) {
+            if (!sameRequest(replay.get(), body, effectiveAmount(replay.get(), body))) {
                 throw new DomainException(PaymentErrorCode.REFUND_IDEMPOTENCY_CONFLICT);
             }
             return result(replay.get());
         }
 
-        PaymentInstruction known = instructions.findByOrderId(body.orderId())
+        UUID groupId = instructions.findGroupIdByOrderId(body.orderId())
                 .orElseThrow(() -> new DomainException(PaymentErrorCode.ORDER_NOT_FOUND));
-        sessions.lockKey("payment-group:" + known.getSession().getOrderGroupId());
+        sessions.lockKey("payment-group:" + groupId);
         PaymentInstruction instruction = instructions.findLockedByOrderId(body.orderId()).orElseThrow();
         // PHẢI ĐÃ TRẢ TIỀN VÀ PAYMENT ĐÃ NHẬN OrderCancelled, KHÔNG THÌ COMMERCE KHÔNG CHUYỂN ĐƯỢC TRẠNG THÁI ĐƠN
         if (!isFunded(instruction) || instruction.getCanceledAt() == null) {
@@ -178,12 +178,14 @@ public class RefundService {
         if (user == null || user.id() == null) {
             throw new DomainException(PaymentErrorCode.UNAUTHENTICATED);
         }
-        Refund known = refunds.findById(refundId)
+        // TRƯỚC KHI KHÓA CHỈ ĐỌC orderId VÀ groupId (SCALAR), KHÔNG LOAD ENTITY -> SAU KHÓA ĐỌC BẢN MỚI NHẤT
+        // ĐỌC ENTITY TRƯỚC KHÓA THÌ NGƯỜI BẤM SAU GIỮ BẢN CŨ -> LỖI OPTIMISTIC LOCK -> 500
+        UUID orderId = refunds.findOrderIdById(refundId)
                 .orElseThrow(() -> new DomainException(PaymentErrorCode.REFUND_NOT_FOUND));
-        PaymentInstruction located = instructions.findByOrderId(known.getOrderId()).orElseThrow();
+        UUID groupId = instructions.findGroupIdByOrderId(orderId).orElseThrow();
         // CÙNG THỨ TỰ KHÓA GROUP -> INSTRUCTION -> REFUND: 2 SUPPORT BẤM CÙNG LÚC THÌ NGƯỜI SAU CHỜ
-        sessions.lockKey("payment-group:" + located.getSession().getOrderGroupId());
-        PaymentInstruction instruction = instructions.findLockedByOrderId(known.getOrderId()).orElseThrow();
+        sessions.lockKey("payment-group:" + groupId);
+        PaymentInstruction instruction = instructions.findLockedByOrderId(orderId).orElseThrow();
         Refund refund = refunds.findLockedById(refundId).orElseThrow();
         // BẤM LẠI SAU KHI ĐÃ XONG -> TRẢ KẾT QUẢ CŨ, KHÔNG TẠO GIAO DỊCH HAY EVENT THỨ 2
         if (refund.getStatus() == RefundStatus.COMPLETED) {
@@ -227,10 +229,19 @@ public class RefundService {
         return refunds.findByOrderId(orderId).map(RefundService::view).stream().toList();
     }
 
-    private static boolean sameRequest(Refund stored, RefundRequest body) {
+    // KHÔNG GỬI amount = HOÀN ĐỦ TIỀN ĐƠN -> SO SÁNH SỐ TIỀN SAU KHI ÁP MẶC ĐỊNH, KHÔNG BỎ QUA
+    private BigDecimal effectiveAmount(Refund stored, RefundRequest body) {
+        if (body.amount() != null || !stored.getOrderId().equals(body.orderId())) {
+            return body.amount();
+        }
+        return instructions.findAmountByOrderId(stored.getOrderId()).orElseThrow();
+    }
+
+    private static boolean sameRequest(Refund stored, RefundRequest body, BigDecimal amount) {
         return stored.getOrderId().equals(body.orderId())
                 && stored.getReason().equals(body.reason())
-                && (body.amount() == null || stored.getAmount().compareTo(body.amount()) == 0);
+                && amount != null
+                && stored.getAmount().compareTo(amount) == 0;
     }
 
     private static RefundResult result(Refund refund) {
