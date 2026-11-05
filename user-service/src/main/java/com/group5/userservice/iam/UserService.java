@@ -6,14 +6,14 @@ import com.group5.userservice.iam.dto.RegisterRequest;
 import com.group5.userservice.iam.dto.UpdateProfileRequest;
 import com.group5.userservice.iam.dto.UserListRequest;
 import com.group5.userservice.iam.dto.UserResponse;
-import com.group5.userservice.iam.entity.Role;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.Gender;
 import com.group5.userservice.shared.config.IamProperties;
 import org.hibernate.exception.ConstraintViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.domain.Page;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -21,20 +21,29 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDate;
 import java.sql.SQLException;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 public class UserService {
+    private static final Logger log = LoggerFactory.getLogger(UserService.class);
+    private static final Set<String> KEYCLOAK_REJECTIONS = Set.of(
+            UserErrorCode.USER_EMAIL_ALREADY_USED.code(), UserErrorCode.USER_IDENTITY_REJECTED.code());
+
     private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
     private final IamProperties iamProperties;
+    private final KeycloakAdminClient keycloak;
     private final TransactionTemplate transaction;
 
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder,
-                       IamProperties iamProperties, PlatformTransactionManager transactionManager) {
+    public UserService(UserRepository userRepository, IamProperties iamProperties,
+                       KeycloakAdminClient keycloak, PlatformTransactionManager transactionManager) {
         this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
         this.iamProperties = iamProperties;
+        this.keycloak = keycloak;
         this.transaction = new TransactionTemplate(transactionManager);
         this.transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
@@ -45,15 +54,19 @@ public class UserService {
             throw new DomainException(UserErrorCode.USER_REGISTRATION_DISABLED);
         }
         String roleCode = iamProperties.getDefaultUserRole();
+        KeycloakAdminClient.RealmRole role = keycloak.realmRole(roleCode)
+                .orElseThrow(() -> new DomainException(UserErrorCode.USER_REGISTRATION_ROLE_UNAVAILABLE));
+        transaction.executeWithoutResult(status -> rejectDuplicates(request));
+        UUID userId = keycloak.createUser(request.email(), request.password(), request.fullName());
         try {
-            return transaction.execute(status -> createUser(request, roleCode));
+            keycloak.assignRealmRole(userId, role);
+            return transaction.execute(status -> createUser(userId, request, roleCode));
         } catch (RuntimeException exception) {
             // execute() has already rolled back, including failures at commit.
             String field = duplicateField(exception);
-            if (field != null) {
-                throw duplicate(field);
-            }
-            throw exception;
+            RuntimeException failure = field == null ? exception : duplicate(field);
+            compensate(() -> keycloak.deleteUser(userId), failure);
+            throw failure;
         }
     }
 
@@ -62,41 +75,78 @@ public class UserService {
     }
 
     public UserResponse getUser(UUID userId) {
-        return transaction.execute(status -> {
-            User user = userRepository.findByIdAndDeletedAtIsNull(userId)
-                    .orElseThrow(() -> new DomainException(UserErrorCode.USER_NOT_FOUND));
-            return UserResponse.from(user);
-        });
+        User user = transaction.execute(status -> userRepository.findByIdAndDeletedAtIsNull(userId)
+                .orElseThrow(() -> new DomainException(UserErrorCode.USER_NOT_FOUND)));
+        return UserResponse.from(user, keycloak.realmRoles(userId));
     }
 
     public Page<UserResponse> listUsers(UserListRequest request) {
         Specification<User> filter = UserSpecifications.notDeleted()
                 .and(UserSpecifications.matches(request.q()))
                 .and(UserSpecifications.hasStatus(request.status()))
-                .and(UserSpecifications.hasRole(request.role()));
-        return transaction.execute(status ->
-                userRepository.findAll(filter, request.pageable()).map(UserResponse::from));
+                .and(withRole(request.role()));
+        Page<User> users = transaction.execute(status -> userRepository.findAll(filter, request.pageable()));
+        return users.map(user -> UserResponse.from(user, keycloak.realmRoles(user.getId())));
+    }
+
+    private Specification<User> withRole(String role) {
+        if (role == null || role.isBlank()) {
+            return Specification.unrestricted();
+        }
+        return UserSpecifications.idIn(keycloak.userIdsWithRole(role.trim().toUpperCase(Locale.ROOT)));
     }
 
     public UserResponse updateOwnProfile(UUID userId, UpdateProfileRequest request) {
+        AtomicReference<KeycloakAdminClient.EmailState> replacedEmail = new AtomicReference<>();
+        User user;
         try {
-            return transaction.execute(status -> updateProfileInTransaction(userId, request));
+            user = transaction.execute(status -> updateProfileInTransaction(userId, request, replacedEmail));
         } catch (RuntimeException exception) {
             // The transaction has already rolled back before translating a database conflict.
-            String field = duplicateField(exception);
-            if (field != null) {
-                throw duplicate(field);
+            RuntimeException failure = profileFailure(exception);
+            KeycloakAdminClient.EmailState previous = replacedEmail.get();
+            if (previous != null) {
+                restoreEmail(userId, previous, failure);
             }
-            if (isProfileUniqueViolation(exception)) {
-                throw new DomainException(UserErrorCode.USER_PROFILE_CONFLICT);
-            }
-            throw exception;
+            throw failure;
+        }
+        return UserResponse.from(user, keycloak.realmRoles(userId));
+    }
+
+    private void restoreEmail(UUID userId, KeycloakAdminClient.EmailState previous, RuntimeException failure) {
+        try {
+            keycloak.updateEmail(userId, previous.email(), previous.emailVerified());
+        } catch (RuntimeException cleanup) {
+            failure.addSuppressed(cleanup);
+            log.error("Keycloak email of user {} could not be restored and may differ from the profile email",
+                    userId, cleanup);
         }
     }
 
-    private UserResponse updateProfileInTransaction(UUID userId, UpdateProfileRequest request) {
+    private static RuntimeException profileFailure(RuntimeException exception) {
+        String field = duplicateField(exception);
+        if (field != null) {
+            return duplicate(field);
+        }
+        if (isProfileUniqueViolation(exception)) {
+            return new DomainException(UserErrorCode.USER_PROFILE_CONFLICT);
+        }
+        return exception;
+    }
+
+    private static void compensate(Runnable undo, RuntimeException failure) {
+        try {
+            undo.run();
+        } catch (RuntimeException cleanup) {
+            failure.addSuppressed(cleanup);
+        }
+    }
+
+    private User updateProfileInTransaction(UUID userId, UpdateProfileRequest request,
+                                            AtomicReference<KeycloakAdminClient.EmailState> replacedEmail) {
         User user = userRepository.findForProfileUpdate(userId)
                 .orElseThrow(() -> new DomainException(UserErrorCode.USER_NOT_FOUND));
+        String previousEmail = user.getEmail();
 
         if (request.email() != null
                 && userRepository.existsByEmailAndIdNot(request.email(), userId)) {
@@ -119,7 +169,29 @@ public class UserService {
             user.setEmail(request.email());
         }
 
-        return UserResponse.from(userRepository.saveAndFlush(user));
+        User saved = userRepository.saveAndFlush(user);
+        if (request.email() != null && !request.email().equals(previousEmail)) {
+            changeKeycloakEmail(userId, request.email(), replacedEmail);
+        }
+        return saved;
+    }
+
+    private void changeKeycloakEmail(UUID userId, String email,
+                                     AtomicReference<KeycloakAdminClient.EmailState> replacedEmail) {
+        Optional<KeycloakAdminClient.EmailState> before = keycloak.emailState(userId);
+        if (before.isEmpty()) {
+            log.warn("Profile {} has no Keycloak account, so its new email is stored only in user-service", userId);
+            return;
+        }
+        replacedEmail.set(before.get());
+        try {
+            keycloak.updateEmail(userId, email, false);
+        } catch (DomainException exception) {
+            if (KEYCLOAK_REJECTIONS.contains(exception.getErrorCode())) {
+                replacedEmail.set(null);
+            }
+            throw exception;
+        }
     }
 
     private static boolean isProfileUniqueViolation(Throwable exception) {
@@ -132,8 +204,7 @@ public class UserService {
         return false;
     }
 
-    private UserResponse createUser(RegisterRequest request, String roleCode) {
-        userRepository.lockRegistrationIdentity(request.identityNumber());
+    private void rejectDuplicates(RegisterRequest request) {
         if (userRepository.existsByEmail(request.email())) {
             throw duplicate("email");
         }
@@ -143,21 +214,23 @@ public class UserService {
         if (userRepository.existsByIdentityNumber(request.identityNumber())) {
             throw duplicate("identityNumber");
         }
-        Role role = userRepository.findRegistrationRole(roleCode)
-                .orElseThrow(() -> new DomainException(UserErrorCode.USER_REGISTRATION_ROLE_UNAVAILABLE));
+    }
+
+    private UserResponse createUser(UUID userId, RegisterRequest request, String roleCode) {
+        userRepository.lockRegistrationIdentity(request.identityNumber());
+        rejectDuplicates(request);
 
         User user = new User();
+        user.setId(userId);
         user.setEmail(request.email().toLowerCase());
         user.setPhone(request.phone());
-        user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setFullName(request.fullName());
         user.setIdentityNumber(request.identityNumber());
         user.setGender(Gender.valueOf(request.gender()));
         user.setAddress(request.address());
         user.setDateOfBirth(LocalDate.parse(request.dateOfBirth()));
-        user.assignInitialRole(role);
 
-        return UserResponse.from(userRepository.saveAndFlush(user));
+        return UserResponse.from(userRepository.saveAndFlush(user), List.of(roleCode));
     }
 
     private static DomainException duplicate(String field) {

@@ -42,16 +42,16 @@ class RateLimitConfigServerYamlTest {
     }
 
     @Test
-    void configuresGatewayJwtValidationAgainstUserServiceJwks() {
+    void configuresGatewayJwtValidationAgainstKeycloakRealmJwks() {
         YamlPropertiesFactoryBean yamlFactory = new YamlPropertiesFactoryBean();
         yamlFactory.setResources(new FileSystemResource(
                 "../config-service/src/main/resources/config/api-gateway.yml"));
         var yaml = yamlFactory.getObject();
 
         assertThat(yaml.getProperty("spring.security.oauth2.resourceserver.jwt.jwk-set-uri"))
-                .isEqualTo("${USER_SERVICE_JWKS_URI:http://localhost:8081/.well-known/jwks.json}");
+                .isEqualTo("${KEYCLOAK_JWK_SET_URI:http://localhost:18080/realms/nexus/protocol/openid-connect/certs}");
         assertThat(yaml.getProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri"))
-                .isEqualTo("user-service");
+                .isEqualTo("${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}");
         assertThat(yaml.getProperty("spring.security.oauth2.resourceserver.jwt.audiences[0]"))
                 .isEqualTo("nexus-services");
     }

@@ -51,7 +51,7 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "eureka.client.enabled=false",
                 "spring.cloud.discovery.enabled=false",
                 "management.tracing.export.zipkin.enabled=false",
-                "spring.security.oauth2.resourceserver.jwt.issuer-uri=user-service",
+                "spring.security.oauth2.resourceserver.jwt.issuer-uri=http://localhost:18080/realms/nexus",
                 "spring.security.oauth2.resourceserver.jwt.audiences[0]=nexus-services"
         })
 class SecurityConfigTest {
@@ -71,6 +71,8 @@ class SecurityConfigTest {
     private int port;
     @Autowired
     private SecurityConfig.GatewaySecurityProperties permissions;
+    @Autowired
+    private org.springframework.context.ConfigurableApplicationContext context;
     private WebTestClient client;
 
     @DynamicPropertySource
@@ -111,6 +113,16 @@ class SecurityConfigTest {
     }
 
     @Test
+    void markingNotificationsRequiresBearerTokenAtTheGateway() {
+        for (String path : List.of("/api/v1/notifications/" + ID + "/read", "/api/v1/notifications/read-all")) {
+            client.patch().uri(path).exchange().expectStatus().isUnauthorized()
+                    .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
+                    .expectBody().jsonPath("$.code").isEqualTo("UNAUTHENTICATED");
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+    }
+
+    @Test
     void validProfileTokenReturns200AndForwardsOriginalBearerToService() {
         String bearer = "Bearer " + token(SIGNING_KEY, c -> c.claim("privileges", List.of("PROFILE.VIEW")));
         client.get().uri(ME).header(HttpHeaders.AUTHORIZATION, bearer).exchange()
@@ -142,6 +154,73 @@ class SecurityConfigTest {
         assertThat(SERVICE_LOG).containsExactly(
                 "GET /api/v1/notifications", "GET /api/v1/notifications/unread-count");
         assertThat(FORWARDED_TOKENS).containsExactly(withPrivilege, withPrivilege);
+    }
+
+    @Test
+    void eventAndAuditLogsApplyBuyerSupportAndIndependentDetailPrivileges() {
+        String list = "/api/v1/event-logs";
+        String detail = list + "/" + ID;
+        String audit = "/api/v1/audit-logs";
+        String buyer = "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of("BUYER")));
+        String support = "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of("SUPPORT_STAFF"))
+                .claim("privileges", List.of("EVENT_LOG.VIEW", "EVENT_LOG.VIEW_DETAIL")));
+        for (String path : List.of(list, detail, audit)) {
+            client.get().uri(path).exchange().expectStatus().isUnauthorized();
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, buyer).exchange().expectStatus().isForbidden();
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+        client.get().uri(list).header(HttpHeaders.AUTHORIZATION, support).exchange().expectStatus().isOk();
+        client.get().uri(detail).header(HttpHeaders.AUTHORIZATION, support).exchange().expectStatus().isOk();
+        client.get().uri(audit).header(HttpHeaders.AUTHORIZATION, support).exchange().expectStatus().isForbidden();
+        String listOnly = "Bearer " + token(SIGNING_KEY, c -> c.claim("privileges", List.of("EVENT_LOG.VIEW")));
+        client.get().uri(detail).header(HttpHeaders.AUTHORIZATION, listOnly).exchange().expectStatus().isForbidden();
+        String auditOnly = "Bearer " + token(SIGNING_KEY, c -> c.claim("privileges", List.of("AUDIT_LOG.VIEW")));
+        client.get().uri(audit).header(HttpHeaders.AUTHORIZATION, auditOnly).exchange().expectStatus().isOk();
+        assertThat(SERVICE_LOG).containsExactly("GET " + list, "GET " + detail, "GET " + audit);
+    }
+
+    @Test
+    void productionRoutesSendAllLogPathsToNotificationService() {
+        var routes = new RouteConfig().routes(new RouteLocatorBuilder(context),
+                org.mockito.Mockito.mock(com.group5.apigateway.ratelimit.RedisWindowRateLimiter.class),
+                exchange -> reactor.core.publisher.Mono.just("test-ip"));
+        var route = routes.getRoutes().filter(r -> r.getId().equals("notification-service")).blockFirst();
+        assertThat(route).isNotNull();
+        assertThat(route.getUri().toString()).isEqualTo("lb://notification-service");
+        for (String path : List.of("/api/v1/event-logs", "/api/v1/event-logs/" + ID, "/api/v1/audit-logs")) {
+            var exchange = org.springframework.mock.web.server.MockServerWebExchange.from(
+                    org.springframework.mock.http.server.reactive.MockServerHttpRequest.get(path));
+            assertThat(reactor.core.publisher.Mono.from(route.getPredicate().apply(exchange)).block()).as(path).isTrue();
+        }
+    }
+
+    @Test
+    void operationalOrderListsRequireOrderListBeforeForwardingToTheService() {
+        List<String> paths = List.of("/api/v1/orders/manage", "/api/v1/orders/sales");
+        for (String path : paths) {
+            client.get().uri(path).exchange().expectStatus().isUnauthorized()
+                    .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+
+        String detailPrivilege = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("privileges", List.of("ORDER.VIEW")));
+        for (String path : paths) {
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, detailPrivilege)
+                    .exchange().expectStatus().isForbidden()
+                    .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                    .expectBody().jsonPath("$.code").isEqualTo("FORBIDDEN");
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+
+        String listPrivilege = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("privileges", List.of("ORDER.LIST")));
+        for (String path : paths) {
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, listPrivilege)
+                    .exchange().expectStatus().isOk().expectBody(String.class).isEqualTo("downstream");
+        }
+        assertThat(SERVICE_LOG).containsExactly("GET /api/v1/orders/manage", "GET /api/v1/orders/sales");
+        assertThat(FORWARDED_TOKENS).containsExactly(listPrivilege, listPrivilege);
     }
 
     @Test
@@ -190,6 +269,12 @@ class SecurityConfigTest {
     }
 
     @Test
+    void rejectsLegacyUserServiceTokenEvenIfIssuerClaimsToBeKeycloak() {
+        expectInvalidToken(token(FOREIGN_KEY, c -> c.issuer("user-service")));
+        expectInvalidToken(token(FOREIGN_KEY, c -> c.claim("privileges", List.of("PROFILE.VIEW"))));
+    }
+
+    @Test
     void rejectsAlgorithmsOtherThanRs256() throws Exception {
         SignedJWT jwt = SignedJWT.parse(token(SIGNING_KEY, c -> { }));
         SignedJWT rs512 = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS512).keyID(KEY_ID).build(),
@@ -203,14 +288,14 @@ class SecurityConfigTest {
     }
 
     @Test
-    void allNinePublicPairsWorkWithoutBearerToken() {
+    void allSevenPublicPairsWorkWithoutBearerToken() {
         for (SecurityConfig.Endpoint endpoint : permissions.endpoints()) {
             if (endpoint.isPublic()) {
                 client.method(endpoint.method()).uri(endpoint.path().replace("{id}", ID))
                         .exchange().expectStatus().isOk();
             }
         }
-        assertThat(SERVICE_LOG).hasSize(9);
+        assertThat(SERVICE_LOG).hasSize(7);
     }
 
     @Test
@@ -307,7 +392,7 @@ class SecurityConfigTest {
 
     private static String token(RSAKey key, Consumer<JWTClaimsSet.Builder> customizer) {
         Instant now = Instant.now();
-        var claims = new JWTClaimsSet.Builder().issuer("user-service").audience("nexus-services")
+        var claims = new JWTClaimsSet.Builder().issuer("http://localhost:18080/realms/nexus").audience("nexus-services")
                 .subject(ID).claim("roles", List.of("SELLER")).claim("privileges", List.of())
                 .issueTime(Date.from(now)).expirationTime(Date.from(now.plusSeconds(3600)))
                 .jwtID(UUID.randomUUID().toString());
@@ -369,7 +454,8 @@ class SecurityConfigTest {
                             "/api/v1/orders", "/api/v1/orders/**",
                             "/api/v1/notifications", "/api/v1/notifications/**", "/.well-known/**",
                             "/api/v1/payments", "/api/v1/payments/**",
-                            "/api/v1/checkout/**")
+                            "/api/v1/checkout/**"),
+                            "/api/v1/event-logs", "/api/v1/event-logs/**", "/api/v1/audit-logs", "/api/v1/audit-logs/**")
                     .uri("http://127.0.0.1:" + DOWNSTREAM.getAddress().getPort())).build();
         }
     }

@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.OffsetDateTime;
+import java.time.Clock;
 import java.time.ZoneOffset;
 import java.util.Set;
 import java.util.UUID;
@@ -26,6 +27,7 @@ class PaymentInitiationDatabaseTest extends PaymentDatabaseTestSupport {
     @Autowired private PaymentService payments;
     @Autowired private PaymentSessionRepository sessions;
     @Autowired private PaymentInstructionRepository instructions;
+    @Autowired private Clock clock;
     private UUID sessionId;
     private UUID groupId;
     private UUID buyerId;
@@ -36,7 +38,7 @@ class PaymentInitiationDatabaseTest extends PaymentDatabaseTestSupport {
         groupId = UUID.randomUUID();
         buyerId = UUID.randomUUID();
         String memo = "NX" + sessionId.toString().replace("-", "").substring(0, 30).toUpperCase();
-        OffsetDateTime due = OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(15);
+        OffsetDateTime due = OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC).plusMinutes(15);
         jdbc.update("""
                 INSERT INTO payment_sessions
                     (id, order_group_id, buyer_id, total_amount, currency, memo_code,
@@ -83,8 +85,9 @@ class PaymentInitiationDatabaseTest extends PaymentDatabaseTestSupport {
         assertStatus(403, buyer(UUID.randomUUID()));
         jdbc.update("UPDATE payment_sessions SET status = 'CANCELED' WHERE id = ?", sessionId);
         assertStatus(409, buyer(buyerId));
-        jdbc.update("UPDATE payment_sessions SET status = 'PENDING', due_at = now() - interval '1 second' WHERE id = ?",
-                sessionId);
+        // Use the same clock as PaymentService; Docker's DB clock may differ from the host JVM.
+        jdbc.update("UPDATE payment_sessions SET status = 'PENDING', due_at = ? WHERE id = ?",
+                OffsetDateTime.ofInstant(clock.instant().minusSeconds(1), ZoneOffset.UTC), sessionId);
         assertStatus(409, buyer(buyerId));
     }
 

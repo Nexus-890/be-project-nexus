@@ -36,11 +36,12 @@ class SchemaMigrationTest {
         @Override public String toString() { return name; }
     }
 
+    private static final Map<String, String[]> RETIRED_COLUMNS = Map.of("users",
+            new String[] {"password_hash", "failed_login_count", "locked_until", "last_login_at"});
+
     static Stream<Service> services() {
         return Stream.of(
-                new Service("user-service", "3",
-                        List.of("users.status", "users.gender", "user_reputations.trust_level"),
-                        List.of("users", "refresh_tokens", "password_reset_tokens", "user_reputations", "ratings")),
+                new Service("user-service", "3", List.of("users.status", "users.gender"), List.of("users")),
                 new Service("catalog-service", "4", List.of("products.status", "skus.status"),
                         List.of("categories", "products", "skus", "product_images", "product_stats")),
                 // Optional V3 applies the payment split before fixtures when that migration is available.
@@ -105,6 +106,23 @@ class SchemaMigrationTest {
                 rows.next();
                 assertThat(rows.getString(1)).as("inventory no longer owns shipments").isNull();
                 assertThat(rows.getString(2)).as("inventory no longer owns shipment history").isNull();
+            }
+        }
+        if (service.name().equals("user-service")) {
+            try (var statement = connection.createStatement(); var rows = statement.executeQuery("""
+                    SELECT to_regclass('public.refresh_tokens'), to_regclass('public.password_reset_tokens'),
+                           to_regclass('public.user_roles'), to_regclass('public.role_permissions'),
+                           to_regclass('public.roles'), to_regclass('public.permissions'),
+                           (SELECT count(*) FROM information_schema.columns
+                            WHERE table_schema = 'public' AND table_name = 'users'
+                              AND column_name = ANY (ARRAY['password_hash', 'failed_login_count',
+                                                           'locked_until', 'last_login_at']))
+                    """)) {
+                rows.next();
+                for (int column = 1; column <= 6; column++) {
+                    assertThat(rows.getString(column)).as("Keycloak owns auth table %d", column).isNull();
+                }
+                assertThat(rows.getLong(7)).as("Keycloak owns credentials and lockout state").isZero();
             }
         }
         for (String qualified : service.enums()) {
@@ -177,9 +195,10 @@ class SchemaMigrationTest {
         Map<String, List<String>> snapshot = new LinkedHashMap<>();
         for (String table : service.businessTables()) {
             List<String> rows = new ArrayList<>();
-            try (var statement = connection.createStatement(); var result = statement.executeQuery(
-                    "SELECT (to_jsonb(t) - 'created_by' - 'updated_by')::text FROM " + table + " t ORDER BY 1")) {
-                while (result.next()) rows.add(result.getString(1));
+            try (var query = connection.prepareStatement(
+                    "SELECT (to_jsonb(t) - 'created_by' - 'updated_by' - ?::text[])::text FROM " + table + " t ORDER BY 1")) {
+                query.setArray(1, connection.createArrayOf("text", RETIRED_COLUMNS.getOrDefault(table, new String[0])));
+                try (var result = query.executeQuery()) { while (result.next()) rows.add(result.getString(1)); }
             }
             snapshot.put(table, rows);
         }

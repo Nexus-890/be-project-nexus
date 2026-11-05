@@ -13,7 +13,6 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.Locale;
@@ -30,7 +29,6 @@ public record RegisterRequest(
 
         @NotBlank(message = "Password is required")
         @Size(min = 8, message = "Password must contain at least 8 characters")
-        @RegisterRequest.BcryptLength
         String password,
 
         @NotBlank(message = "Full name is required")
@@ -69,22 +67,6 @@ public record RegisterRequest(
     @Override
     public String toString() {
         return "RegisterRequest[redacted]";
-    }
-
-    @Target({ElementType.FIELD, ElementType.PARAMETER, ElementType.RECORD_COMPONENT})
-    @Retention(RetentionPolicy.RUNTIME)
-    @Constraint(validatedBy = BcryptLengthValidator.class)
-    public @interface BcryptLength {
-        String message() default "Password must not exceed 72 UTF-8 bytes";
-        Class<?>[] groups() default {};
-        Class<? extends Payload>[] payload() default {};
-    }
-
-    public static class BcryptLengthValidator implements ConstraintValidator<BcryptLength, String> {
-        @Override
-        public boolean isValid(String value, ConstraintValidatorContext context) {
-            return value == null || value.getBytes(StandardCharsets.UTF_8).length <= 72;
-        }
     }
 
     @Target({ElementType.FIELD, ElementType.PARAMETER, ElementType.RECORD_COMPONENT})

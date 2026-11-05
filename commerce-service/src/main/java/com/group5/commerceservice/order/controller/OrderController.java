@@ -1,6 +1,7 @@
 package com.group5.commerceservice.order.controller;
 
 import com.group5.commerceservice.order.OrderStatus;
+import com.group5.commerceservice.order.OrderType;
 import com.group5.commerceservice.order.service.OrderService;
 import com.group5.commerceservice.order.dto.request.CancelOrderRequest;
 import com.group5.commerceservice.order.dto.request.ChangeOrderStatusRequest;
@@ -14,10 +15,12 @@ import com.group5.common_core.model.PageInfo;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -50,6 +53,35 @@ public class OrderController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         Page<OrderResponse> orders = orderService.listOwn(user, status, page, size);
+        return ApiResponse.page(orders.getContent(), new PageInfo(
+                orders.getNumber(), orders.getSize(), orders.getTotalElements(), orders.getTotalPages()));
+    }
+
+    @GetMapping("/api/v1/orders/manage")
+    @PreAuthorize("hasAuthority('ORDER.LIST') and hasAnyRole('ADMIN','SUPPORT_STAFF')")
+    public ApiResponse<List<OrderResponse>> listManaged(CurrentUser user,
+            @RequestParam(required = false) UUID userId,
+            @RequestParam(required = false) UUID sellerId,
+            @RequestParam(required = false) OrderStatus status,
+            @RequestParam(required = false) OrderType orderType,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        Page<OrderResponse> orders = orderService.listManaged(user, userId, sellerId, status, orderType, from, to, page, size);
+        return ApiResponse.page(orders.getContent(), new PageInfo(
+                orders.getNumber(), orders.getSize(), orders.getTotalElements(), orders.getTotalPages()));
+    }
+
+    @GetMapping("/api/v1/orders/sales")
+    @PreAuthorize("hasAuthority('ORDER.LIST') and hasRole('SELLER')")
+    public ApiResponse<List<OrderResponse>> listSales(CurrentUser user,
+            @RequestParam(required = false) OrderStatus status,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        Page<OrderResponse> orders = orderService.listSales(user, status, from, to, page, size);
         return ApiResponse.page(orders.getContent(), new PageInfo(
                 orders.getNumber(), orders.getSize(), orders.getTotalElements(), orders.getTotalPages()));
     }
