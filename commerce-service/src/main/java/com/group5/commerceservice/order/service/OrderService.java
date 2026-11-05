@@ -9,6 +9,7 @@ import com.group5.commerceservice.cart.entity.CartItem;
 import com.group5.commerceservice.cart.repository.CartItemRepository;
 import com.group5.commerceservice.cart.repository.CartRepository;
 import com.group5.commerceservice.order.OrderStatus;
+import com.group5.commerceservice.order.OrderType;
 import com.group5.commerceservice.order.dto.request.CancelOrderRequest;
 import com.group5.commerceservice.order.dto.request.ChangeOrderStatusRequest;
 import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
@@ -33,6 +34,7 @@ import com.group5.common_security.CurrentUser;
 import feign.FeignException;
 import jakarta.annotation.PostConstruct;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.hibernate.exception.ConstraintViolationException;
@@ -41,6 +43,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -58,6 +62,8 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
@@ -79,6 +85,7 @@ public class OrderService {
     private final CartItemRepository cartItemRepository;
     private final CatalogClient catalogClient;
     private final InventoryClient inventoryClient;
+    private final PricingService pricingService;
     private static final String PAYMENT_DEADLINE_EXPIRED = "PAYMENT_DEADLINE_EXPIRED";
 
     private final OrderStateMachine stateMachine;
@@ -103,6 +110,9 @@ public class OrderService {
     public record CreationResult(boolean created, OrderGroupResponse response) {
     }
 
+    private record CheckoutResult(CreationResult order, DomainException priceChange) {
+    }
+
     // Each attempt must finish (or roll back) before reading a UNIQUE-conflict winner.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public CreationResult create(CurrentUser user, String key, CreateOrderRequest request) {
@@ -118,17 +128,18 @@ public class OrderService {
         String effectiveKey = replayEnabled ? UUID.fromString(key).toString() : UUID.randomUUID().toString();
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
         transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        CheckoutResult result;
         try {
-            return transaction.execute(status -> {
+            result = Objects.requireNonNull(transaction.execute(status -> {
                 if (replayEnabled) {
                     groupRepository.lockKey("order-key:" + effectiveKey);
                     Optional<OrderGroup> previous = groupRepository.findByIdempotencyKey(effectiveKey);
                     if (previous.isPresent()) {
-                        return replay(user, snapshot, previous.get());
+                        return new CheckoutResult(replay(user, snapshot, previous.get()), null);
                     }
                 }
                 return createFromCart(user, effectiveKey, snapshot);
-            });
+            }));
         } catch (DataIntegrityViolationException violation) {
             if (!replayEnabled || !isIdempotencyKeyViolation(violation)) {
                 throw violation;
@@ -139,6 +150,11 @@ public class OrderService {
                     .map(group -> replay(user, snapshot, group))
                     .orElseThrow(() -> violation));
         }
+        // Commit the cart price refresh before the shared handler receives the conflict.
+        if (result.priceChange() != null) {
+            throw result.priceChange();
+        }
+        return result.order();
     }
 
     private CreationResult replay(CurrentUser user, Map<String, Object> snapshot, OrderGroup group) {
@@ -164,7 +180,7 @@ public class OrderService {
         return false;
     }
 
-    private CreationResult createFromCart(CurrentUser user, String key, Map<String, Object> snapshot) {
+    private CheckoutResult createFromCart(CurrentUser user, String key, Map<String, Object> snapshot) {
         groupRepository.lockKey("order-buyer:" + user.id());
         Cart cart = cartRepository.findActiveForUpdate(user.id())
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.CART_EMPTY));
@@ -177,6 +193,15 @@ public class OrderService {
             throw new DomainException(CommerceErrorCode.PROMOTION_NOT_SUPPORTED);
         }
 
+        Map<UUID, CatalogSkuResponse> skus;
+        try {
+            skus = pricingService.revalidate(lines);
+        } catch (DomainException error) {
+            if (!CommerceErrorCode.PRICE_CHANGED.code().equals(error.getErrorCode())) {
+                throw error;
+            }
+            return new CheckoutResult(null, error);
+        }
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
         OrderGroup group = new OrderGroup();
         group.setBuyerId(user.id());
@@ -189,7 +214,7 @@ public class OrderService {
         Map<UUID, Order> sellers = new TreeMap<>();
         Map<UUID, ProductResponse> products = new HashMap<>();
         for (CartItem line : lines.stream().sorted(Comparator.comparing(CartItem::getId)).toList()) {
-            CatalogSkuResponse sku = readSku(line);
+            CatalogSkuResponse sku = skus.get(line.getSkuId());
             ProductResponse product = products.computeIfAbsent(line.getProductId(), this::readProduct);
             if (line.getQuantity() == null || line.getQuantity() <= 0) {
                 throw new DomainException(CommerceErrorCode.INVALID_QUANTITY);
@@ -218,7 +243,7 @@ public class OrderService {
             item.setSkuCode(sku.getSkuCode());
             item.setImageUrl(firstImage(product));
             item.setQuantity(line.getQuantity());
-            item.setUnitPrice(money(sku.getPrice()));
+            item.setUnitPrice(money(line.getUnitPrice()));
             item.setTotalPrice(money(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity()))));
             order.getItems().add(item);
         }
@@ -234,8 +259,8 @@ public class OrderService {
         if (group.getTotalAmount().signum() <= 0) {
             throw new DomainException(CommerceErrorCode.INVALID_ORDER_REQUEST, "SEPAY orders must have a positive total");
         }
-        groupRepository.saveAndFlush(group);
-        group.getOrders().forEach(order -> stateMachine.recordCreated(order.getId(), user.id()));
+        OrderGroup savedGroup = groupRepository.saveAndFlush(group);
+        savedGroup.getOrders().forEach(order -> stateMachine.recordCreated(order.getId(), user.id()));
 
         log.info("Cart before checkout: id={}, status={}",
                 cart.getId(), cart.getStatus());
@@ -243,9 +268,18 @@ public class OrderService {
         cart.setStatus(CartStatus.CHECKED_OUT);
         cartRepository.saveAndFlush(cart);
 
+        // Refresh the persisted deadlines and versions after reservation and all checkout writes.
+        entityManager.refresh(savedGroup);
+        publishCreation(savedGroup);
+
         log.info("Cart after checkout: id={}, status={}", cart.getId(), cart.getStatus());
         log.info("Order group created: groupId={}, buyerId={}, orders={}", group.getId(), user.id(), sellers.size());
-        return new CreationResult(true, toResponse(group));
+        return new CheckoutResult(new CreationResult(true, toResponse(savedGroup)), null);
+    }
+
+    private void publishCreation(OrderGroup group) {
+        group.getOrders().stream().sorted(Comparator.comparing(Order::getId)).forEach(events::orderCreated);
+        events.checkoutPaymentRequested(group);
     }
 
     @Transactional(readOnly = true)
@@ -407,21 +441,50 @@ public class OrderService {
         return orders.map(this::toOrderResponse);
     }
 
-    private CatalogSkuResponse readSku(CartItem line) {
-        CatalogSkuResponse sku;
-        try {
-            var response = catalogClient.getSkuById(line.getSkuId());
-            sku = response == null ? null : response.data();
-        } catch (FeignException.NotFound exception) {
-            throw new DomainException(CommerceErrorCode.ITEM_UNAVAILABLE, "A cart item is no longer available");
-        } catch (FeignException exception) {
-            throw new DomainException(CommerceErrorCode.CATALOG_UNAVAILABLE, "Catalog is unavailable; retry placing the order later");
+    @Transactional(readOnly = true)
+    public Page<OrderResponse> listManaged(CurrentUser user, UUID userId, UUID sellerId, OrderStatus status,
+                                          OrderType orderType, OffsetDateTime from, OffsetDateTime to, int page, int size) {
+        requireOrderListAccess(user, "ADMIN", "SUPPORT_STAFF");
+        return findOrders(userId, sellerId, status, orderType, from, to, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<OrderResponse> listSales(CurrentUser user, OrderStatus status, OffsetDateTime from,
+                                        OffsetDateTime to, int page, int size) {
+        requireOrderListAccess(user, "SELLER");
+        return findOrders(null, user.id(), status, null, from, to, page, size);
+    }
+
+    private void requireOrderListAccess(CurrentUser user, String... roles) {
+        if (user == null || user.id() == null) {
+            throw new DomainException(CommerceErrorCode.UNAUTHENTICATED);
         }
-        if (sku == null || !line.getSkuId().equals(sku.getId()) || !line.getProductId().equals(sku.getProductId())
-                || !"ACTIVE".equals(sku.getStatus()) || sku.getPrice() == null || sku.getPrice().signum() < 0) {
-            throw new DomainException(CommerceErrorCode.ITEM_UNAVAILABLE, "A cart item is no longer available");
+        if (!user.hasPrivilege("ORDER.LIST") || Arrays.stream(roles).noneMatch(user::hasRole)) {
+            throw new DomainException(CommerceErrorCode.FORBIDDEN);
         }
-        return sku;
+    }
+
+    private Page<OrderResponse> findOrders(UUID userId, UUID sellerId, OrderStatus status, OrderType orderType,
+                                           OffsetDateTime from, OffsetDateTime to, int page, int size) {
+        if (page < 0 || size < 1 || size > 100) {
+            throw new DomainException(CommerceErrorCode.INVALID_ORDER_FILTER,
+                    "page must be 0 or more and size between 1 and 100");
+        }
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new DomainException(CommerceErrorCode.INVALID_ORDER_FILTER, "from must not be after to");
+        }
+        Specification<Order> filter = (root, query, criteria) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (userId != null) predicates.add(criteria.equal(root.get("userId"), userId));
+            if (sellerId != null) predicates.add(criteria.equal(root.get("sellerId"), sellerId));
+            if (status != null) predicates.add(criteria.equal(root.get("status"), status));
+            if (orderType != null) predicates.add(criteria.equal(root.get("orderType"), orderType));
+            if (from != null) predicates.add(criteria.greaterThanOrEqualTo(root.get("createdAt"), from));
+            if (to != null) predicates.add(criteria.lessThanOrEqualTo(root.get("createdAt"), to));
+            return criteria.and(predicates.toArray(Predicate[]::new));
+        };
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "orderNumber"));
+        return orderRepository.findAll(filter, pageable).map(this::toOrderResponse);
     }
 
     private ProductResponse readProduct(UUID id) {
@@ -519,8 +582,8 @@ public class OrderService {
                 .sorted(Comparator.comparing(OrderItem::getId))
                 .map(this::toItemResponse)
                 .toList();
-        return new OrderResponse(order.getId(), order.getOrderNumber(), order.getSellerId(),
-                order.getStatus(), order.getTotalAmount(), items);
+        return new OrderResponse(order.getId(), order.getOrderNumber(), order.getUserId(), order.getSellerId(),
+                order.getOrderType(), order.getStatus(), order.getCreatedAt(), order.getTotalAmount(), items);
     }
 
     private OrderStatusHistoryResponse toHistoryResponse(OrderStatusHistory entry) {

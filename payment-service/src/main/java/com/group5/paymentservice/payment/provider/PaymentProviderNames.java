@@ -1,0 +1,7 @@
+package com.group5.paymentservice.payment.provider;
+
+public final class PaymentProviderNames {
+    public static final String SEPAY = "SEPAY";
+
+    private PaymentProviderNames() {}
+}

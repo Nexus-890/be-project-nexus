@@ -25,8 +25,6 @@ class GatewayPermissionsTest {
 
     private static final Set<Row> EXPECTED_PUBLIC = Set.of(
             new Row("/api/v1/auth/register", "POST", "Public"),
-            new Row("/api/v1/auth/login", "POST", "Public"),
-            new Row("/.well-known/jwks.json", "GET", "Public"),
             new Row("/api/v1/products", "GET", "Public"),
             new Row("/api/v1/products/{id}", "GET", "Public"),
             new Row("/api/v1/categories/{id}", "GET", "Public"),
@@ -65,7 +63,7 @@ class GatewayPermissionsTest {
     void comparisonFailsForMissingOrExtraPublicDocumentRow() throws Exception {
         Set<Row> document = readRows(Path.of("../docs/api/gateway-permissions.md"));
         Set<Row> missing = new HashSet<>(document);
-        missing.remove(new Row("/api/v1/auth/login", "POST", "Public"));
+        missing.remove(new Row("/api/v1/auth/register", "POST", "Public"));
         assertThatThrownBy(() -> assertPermissions(missing))
                 .isInstanceOf(AssertionError.class);
 
@@ -78,18 +76,18 @@ class GatewayPermissionsTest {
     @Test
     void endpointPoliciesAreBoundFromConfigurationWithoutJavaDefaults() {
         Properties yaml = gatewayYaml();
-        yaml.setProperty("nexus.security.public-endpoints[1].path", "/api/v1/auth/configured-login");
+        yaml.setProperty("nexus.security.public-endpoints[0].path", "/api/v1/auth/configured-register");
         yaml.setProperty("nexus.security.protected-endpoints[0].privilege", "PROFILE.CONFIGURED");
         List<SecurityConfig.Endpoint> endpoints = bind(yaml).endpoints();
 
         assertThat(endpoints).contains(
                 new SecurityConfig.Endpoint(HttpMethod.POST,
-                        "/api/v1/auth/configured-login", null),
+                        "/api/v1/auth/configured-register", null),
                 new SecurityConfig.Endpoint(HttpMethod.GET,
                         "/api/v1/users/me", "PROFILE.CONFIGURED"));
         assertThat(endpoints).doesNotContain(
                 new SecurityConfig.Endpoint(HttpMethod.POST,
-                        "/api/v1/auth/login", null));
+                        "/api/v1/auth/register", null));
         assertThat(new SecurityConfig.GatewaySecurityProperties().endpoints()).isEmpty();
     }
 
@@ -110,7 +108,7 @@ class GatewayPermissionsTest {
         publicWithPrivilege.setProperty("nexus.security.public-endpoints[0].privilege", "PROFILE.VIEW");
         assertThatThrownBy(() -> bind(publicWithPrivilege).endpoints()).isInstanceOf(IllegalArgumentException.class);
         Properties duplicate = gatewayYaml();
-        duplicate.setProperty("nexus.security.public-endpoints[0].path", "/api/v1/auth/login");
+        duplicate.setProperty("nexus.security.public-endpoints[2].path", "/api/v1/products");
         assertThatThrownBy(() -> bind(duplicate).endpoints()).isInstanceOf(IllegalArgumentException.class);
     }
 

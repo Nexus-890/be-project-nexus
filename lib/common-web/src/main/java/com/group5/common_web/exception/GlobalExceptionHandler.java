@@ -26,16 +26,27 @@ import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    private static final Set<String> RESERVED_PROBLEM_PROPERTIES = Set.of(
+            "type", "title", "status", "detail", "instance", "code", "traceId", "errors");
     private final Tracer tracer;
     public GlobalExceptionHandler(Tracer tracer) { this.tracer = tracer; }
 
     @ExceptionHandler(DomainException.class)
     public ResponseEntity<ProblemDetail> handleDomainException(DomainException error, HttpServletRequest request) {
-        return response(error.getCode(), error.getErrorCode(), "domain-error", error.getMessage(), request, null);
+        ResponseEntity<ProblemDetail> response = response(
+                error.getCode(), error.getErrorCode(), "domain-error", error.getMessage(), request, null);
+        ProblemDetail problem = response.getBody();
+        if (problem != null) {
+            error.getProperties().forEach((name, value) -> {
+                if (!RESERVED_PROBLEM_PROPERTIES.contains(name)) problem.setProperty(name, value);
+            });
+        }
+        return response;
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)

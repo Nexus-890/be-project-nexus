@@ -13,6 +13,16 @@ spring:
 nexus:
   security:
     jwt:
-      issuer: ${JWT_ISSUER:user-service}
+      issuer: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
       audience: nexus-services
-      jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:8081/.well-known/jwks.json}
+      jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:18080/realms/nexus/protocol/openid-connect/certs}
+  payment:
+    provider: ${PAYMENT_PROVIDER:SEPAY}
+    retry-limit: ${PAYMENT_RETRY_LIMIT:3}
+    consumer-group: payment-session-events
+    sepay:
+      bank-id: ${SEPAY_BANK_ID:970415}
+      bank-account: ${SEPAY_BANK_ACCOUNT:}
+      account-name: ${SEPAY_ACCOUNT_NAME:}
+      vietqr-template: ${SEPAY_VIETQR_TEMPLATE:compact}
+      transfer-content-prefix: ${SEPAY_TRANSFER_CONTENT_PREFIX:SEVQR}

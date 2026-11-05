@@ -58,6 +58,13 @@ services:
       MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
       JWT_ISSUER: ${JWT_ISSUER:-user-service}
       JWT_JWK_SET_URI: ${JWT_JWK_SET_URI:-http://host.docker.internal:8081/.well-known/jwks.json}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-SEPAY}
+      PAYMENT_RETRY_LIMIT: ${PAYMENT_RETRY_LIMIT:-3}
+      SEPAY_BANK_ID: ${SEPAY_BANK_ID:-970415}
+      SEPAY_BANK_ACCOUNT: ${SEPAY_BANK_ACCOUNT:-}
+      SEPAY_ACCOUNT_NAME: ${SEPAY_ACCOUNT_NAME:-}
+      SEPAY_VIETQR_TEMPLATE: ${SEPAY_VIETQR_TEMPLATE:-compact}
+      SEPAY_TRANSFER_CONTENT_PREFIX: ${SEPAY_TRANSFER_CONTENT_PREFIX-SEVQR}
 
     ports:
       - "${PAYMENT_PORT:-8087}:8087"
@@ -190,7 +197,7 @@ services:
   auth-service:
     image: quay.io/keycloak/keycloak:26.7.5
     container_name: nexus-auth-service
-    command: ["start-dev"]
+    command: ["start-dev", "--import-realm"]
 
     environment:
       TZ: ${TZ}
@@ -205,6 +212,9 @@ services:
     ports:
       - "${KEYCLOAK_PORT}:8080"
 
+    volumes:
+      - ./keycloak/realm-nexus.json:/opt/keycloak/data/import/nexus-realm.json:ro
+
     depends_on:
       postgres:
         condition: service_healthy
@@ -218,6 +228,28 @@ services:
 
     restart: unless-stopped
 
+    networks:
+      - nexus-network
+
+  # Explicit password provisioning: .\keycloak\seed-users.ps1 on Windows
+  auth-seed:
+    profiles: ["tools"]
+    image: quay.io/keycloak/keycloak:26.7.5
+    entrypoint: ["/bin/bash", "/opt/nexus/seed-users.sh", "--container"]
+    environment:
+      KEYCLOAK_SERVER_URL: http://auth-service:8080
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-}
+      DEMO_SELLER_PASSWORD: ${DEMO_SELLER_PASSWORD:-}
+      DEMO_BUYER_PASSWORD: ${DEMO_BUYER_PASSWORD:-}
+      KEYCLOAK_USER_SERVICE_CLIENT_SECRET: ${KEYCLOAK_USER_SERVICE_CLIENT_SECRET:-}
+    volumes:
+      - ./keycloak/seed-users.sh:/opt/nexus/seed-users.sh:ro
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    restart: "no"
     networks:
       - nexus-network
 

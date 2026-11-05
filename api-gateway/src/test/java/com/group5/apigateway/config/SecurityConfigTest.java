@@ -144,6 +144,16 @@ class SecurityConfigTest {
     }
 
     @Test
+    void markingNotificationsRequiresBearerTokenAtTheGateway() {
+        for (String path : List.of("/api/v1/notifications/" + ID + "/read", "/api/v1/notifications/read-all")) {
+            client.patch().uri(path).exchange().expectStatus().isUnauthorized()
+                    .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
+                    .expectBody().jsonPath("$.code").isEqualTo("UNAUTHENTICATED");
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+    }
+
+    @Test
     void validProfileTokenReturns200AndForwardsOriginalBearerToService() {
         String bearer = "Bearer " + token(SIGNING_KEY, c -> c.claim("privileges", List.of("PROFILE.VIEW")));
         client.get().uri(ME).header(HttpHeaders.AUTHORIZATION, bearer).exchange()
@@ -178,6 +188,50 @@ class SecurityConfigTest {
     }
 
     @Test
+    void operationalOrderListsRequireOrderListBeforeForwardingToTheService() {
+        List<String> paths = List.of("/api/v1/orders/manage", "/api/v1/orders/sales");
+        for (String path : paths) {
+            client.get().uri(path).exchange().expectStatus().isUnauthorized()
+                    .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+
+        String detailPrivilege = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("privileges", List.of("ORDER.VIEW")));
+        for (String path : paths) {
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, detailPrivilege)
+                    .exchange().expectStatus().isForbidden()
+                    .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                    .expectBody().jsonPath("$.code").isEqualTo("FORBIDDEN");
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+
+        String listPrivilege = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("privileges", List.of("ORDER.LIST")));
+        for (String path : paths) {
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, listPrivilege)
+                    .exchange().expectStatus().isOk().expectBody(String.class).isEqualTo("downstream");
+        }
+        assertThat(SERVICE_LOG).containsExactly("GET /api/v1/orders/manage", "GET /api/v1/orders/sales");
+        assertThat(FORWARDED_TOKENS).containsExactly(listPrivilege, listPrivilege);
+    }
+
+    @Test
+    void paymentInitiationRequiresCheckoutPrivilegeAndForwardsBuyerBearer() {
+        String path = "/api/v1/payments";
+        client.post().uri(path).exchange().expectStatus().isUnauthorized();
+        String withoutPrivilege = "Bearer " + token(SIGNING_KEY, c -> { });
+        client.post().uri(path).header(HttpHeaders.AUTHORIZATION, withoutPrivilege)
+                .exchange().expectStatus().isForbidden();
+        assertThat(SERVICE_LOG).isEmpty();
+        String buyer = "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of("BUYER"))
+                .claim("privileges", List.of("CHECKOUT.START")));
+        client.post().uri(path).header(HttpHeaders.AUTHORIZATION, buyer).exchange().expectStatus().isOk();
+        assertThat(SERVICE_LOG).containsExactly("POST " + path);
+        assertThat(FORWARDED_TOKENS).containsExactly(buyer);
+    }
+
+    @Test
     void changingLastSignatureCharacterReturns401WithNoServiceLog() {
         String good = token(SIGNING_KEY, c -> c.claim("privileges", List.of("PROFILE.VIEW")));
         // RSA-2048 signatures end in two significant base64url bits; changing only
@@ -206,6 +260,12 @@ class SecurityConfigTest {
         expectInvalidToken(token(SIGNING_KEY, c -> c.notBeforeTime(Date.from(Instant.now().plusSeconds(120)))));
         expectInvalidToken(token(FOREIGN_KEY, c -> { }));
         expectInvalidToken("not-a-jwt");
+    }
+
+    @Test
+    void rejectsLegacyUserServiceTokenEvenIfIssuerClaimsToBeKeycloak() {
+        expectInvalidToken(token(FOREIGN_KEY, c -> c.issuer("user-service")));
+        expectInvalidToken(token(FOREIGN_KEY, c -> c.claim("privileges", List.of("PROFILE.VIEW"))));
     }
 
     @Test
@@ -451,7 +511,7 @@ class SecurityConfigTest {
     }
 
     private static String concretePath(String path) {
-        return path.replace("{id}", ID).replace("{userId}", ID);
+        return path.replace("{id}", ID).replace("{userId}", ID).replace("{imageId}", ID);
     }
 
     private void expectInvalidToken(String token) {

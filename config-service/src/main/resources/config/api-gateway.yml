@@ -8,7 +8,7 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          # Same trust contract as #237; fetch realm keys directly, never through the gateway.
+          # Fetch realm keys directly from Keycloak, never through this gateway.
           jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:18080/realms/nexus/protocol/openid-connect/certs}
           issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
           audiences:
@@ -54,10 +54,6 @@ nexus:
     public-endpoints:
       - method: POST
         path: /api/v1/auth/register
-      - method: POST
-        path: /api/v1/auth/login
-      - method: GET
-        path: /.well-known/jwks.json
       - method: GET
         path: /api/v1/products
       - method: GET
@@ -140,8 +136,17 @@ nexus:
       - method: GET
         path: /api/v1/orders/{id}/history
         privilege: ORDER.VIEW
+      - method: POST
+        path: /api/v1/payments
+        privilege: CHECKOUT.START
       - method: GET
         path: /api/v1/orders
+        privilege: ORDER.LIST
+      - method: GET
+        path: /api/v1/orders/manage
+        privilege: ORDER.LIST
+      - method: GET
+        path: /api/v1/orders/sales
         privilege: ORDER.LIST
       - method: GET
         path: /api/v1/orders/{id}
@@ -155,9 +160,6 @@ nexus:
       - method: GET
         path: /api/v1/notifications/unread-count
         privilege: NOTIFICATION.VIEW
-      - method: POST
-        path: /api/v1/payments
-        privilege: CHECKOUT.START
       - method: GET
         path: /api/v1/payments
         privilege: ORDER.REFUND
@@ -209,6 +211,21 @@ nexus:
       - method: GET
         path: /api/v1/reputations/{userId}/history
         privilege: USER.REPUTATION.VIEW
+      - method: PATCH
+        path: /api/v1/notifications/{id}/read
+        privilege: NOTIFICATION.VIEW
+      - method: PATCH
+        path: /api/v1/notifications/read-all
+        privilege: NOTIFICATION.VIEW
+      - method: POST
+        path: /api/v1/products/{id}/images
+        privilege: PRODUCT.UPDATE
+      - method: DELETE
+        path: /api/v1/products/{id}/images/{imageId}
+        privilege: PRODUCT.UPDATE
+      - method: PUT
+        path: /api/v1/products/{id}/images/order
+        privilege: PRODUCT.UPDATE
   gateway:
     rate-limit:
       # Có thể đổi qua Config Server và /actuator/refresh; đủ cho polling 2 giây.

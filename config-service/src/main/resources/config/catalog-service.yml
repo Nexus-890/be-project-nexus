@@ -20,9 +20,9 @@ springdoc:
 nexus:
   security:
     jwt:
-      issuer: user-service
+      issuer: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
       audience: nexus-services
-      jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:8081/.well-known/jwks.json}
+      jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:18080/realms/nexus/protocol/openid-connect/certs}
     public-endpoints:
       - method: GET
         path: /api/v1/products
@@ -39,6 +39,7 @@ nexus:
       - method: GET
         path: /swagger-ui/**
   catalog:
+    max-product-images: ${MAX_PRODUCT_IMAGES:5}
     category-max-level: 3
     category-tree:
       sort-type: NAME_ASC
@@ -49,3 +50,8 @@ nexus:
       base-url: ${COMMERCE_SERVICE_URL:http://localhost:8083}
       connect-timeout-millis: 1000
       read-timeout-millis: 3000
+  storage:
+    supabase-url: ${SUPABASE_URL:}
+    service-key: ${SUPABASE_SERVICE_KEY:}
+    bucket: ${SUPABASE_BUCKET:product-images}
+    max-file-size: ${MAX_IMAGE_FILE_SIZE:5MB}

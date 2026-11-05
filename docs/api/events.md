@@ -850,6 +850,8 @@ Publish only the categoryId of the deleted record after successful deletion. A c
 
 #118 creates STANDARD orders under one group with one order per seller; #172 creates an AUCTION singleton group. STANDARD requires referenceId=null; AUCTION requires referenceId=auctionId. Commit group/order/items, OrderCreated per child and the complete CheckoutPaymentRequested manifest together. #107 notifies by buyerId/orderNumber; #173 settles only AUCTION; #216 sets has_order for every productIds entry. Payment must not create a session/QR from the first individual OrderCreated. Replayed checkout keys produce no new events. The array comes from the immutable item snapshot, not a later product lookup.
 
+The STANDARD checkout publisher uses the existing `OrderEventPublisher` and transactional `OutboxWriter`, after the inventory reservation calls and persisted checkout writes. A rejected reservation, price conflict or rolled-back checkout produces no creation event. The Kafka relay publishes only committed outbox rows; checkout does not send directly to Kafka.
+
 ### OrderCancelled
 
 - Topic: `nexus.commerce.events`.
@@ -5594,6 +5596,8 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 ```
 
 #118 writes this complete manifest, one OrderCreated per seller order, the group/orders/items and cart change in the initial commerce transaction. Validate exact membership, unique orderId/sellerId, orderCount and Decimal sum, buyer/currency and deadline. #121 creates the session and every instruction/processed marker in one payment transaction; one OrderCreated cannot create a partial QR. Freeze the plan/memo/total: no replacement session, plan revision or unpaid-child repricing. Missing prerequisites use durable retry. This payload deliberately repeats occurredAt because the current #118 manifest requires it; traceId/eventId remain only in the envelope. This is an additional contract outside the 64-name SRS table and the 32-row expansion set.
+
+The publisher reads `dueAt` and each `paymentDueAt` from the refreshed persisted group/order snapshot, without computing another timeout. `EventEnvelopeFactory.createWithTimestamp` supplies one timestamp for both manifest and envelope `occurredAt`. The current checkout inventory adapter returns only acceptance/refusal; #138 must persist its reservation `expiresAt` into those deadline columns when the group reservation API is integrated. This publisher does not fabricate that reservation expiry.
 
 ### CheckoutPaymentConfirmed
 
