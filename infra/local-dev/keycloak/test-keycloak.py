@@ -3,6 +3,7 @@
 
 Requires Python 3 and Docker Compose; no extra Python packages.
 --full-lockout waits the real 15 minutes before checking account recovery.
+--config-only validates Compose configuration without starting containers.
 """
 import argparse
 import base64
@@ -161,7 +162,7 @@ def verify_token(base, token):
     return claims
 
 
-def run(full_lockout):
+def run(full_lockout, config_only=False):
     project = "nexus-236-test-" + secrets.token_hex(4)
     with tempfile.TemporaryDirectory(prefix=project) as tmp:
         directory = Path(tmp)
@@ -169,22 +170,42 @@ def run(full_lockout):
                   "KEYCLOAK_PORT": "0", "KEYCLOAK_ADMIN": "test-admin", "KEYCLOAK_ADMIN_PASSWORD": secrets.token_urlsafe(24),
                   "KAFKA_PORT": "19092", "KAFKA_UI_PORT": "18090", "REDIS_PORT": "6379", "REDIS_PASSWORD": secrets.token_urlsafe(24),
                   "MAILPIT_SMTP_PORT": "1025", "MAILPIT_UI_PORT": "8025", "GRAFANA_ADMIN_PASSWORD": secrets.token_urlsafe(24)}
-        # Compose validates required payment values even though this test excludes payment-service.
-        values.update({"SEPAY_BANK_ACCOUNT": "test-unused", "SEPAY_ACCOUNT_NAME": "test-unused"})
         # Exercise dotenv quoting and punctuation without putting credentials in Git.
         for role in ("ADMIN", "SELLER", "BUYER"):
             values[f"DEMO_{role}_PASSWORD"] = '-p' + secrets.token_urlsafe(20) + '#$"\\ space'
+        values["KEYCLOAK_USER_SERVICE_CLIENT_SECRET"] = secrets.token_urlsafe(32)
         env_file = directory / ".env"
         env_file.write_text("\n".join(f"{k}='{v}'" for k, v in values.items()) + "\n")
         if os.name != "nt":
             env_file.chmod(0o600)
         environment = os.environ.copy()
-        for key in values:
+        for key in (*values, "SEPAY_BANK_ACCOUNT", "SEPAY_ACCOUNT_NAME"):
             environment.pop(key, None)
         environment.pop("COMPOSE_PROFILES", None)
-        rendered = subprocess.run(["docker", "compose", "--env-file", str(env_file), "-f", str(HERE.parent / "compose.yaml"), "--profile", "tools", "config", "--format", "json"],
-                                  env=environment, text=True, capture_output=True, check=True)
-        original = json.loads(rendered.stdout)
+        original = None
+        # Profiles do not defer interpolation: unrelated payment settings must
+        # neither block auth startup nor require invented bank details.
+        for payment_settings in ("missing", "blank"):
+            config_env = env_file
+            if payment_settings == "blank":
+                config_env = directory / "blank-payment.env"
+                config_env.write_text(env_file.read_text() + "SEPAY_BANK_ACCOUNT=\nSEPAY_ACCOUNT_NAME=\n")
+                if os.name != "nt":
+                    config_env.chmod(0o600)
+            rendered = subprocess.run(["docker", "compose", "--env-file", str(config_env), "-f", str(HERE.parent / "compose.yaml"), "--profile", "tools", "config", "--format", "json"],
+                                      env=environment, text=True, capture_output=True, check=True)
+            current = json.loads(rendered.stdout)
+            check(all(name in current["services"] for name in ("postgres", "auth-service", "auth-seed")),
+                  "Auth services are missing from Compose configuration")
+            if original is None:
+                original = current
+            else:
+                check(all(current["services"][name] == original["services"][name]
+                          for name in ("postgres", "auth-service", "auth-seed")),
+                      "Payment settings changed the auth services")
+            print(f"PASS: auth Compose configuration with {payment_settings} payment settings", flush=True)
+        if config_only:
+            return
         config = {"services": {name: original["services"][name] for name in ("postgres", "auth-service", "auth-seed")},
                   "networks": {"nexus-network": {}}, "volumes": {"postgres-data": {}}}
         for name, service in config["services"].items():
@@ -212,6 +233,13 @@ def run(full_lockout):
             compose("run", "--rm", "--no-deps", "-T", "auth-seed")
             compose("run", "--rm", "--no-deps", "-T", "auth-seed")
             print("PASS: seed-users.sh sets passwords starting with -p and containing punctuation; repeatable", flush=True)
+            status, _, body = form(f"{base}/realms/nexus/protocol/openid-connect/token", {
+                "grant_type": "client_credentials", "client_id": "user-service",
+                "client_secret": values["KEYCLOAK_USER_SERVICE_CLIENT_SECRET"]})
+            check(status == 200, "user-service client_credentials grant failed")
+            status, _, body = http(f"{base}/admin/realms/nexus/roles/BUYER", token=json.loads(body)["access_token"])
+            check(status == 200 and json.loads(body)["name"] == "BUYER", "user-service service account cannot read realm roles")
+            print("PASS: seed-users.sh provisions the confidential user-service client and its service account", flush=True)
             spec = importlib.util.spec_from_file_location("realm_contract", HERE / "test-realm.py")
             contracts = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(contracts)
@@ -302,5 +330,6 @@ def run(full_lockout):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--full-lockout", action="store_true")
+    parser.add_argument("--config-only", action="store_true")
     args = parser.parse_args()
-    run(args.full_lockout)
+    run(args.full_lockout, args.config_only)
