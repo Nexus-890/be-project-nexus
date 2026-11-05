@@ -1085,6 +1085,1032 @@ paths:
                     detail: "An unexpected error occurred"
                     instance: "/api/v1/notifications/read-all"
                     code: "INTERNAL_ERROR"
+  /api/v1/event-logs:
+    get:
+      tags:
+      - Event logs
+      operationId: listEventLogs
+      summary: Search retained domain events
+      description: 'Filters combine with AND. Pagination is zero-based; deterministic newest-first ordering uses id as tie-breaker.
+        Event log summary excludes payload; detail requires its own privilege. Audit is a database view of UserUpdated, UserDeleted,
+        UserRoleAssigned, OrderRefundRequested, OrderRefundCompleted and SystemConfigUpdated. Config is recorded through the
+        in-process recorder; cross-service delivery is owned by #217. Password events belong to Keycloak.'
+      security:
+      - bearerAuth: []
+      x-required-privileges:
+      - EVENT_LOG.VIEW
+      x-required-roles: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventLogListResponse'
+        '400':
+          description: 'Invalid filters/pagination: NOTIFICATION_DATA_INVALID. Query conversion: INVALID_PARAMETER.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 400
+                    code:
+                      type: string
+                      enum:
+                      - NOTIFICATION_DATA_INVALID
+                      - INVALID_PARAMETER
+              examples:
+                NOTIFICATION_DATA_INVALID:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Invalid data
+                    instance: /api/v1/event-logs
+                    code: NOTIFICATION_DATA_INVALID
+                INVALID_PARAMETER:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
+                    status: 400
+                    detail: A valid value is required
+                    instance: /api/v1/event-logs
+                    code: INVALID_PARAMETER
+                    errors:
+                    - field: page
+                      code: INVALID_PARAMETER
+                      detail: A valid value is required
+        '401':
+          description: 'A valid bearer token is required. Code: UNAUTHENTICATED.'
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge for security failures; domain failures may omit it.
+              schema:
+                type: string
+                example: Bearer
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 401
+                    code:
+                      type: string
+                      enum:
+                      - UNAUTHENTICATED
+              examples:
+                UNAUTHENTICATED:
+                  summary: UNAUTHENTICATED
+                  value:
+                    type: urn:problem:unauthenticated
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/event-logs
+                    code: UNAUTHENTICATED
+        '403':
+          description: 'Forbidden. Codes: `FORBIDDEN`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 403
+                    code:
+                      type: string
+                      enum:
+                      - FORBIDDEN
+              examples:
+                FORBIDDEN:
+                  summary: FORBIDDEN
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/event-logs
+                    code: FORBIDDEN
+        '405':
+          description: 'Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 405
+                    code:
+                      type: string
+                      enum:
+                      - METHOD_NOT_ALLOWED
+              examples:
+                METHOD_NOT_ALLOWED:
+                  summary: METHOD_NOT_ALLOWED
+                  value:
+                    type: urn:problem:method-not-allowed
+                    title: Method Not Allowed
+                    status: 405
+                    detail: The HTTP method is not supported for this endpoint
+                    instance: /api/v1/event-logs
+                    code: METHOD_NOT_ALLOWED
+        '406':
+          description: 'Not Acceptable. Codes: `NOT_ACCEPTABLE`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 406
+                    code:
+                      type: string
+                      enum:
+                      - NOT_ACCEPTABLE
+              examples:
+                NOT_ACCEPTABLE:
+                  summary: NOT_ACCEPTABLE
+                  value:
+                    type: urn:problem:not-acceptable
+                    title: Not Acceptable
+                    status: 406
+                    detail: The requested response format is not supported
+                    instance: /api/v1/event-logs
+                    code: NOT_ACCEPTABLE
+        '429':
+          description: 'Too Many Requests. Codes: `RATE_LIMITED`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 429
+                    code:
+                      type: string
+                      enum:
+                      - RATE_LIMITED
+              examples:
+                RATE_LIMITED:
+                  summary: RATE_LIMITED
+                  value:
+                    type: urn:problem:rate-limited
+                    title: Too Many Requests
+                    status: 429
+                    detail: Too many requests; retry after the indicated delay
+                    instance: /api/v1/event-logs
+                    code: RATE_LIMITED
+          headers:
+            Retry-After:
+              description: Present when supplied by the limiter.
+              schema:
+                type: string
+        '500':
+          description: 'Internal Server Error. Codes: `INTERNAL_ERROR`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 500
+                    code:
+                      type: string
+                      enum:
+                      - INTERNAL_ERROR
+              examples:
+                INTERNAL_ERROR:
+                  summary: INTERNAL_ERROR
+                  value:
+                    type: urn:problem:internal-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: An unexpected error occurred
+                    instance: /api/v1/event-logs
+                    code: INTERNAL_ERROR
+        '503':
+          description: 'Service Unavailable. Codes: `SERVICE_UNAVAILABLE`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 503
+                    code:
+                      type: string
+                      enum:
+                      - SERVICE_UNAVAILABLE
+              examples:
+                SERVICE_UNAVAILABLE:
+                  summary: SERVICE_UNAVAILABLE
+                  value:
+                    type: urn:problem:service-unavailable
+                    title: Service Unavailable
+                    status: 503
+                    detail: A required service is unavailable
+                    instance: /api/v1/event-logs
+                    code: SERVICE_UNAVAILABLE
+        '504':
+          description: 'Gateway Timeout. Codes: `GATEWAY_TIMEOUT`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 504
+                    code:
+                      type: string
+                      enum:
+                      - GATEWAY_TIMEOUT
+              examples:
+                GATEWAY_TIMEOUT:
+                  summary: GATEWAY_TIMEOUT
+                  value:
+                    type: urn:problem:gateway-timeout
+                    title: Gateway Timeout
+                    status: 504
+                    detail: The service did not answer in time
+                    instance: /api/v1/event-logs
+                    code: GATEWAY_TIMEOUT
+      x-gateway-privilege: EVENT_LOG.VIEW
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Case-insensitive literal substring across event metadata and original envelope.
+      - name: eventType
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: aggregateType
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: aggregateId
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: operatorId
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+      - &id001
+        name: from
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+        description: Inclusive occurredAt bound; from must be <= to.
+      - &id002
+        name: to
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+        description: Inclusive occurredAt bound; from must be <= to.
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: string
+          default: occurredAt,desc
+          enum:
+          - occurredAt,asc
+          - occurredAt,desc
+          - receivedAt,asc
+          - receivedAt,desc
+          - eventType,asc
+          - eventType,desc
+      - &id003
+        name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - &id004
+        name: size
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+  /api/v1/event-logs/{id}:
+    get:
+      tags:
+      - Event logs
+      operationId: getEventLog
+      summary: Read full original event envelope
+      description: 'Filters combine with AND. Pagination is zero-based; deterministic newest-first ordering uses id as tie-breaker.
+        Event log summary excludes payload; detail requires its own privilege. Audit is a database view of UserUpdated, UserDeleted,
+        UserRoleAssigned, OrderRefundRequested, OrderRefundCompleted and SystemConfigUpdated. Config is recorded through the
+        in-process recorder; cross-service delivery is owned by #217. Password events belong to Keycloak.'
+      security:
+      - bearerAuth: []
+      x-required-privileges:
+      - EVENT_LOG.VIEW_DETAIL
+      x-required-roles: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventLogDetailResponse'
+        '400':
+          description: 'Invalid filters/pagination: NOTIFICATION_DATA_INVALID. Query conversion: INVALID_PARAMETER.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 400
+                    code:
+                      type: string
+                      enum:
+                      - NOTIFICATION_DATA_INVALID
+                      - INVALID_PARAMETER
+              examples:
+                NOTIFICATION_DATA_INVALID:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Invalid data
+                    instance: /api/v1/event-logs/11111111-1111-4111-8111-111111111111
+                    code: NOTIFICATION_DATA_INVALID
+                INVALID_PARAMETER:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
+                    status: 400
+                    detail: A valid value is required
+                    instance: /api/v1/event-logs/11111111-1111-4111-8111-111111111111
+                    code: INVALID_PARAMETER
+                    errors:
+                    - field: page
+                      code: INVALID_PARAMETER
+                      detail: A valid value is required
+        '401':
+          description: 'A valid bearer token is required. Code: UNAUTHENTICATED.'
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge for security failures; domain failures may omit it.
+              schema:
+                type: string
+                example: Bearer
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 401
+                    code:
+                      type: string
+                      enum:
+                      - UNAUTHENTICATED
+              examples:
+                UNAUTHENTICATED:
+                  summary: UNAUTHENTICATED
+                  value:
+                    type: urn:problem:unauthenticated
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/event-logs/11111111-1111-4111-8111-111111111111
+                    code: UNAUTHENTICATED
+        '403':
+          description: 'Forbidden. Codes: `FORBIDDEN`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 403
+                    code:
+                      type: string
+                      enum:
+                      - FORBIDDEN
+              examples:
+                FORBIDDEN:
+                  summary: FORBIDDEN
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/event-logs/11111111-1111-4111-8111-111111111111
+                    code: FORBIDDEN
+        '405':
+          description: 'Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 405
+                    code:
+                      type: string
+                      enum:
+                      - METHOD_NOT_ALLOWED
+              examples:
+                METHOD_NOT_ALLOWED:
+                  summary: METHOD_NOT_ALLOWED
+                  value:
+                    type: urn:problem:method-not-allowed
+                    title: Method Not Allowed
+                    status: 405
+                    detail: The HTTP method is not supported for this endpoint
+                    instance: /api/v1/event-logs/11111111-1111-4111-8111-111111111111
+                    code: METHOD_NOT_ALLOWED
+        '406':
+          description: 'Not Acceptable. Codes: `NOT_ACCEPTABLE`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 406
+                    code:
+                      type: string
+                      enum:
+                      - NOT_ACCEPTABLE
+              examples:
+                NOT_ACCEPTABLE:
+                  summary: NOT_ACCEPTABLE
+                  value:
+                    type: urn:problem:not-acceptable
+                    title: Not Acceptable
+                    status: 406
+                    detail: The requested response format is not supported
+                    instance: /api/v1/event-logs/11111111-1111-4111-8111-111111111111
+                    code: NOT_ACCEPTABLE
+        '429':
+          description: 'Too Many Requests. Codes: `RATE_LIMITED`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 429
+                    code:
+                      type: string
+                      enum:
+                      - RATE_LIMITED
+              examples:
+                RATE_LIMITED:
+                  summary: RATE_LIMITED
+                  value:
+                    type: urn:problem:rate-limited
+                    title: Too Many Requests
+                    status: 429
+                    detail: Too many requests; retry after the indicated delay
+                    instance: /api/v1/event-logs/11111111-1111-4111-8111-111111111111
+                    code: RATE_LIMITED
+          headers:
+            Retry-After:
+              description: Present when supplied by the limiter.
+              schema:
+                type: string
+        '500':
+          description: 'Internal Server Error. Codes: `INTERNAL_ERROR`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 500
+                    code:
+                      type: string
+                      enum:
+                      - INTERNAL_ERROR
+              examples:
+                INTERNAL_ERROR:
+                  summary: INTERNAL_ERROR
+                  value:
+                    type: urn:problem:internal-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: An unexpected error occurred
+                    instance: /api/v1/event-logs/11111111-1111-4111-8111-111111111111
+                    code: INTERNAL_ERROR
+        '503':
+          description: 'Service Unavailable. Codes: `SERVICE_UNAVAILABLE`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 503
+                    code:
+                      type: string
+                      enum:
+                      - SERVICE_UNAVAILABLE
+              examples:
+                SERVICE_UNAVAILABLE:
+                  summary: SERVICE_UNAVAILABLE
+                  value:
+                    type: urn:problem:service-unavailable
+                    title: Service Unavailable
+                    status: 503
+                    detail: A required service is unavailable
+                    instance: /api/v1/event-logs/11111111-1111-4111-8111-111111111111
+                    code: SERVICE_UNAVAILABLE
+        '504':
+          description: 'Gateway Timeout. Codes: `GATEWAY_TIMEOUT`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 504
+                    code:
+                      type: string
+                      enum:
+                      - GATEWAY_TIMEOUT
+              examples:
+                GATEWAY_TIMEOUT:
+                  summary: GATEWAY_TIMEOUT
+                  value:
+                    type: urn:problem:gateway-timeout
+                    title: Gateway Timeout
+                    status: 504
+                    detail: The service did not answer in time
+                    instance: /api/v1/event-logs/11111111-1111-4111-8111-111111111111
+                    code: GATEWAY_TIMEOUT
+        '404':
+          description: 'Event log not found. Code: NOTIFICATION_EVENT_LOG_NOT_FOUND'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 404
+                    code:
+                      type: string
+                      enum:
+                      - NOTIFICATION_EVENT_LOG_NOT_FOUND
+              examples:
+                NOTIFICATION_EVENT_LOG_NOT_FOUND:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Event log not found
+                    instance: /api/v1/event-logs/11111111-1111-4111-8111-111111111111
+                    code: NOTIFICATION_EVENT_LOG_NOT_FOUND
+      x-gateway-privilege: EVENT_LOG.VIEW_DETAIL
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Log row id returned by list; distinct from eventId.
+  /api/v1/audit-logs:
+    get:
+      tags:
+      - Audit logs
+      operationId: listAuditLogs
+      summary: List critical user, role, refund and config changes
+      description: 'Filters combine with AND. Pagination is zero-based; deterministic newest-first ordering uses id as tie-breaker.
+        Event log summary excludes payload; detail requires its own privilege. Audit is a database view of UserUpdated, UserDeleted,
+        UserRoleAssigned, OrderRefundRequested, OrderRefundCompleted and SystemConfigUpdated. Config is recorded through the
+        in-process recorder; cross-service delivery is owned by #217. Password events belong to Keycloak.'
+      security:
+      - bearerAuth: []
+      x-required-privileges:
+      - AUDIT_LOG.VIEW
+      x-required-roles: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogListResponse'
+        '400':
+          description: 'Invalid filters/pagination: NOTIFICATION_DATA_INVALID. Query conversion: INVALID_PARAMETER.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 400
+                    code:
+                      type: string
+                      enum:
+                      - NOTIFICATION_DATA_INVALID
+                      - INVALID_PARAMETER
+              examples:
+                NOTIFICATION_DATA_INVALID:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Invalid data
+                    instance: /api/v1/audit-logs
+                    code: NOTIFICATION_DATA_INVALID
+                INVALID_PARAMETER:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
+                    status: 400
+                    detail: A valid value is required
+                    instance: /api/v1/audit-logs
+                    code: INVALID_PARAMETER
+                    errors:
+                    - field: page
+                      code: INVALID_PARAMETER
+                      detail: A valid value is required
+        '401':
+          description: 'A valid bearer token is required. Code: UNAUTHENTICATED.'
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge for security failures; domain failures may omit it.
+              schema:
+                type: string
+                example: Bearer
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 401
+                    code:
+                      type: string
+                      enum:
+                      - UNAUTHENTICATED
+              examples:
+                UNAUTHENTICATED:
+                  summary: UNAUTHENTICATED
+                  value:
+                    type: urn:problem:unauthenticated
+                    title: Unauthorized
+                    status: 401
+                    detail: A valid access token is required to access this resource
+                    instance: /api/v1/audit-logs
+                    code: UNAUTHENTICATED
+        '403':
+          description: 'Forbidden. Codes: `FORBIDDEN`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 403
+                    code:
+                      type: string
+                      enum:
+                      - FORBIDDEN
+              examples:
+                FORBIDDEN:
+                  summary: FORBIDDEN
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/audit-logs
+                    code: FORBIDDEN
+        '405':
+          description: 'Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 405
+                    code:
+                      type: string
+                      enum:
+                      - METHOD_NOT_ALLOWED
+              examples:
+                METHOD_NOT_ALLOWED:
+                  summary: METHOD_NOT_ALLOWED
+                  value:
+                    type: urn:problem:method-not-allowed
+                    title: Method Not Allowed
+                    status: 405
+                    detail: The HTTP method is not supported for this endpoint
+                    instance: /api/v1/audit-logs
+                    code: METHOD_NOT_ALLOWED
+        '406':
+          description: 'Not Acceptable. Codes: `NOT_ACCEPTABLE`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 406
+                    code:
+                      type: string
+                      enum:
+                      - NOT_ACCEPTABLE
+              examples:
+                NOT_ACCEPTABLE:
+                  summary: NOT_ACCEPTABLE
+                  value:
+                    type: urn:problem:not-acceptable
+                    title: Not Acceptable
+                    status: 406
+                    detail: The requested response format is not supported
+                    instance: /api/v1/audit-logs
+                    code: NOT_ACCEPTABLE
+        '429':
+          description: 'Too Many Requests. Codes: `RATE_LIMITED`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 429
+                    code:
+                      type: string
+                      enum:
+                      - RATE_LIMITED
+              examples:
+                RATE_LIMITED:
+                  summary: RATE_LIMITED
+                  value:
+                    type: urn:problem:rate-limited
+                    title: Too Many Requests
+                    status: 429
+                    detail: Too many requests; retry after the indicated delay
+                    instance: /api/v1/audit-logs
+                    code: RATE_LIMITED
+          headers:
+            Retry-After:
+              description: Present when supplied by the limiter.
+              schema:
+                type: string
+        '500':
+          description: 'Internal Server Error. Codes: `INTERNAL_ERROR`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 500
+                    code:
+                      type: string
+                      enum:
+                      - INTERNAL_ERROR
+              examples:
+                INTERNAL_ERROR:
+                  summary: INTERNAL_ERROR
+                  value:
+                    type: urn:problem:internal-error
+                    title: Internal Server Error
+                    status: 500
+                    detail: An unexpected error occurred
+                    instance: /api/v1/audit-logs
+                    code: INTERNAL_ERROR
+        '503':
+          description: 'Service Unavailable. Codes: `SERVICE_UNAVAILABLE`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 503
+                    code:
+                      type: string
+                      enum:
+                      - SERVICE_UNAVAILABLE
+              examples:
+                SERVICE_UNAVAILABLE:
+                  summary: SERVICE_UNAVAILABLE
+                  value:
+                    type: urn:problem:service-unavailable
+                    title: Service Unavailable
+                    status: 503
+                    detail: A required service is unavailable
+                    instance: /api/v1/audit-logs
+                    code: SERVICE_UNAVAILABLE
+        '504':
+          description: 'Gateway Timeout. Codes: `GATEWAY_TIMEOUT`.'
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/Problem'
+                - type: object
+                  required: []
+                  properties:
+                    status:
+                      type: integer
+                      enum:
+                      - 504
+                    code:
+                      type: string
+                      enum:
+                      - GATEWAY_TIMEOUT
+              examples:
+                GATEWAY_TIMEOUT:
+                  summary: GATEWAY_TIMEOUT
+                  value:
+                    type: urn:problem:gateway-timeout
+                    title: Gateway Timeout
+                    status: 504
+                    detail: The service did not answer in time
+                    instance: /api/v1/audit-logs
+                    code: GATEWAY_TIMEOUT
+      x-gateway-privilege: AUDIT_LOG.VIEW
+      parameters:
+      - name: actorId
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+      - name: action
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Exact eventType, e.g. UserRoleAssigned or OrderRefundCompleted.
+      - name: entityType
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: entityId
+        in: query
+        required: false
+        schema:
+          type: string
+      - *id001
+      - *id002
+      - *id003
+      - *id004
 components:
   securitySchemes:
     bearerAuth:
@@ -1238,6 +2264,158 @@ components:
               format: "int64"
               minimum: 0
       additionalProperties: false
+    EventLogSummary:
+      type: object
+      required:
+      - id
+      - eventId
+      - eventType
+      - aggregateId
+      - traceId
+      - occurredAt
+      - receivedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        eventId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+        aggregateType:
+          type: string
+          nullable: true
+        aggregateId:
+          type: string
+        operatorId:
+          type: string
+          format: uuid
+          nullable: true
+        traceId:
+          type: string
+        topic:
+          type: string
+          nullable: true
+        occurredAt:
+          type: string
+          format: date-time
+        receivedAt:
+          type: string
+          format: date-time
+    EventLogDetail:
+      type: object
+      required:
+      - event
+      - payload
+      - envelope
+      properties:
+        event:
+          $ref: '#/components/schemas/EventLogSummary'
+        payload:
+          description: Unchanged domain payload; any JSON value.
+        envelope:
+          type: object
+          additionalProperties: true
+          description: Complete original envelope, including unknown fields.
+        rawEnvelope:
+          type: string
+          nullable: true
+          description: 'Original JSON text. Null for historical rows recorded before #192.'
+    AuditLog:
+      type: object
+      required:
+      - id
+      - eventId
+      - action
+      - entityId
+      - traceId
+      - occurredAt
+      - receivedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        eventId:
+          type: string
+          format: uuid
+        actorId:
+          type: string
+          format: uuid
+          nullable: true
+        action:
+          type: string
+        entityType:
+          type: string
+          nullable: true
+        entityId:
+          type: string
+        traceId:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        receivedAt:
+          type: string
+          format: date-time
+    EventLogListResponse:
+      type: object
+      required:
+      - code
+      - message
+      - data
+      - page
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventLogSummary'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+      additionalProperties: false
+    EventLogDetailResponse:
+      type: object
+      required:
+      - code
+      - message
+      - data
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          $ref: '#/components/schemas/EventLogDetail'
+      additionalProperties: false
+    AuditLogListResponse:
+      type: object
+      required:
+      - code
+      - message
+      - data
+      - page
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLog'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+      additionalProperties: false
 x-service: "notification-service"
 x-business-error-codes:
   NOTIFICATION_DATA_INVALID:
@@ -1252,3 +2430,6 @@ x-business-error-codes:
   NOTIFICATION_NOT_OWNER:
     status: 403
     detail: "Notification belongs to another user"
+  NOTIFICATION_EVENT_LOG_NOT_FOUND:
+    status: 404
+    detail: "Event log not found"
