@@ -34,16 +34,18 @@ public class PaymentSessionEventHandler {
     private final PaymentSessionRepository sessions;
     private final PaymentInstructionRepository instructions;
     private final PaymentPendingCancellationRepository pendingCancellations;
+    private final RefundService refunds;
     private final Validator validator;
 
     public PaymentSessionEventHandler(IdempotentConsumer consumer, PaymentSessionRepository sessions,
                                       PaymentInstructionRepository instructions,
                                       PaymentPendingCancellationRepository pendingCancellations,
-                                      Validator validator) {
+                                      RefundService refunds, Validator validator) {
         this.consumer = consumer;
         this.sessions = sessions;
         this.instructions = instructions;
         this.pendingCancellations = pendingCancellations;
+        this.refunds = refunds;
         this.validator = validator;
     }
 
@@ -77,6 +79,7 @@ public class PaymentSessionEventHandler {
             require(identity.equals(existing.getIdempotencyKey()), "Conflicting immutable payment manifest");
             verifyStoredPlan(existing, manifest);
             drainPendingCancellation(existing);
+            refunds.applyPendingCancellations(manifest.orderGroupId());
             return;
         }
 
@@ -109,6 +112,7 @@ public class PaymentSessionEventHandler {
         // A cancellation that arrived before this manifest is applied now, in the
         // same transaction, so the group never exposes a QR after being cancelled.
         drainPendingCancellation(storedSession);
+        refunds.applyPendingCancellations(manifest.orderGroupId());
     }
 
     private void verifyStoredPlan(PaymentSession session, CheckoutPaymentRequested manifest) {

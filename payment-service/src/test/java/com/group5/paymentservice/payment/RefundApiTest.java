@@ -60,33 +60,6 @@ class RefundApiTest extends PaymentDatabaseTestSupport {
     }
 
     @Test
-    void aPaidOrderCancelledByTheEventIsRefundedAndCompletedBySupport() throws Exception {
-        var group = fixtures.paidGroup();
-        cancel(group);
-        assertThat(fixtures.refunds(group.bigOrder())).isZero();
-
-        String refundId = requested(group.bigOrder(), "key-end-to-end");
-
-        var requested = fixtures.lastPayload("OrderRefundRequested", group.bigOrder());
-        assertThat(requested.get("refundId").asString()).isEqualTo(refundId);
-        assertThat(requested.get("orderGroupId").asString()).isEqualTo(group.groupId().toString());
-        assertThat(requested.get("sessionId").asString()).isEqualTo(group.sessionId().toString());
-        assertThat(requested.get("incomingTransactionId").asString()).isEqualTo(group.transactionId().toString());
-        assertThat(requested.get("amount").asString()).isEqualTo(RefundFixtures.BIG);
-        assertThat(requested.get("status").asString()).isEqualTo("REQUESTED");
-        assertThat(requested.get("refundVersion").asLong()).isZero();
-        assertThat(requested.get("requestedAt").asString()).endsWith("Z");
-        assertThat(requested.get("actorId").asString()).isEqualTo(SUPPORT.toString());
-        assertThat(fixtures.refunds(group.smallOrder())).isZero();
-
-        complete(refundId, "support").andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("COMPLETED"));
-        assertThat(fixtures.refund(group.bigOrder()).get("status")).isEqualTo("COMPLETED");
-        assertThat(fixtures.outbox("OrderRefundRequested", group.bigOrder())).isEqualTo(1);
-        assertThat(fixtures.outbox("OrderRefundCompleted", group.bigOrder())).isEqualTo(1);
-    }
-
-    @Test
     void theSameKeyAndBodyTwiceReturnsTheSameRefundAndWritesOnce() throws Exception {
         UUID orderId = cancelledPaidOrder();
         String body = body(orderId, null, "Seller out of stock");
@@ -191,22 +164,47 @@ class RefundApiTest extends PaymentDatabaseTestSupport {
 
     @Test
     void aSecondKeyForAnOrderThatAlreadyHasARefundIsAConflict() throws Exception {
-        UUID orderId = cancelledPaidOrder();
-        requested(orderId, "key-first");
+        var group = fixtures.paidGroup();
+        fixtures.traced(() -> listener.receive(fixtures.record(
+                fixtures.cancelled(group.bigOrder(), group.groupId(), group.buyerId(), RefundFixtures.BIG))));
 
-        refund("key-second", body(orderId, null, "Again")).andExpect(status().isConflict())
+        refund("key-second", body(group.bigOrder(), null, "Again")).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("PAYMENT_REFUND_EXISTS"));
-        assertThat(fixtures.refunds(orderId)).isEqualTo(1);
     }
 
     @Test
-    void aMissingKeyIsRejected() throws Exception {
+    void aCancelledPaidOrderIsRefundedAutomaticallyAndSupportCompletesThatRefund() throws Exception {
+        var group = fixtures.paidGroup();
+        fixtures.traced(() -> listener.receive(fixtures.record(
+                fixtures.cancelled(group.bigOrder(), group.groupId(), group.buyerId(), RefundFixtures.BIG))));
+        String refundId = fixtures.refund(group.bigOrder()).get("id").toString();
+
+        refund("key-manual", body(group.bigOrder(), "1000.00", "Partial")).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PAYMENT_REFUND_EXISTS"));
+        perform(get("/api/v1/refunds").param("orderId", group.bigOrder().toString())
+                .header("Authorization", "Bearer support"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].refundId").value(refundId))
+                .andExpect(jsonPath("$.data[0].status").value("REQUESTED"));
+        complete(refundId, "support").andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("COMPLETED"));
+
+        assertThat(fixtures.refunds(group.bigOrder())).isEqualTo(1);
+        assertThat(fixtures.refund(group.bigOrder()).get("completed_by")).isEqualTo(SUPPORT);
+        assertThat(fixtures.outbox("OrderRefundRequested", group.bigOrder())).isEqualTo(1);
+        assertThat(fixtures.outbox("OrderRefundCompleted", group.bigOrder())).isEqualTo(1);
+    }
+
+    @Test
+    void missingOrSystemKeysAreRejected() throws Exception {
         UUID orderId = cancelledPaidOrder();
         String body = body(orderId, null, "Seller out of stock");
 
         perform(post("/api/v1/refunds").header("Authorization", "Bearer support")
                 .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PAYMENT_INVALID_REFUND_REQUEST"));
+        refund("system:cancel-refund:" + orderId, body).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("PAYMENT_INVALID_REFUND_REQUEST"));
         assertThat(fixtures.refunds(orderId)).isZero();
     }
@@ -345,13 +343,8 @@ class RefundApiTest extends PaymentDatabaseTestSupport {
 
     private UUID cancelledPaidOrder() {
         var group = fixtures.paidGroup();
-        cancel(group);
+        jdbc.update("UPDATE payment_instructions SET canceled_at = now() WHERE order_id = ?", group.bigOrder());
         return group.bigOrder();
-    }
-
-    private void cancel(RefundFixtures.PaidGroup group) {
-        fixtures.traced(() -> listener.receive(fixtures.record(
-                fixtures.cancelled(group.bigOrder(), group.groupId(), group.buyerId(), RefundFixtures.BIG))));
     }
 
     private ResultActions refund(String key, String body) throws Exception {

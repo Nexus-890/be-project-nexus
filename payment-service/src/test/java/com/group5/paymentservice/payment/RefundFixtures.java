@@ -95,6 +95,33 @@ final class RefundFixtures {
         return orderId;
     }
 
+    UUID groupOf(UUID orderId) {
+        return jdbc.queryForObject("""
+                SELECT s.order_group_id FROM payment_instructions i JOIN payment_sessions s ON s.id = i.session_id
+                WHERE i.order_id = ?
+                """, UUID.class, orderId);
+    }
+
+    void fund(UUID orderId) {
+        UUID sessionId = jdbc.queryForObject("SELECT session_id FROM payment_instructions WHERE order_id = ?",
+                UUID.class, orderId);
+        UUID transactionId = jdbc.queryForObject("""
+                INSERT INTO payment_transactions (session_id, provider, txn_reference, amount, currency, status, type,
+                                                  idempotency_key, received_at)
+                VALUES (?, 'SEPAY', ?, 100000.00, 'VND', 'SUCCESS', 'NORMAL', ?, now())
+                RETURNING id
+                """, UUID.class, sessionId, "FT" + orderId, "sepay:" + orderId);
+        jdbc.update("""
+                UPDATE payment_instructions SET status = 'PAID', funded_transaction_id = ?, paid_at = now()
+                WHERE order_id = ?
+                """, transactionId, orderId);
+    }
+
+    int pending(UUID orderId) {
+        return jdbc.queryForObject("SELECT count(*) FROM payment_pending_order_cancellations WHERE order_id = ?",
+                Integer.class, orderId);
+    }
+
     EventEnvelope<OrderCancelled> cancelled(UUID orderId, UUID groupId, UUID buyerId, String paidAmount) {
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         OrderCancelled payload = new OrderCancelled(orderId, buyerId, "NX-20261104-0001", "STANDARD", null, now,

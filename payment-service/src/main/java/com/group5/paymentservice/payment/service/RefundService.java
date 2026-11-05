@@ -11,6 +11,7 @@ import com.group5.paymentservice.payment.dto.request.RefundRequest;
 import com.group5.paymentservice.payment.dto.response.RefundResult;
 import com.group5.paymentservice.payment.dto.response.RefundView;
 import com.group5.paymentservice.payment.entity.PaymentInstruction;
+import com.group5.paymentservice.payment.entity.PaymentPendingOrderCancellation;
 import com.group5.paymentservice.payment.entity.PaymentTransaction;
 import com.group5.paymentservice.payment.entity.Refund;
 import com.group5.paymentservice.payment.enums.PaymentInstructionStatus;
@@ -21,6 +22,7 @@ import com.group5.paymentservice.payment.enums.RefundStatus;
 import com.group5.paymentservice.payment.event.payload.OrderRefundCompleted;
 import com.group5.paymentservice.payment.event.payload.OrderRefundRequested;
 import com.group5.paymentservice.payment.repository.PaymentInstructionRepository;
+import com.group5.paymentservice.payment.repository.PaymentPendingOrderCancellationRepository;
 import com.group5.paymentservice.payment.repository.PaymentSessionRepository;
 import com.group5.paymentservice.payment.repository.PaymentTransactionRepository;
 import com.group5.paymentservice.payment.repository.RefundRepository;
@@ -44,6 +46,9 @@ import java.util.regex.Pattern;
 public class RefundService {
     public static final String CANCELLATION_CONSUMER = "payment-order-cancelled";
     private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("[\\x21-\\x7E]{1,100}");
+    static final UUID SYSTEM_ACTOR = new UUID(0, 0);
+    private static final String SYSTEM_KEY_PREFIX = "system:";
+    private static final String GROUP_LOCK = "payment-group:";
     private static final String MANUAL_TRANSFER = "MANUAL_TRANSFER";
 
     private final IdempotentConsumer consumer;
@@ -51,19 +56,21 @@ public class RefundService {
     private final PaymentInstructionRepository instructions;
     private final PaymentTransactionRepository transactions;
     private final RefundRepository refunds;
+    private final PaymentPendingOrderCancellationRepository pendingOrders;
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
     private final Validator validator;
 
     public RefundService(IdempotentConsumer consumer, PaymentSessionRepository sessions,
                          PaymentInstructionRepository instructions, PaymentTransactionRepository transactions,
-                         RefundRepository refunds, OutboxWriter outbox, EventEnvelopeFactory envelopes,
-                         Validator validator) {
+                         RefundRepository refunds, PaymentPendingOrderCancellationRepository pendingOrders,
+                         OutboxWriter outbox, EventEnvelopeFactory envelopes, Validator validator) {
         this.consumer = consumer;
         this.sessions = sessions;
         this.instructions = instructions;
         this.transactions = transactions;
         this.refunds = refunds;
+        this.pendingOrders = pendingOrders;
         this.outbox = outbox;
         this.envelopes = envelopes;
         this.validator = validator;
@@ -78,28 +85,97 @@ public class RefundService {
 
     private void refundCancelledOrder(EventEnvelope<OrderCancelled> event) {
         OrderCancelled cancellation = event.payload();
+        boolean paid = !isZero(cancellation.paidAmount());
         Optional<UUID> groupId = instructions.findGroupIdByOrderId(cancellation.orderId());
-        if (groupId.isEmpty()) {
-            // ĐƠN CHƯA TRẢ TIỀN MÀ CHƯA CÓ MANIFEST THÌ KHÔNG CÓ GÌ ĐỂ HOÀN -> BỎ QUA
-            // COMMERCE NÓI ĐÃ TRẢ MÀ PAYMENT CHƯA CÓ INSTRUCTION = SAI THỨ TỰ -> NÉM LỖI ĐỂ KAFKA THỬ LẠI
-            if (!isZero(cancellation.paidAmount())) {
-                throw new IllegalStateException("Paid order has no payment instruction yet");
+        if (groupId.isEmpty() && !paid) {
+            return;
+        }
+        // KHÓA CÙNG THỨ TỰ VỚI #121: GROUP -> INSTRUCTION -> REFUND, TRÁNH DEADLOCK VỚI WEBHOOK/HỦY NHÓM
+        UUID lockedGroup = groupId.orElse(cancellation.orderGroupId());
+        sessions.lockKey(GROUP_LOCK + lockedGroup);
+        Optional<PaymentInstruction> instruction = instructions.findLockedByOrderId(cancellation.orderId());
+        if (instruction.isPresent() && cancellation.orderVersion() < instruction.get().getLastOrderVersion()) {
+            return;
+        }
+        if (instruction.isPresent() && isFunded(instruction.get())) {
+            pendingOrders.findLockedByOrderId(cancellation.orderId()).ifPresent(pendingOrders::delete);
+            applyCancellation(instruction.get(), cancellation.orderVersion(), cancellation.reason(),
+                    cancellation.actorId(), cancellation.cancelledAt().atOffset(ZoneOffset.UTC),
+                    event.occurredAt().atOffset(ZoneOffset.UTC));
+            return;
+        }
+        // COMMERCE NÓI ĐÃ TRẢ MÀ PAYMENT CHƯA CÓ INSTRUCTION HOẶC CHƯA CÓ BẰNG CHỨNG FUNDING
+        // -> LƯU PENDING CÙNG TRANSACTION VỚI MARKER, KHÔNG NÉM LỖI ĐỂ KHÔNG CHẶN PARTITION
+        if (paid) {
+            stash(event, lockedGroup);
+        }
+    }
+
+    // GỌI KHI INSTRUCTION CỦA NHÓM ĐÃ CÓ BẰNG CHỨNG FUNDING (WEBHOOK, MANIFEST GỬI LẠI)
+    // MANIFEST MỚI TẠO CHƯA ĐỦ ĐỂ COI LÀ ĐÃ TRẢ -> ĐƠN CHƯA FUNDED VẪN NẰM PENDING
+    @Transactional
+    public void applyPendingCancellations(UUID groupId) {
+        sessions.lockKey(GROUP_LOCK + groupId);
+        for (PaymentPendingOrderCancellation pending : pendingOrders.findLockedByOrderGroupId(groupId)) {
+            Optional<PaymentInstruction> instruction = instructions.findLockedByOrderId(pending.getOrderId());
+            if (instruction.isEmpty() || !isFunded(instruction.get())) {
+                continue;
             }
-            return;
+            if (pending.getOrderVersion() >= instruction.get().getLastOrderVersion()) {
+                applyCancellation(instruction.get(), pending.getOrderVersion(), pending.getReason(),
+                        pending.getActorId(), pending.getCancelledAt(), pending.getOccurredAt());
+            }
+            // CHỈ XÓA SAU KHI ÁP DỤNG THÀNH CÔNG (HOẶC BẢN PENDING ĐÃ CŨ HƠN INSTRUCTION)
+            pendingOrders.delete(pending);
         }
-        // KHÓA CÙNG THỨ TỰ VỚI #121: GROUP -> INSTRUCTION, TRÁNH DEADLOCK VỚI WEBHOOK/HỦY NHÓM
-        sessions.lockKey("payment-group:" + groupId.get());
-        PaymentInstruction instruction = instructions.findLockedByOrderId(cancellation.orderId()).orElseThrow();
-        if (cancellation.orderVersion() < instruction.getLastOrderVersion() || !isFunded(instruction)) {
-            return;
-        }
-        // CHỈ ĐÁNH DẤU ĐƠN ĐƯỢC HOÀN (canceledAt), KHÔNG TỰ TẠO REFUND
-        // SUPPORT GỌI POST /refunds ĐỂ TẠO (CÓ THỂ HOÀN MỘT PHẦN) RỒI COMPLETE SAU KHI CHUYỂN KHOẢN
-        instruction.setCanceledAt(cancellation.cancelledAt().atOffset(ZoneOffset.UTC));
-        instruction.setLastOrderVersion(cancellation.orderVersion());
-        instruction.setLastOrderEventAt(event.occurredAt().atOffset(ZoneOffset.UTC));
-        instruction.setUpdatedBy(cancellation.actorId());
+    }
+
+    private void applyCancellation(PaymentInstruction instruction, long orderVersion, String reason, UUID actorId,
+                                   OffsetDateTime cancelledAt, OffsetDateTime occurredAt) {
+        Optional<Refund> existing = refunds.findLockedByOrderId(instruction.getOrderId());
+        instruction.setCanceledAt(cancelledAt);
+        instruction.setLastOrderVersion(orderVersion);
+        instruction.setLastOrderEventAt(occurredAt);
+        instruction.setUpdatedBy(actorId);
         instructions.saveAndFlush(instruction);
+        // ĐÃ CÓ REFUND (EVENT GỬI LẠI VỚI eventId MỚI, HOẶC SUPPORT ĐÃ TẠO) -> GIỮ NGUYÊN, KHÔNG TẠO THÊM
+        if (existing.isPresent()) {
+            return;
+        }
+        // TỰ TẠO REFUND TOÀN PHẦN BẰNG ACTOR HỆ THỐNG, KEY CỐ ĐỊNH THEO ĐƠN
+        // REFUND + OrderRefundRequested + MARKER CÙNG 1 TRANSACTION
+        Refund refund = new Refund();
+        refund.setOrderId(instruction.getOrderId());
+        refund.setAmount(instruction.getAmount());
+        refund.setCurrency(instruction.getCurrency());
+        refund.setReason(reason);
+        refund.setIdempotencyKey(SYSTEM_KEY_PREFIX + "cancel-refund:" + instruction.getOrderId());
+        refund.setRequestedBy(SYSTEM_ACTOR);
+        refund.setCreatedBy(SYSTEM_ACTOR);
+        refund.setUpdatedBy(SYSTEM_ACTOR);
+        publishRequested(refunds.saveAndFlush(refund), instruction, SYSTEM_ACTOR);
+    }
+
+    private void stash(EventEnvelope<OrderCancelled> event, UUID groupId) {
+        OrderCancelled cancellation = event.payload();
+        PaymentPendingOrderCancellation pending = pendingOrders.findLockedByOrderId(cancellation.orderId())
+                .orElseGet(PaymentPendingOrderCancellation::new);
+        // GIỮ BẢN CÓ VERSION MỚI NHẤT
+        if (pending.getOrderVersion() != null && pending.getOrderVersion() >= cancellation.orderVersion()) {
+            return;
+        }
+        pending.setOrderId(cancellation.orderId());
+        pending.setOrderGroupId(groupId);
+        pending.setBuyerId(cancellation.buyerId());
+        pending.setOrderVersion(cancellation.orderVersion());
+        pending.setPaidAmount(new BigDecimal(cancellation.paidAmount()));
+        pending.setCurrency(cancellation.currency());
+        pending.setReason(cancellation.reason());
+        pending.setActorId(cancellation.actorId());
+        pending.setCancelledAt(cancellation.cancelledAt().atOffset(ZoneOffset.UTC));
+        pending.setOccurredAt(event.occurredAt().atOffset(ZoneOffset.UTC));
+        pending.setSourceEventId(event.eventId());
+        pendingOrders.saveAndFlush(pending);
     }
 
     @Transactional
@@ -107,7 +183,9 @@ public class RefundService {
         if (user == null || user.id() == null) {
             throw new DomainException(PaymentErrorCode.UNAUTHENTICATED);
         }
-        if (idempotencyKey == null || !IDEMPOTENCY_KEY.matcher(idempotencyKey).matches()) {
+        // PREFIX system: DÀNH CHO REFUND TỰ ĐỘNG -> API CÔNG KHAI KHÔNG ĐƯỢC DÙNG ĐỂ TRÁNH TRÙNG KEY NỘI BỘ
+        if (idempotencyKey == null || !IDEMPOTENCY_KEY.matcher(idempotencyKey).matches()
+                || idempotencyKey.startsWith(SYSTEM_KEY_PREFIX)) {
             throw new DomainException(PaymentErrorCode.INVALID_REFUND_REQUEST);
         }
         // KHÓA THEO KEY TRƯỚC: 2 REQUEST CÙNG KEY CHẠY SONG SONG THÌ REQUEST SAU CHỜ RỒI NHẬN LẠI ĐÚNG REFUND CŨ
@@ -123,12 +201,14 @@ public class RefundService {
 
         UUID groupId = instructions.findGroupIdByOrderId(body.orderId())
                 .orElseThrow(() -> new DomainException(PaymentErrorCode.ORDER_NOT_FOUND));
-        sessions.lockKey("payment-group:" + groupId);
+        sessions.lockKey(GROUP_LOCK + groupId);
         PaymentInstruction instruction = instructions.findLockedByOrderId(body.orderId()).orElseThrow();
         // PHẢI ĐÃ TRẢ TIỀN VÀ PAYMENT ĐÃ NHẬN OrderCancelled, KHÔNG THÌ COMMERCE KHÔNG CHUYỂN ĐƯỢC TRẠNG THÁI ĐƠN
         if (!isFunded(instruction) || instruction.getCanceledAt() == null) {
             throw new DomainException(PaymentErrorCode.ORDER_NOT_REFUNDABLE);
         }
+        // HỦY ĐƠN ĐÃ TỰ TẠO REFUND -> 409, SUPPORT DÙNG REFUND CÓ SẴN ĐỂ COMPLETE
+        // API NÀY CHỈ CHO ĐƠN ĐÃ HỦY + ĐÃ TRẢ MÀ CHƯA CÓ REFUND (KHÔI PHỤC DỮ LIỆU)
         if (refunds.findLockedByOrderId(body.orderId()).isPresent()) {
             throw new DomainException(PaymentErrorCode.REFUND_EXISTS);
         }
@@ -168,7 +248,7 @@ public class RefundService {
                 .orElseThrow(() -> new DomainException(PaymentErrorCode.REFUND_NOT_FOUND));
         UUID groupId = instructions.findGroupIdByOrderId(orderId).orElseThrow();
         // CÙNG THỨ TỰ KHÓA GROUP -> INSTRUCTION -> REFUND: 2 SUPPORT BẤM CÙNG LÚC THÌ NGƯỜI SAU CHỜ
-        sessions.lockKey("payment-group:" + groupId);
+        sessions.lockKey(GROUP_LOCK + groupId);
         PaymentInstruction instruction = instructions.findLockedByOrderId(orderId).orElseThrow();
         Refund refund = refunds.findLockedById(refundId).orElseThrow();
         // BẤM LẠI SAU KHI ĐÃ XONG -> TRẢ KẾT QUẢ CŨ, KHÔNG TẠO GIAO DỊCH HAY EVENT THỨ 2

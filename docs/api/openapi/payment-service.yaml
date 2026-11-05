@@ -100,10 +100,12 @@ paths:
         Requires ORDER.REFUND (Admin, Support Staff). One refund per order. The same
         Idempotency-Key with the same orderId, reason and amount returns the stored refund,
         even after it is completed; an omitted amount is compared as the full amount paid.
-        Payment-side funding evidence decides whether the order was paid. OrderCancelled only
-        marks a paid order refundable and creates no refund: Support creates it here, then
-        confirms the manual transfer with /complete. Omitted amount means the full amount
-        paid for this order.
+        Payment-side funding evidence decides whether the order was paid; the order must
+        already be cancelled on the payment side. OrderCancelled already creates the full
+        refund for a paid order, so this endpoint serves cancelled, paid orders that have
+        no refund yet (for example data recovery). An order that already has a refund
+        returns 409 PAYMENT_REFUND_EXISTS; Support completes the existing refund with
+        /complete. Omitted amount means the full amount paid for this order.
       security:
         - bearerAuth: []
       x-actor-roles: [ADMIN, SUPPORT_STAFF]
