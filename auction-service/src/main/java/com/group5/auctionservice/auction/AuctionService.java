@@ -11,17 +11,25 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 
 @Service
 @RequiredArgsConstructor
 public class AuctionService {
 
+    private static final Duration START_TIME_TOLERANCE = Duration.ofSeconds(5);
+
     private final AuctionRepository auctions;
     private final AuctionProperties properties;
+    private final Clock clock;
 
     @Transactional
     public AuctionResponse create(CreateAuctionRequest request, CurrentUser seller) {
+        if (request.startAt().isBefore(Instant.now(clock).minus(START_TIME_TOLERANCE))) {
+            throw new DomainException(AuctionErrorCode.AUCTION_START_IN_PAST);
+        }
         Duration duration = Duration.between(request.startAt(), request.endAt());
         if (duration.isZero() || duration.isNegative()) {
             throw new DomainException(AuctionErrorCode.AUCTION_INVALID_TIME_WINDOW);

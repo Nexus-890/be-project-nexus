@@ -19,6 +19,8 @@ paths:
         Creates an auction in CREATED status. sellerId comes from the authenticated JWT subject.
         The duration must be between the configured minimum and maximum, inclusive.
         Defaults are 60 minutes and 168 hours.
+        startingPrice must be greater than zero. startAt must not be in the past,
+        allowing up to 5 seconds of clock skew against server time.
       x-catalogue-id: AUC-01
       x-required-roles: [SELLER]
       x-required-privileges: [AUCTION.CREATE]
@@ -75,8 +77,16 @@ paths:
                       status:
                         enum: [400]
                       code:
-                        enum: [INVALID_REQUEST_BODY, VALIDATION_FAILED, AUCTION_INVALID_TIME_WINDOW, AUCTION_DURATION_TOO_SHORT, AUCTION_DURATION_TOO_LONG]
+                        enum: [INVALID_REQUEST_BODY, VALIDATION_FAILED, AUCTION_START_IN_PAST, AUCTION_INVALID_TIME_WINDOW, AUCTION_DURATION_TOO_SHORT, AUCTION_DURATION_TOO_LONG]
               examples:
+                startInPast:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: startAt must not be in the past (5 seconds of clock skew allowed)
+                    instance: /api/v1/auctions
+                    code: AUCTION_START_IN_PAST
                 invalidWindow:
                   value:
                     type: urn:problem:domain-error
@@ -165,6 +175,7 @@ components:
         startingPrice:
           type: number
           minimum: 0
+          exclusiveMinimum: true
           multipleOf: 0.01
           description: At most 17 integer digits and two fractional digits.
         bidIncrement:
@@ -177,6 +188,7 @@ components:
         startAt:
           type: string
           format: date-time
+          description: Must not precede server time by more than 5 seconds.
         endAt:
           type: string
           format: date-time

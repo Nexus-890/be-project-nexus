@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -33,6 +34,7 @@ import org.springframework.web.context.WebApplicationContext;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.Clock;
 import java.util.Date;
 import java.util.List;
 
@@ -70,6 +72,7 @@ class KeycloakTokenTrustTest {
     private static final HttpServer JWKS = jwks();
     @Autowired private WebApplicationContext context;
     @MockitoBean private AuctionRepository auctions;
+    @MockitoBean private Clock clock;
     private MockMvc client;
 
     @DynamicPropertySource
@@ -80,6 +83,7 @@ class KeycloakTokenTrustTest {
 
     @BeforeEach
     void client() {
+        when(clock.instant()).thenReturn(Instant.parse("2026-11-05T10:00:00Z"));
         client = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
     }
@@ -143,6 +147,20 @@ class KeycloakTokenTrustTest {
         verifyNoInteractions(auctions);
     }
 
+    @ParameterizedTest
+    @ValueSource(longs = {60, 10080})
+    void exactDurationBoundsRemainAccepted(long minutes) throws Exception {
+        when(auctions.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        String endAt = Instant.parse("2026-11-05T10:00:00Z").plusSeconds(minutes * 60).toString();
+
+        client.perform(post(AUCTIONS).contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + auctionToken("SELLER", List.of("AUCTION.CREATE")))
+                        .content(auctionBody(endAt)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.endAt").value(endAt))
+                .andExpect(jsonPath("$.data.originalEndAt").value(endAt));
+    }
+
     @Test
     void createRequiresBothSellerRoleAndPrivilege() throws Exception {
         for (String token : List.of(auctionToken("BUYER", List.of()),
@@ -157,7 +175,51 @@ class KeycloakTokenTrustTest {
         verifyNoInteractions(auctions);
     }
 
+    @ParameterizedTest
+    @CsvSource({"-86400, 400", "-6, 400", "-5, 201", "-3, 201", "0, 201", "60, 201"})
+    void startTimeAllowsOnlyFiveSecondsOfClockSkew(long offsetSeconds, int expectedStatus) throws Exception {
+        Instant start = Instant.parse("2026-11-05T10:00:00Z").plusSeconds(offsetSeconds);
+        when(auctions.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var result = client.perform(post(AUCTIONS).contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + auctionToken("SELLER", List.of("AUCTION.CREATE")))
+                        .content(auctionBody(start.toString(), start.plusSeconds(7200).toString())))
+                .andExpect(status().is(expectedStatus));
+        if (expectedStatus == 400) {
+            result.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(jsonPath("$.code").value("AUCTION_START_IN_PAST"));
+            verifyNoInteractions(auctions);
+        } else {
+            result.andExpect(jsonPath("$.data.status").value("CREATED"))
+                    .andExpect(jsonPath("$.data.startAt").value(start.toString()));
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"0, 400", "-0.01, 400", "0.01, 201"})
+    void startingPriceMustBeStrictlyPositive(String price, int expectedStatus) throws Exception {
+        when(auctions.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var result = client.perform(post(AUCTIONS).contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + auctionToken("SELLER", List.of("AUCTION.CREATE")))
+                        .content(auctionBody("2026-11-05T12:00:00Z").replace("125.25", price)))
+                .andExpect(status().is(expectedStatus));
+        if (expectedStatus == 400) {
+            result.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                    .andExpect(jsonPath("$.errors[0].field").value("startingPrice"));
+            verifyNoInteractions(auctions);
+        } else {
+            result.andExpect(jsonPath("$.data.startingPrice").value(0.01))
+                    .andExpect(jsonPath("$.data.currentPrice").value(0.01));
+        }
+    }
+
     private static String auctionBody(String endAt) {
+        return auctionBody("2026-11-05T10:00:00Z", endAt);
+    }
+
+    private static String auctionBody(String startAt, String endAt) {
         return """
                 {
                   "productId": "00000002-1111-4111-8111-111111111111",
@@ -165,10 +227,10 @@ class KeycloakTokenTrustTest {
                   "sellerId": "68000000-0000-4000-8000-000000000001",
                   "title": "Vintage film camera",
                   "startingPrice": 125.25,
-                  "startAt": "2026-11-05T10:00:00Z",
+                  "startAt": "%s",
                   "endAt": "%s"
                 }
-                """.formatted(endAt);
+                """.formatted(startAt, endAt);
     }
 
     private static String auctionToken(String role, List<String> privileges) throws Exception {
