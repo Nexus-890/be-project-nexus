@@ -43,9 +43,7 @@ import java.util.regex.Pattern;
 @Service
 public class RefundService {
     public static final String CANCELLATION_CONSUMER = "payment-order-cancelled";
-    static final UUID SYSTEM_ACTOR = new UUID(0, 0);
     private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("[\\x21-\\x7E]{1,100}");
-    private static final String SYSTEM_KEY_PREFIX = "system:";
     private static final String MANUAL_TRANSFER = "MANUAL_TRANSFER";
 
     private final IdempotentConsumer consumer;
@@ -89,32 +87,19 @@ public class RefundService {
             }
             return;
         }
-        // KHÓA CÙNG THỨ TỰ VỚI #121: GROUP -> INSTRUCTION -> REFUND, TRÁNH DEADLOCK VỚI WEBHOOK/HỦY NHÓM
+        // KHÓA CÙNG THỨ TỰ VỚI #121: GROUP -> INSTRUCTION, TRÁNH DEADLOCK VỚI WEBHOOK/HỦY NHÓM
         sessions.lockKey("payment-group:" + groupId.get());
         PaymentInstruction instruction = instructions.findLockedByOrderId(cancellation.orderId()).orElseThrow();
-        Optional<Refund> existing = refunds.findLockedByOrderId(cancellation.orderId());
         if (cancellation.orderVersion() < instruction.getLastOrderVersion() || !isFunded(instruction)) {
             return;
         }
+        // CHỈ ĐÁNH DẤU ĐƠN ĐƯỢC HOÀN (canceledAt), KHÔNG TỰ TẠO REFUND
+        // SUPPORT GỌI POST /refunds ĐỂ TẠO (CÓ THỂ HOÀN MỘT PHẦN) RỒI COMPLETE SAU KHI CHUYỂN KHOẢN
         instruction.setCanceledAt(cancellation.cancelledAt().atOffset(ZoneOffset.UTC));
         instruction.setLastOrderVersion(cancellation.orderVersion());
         instruction.setLastOrderEventAt(event.occurredAt().atOffset(ZoneOffset.UTC));
         instruction.setUpdatedBy(cancellation.actorId());
         instructions.saveAndFlush(instruction);
-        if (existing.isPresent()) {
-            return;
-        }
-
-        Refund refund = new Refund();
-        refund.setOrderId(cancellation.orderId());
-        refund.setAmount(instruction.getAmount());
-        refund.setCurrency(instruction.getCurrency());
-        refund.setReason(cancellation.reason());
-        refund.setIdempotencyKey("system:cancel-refund:" + cancellation.orderId());
-        refund.setRequestedBy(SYSTEM_ACTOR);
-        refund.setCreatedBy(SYSTEM_ACTOR);
-        refund.setUpdatedBy(SYSTEM_ACTOR);
-        publishRequested(refunds.saveAndFlush(refund), instruction, SYSTEM_ACTOR);
     }
 
     @Transactional
@@ -122,8 +107,7 @@ public class RefundService {
         if (user == null || user.id() == null) {
             throw new DomainException(PaymentErrorCode.UNAUTHENTICATED);
         }
-        if (idempotencyKey == null || !IDEMPOTENCY_KEY.matcher(idempotencyKey).matches()
-                || idempotencyKey.startsWith(SYSTEM_KEY_PREFIX)) {
+        if (idempotencyKey == null || !IDEMPOTENCY_KEY.matcher(idempotencyKey).matches()) {
             throw new DomainException(PaymentErrorCode.INVALID_REFUND_REQUEST);
         }
         // KHÓA THEO KEY TRƯỚC: 2 REQUEST CÙNG KEY CHẠY SONG SONG THÌ REQUEST SAU CHỜ RỒI NHẬN LẠI ĐÚNG REFUND CŨ
@@ -266,7 +250,7 @@ public class RefundService {
                 && instruction.getAmount().signum() > 0;
     }
 
-    void publishRequested(Refund refund, PaymentInstruction instruction, UUID actorId) {
+    private void publishRequested(Refund refund, PaymentInstruction instruction, UUID actorId) {
         outbox.write("Refund", Topics.PAYMENT, envelopes.create("OrderRefundRequested",
                 refund.getOrderId().toString(), requested(refund, instruction, actorId)));
     }

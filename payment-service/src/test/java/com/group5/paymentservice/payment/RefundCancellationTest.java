@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.math.BigDecimal;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,51 +26,34 @@ class RefundCancellationTest extends PaymentDatabaseTestSupport {
     }
 
     @Test
-    void cancellingAPaidOrderRequestsARefundForThatOrderOnly() {
+    void cancellingAPaidOrderMarksOnlyThatOrderRefundableAndCreatesNoRefund() {
         var group = fixtures.paidGroup();
         var event = fixtures.cancelled(group.bigOrder(), group.groupId(), group.buyerId(), RefundFixtures.BIG);
 
         fixtures.traced(() -> listener.receive(fixtures.record(event)));
 
-        var refund = fixtures.refund(group.bigOrder());
-        assertThat((BigDecimal) refund.get("amount")).isEqualByComparingTo(RefundFixtures.BIG);
-        assertThat(refund.get("status")).isEqualTo("REQUESTED");
-        assertThat(refund.get("idempotency_key")).isEqualTo("system:cancel-refund:" + group.bigOrder());
-        assertThat(refund.get("requested_by")).isEqualTo(new UUID(0, 0));
-        assertThat(refund.get("version")).isEqualTo(0L);
-        assertThat(fixtures.refunds(group.smallOrder())).isZero();
-        assertThat(fixtures.outbox("OrderRefundRequested", group.bigOrder())).isEqualTo(1);
-
-        var payload = fixtures.lastPayload("OrderRefundRequested", group.bigOrder());
-        assertThat(payload.get("refundId").asString()).isEqualTo(refund.get("id").toString());
-        assertThat(payload.get("orderGroupId").asString()).isEqualTo(group.groupId().toString());
-        assertThat(payload.get("sessionId").asString()).isEqualTo(group.sessionId().toString());
-        assertThat(payload.get("incomingTransactionId").asString()).isEqualTo(group.transactionId().toString());
-        assertThat(payload.get("amount").asString()).isEqualTo(RefundFixtures.BIG);
-        assertThat(payload.get("status").asString()).isEqualTo("REQUESTED");
-        assertThat(payload.get("refundVersion").asLong()).isZero();
-        assertThat(payload.get("requestedAt").asString()).endsWith("Z");
-        assertThat(jdbc.queryForObject("SELECT canceled_at IS NOT NULL FROM payment_instructions WHERE order_id = ?",
-                Boolean.class, group.bigOrder())).isTrue();
+        assertThat(canceledAt(group.bigOrder())).isNotNull();
+        assertThat(canceledAt(group.smallOrder())).isNull();
         assertThat(jdbc.queryForObject("SELECT status::text FROM payment_instructions WHERE order_id = ?",
                 String.class, group.bigOrder())).isEqualTo("PAID");
+        assertThat(fixtures.refunds(group.bigOrder())).isZero();
+        assertThat(fixtures.refunds(group.smallOrder())).isZero();
+        assertThat(fixtures.outbox("OrderRefundRequested", group.bigOrder())).isZero();
+        assertThat(fixtures.marker(event.eventId())).isEqualTo(1);
     }
 
     @Test
-    void theSameCancellationDeliveredAgainWithANewEventIdKeepsOneRefund() {
+    void theSameCancellationDeliveredAgainIsHandledOnce() {
         var group = fixtures.paidGroup();
-        fixtures.traced(() -> listener.receive(fixtures.record(
-                fixtures.cancelled(group.bigOrder(), group.groupId(), group.buyerId(), RefundFixtures.BIG))));
-        var first = fixtures.refund(group.bigOrder());
-
         var again = fixtures.cancelled(group.bigOrder(), group.groupId(), group.buyerId(), RefundFixtures.BIG);
+
         fixtures.traced(() -> listener.receive(fixtures.record(again)));
+        Object first = canceledAt(group.bigOrder());
         fixtures.traced(() -> listener.receive(fixtures.record(again)));
 
-        assertThat(fixtures.refunds(group.bigOrder())).isEqualTo(1);
-        assertThat(fixtures.refund(group.bigOrder())).isEqualTo(first);
-        assertThat(fixtures.outbox("OrderRefundRequested", group.bigOrder())).isEqualTo(1);
+        assertThat(canceledAt(group.bigOrder())).isEqualTo(first);
         assertThat(fixtures.marker(again.eventId())).isEqualTo(1);
+        assertThat(fixtures.refunds(group.bigOrder())).isZero();
     }
 
     @Test
@@ -106,5 +88,10 @@ class RefundCancellationTest extends PaymentDatabaseTestSupport {
 
         assertThat(fixtures.marker(event.eventId())).isEqualTo(1);
         assertThat(fixtures.refunds(orderId)).isZero();
+    }
+
+    private Object canceledAt(UUID orderId) {
+        return jdbc.queryForObject("SELECT canceled_at FROM payment_instructions WHERE order_id = ?",
+                Object.class, orderId);
     }
 }
