@@ -98,10 +98,10 @@ class EnumAuditingPersistenceTest {
 
     private static User user(String email, String phone) {
         User user = new User();
+        user.setId(UUID.randomUUID());
         user.setEmail(email);
         user.setPhone(phone);
         user.setFullName("Audited User");
-        user.setPasswordHash("not-a-real-hash");
         return user;
     }
 

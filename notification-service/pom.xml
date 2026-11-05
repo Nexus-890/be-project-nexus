@@ -50,6 +50,11 @@
 
 	<dependencies>
 		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-kafka</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
 			<groupId>com.group5</groupId>
 			<artifactId>common-core</artifactId>
 			<version>1.0.0</version>
