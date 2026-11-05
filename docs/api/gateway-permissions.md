@@ -65,6 +65,7 @@ independently, as required by ADR-006.
 | `/api/v1/orders/sales` | GET | ORDER.LIST | #190 — Seller orders; service additionally requires SELLER and JWT seller ownership |
 | `/api/v1/orders/{id}` | GET | ORDER.VIEW | #117 — Order read endpoints; the owner or ADMIN |
 | `/api/v1/orders/{id}/cancel` | POST | ORDER.CANCEL | #189 — Order cancellation; the buyer, ADMIN or SUPPORT_STAFF |
+| `/api/v1/auctions` | POST | AUCTION.CREATE | #140 — Create as SELLER; `sellerId` comes from the JWT subject |
 | Any other path | Any other method/path pair | Token required; add the SRS privilege before exposing a new endpoint | Gateway JWT filter and permit list; future owning issue |
 
 PAY-01 is owned by payment-service at `POST /api/v1/payments` (#121), with
@@ -364,10 +365,10 @@ and Prism cannot demonstrate runtime authorization.
 
 These **26 method/path contracts** are drafts (`0.1.0-draft`) for the
 [inventory contract](inventory-service.yaml) and the
-[auction contract](auction-service.yaml). A draft does not expose a runtime
-endpoint: `RouteConfig` has no inventory or auction route yet, and this section
-changes neither `api-gateway.yml` nor `SecurityConfig`. Each owning issue registers
-its row, enforces the service rule and copies its operations into `openapi/`.
+[auction contract](auction-service.yaml). For the implemented create operation,
+see [the delivered #140 contract](openapi/auction-service.yaml) and the gateway
+permission table above. The rows below describe the intended Sprint 2 scope,
+including rules planned for later issues.
 Each method/path appears exactly once below, with a role, the word `public`, or
 `system` for the two paths the gateway never routes.
 

@@ -163,6 +163,9 @@ nexus:
       - method: PUT
         path: /api/v1/products/{id}/images/order
         privilege: PRODUCT.UPDATE
+      - method: POST
+        path: /api/v1/auctions
+        privilege: AUCTION.CREATE
   gateway:
     rate-limit:
       # Có thể đổi qua Config Server và /actuator/refresh; đủ cho polling 2 giây.

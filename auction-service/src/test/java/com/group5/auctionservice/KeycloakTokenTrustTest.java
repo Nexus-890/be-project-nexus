@@ -1,5 +1,6 @@
 package com.group5.auctionservice;
 
+import com.group5.auctionservice.auction.AuctionRepository;
 import com.group5.common_security.CurrentUser;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -14,12 +15,16 @@ import jakarta.servlet.Filter;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,8 +36,13 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** Loads the real service application and its classpath security auto-configuration.
@@ -47,16 +57,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                 + "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration,"
                 + "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration",
         "nexus.security.jwt.issuer=http://localhost:18080/realms/nexus",
-        "nexus.security.jwt.audience=nexus-services"
+        "nexus.security.jwt.audience=nexus-services",
+        "nexus.auction.default-bid-increment=27.50"
 })
 @Import(KeycloakTokenTrustTest.Probe.class)
 class KeycloakTokenTrustTest {
     private static final String ISSUER = "http://localhost:18080/realms/nexus";
     private static final String SUBJECT = "68000000-0000-4000-8000-000000000002";
+    private static final String AUCTIONS = "/api/v1/auctions";
     private static final RSAKey KEY = key();
     private static final RSAKey LEGACY_KEY = key();
     private static final HttpServer JWKS = jwks();
     @Autowired private WebApplicationContext context;
+    @MockitoBean private AuctionRepository auctions;
     private MockMvc client;
 
     @DynamicPropertySource
@@ -96,12 +109,83 @@ class KeycloakTokenTrustTest {
         }
     }
 
+    @Test
+    void sellerCreatesAuctionWithConfiguredIncrementAndJwtSubject() throws Exception {
+        when(auctions.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        client.perform(post(AUCTIONS).contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + auctionToken("SELLER", List.of("AUCTION.CREATE")))
+                        .content(auctionBody("2026-11-05T12:00:00Z")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.status").value("CREATED"))
+                .andExpect(jsonPath("$.data.sellerId").value(SUBJECT))
+                .andExpect(jsonPath("$.data.startingPrice").value(125.25))
+                .andExpect(jsonPath("$.data.currentPrice").value(125.25))
+                .andExpect(jsonPath("$.data.bidIncrement").value(27.5))
+                .andExpect(jsonPath("$.data.originalEndAt").value("2026-11-05T12:00:00Z"));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "2026-11-05T10:00:00Z, AUCTION_INVALID_TIME_WINDOW, endAt must be after startAt",
+            "2026-11-05T10:30:00Z, AUCTION_DURATION_TOO_SHORT, Auction duration must be at least 60 minutes",
+            "2026-11-13T18:00:00Z, AUCTION_DURATION_TOO_LONG, Auction duration must be at most 168 hours"
+    })
+    void invalidDurationReturnsProblemAndDoesNotSave(String endAt, String code, String detail) throws Exception {
+        client.perform(post(AUCTIONS).contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + auctionToken("SELLER", List.of("AUCTION.CREATE")))
+                        .content(auctionBody(endAt)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value(code))
+                .andExpect(jsonPath("$.detail").value(detail));
+        verifyNoInteractions(auctions);
+    }
+
+    @Test
+    void createRequiresBothSellerRoleAndPrivilege() throws Exception {
+        for (String token : List.of(auctionToken("BUYER", List.of()),
+                auctionToken("ADMIN", List.of("AUCTION.CREATE")), auctionToken("SELLER", List.of()))) {
+            client.perform(post(AUCTIONS).contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", "Bearer " + token)
+                            .content(auctionBody("2026-11-05T12:00:00Z")))
+                    .andExpect(status().isForbidden())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        }
+        verifyNoInteractions(auctions);
+    }
+
+    private static String auctionBody(String endAt) {
+        return """
+                {
+                  "productId": "00000002-1111-4111-8111-111111111111",
+                  "skuId": "00000003-1111-4111-8111-111111111111",
+                  "sellerId": "68000000-0000-4000-8000-000000000001",
+                  "title": "Vintage film camera",
+                  "startingPrice": 125.25,
+                  "startAt": "2026-11-05T10:00:00Z",
+                  "endAt": "%s"
+                }
+                """.formatted(endAt);
+    }
+
+    private static String auctionToken(String role, List<String> privileges) throws Exception {
+        return token(KEY, ISSUER, List.of("nexus-services"), role, privileges);
+    }
+
     private static String token(RSAKey key, String issuer, List<String> audience) throws Exception {
+        return token(key, issuer, audience, "SELLER", List.of("PRODUCT.CREATE"));
+    }
+
+    private static String token(RSAKey key, String issuer, List<String> audience,
+                                String role, List<String> privileges) throws Exception {
         Instant now = Instant.now();
         SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID("realm-key").build(),
                 new JWTClaimsSet.Builder().issuer(issuer).audience(audience).subject(SUBJECT)
-                        .claim("azp", "nexus-web").claim("roles", List.of("SELLER"))
-                        .claim("privileges", List.of("PRODUCT.CREATE"))
+                        .claim("azp", "nexus-web").claim("roles", List.of(role))
+                        .claim("privileges", privileges)
                         .issueTime(Date.from(now)).expirationTime(Date.from(now.plusSeconds(300))).build());
         jwt.sign(new RSASSASigner(key));
         return jwt.serialize();
