@@ -48,27 +48,65 @@ public class RouteConfig {
                                 "/api/v1/carts/**",
                                 "/api/v1/orders/**"
                         )
+                        // PAY-01 moved to POST /payments (#121); do not forward its obsolete commerce path.
+                        .and().not(oldPayment -> oldPayment.path("/api/v1/orders/*/payment"))
                         .filters(filters -> filters.requestRateLimiter(config ->
                                 config.setRateLimiter(limiter)
                                         .setKeyResolver(resolver)
                                         .setThrowOnLimit(true)))
                         .uri("lb://commerce-service"))
 
+                .route("notification-service", route -> route
+                        .path("/api/v1/notifications", "/api/v1/notifications/**",
+                                "/api/v1/event-logs", "/api/v1/event-logs/**",
+                                "/api/v1/audit-logs", "/api/v1/audit-logs/**")
+                        .filters(filters -> filters.requestRateLimiter(config ->
+                                config.setRateLimiter(limiter)
+                                        .setKeyResolver(resolver)
+                                        .setThrowOnLimit(true)))
+                        .uri("lb://notification-service"))
+
                 .route("payment-service", route -> route
-                        .path("/api/v1/payments", "/api/v1/payments/**", "/api/v1/refunds", "/api/v1/refunds/**")
+                        .path("/api/v1/payments/**", "/api/v1/refunds/**",
+                                "/api/v1/webhooks/sepay")
                         .filters(filters -> filters.requestRateLimiter(config ->
                                 config.setRateLimiter(limiter)
                                         .setKeyResolver(resolver)
                                         .setThrowOnLimit(true)))
                         .uri("lb://payment-service"))
 
-                .route("notification-service", route -> route
-                        .path("/api/v1/notifications", "/api/v1/notifications/**")
+                .route("shipment-service", route -> route
+                        .path("/api/v1/shipments/**", "/api/v1/shipping/**",
+                                "/api/v1/carriers/**", "/api/v1/webhooks/carriers/**")
                         .filters(filters -> filters.requestRateLimiter(config ->
                                 config.setRateLimiter(limiter)
                                         .setKeyResolver(resolver)
                                         .setThrowOnLimit(true)))
-                        .uri("lb://notification-service"))
+                        .uri("lb://shipment-service"))
+
+                .route("rating-service", route -> route
+                        .path("/api/v1/ratings/**", "/api/v1/reputations/**")
+                        .filters(filters -> filters.requestRateLimiter(config ->
+                                config.setRateLimiter(limiter)
+                                        .setKeyResolver(resolver)
+                                        .setThrowOnLimit(true)))
+                        .uri("lb://rating-service"))
+
+                .route("inventory-service", route -> route
+                        .path("/api/v1/inventory/**", "/api/v1/warehouses/**")
+                        .filters(filters -> filters.requestRateLimiter(config ->
+                                config.setRateLimiter(limiter)
+                                        .setKeyResolver(resolver)
+                                        .setThrowOnLimit(true)))
+                        .uri("lb://inventory-service"))
+
+                .route("auction-service", route -> route
+                        .path("/api/v1/auctions", "/api/v1/auctions/**")
+                        .filters(filters -> filters.requestRateLimiter(config -> config
+                                .setRateLimiter(limiter)
+                                .setKeyResolver(resolver)
+                                .setThrowOnLimit(true)))
+                        .uri("lb://auction-service"))
 
                 .build();
     }

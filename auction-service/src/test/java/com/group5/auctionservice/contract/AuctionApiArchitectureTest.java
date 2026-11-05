@@ -9,7 +9,5 @@ import com.tngtech.archunit.lang.ArchRule;
 @AnalyzeClasses(packages = "com.group5.auctionservice", importOptions = ImportOption.DoNotIncludeTests.class)
 class AuctionApiArchitectureTest {
     @ArchTest
-    static final ArchRule responses = ApiContractRules.CONTROLLERS_RETURN_API_RESPONSE
-            // No business REST controllers exist yet; future mapped methods still obey the rule.
-            .allowEmptyShould(true);
+    static final ArchRule responses = ApiContractRules.CONTROLLERS_RETURN_API_RESPONSE;
 }

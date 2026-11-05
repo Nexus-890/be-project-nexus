@@ -22,10 +22,15 @@ const services = {
   ],
   'notification-service': [
     'src/main/java/com/group5/notificationservice/notification/NotificationController.java',
+    'src/main/java/com/group5/notificationservice/eventlog/EventLogController.java',
+    'src/main/java/com/group5/notificationservice/eventlog/AuditLogController.java',
   ],
   'payment-service': [
     'src/main/java/com/group5/paymentservice/payment/controller/PaymentController.java',
     'src/main/java/com/group5/paymentservice/payment/controller/RefundController.java',
+  ],
+  'auction-service': [
+    'src/main/java/com/group5/auctionservice/auction/AuctionController.java',
   ],
 };
 const normalize = (route) => route.replace(/\{[^}]+\}/g, '{}');
