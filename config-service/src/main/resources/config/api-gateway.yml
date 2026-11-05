@@ -172,6 +172,9 @@ nexus:
       - method: PUT
         path: /api/v1/products/{id}/images/order
         privilege: PRODUCT.UPDATE
+      - method: POST
+        path: /api/v1/auctions
+        privilege: AUCTION.CREATE
       - method: GET
         path: /api/v1/event-logs
         privilege: EVENT_LOG.VIEW

@@ -68,6 +68,7 @@ independently, as required by ADR-006.
 | `/api/v1/carts/me/pricing` | GET | CART.VIEW | CRT-05 — Read-only cart pricing |
 | `/api/v1/carts/me/validate` | POST | CART.VIEW | CRT-06 — Read-only cart validation |
 | `/api/v1/checkout/preview` | POST | CHECKOUT.START | ORD-02 — Read-only checkout preview |
+| `/api/v1/auctions` | POST | AUCTION.CREATE | #140 — Create as SELLER; `sellerId` comes from the JWT subject |
 | `/api/v1/event-logs` | GET | EVENT_LOG.VIEW | #192 — Event log consumer and audit log |
 | `/api/v1/event-logs/{id}` | GET | EVENT_LOG.VIEW_DETAIL | #192 — Event log consumer and audit log |
 | `/api/v1/audit-logs` | GET | AUDIT_LOG.VIEW | #192 — Event log consumer and audit log |
@@ -375,10 +376,10 @@ and Prism cannot demonstrate runtime authorization.
 
 These **26 method/path contracts** are drafts (`0.1.0-draft`) for the
 [inventory contract](inventory-service.yaml) and the
-[auction contract](auction-service.yaml). A draft does not expose a runtime
-endpoint: `RouteConfig` has no inventory or auction route yet, and this section
-changes neither `api-gateway.yml` nor `SecurityConfig`. Each owning issue registers
-its row, enforces the service rule and copies its operations into `openapi/`.
+[auction contract](auction-service.yaml). For the implemented create operation,
+see [the delivered #140 contract](openapi/auction-service.yaml) and the gateway
+permission table above. The rows below describe the intended Sprint 2 scope,
+including rules planned for later issues.
 Each method/path appears exactly once below, with a role, the word `public`, or
 `system` for the two paths the gateway never routes.
 

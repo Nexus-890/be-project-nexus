@@ -1,0 +1,289 @@
+openapi: 3.0.3
+info:
+  title: Nexus auction-service delivered API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: Auctions
+    description: Seller auction creation
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/auctions:
+    post:
+      tags: [Auctions]
+      operationId: createAuction
+      summary: Create an auction as a seller
+      description: >
+        Creates an auction in CREATED status. sellerId comes from the authenticated JWT subject.
+        The duration must be between the configured minimum and maximum, inclusive.
+        Defaults are 60 minutes and 168 hours.
+        startingPrice must be greater than zero. startAt must not be in the past,
+        allowing up to 5 seconds of clock skew against server time.
+      x-catalogue-id: AUC-01
+      x-required-roles: [SELLER]
+      x-required-privileges: [AUCTION.CREATE]
+      x-ownership: The sellerId is always the authenticated JWT subject.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAuctionRequest'
+            example:
+              productId: 00000002-1111-4111-8111-111111111111
+              skuId: 00000003-1111-4111-8111-111111111111
+              title: Vintage film camera
+              startingPrice: 1000000.25
+              startAt: '2026-11-05T10:00:00Z'
+              endAt: '2026-11-05T12:00:00Z'
+      responses:
+        '201':
+          description: Auction saved with currentPrice equal to startingPrice and originalEndAt equal to endAt.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAuctionResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  id: 019a5509-abcd-7111-8111-111111111111
+                  productId: 00000002-1111-4111-8111-111111111111
+                  skuId: 00000003-1111-4111-8111-111111111111
+                  sellerId: 68000000-0000-4000-8000-000000000002
+                  title: Vintage film camera
+                  imageUrl: null
+                  startingPrice: 1000000.25
+                  bidIncrement: 10
+                  currentPrice: 1000000.25
+                  bidCount: 0
+                  currency: VND
+                  startAt: '2026-11-05T10:00:00Z'
+                  endAt: '2026-11-05T12:00:00Z'
+                  originalEndAt: '2026-11-05T12:00:00Z'
+                  extensionCount: 0
+                  status: CREATED
+        '400':
+          description: Invalid input or duration.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Problem'
+                  - type: object
+                    properties:
+                      status:
+                        enum: [400]
+                      code:
+                        enum: [INVALID_REQUEST_BODY, VALIDATION_FAILED, AUCTION_START_IN_PAST, AUCTION_INVALID_TIME_WINDOW, AUCTION_DURATION_TOO_SHORT, AUCTION_DURATION_TOO_LONG]
+              examples:
+                startInPast:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: startAt must not be in the past (5 seconds of clock skew allowed)
+                    instance: /api/v1/auctions
+                    code: AUCTION_START_IN_PAST
+                invalidWindow:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: endAt must be after startAt
+                    instance: /api/v1/auctions
+                    code: AUCTION_INVALID_TIME_WINDOW
+                belowMinimum:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Auction duration must be at least 60 minutes
+                    instance: /api/v1/auctions
+                    code: AUCTION_DURATION_TOO_SHORT
+                aboveMaximum:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Auction duration must be at most 168 hours
+                    instance: /api/v1/auctions
+                    code: AUCTION_DURATION_TOO_LONG
+        '401':
+          description: 'UNAUTHENTICATED — A valid bearer token is required.'
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge.
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'FORBIDDEN — The caller lacks the SELLER role or the AUCTION.CREATE privilege.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: 'RATE_LIMITED — Gateway request limit exceeded.'
+          headers:
+            Retry-After:
+              description: Seconds until the request can be retried.
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '500':
+          description: 'INTERNAL_ERROR — Unexpected server error.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: 'SERVICE_UNAVAILABLE — The gateway could not reach auction-service.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    CreateAuctionRequest:
+      type: object
+      required: [productId, skuId, title, startingPrice, startAt, endAt]
+      properties:
+        productId:
+          type: string
+          format: uuid
+        skuId:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+        startingPrice:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          multipleOf: 0.01
+          description: At most 17 integer digits and two fractional digits.
+        bidIncrement:
+          type: number
+          nullable: true
+          minimum: 0
+          exclusiveMinimum: true
+          multipleOf: 0.01
+          description: Uses nexus.auction.default-bid-increment when omitted or null. At most 17 integer digits and two fractional digits.
+        startAt:
+          type: string
+          format: date-time
+          description: Must not precede server time by more than 5 seconds.
+        endAt:
+          type: string
+          format: date-time
+    CreateAuctionResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          $ref: '#/components/schemas/Auction'
+    Auction:
+      type: object
+      required: [id, productId, skuId, sellerId, title, startingPrice, bidIncrement, currentPrice, bidCount, currency, startAt, endAt, originalEndAt, extensionCount, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        productId:
+          type: string
+          format: uuid
+        skuId:
+          type: string
+          format: uuid
+        sellerId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        imageUrl:
+          type: string
+          nullable: true
+        startingPrice:
+          type: number
+          minimum: 0
+        bidIncrement:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+        currentPrice:
+          type: number
+          minimum: 0
+        bidCount:
+          type: integer
+          enum: [0]
+        currency:
+          type: string
+          enum: [VND]
+        startAt:
+          type: string
+          format: date-time
+        endAt:
+          type: string
+          format: date-time
+        originalEndAt:
+          type: string
+          format: date-time
+        extensionCount:
+          type: integer
+          enum: [0]
+        status:
+          type: string
+          enum: [CREATED]
+    Problem:
+      type: object
+      required: [type, title, status, detail, instance, code]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: string
+        traceId:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, code, detail]
+            properties:
+              field:
+                type: string
+              code:
+                type: string
+              detail:
+                type: string
