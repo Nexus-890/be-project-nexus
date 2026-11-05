@@ -288,14 +288,14 @@ class SecurityConfigTest {
     }
 
     @Test
-    void allSevenPublicPairsWorkWithoutBearerToken() {
+    void allNinePublicPairsWorkWithoutBearerToken() {
         for (SecurityConfig.Endpoint endpoint : permissions.endpoints()) {
             if (endpoint.isPublic()) {
                 client.method(endpoint.method()).uri(endpoint.path().replace("{id}", ID))
                         .exchange().expectStatus().isOk();
             }
         }
-        assertThat(SERVICE_LOG).hasSize(7);
+        assertThat(SERVICE_LOG).hasSize(9);
     }
 
     @Test
@@ -364,6 +364,7 @@ class SecurityConfigTest {
     void literalRoutesSwaggerActuatorAndUnknownPathsAreNotPublic() {
         for (String path : List.of("/api/v1/products/mine", "/api/v1/products/search",
                 "/api/v1/products/discovery", "/api/v1/products/not-a-uuid",
+                "/api/v1/auctions/mine", "/api/v1/auctions/not-a-uuid", "/api/v1/auctions/" + ID + "/bids",
                 "/api/v1/categories", "/swagger-ui.html", "/actuator/health", "/unrouted")) {
             client.get().uri(path).exchange().expectStatus().isUnauthorized();
         }
@@ -453,7 +454,7 @@ class SecurityConfigTest {
                             "/api/v1/categories/**", "/api/v1/skus/**", "/api/v1/carts/**",
                             "/api/v1/orders", "/api/v1/orders/**",
                             "/api/v1/notifications", "/api/v1/notifications/**", "/.well-known/**",
-                            "/api/v1/payments", "/api/v1/payments/**", "/api/v1/auctions",
+                            "/api/v1/payments", "/api/v1/payments/**", "/api/v1/auctions", "/api/v1/auctions/**",
                             "/api/v1/event-logs", "/api/v1/event-logs/**", "/api/v1/audit-logs", "/api/v1/audit-logs/**")
                     .uri("http://127.0.0.1:" + DOWNSTREAM.getAddress().getPort())).build();
         }

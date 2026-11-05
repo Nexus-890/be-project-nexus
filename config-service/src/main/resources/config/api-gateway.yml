@@ -66,6 +66,10 @@ nexus:
         path: /api/v1/products/{id}/skus
       - method: GET
         path: /api/v1/skus/{id}
+      - method: GET
+        path: /api/v1/auctions
+      - method: GET
+        path: /api/v1/auctions/{id}
     protected-endpoints:
       - method: GET
         path: /api/v1/users/me

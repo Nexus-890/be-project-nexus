@@ -8,12 +8,16 @@ import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -24,6 +28,22 @@ public class AuctionService {
     private final AuctionRepository auctions;
     private final AuctionProperties properties;
     private final Clock clock;
+
+    @Transactional(readOnly = true)
+    public AuctionResponse get(UUID id) {
+        return auctions.findByIdAndVisibilityAndDeletedAtIsNull(id, Auction.Visibility.PUBLIC)
+                .map(AuctionResponse::from)
+                .orElseThrow(() -> new DomainException(AuctionErrorCode.AUCTION_NOT_FOUND));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<AuctionResponse> list(Auction.Status status, int page, int size) {
+        var pageable = PageRequest.of(page, size, Sort.by("endAt").ascending().and(Sort.by("id")));
+        Page<Auction> result = status == null
+                ? auctions.findByVisibilityAndDeletedAtIsNull(Auction.Visibility.PUBLIC, pageable)
+                : auctions.findByVisibilityAndStatusAndDeletedAtIsNull(Auction.Visibility.PUBLIC, status, pageable);
+        return result.map(AuctionResponse::from);
+    }
 
     @Transactional
     public AuctionResponse create(CreateAuctionRequest request, CurrentUser seller) {
