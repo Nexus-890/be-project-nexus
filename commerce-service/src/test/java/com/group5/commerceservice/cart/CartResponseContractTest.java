@@ -3,6 +3,7 @@ package com.group5.commerceservice.cart;
 import com.group5.commerceservice.cart.controller.CartController;
 import com.group5.commerceservice.cart.dto.response.CartResponse;
 import com.group5.commerceservice.cart.service.CartService;
+import com.group5.commerceservice.cart.service.CartPricingService;
 import com.group5.commerceservice.shared.exception.CommerceErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_web.exception.GlobalExceptionHandler;
@@ -25,13 +26,13 @@ class CartResponseContractTest {
     private final UUID id = UUID.randomUUID();
     private MockMvc mvc;
     @BeforeEach void setup() {
-        mvc = MockMvcBuilders.standaloneSetup(new CartController(service))
+        mvc = MockMvcBuilders.standaloneSetup(new CartController(service, mock(CartPricingService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler(null)).build();
     }
     @Test void bothCartOperationsWrapTheirResultAndKeepStatus() throws Exception {
         CartResponse cart = new CartResponse(id, UUID.randomUUID(), "ACTIVE", List.of());
-        when(service.getMyCart(any())).thenReturn(cart);
-        when(service.addItem(any(), any())).thenReturn(cart);
+        when(service.getMyCart(any(), any())).thenReturn(cart);
+        when(service.addItem(any(), any(), any())).thenReturn(cart);
         mvc.perform(get("/api/v1/carts/me")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.id").value(id.toString())).andExpect(jsonPath("$.id").doesNotExist());
         mvc.perform(post("/api/v1/carts/me/items").contentType(MediaType.APPLICATION_JSON)
@@ -46,7 +47,7 @@ class CartResponseContractTest {
                 .andExpect(jsonPath("$.errors[*].field", containsInAnyOrder("skuId", "quantity")))
                 .andExpect(jsonPath("$.errors[0].code").isNotEmpty()).andExpect(jsonPath("$.errors[0].detail").isNotEmpty());
         verifyNoInteractions(service);
-        when(service.getMyCart(any())).thenThrow(new DomainException(CommerceErrorCode.UNAUTHENTICATED));
+        when(service.getMyCart(any(), any())).thenThrow(new DomainException(CommerceErrorCode.UNAUTHENTICATED));
         mvc.perform(get("/api/v1/carts/me")).andExpect(status().isUnauthorized())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("COMMERCE_UNAUTHENTICATED"));

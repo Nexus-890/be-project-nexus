@@ -6,11 +6,89 @@ servers:
   - url: http://localhost:8080
 tags:
   - name: Auctions
-    description: Seller auction creation and buyer bidding
+    description: Seller auction creation, buyer bidding and public reads from stored auction snapshots
 security:
   - bearerAuth: []
 paths:
   /api/v1/auctions:
+    get:
+      tags: [Auctions]
+      operationId: listAuctions
+      summary: List public auctions, ending soonest first
+      description: >
+        Reads only auction-service tables. Excludes RESTRICTED and soft-deleted rows.
+        When status is omitted only ACTIVE public non-deleted auctions are included.
+        Sorts by endAt ascending, then id ascending for ties; client sort overrides are not supported.
+        A page beyond the end returns an empty data array with the actual totals.
+      x-catalogue-id: AUC-05
+      security: []
+      parameters:
+        - name: status
+          in: query
+          description: Exact uppercase status filter. Defaults to ACTIVE when omitted.
+          schema:
+            default: ACTIVE
+            allOf:
+              - $ref: '#/components/schemas/AuctionStatus'
+        - name: page
+          in: query
+          description: Zero-based page number.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          description: Requested page size.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        '200':
+          description: A page of auction snapshots; title and imageUrl are read from the local row.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAuctionsResponse'
+              example:
+                code: 0
+                message: response success
+                data: []
+                page: {number: 0, size: 10, totalElements: 0, totalPages: 0}
+        '400':
+          description: 'INVALID_PARAMETER for conversion failures; VALIDATION_FAILED for page/size bounds.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                invalidStatus:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
+                    status: 400
+                    detail: A request parameter is invalid
+                    instance: /api/v1/auctions
+                    code: INVALID_PARAMETER
+                invalidSize:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/auctions
+                    code: VALIDATION_FAILED
+                    errors: [{field: size, code: INVALID_PARAMETER, detail: must be less than or equal to 100}]
+        '401':
+          $ref: '#/components/responses/InvalidBearer'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/UnexpectedError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     post:
       tags: [Auctions]
       operationId: createAuction
@@ -151,6 +229,57 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /api/v1/auctions/{id}:
+    get:
+      tags: [Auctions]
+      operationId: getAuction
+      summary: Read a public auction snapshot
+      description: >
+        No token is required. Reads title and nullable imageUrl from auction-service's own row,
+        without calling Catalog. RESTRICTED, soft-deleted and unknown auctions return the same 404.
+        The response contains no winner or leader bidder identity.
+      x-catalogue-id: AUC-04
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Auction UUID. The gateway public matcher accepts UUID-shaped paths only.
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Stored auction snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAuctionResponse'
+        '400':
+          description: 'INVALID_PARAMETER — Invalid UUID when calling the service directly.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'AUCTION_NOT_FOUND — No public, non-deleted auction matches this UUID.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Not Found
+                status: 404
+                detail: Auction not found
+                instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111
+                code: AUCTION_NOT_FOUND
+        '401':
+          $ref: '#/components/responses/InvalidBearer'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/UnexpectedError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/auctions/{id}/bids:
     post:
       tags: [Auctions]
@@ -387,12 +516,74 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
 components:
+  responses:
+    InvalidBearer:
+      description: 'UNAUTHENTICATED — No token is needed, but an invalid supplied token is rejected.'
+      headers:
+        WWW-Authenticate:
+          description: Bearer challenge.
+          schema: {type: string}
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    RateLimited:
+      description: 'RATE_LIMITED — Gateway request limit exceeded.'
+      headers:
+        Retry-After:
+          description: Seconds until the request can be retried.
+          schema: {type: string}
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    UnexpectedError:
+      description: 'INTERNAL_ERROR — Unexpected server error.'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ServiceUnavailable:
+      description: 'SERVICE_UNAVAILABLE — The gateway could not reach auction-service.'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    AuctionStatus:
+      type: string
+      enum: [CREATED, SCHEDULED, ACTIVE, ENDED, WON, SETTLED, FAILED, PAYMENT_TIMEOUT, CANCELLED]
+    GetAuctionResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code: {type: integer, default: 0}
+        message: {type: string, default: response success}
+        data:
+          $ref: '#/components/schemas/Auction'
+    ListAuctionsResponse:
+      type: object
+      required: [code, message, data, page]
+      properties:
+        code: {type: integer, default: 0}
+        message: {type: string, default: response success}
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Auction'
+        page:
+          type: object
+          required: [number, size, totalElements, totalPages]
+          properties:
+            number: {type: integer, minimum: 0}
+            size: {type: integer, minimum: 1, maximum: 100}
+            totalElements: {type: integer, format: int64, minimum: 0}
+            totalPages: {type: integer, minimum: 0}
     CreateAuctionRequest:
       type: object
       required: [productId, skuId, title, startingPrice, startAt, endAt]
@@ -511,7 +702,7 @@ components:
           minimum: 0
         bidCount:
           type: integer
-          enum: [0]
+          minimum: 0
         currency:
           type: string
           enum: [VND]
@@ -526,10 +717,9 @@ components:
           format: date-time
         extensionCount:
           type: integer
-          enum: [0]
+          minimum: 0
         status:
-          type: string
-          enum: [CREATED]
+          $ref: '#/components/schemas/AuctionStatus'
     Problem:
       type: object
       required: [type, title, status, detail, instance, code]

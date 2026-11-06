@@ -46,6 +46,7 @@ public class RouteConfig {
                 .route("commerce-service", route -> route
                         .path(
                                 "/api/v1/carts/**",
+                                "/api/v1/checkout/**",
                                 "/api/v1/orders/**"
                         )
                         // PAY-01 moved to POST /payments (#121); do not forward its obsolete commerce path.

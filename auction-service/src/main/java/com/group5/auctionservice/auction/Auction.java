@@ -102,6 +102,8 @@ public class Auction extends AuditedEntity {
     @Version
     private long version;
 
+    private Instant deletedAt;
+
     Auction(UUID productId, UUID skuId, UUID sellerId, String title, BigDecimal startingPrice,
             BigDecimal bidIncrement, Instant startAt, Instant endAt) {
         this.productId = productId;

@@ -19,6 +19,11 @@ springdoc:
 
 nexus:
   security:
+    public-endpoints:
+      - method: GET
+        path: /api/v1/auctions
+      - method: GET
+        path: /api/v1/auctions/{id}
     jwt:
       issuer: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
       audience: nexus-services

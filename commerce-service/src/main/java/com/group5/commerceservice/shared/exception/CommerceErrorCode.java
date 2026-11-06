@@ -4,6 +4,11 @@ import com.group5.common_core.constant.ErrorCode;
 import org.springframework.http.HttpStatus;
 
 public enum CommerceErrorCode implements ErrorCode {
+    GUEST_CART_DISABLED(HttpStatus.FORBIDDEN, "Guest carts are disabled"),
+    CART_MERGE_DISABLED(HttpStatus.FORBIDDEN, "Guest cart merge is disabled"),
+    GUEST_CART_NOT_FOUND(HttpStatus.NOT_FOUND, "Guest cart not found or no longer active"),
+    CART_NOT_FOUND(HttpStatus.NOT_FOUND, "Cart or cart item not found"),
+    INVALID_GUEST_CONFIGURATION(HttpStatus.INTERNAL_SERVER_ERROR, "Guest cart token signing is not configured correctly"),
     INVALID_QUANTITY(HttpStatus.BAD_REQUEST, "Quantity is invalid"),
     SKU_NOT_FOUND(HttpStatus.NOT_FOUND, "SKU not found"),
     DB_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Database error"),
@@ -14,6 +19,7 @@ public enum CommerceErrorCode implements ErrorCode {
     INVALID_ORDER_REQUEST(HttpStatus.BAD_REQUEST, "The order request is invalid"),
     INVALID_ORDER_FILTER(HttpStatus.BAD_REQUEST, "The order list filters are invalid"),
     CART_EMPTY(HttpStatus.BAD_REQUEST, "Cart is empty"),
+    INVALID_PRICING_CONFIGURATION(HttpStatus.INTERNAL_SERVER_ERROR, "Checkout price revalidation must be enabled"),
     FORBIDDEN(HttpStatus.FORBIDDEN, "You do not have permission"),
     ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "Order not found"),
     ILLEGAL_TRANSITION(HttpStatus.CONFLICT, "The order status transition is not allowed"),

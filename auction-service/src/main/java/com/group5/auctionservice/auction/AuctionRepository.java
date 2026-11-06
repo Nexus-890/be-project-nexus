@@ -3,6 +3,8 @@ package com.group5.auctionservice.auction;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -23,4 +25,9 @@ public interface AuctionRepository extends JpaRepository<Auction, UUID> {
 
     @Query(value = "SELECT * FROM auctions WHERE id = :id AND deleted_at IS NULL", nativeQuery = true)
     Optional<Auction> findAvailableById(UUID id);
+
+    Optional<Auction> findByIdAndVisibilityAndDeletedAtIsNull(UUID id, Auction.Visibility visibility);
+
+    Page<Auction> findByVisibilityAndStatusAndDeletedAtIsNull(
+            Auction.Visibility visibility, Auction.Status status, Pageable pageable);
 }

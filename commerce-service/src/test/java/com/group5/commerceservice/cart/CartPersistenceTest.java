@@ -1,6 +1,11 @@
 package com.group5.commerceservice.cart;
 
 import com.group5.commerceservice.cart.entity.Cart;
+import com.group5.commerceservice.cart.dto.CatalogClient;
+import com.group5.commerceservice.cart.dto.CatalogSkuResponse;
+import com.group5.commerceservice.cart.service.CartPricingService;
+import com.group5.commerceservice.shared.config.CheckoutProperties;
+import com.group5.common_core.model.ApiResponse;
 import com.group5.commerceservice.cart.repository.CartItemRepository;
 import com.group5.commerceservice.cart.repository.CartRepository;
 import com.group5.commerceservice.shared.config.CartProperties;
@@ -39,6 +44,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.*;
 
 /** Production migrations and Hibernate validate against real PostgreSQL 18. */
 @SpringJUnitConfig(CartPersistenceTest.JpaConfig.class)
@@ -53,6 +59,53 @@ class CartPersistenceTest {
     @Autowired private CartItemRepository items;
     @Autowired private DataSource dataSource;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private CartPricingService pricing;
+    @Autowired private CatalogClient catalog;
+
+    @Test
+    void pricingValidationAndPreviewLeaveEveryDatabaseRowAndAuditFieldUnchanged() {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        UUID userId = UUID.randomUUID();
+        UUID cartId = UUID.randomUUID();
+        UUID productId = UUID.randomUUID();
+        UUID skuId = UUID.randomUUID();
+        UUID itemId = UUID.randomUUID();
+        jdbc.update("INSERT INTO carts (id, user_id) VALUES (?, ?)", cartId, userId);
+        jdbc.update("""
+                INSERT INTO cart_items (id, cart_id, product_id, sku_id, quantity, price)
+                VALUES (?, ?, ?, ?, 2, 150000)
+                """, itemId, cartId, productId, skuId);
+        CatalogSkuResponse sku = new CatalogSkuResponse();
+        sku.setId(skuId);
+        sku.setProductId(productId);
+        sku.setStatus("ACTIVE");
+        sku.setPrice(new BigDecimal("160000"));
+        when(catalog.getSkuById(skuId)).thenReturn(ApiResponse.of(sku));
+        when(catalog.getProductById(productId)).thenReturn(ApiResponse.of(
+                new CatalogClient.ProductResponse(productId, UUID.randomUUID(), "Product", "ACTIVE", List.of())));
+        Map<String, String> before = databaseSnapshot(jdbc);
+        CurrentUser user = new CurrentUser(userId, Set.of("BUYER"), Set.of());
+        assertThat(pricing.pricing(user, "D01").subtotal()).isEqualByComparingTo("320000");
+        assertThat(pricing.validate(user).valid()).isFalse();
+        assertThat(pricing.preview(user, "D01").items()).hasSize(1);
+
+        CurrentUser noCart = new CurrentUser(UUID.randomUUID(), Set.of(), Set.of());
+        assertThat(pricing.pricing(noCart, null).subtotal()).isZero();
+        assertThat(pricing.validate(noCart).valid()).isTrue();
+        assertThatThrownBy(() -> pricing.preview(noCart, null))
+                .isInstanceOf(com.group5.common_core.exception.DomainException.class)
+                .hasMessage("Cart is empty");
+        assertThat(databaseSnapshot(jdbc)).isEqualTo(before);
+    }
+
+    private static Map<String, String> databaseSnapshot(JdbcTemplate jdbc) {
+        Map<String, String> snapshot = new java.util.TreeMap<>();
+        jdbc.queryForList("SELECT tablename FROM pg_tables WHERE schemaname = current_schema()", String.class)
+                .forEach(table -> snapshot.put(table, jdbc.queryForObject(
+                        "SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM \""
+                                + table.replace("\"", "\"\"") + "\" t", String.class)));
+        return snapshot;
+    }
 
     @AfterEach
     void clearActor() {
@@ -259,6 +312,35 @@ class CartPersistenceTest {
     @EnableJpaRepositories(basePackageClasses = CartRepository.class)
     @EnableJpaAuditing(auditorAwareRef = "auditor")
     static class JpaConfig {
+        @Bean
+        com.group5.commerceservice.shared.config.CartProperties cartProperties() {
+            var properties = new com.group5.commerceservice.shared.config.CartProperties();
+            properties.setAllowGuestCart(true);
+            properties.setGuestTokenSecret(java.util.Base64.getEncoder().encodeToString(new byte[32]));
+            return properties;
+        }
+
+        @Bean
+        com.group5.commerceservice.cart.service.GuestCartTokenService guestTokens(
+                com.group5.commerceservice.shared.config.CartProperties properties) {
+            return new com.group5.commerceservice.cart.service.GuestCartTokenService(properties);
+        }
+
+        @Bean
+        com.group5.commerceservice.cart.service.CartService cartService(CartRepository carts,
+                CartItemRepository items, CatalogClient catalog,
+                com.group5.commerceservice.shared.config.CartProperties properties,
+                com.group5.commerceservice.cart.service.GuestCartTokenService tokens, CartPricingService pricing) {
+            return new com.group5.commerceservice.cart.service.CartService(carts, items, catalog, properties, tokens, pricing);
+        }
+        @Bean
+        CatalogClient catalogClient() { return mock(CatalogClient.class); }
+
+        @Bean
+        CartPricingService pricing(CartRepository carts, CartItemRepository items, CatalogClient catalog) {
+            return new CartPricingService(carts, items, catalog, new CheckoutProperties());
+        }
+
         @Bean
         DataSource dataSource() {
             DataSource source = source("commerce_mapping");

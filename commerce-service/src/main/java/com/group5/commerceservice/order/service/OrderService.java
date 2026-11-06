@@ -182,7 +182,7 @@ public class OrderService {
 
     private CheckoutResult createFromCart(CurrentUser user, String key, Map<String, Object> snapshot) {
         groupRepository.lockKey("order-buyer:" + user.id());
-        Cart cart = cartRepository.findActiveForUpdate(user.id())
+        Cart cart = cartRepository.findForUpdateByUserIdAndStatus(user.id(), CartStatus.ACTIVE)
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.CART_EMPTY));
         List<CartItem> lines = cartItemRepository.findByCart_Id(cart.getId());
         if (lines.isEmpty()) {
@@ -365,7 +365,7 @@ public class OrderService {
             return;
         }
         cartRepository.createActiveCartIfAbsent(UUID.randomUUID(), buyerId, actor);
-        Cart cart = cartRepository.findActiveForUpdate(buyerId)
+        Cart cart = cartRepository.findForUpdateByUserIdAndStatus(buyerId, CartStatus.ACTIVE)
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.DB_ERROR));
         cartRepository.touchActiveCart(cart.getId(), actor);
         for (OrderItem item : items) {
