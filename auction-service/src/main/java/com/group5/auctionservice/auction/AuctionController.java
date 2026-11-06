@@ -37,7 +37,7 @@ public class AuctionController {
 
     @GetMapping
     public ApiResponse<List<AuctionResponse>> list(
-            @RequestParam(required = false) Auction.Status status,
+            @RequestParam(defaultValue = "ACTIVE") Auction.Status status,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size) {
         var result = auctions.list(status, page, size);

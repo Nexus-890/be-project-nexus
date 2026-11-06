@@ -10,8 +10,6 @@ import java.util.UUID;
 public interface AuctionRepository extends JpaRepository<Auction, UUID> {
     Optional<Auction> findByIdAndVisibilityAndDeletedAtIsNull(UUID id, Auction.Visibility visibility);
 
-    Page<Auction> findByVisibilityAndDeletedAtIsNull(Auction.Visibility visibility, Pageable pageable);
-
     Page<Auction> findByVisibilityAndStatusAndDeletedAtIsNull(
             Auction.Visibility visibility, Auction.Status status, Pageable pageable);
 }

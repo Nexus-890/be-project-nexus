@@ -99,14 +99,20 @@ class AuctionReadIntegrationTest {
     }
 
     @Test
-    void omittedStatusReturnsAllPublicNonDeletedStatusesWithDefaultPaging() throws Exception {
+    void omittedStatusReturnsOnlyPublicNonDeletedActiveAuctionsWithDefaultPaging() throws Exception {
         client.perform(get(PATH)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(5))
-                .andExpect(jsonPath("$.data[0].status").value("ENDED"))
-                .andExpect(jsonPath("$.data[1].status").value("SCHEDULED"))
+                .andExpect(jsonPath("$.data.length()").value(3))
+                .andExpect(jsonPath("$.data[0].status").value("ACTIVE"))
+                .andExpect(jsonPath("$.data[1].status").value("ACTIVE"))
+                .andExpect(jsonPath("$.data[2].status").value("ACTIVE"))
+                .andExpect(jsonPath("$.data[0].id").value(PREFIX + "2"))
                 .andExpect(jsonPath("$.page.number").value(0))
                 .andExpect(jsonPath("$.page.size").value(10))
-                .andExpect(jsonPath("$.page.totalElements").value(5));
+                .andExpect(jsonPath("$.page.totalElements").value(3));
+        client.perform(get(PATH).param("status", "SCHEDULED")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].status").value("SCHEDULED"))
+                .andExpect(jsonPath("$.page.totalElements").value(1));
     }
 
     @Test

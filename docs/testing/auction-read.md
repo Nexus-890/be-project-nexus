@@ -7,8 +7,8 @@ Gateway or auction-service. Both read only the local auctions table.
 
 - Only PUBLIC, non-deleted auctions are visible. A hidden detail returns the same
   404 `AUCTION_NOT_FOUND` as an unknown UUID, including for signed-in callers.
-- `status` is an optional, uppercase enum filter. Omission includes all visible
-  statuses; it does not infer ACTIVE from the current time.
+- `status` is an optional, uppercase enum filter. It defaults to ACTIVE when omitted.
+  An explicit status overrides the default. Filtering uses the stored status.
 - Pagination is zero-based: page defaults to 0, size to 10, size range 1–100.
   Results sort by `endAt ASC, id ASC`; a client `sort` query does not override it.
 - Lists return `{code,message,data:[],page:{number,size,totalElements,totalPages}}`.

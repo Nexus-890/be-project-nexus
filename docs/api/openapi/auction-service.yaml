@@ -17,7 +17,7 @@ paths:
       summary: List public auctions, ending soonest first
       description: >
         Reads only auction-service tables. Excludes RESTRICTED and soft-deleted rows.
-        When status is omitted all public non-deleted statuses are included.
+        When status is omitted only ACTIVE public non-deleted auctions are included.
         Sorts by endAt ascending, then id ascending for ties; client sort overrides are not supported.
         A page beyond the end returns an empty data array with the actual totals.
       x-catalogue-id: AUC-05
@@ -25,9 +25,11 @@ paths:
       parameters:
         - name: status
           in: query
-          description: Optional exact, uppercase status filter. Omit to include all public statuses.
+          description: Exact uppercase status filter. Defaults to ACTIVE when omitted.
           schema:
-            $ref: '#/components/schemas/AuctionStatus'
+            default: ACTIVE
+            allOf:
+              - $ref: '#/components/schemas/AuctionStatus'
         - name: page
           in: query
           description: Zero-based page number.

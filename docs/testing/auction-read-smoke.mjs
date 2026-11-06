@@ -118,9 +118,13 @@ try {
   assert.deepEqual(list.page, { number: 0, size: 2, totalElements: 3, totalPages: 2 });
   const second = await request('Second page', gatewayPort, `${path}?status=ACTIVE&size=2&page=1`, 200);
   assert.deepEqual(second.data.map(a => a.id), [prefix + '1']);
-  const all = await request('Omitted status and defaults', gatewayPort, path, 200);
-  assert.equal(all.data.length, 5);
-  assert.deepEqual(all.page, { number: 0, size: 10, totalElements: 5, totalPages: 1 });
+  const defaults = await request('Omitted status defaults to ACTIVE', gatewayPort, path, 200);
+  assert.deepEqual(defaults.data.map(a => a.id), [prefix + '2', prefix + '3', prefix + '1']);
+  assert.ok(defaults.data.every(a => a.status === 'ACTIVE'));
+  assert.deepEqual(defaults.page, { number: 0, size: 10, totalElements: 3, totalPages: 1 });
+  const scheduled = await request('Explicit SCHEDULED overrides default', gatewayPort, path + '?status=SCHEDULED', 200);
+  assert.deepEqual(scheduled.data.map(a => a.status), ['SCHEDULED']);
+  assert.equal(scheduled.page.totalElements, 1);
   for (const id of [5, 6, 9]) {
     const body = await request(`Restricted/deleted/unknown detail ${id}`, gatewayPort, `${path}/${prefix}${id}`, 404);
     assert.equal(body.code, 'AUCTION_NOT_FOUND');

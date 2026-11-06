@@ -39,10 +39,8 @@ public class AuctionService {
     @Transactional(readOnly = true)
     public Page<AuctionResponse> list(Auction.Status status, int page, int size) {
         var pageable = PageRequest.of(page, size, Sort.by("endAt").ascending().and(Sort.by("id")));
-        Page<Auction> result = status == null
-                ? auctions.findByVisibilityAndDeletedAtIsNull(Auction.Visibility.PUBLIC, pageable)
-                : auctions.findByVisibilityAndStatusAndDeletedAtIsNull(Auction.Visibility.PUBLIC, status, pageable);
-        return result.map(AuctionResponse::from);
+        return auctions.findByVisibilityAndStatusAndDeletedAtIsNull(Auction.Visibility.PUBLIC, status, pageable)
+                .map(AuctionResponse::from);
     }
 
     @Transactional
