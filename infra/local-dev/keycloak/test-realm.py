@@ -104,6 +104,11 @@ class RealmContractTest(unittest.TestCase):
         self.assertEqual(self.realm["quickLoginCheckMilliSeconds"], 0)
         self.assertGreater(self.realm["maxDeltaTimeSeconds"], 900)
 
+    def test_refresh_tokens_are_rotated_and_never_reusable(self):
+        # cookie phiên giữ refresh token: mỗi lần đổi phải nhận token mới, token cũ dùng lại thì Keycloak hủy phiên
+        self.assertTrue(self.realm["revokeRefreshToken"])
+        self.assertEqual(self.realm["refreshTokenMaxReuse"], 0)
+
     def test_standard_policy_matches_documented_baseline(self):
         self.assertEqual(self.realm["passwordPolicy"], r"length(8) and regexPattern((?s).*\S.*)")
 

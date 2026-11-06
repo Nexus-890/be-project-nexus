@@ -3,6 +3,8 @@ package com.group5.notificationservice;
 import com.group5.common_security.CurrentUser;
 import com.group5.common_outbox.IdempotentConsumer;
 import com.group5.notificationservice.notification.NotificationRepository;
+import com.group5.notificationservice.eventlog.EventLogRepository;
+import com.group5.notificationservice.eventlog.EventLogRecorder;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.RSASSASigner;
@@ -65,6 +67,8 @@ class KeycloakTokenTrustTest {
     @MockitoBean private JdbcTemplate jdbcTemplate;
     @MockitoBean private IdempotentConsumer idempotentConsumer;
     @MockitoBean private NotificationRepository notifications;
+    @MockitoBean private EventLogRepository eventLogs;
+    @MockitoBean private EventLogRecorder eventLogRecorder;
     private MockMvc client;
 
     @DynamicPropertySource

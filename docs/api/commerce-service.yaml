@@ -4,7 +4,7 @@ info:
   title: Project Nexus — Commerce API shapes (#88)
   version: 0.1.0-draft
   description: |+
-    Draft for frontend mocks, not an implementation or proof of gateway enforcement. SRS privileges are authoritative when defined: x-required-privileges is the service ALL-of requirement; x-gateway-privilege is the single privilege to register in the existing gateway policy. x-actor-roles is descriptive SRS actor metadata, not an additional role gate. Only the privilege-less order-status operation uses x-required-roles (ADMIN). ADMIN has no implicit privilege bypass. Ownership is independently enforced by the owning service using validated JWT sub; do not accept a caller userId in a request. UUIDs and UTC ISO-8601 timestamps are used. Lists are newest first unless specified. Scope: CRT-01..04, ORD-01/03..06, PAY-01 in the endpoint catalogue. Cart validation occurs inside order creation; no standalone checkout, refund or Sepay webhook in this draft. CRT-04 returns catalogue 204 No Content; refetch the cart to refresh UI state. The original issue #88 nonempty-body criterion needs an explicit exception for catalogue 204 operations. Legacy #88 mock money fields use decimal-safe JSON strings with exactly two fractional digits, matching review !40. The updated #113 POST /orders group contract uses JSON numbers, BigDecimal and numeric(19,2); it supersedes the older single-order creation fixture and does not change unrelated read/payment drafts. POST /api/v1/orders is implemented under #113; the remaining read/payment operations retain their draft status. Errors mirror lib/common-core ErrorCode/DomainException, lib/common-web GlobalExceptionHandler, lib/common-security SecurityProblemAdvice and api-gateway SecurityConfig. No top-level symbolic code; optional service traceId; validation errors contain field/message only. 409/503 details are draft business messages supported by DomainException(int, String), not new ErrorCode enum entries.
+    Draft for frontend mocks, not an implementation or proof of gateway enforcement. SRS privileges are authoritative when defined: x-required-privileges is the service ALL-of requirement; x-gateway-privilege is the single privilege to register in the existing gateway policy. x-actor-roles is descriptive SRS actor metadata, not an additional role gate. Only the privilege-less order-status operation uses x-required-roles (ADMIN). ADMIN has no implicit privilege bypass. Ownership is independently enforced by the owning service using validated JWT sub; do not accept a caller userId in a request. UUIDs and UTC ISO-8601 timestamps are used. Lists are newest first unless specified. Scope: CRT-01..04, ORD-01/03..06 in the endpoint catalogue. PAY-01 moved to POST /api/v1/payments in payment-service (#121); its obsolete order-payment draft is removed by #245. Cart validation occurs inside order creation; no standalone checkout, refund or Sepay webhook in this draft. CRT-04 returns catalogue 204 No Content; refetch the cart to refresh UI state. The original issue #88 nonempty-body criterion needs an explicit exception for catalogue 204 operations. Legacy #88 mock money fields use decimal-safe JSON strings with exactly two fractional digits, matching review !40. The updated #113 POST /orders group contract uses JSON numbers, BigDecimal and numeric(19,2); it supersedes the older single-order creation fixture and does not change unrelated read/payment drafts. POST /api/v1/orders is implemented under #113; the remaining read/payment operations retain their draft status. Errors mirror lib/common-core ErrorCode/DomainException, lib/common-web GlobalExceptionHandler, lib/common-security SecurityProblemAdvice and api-gateway SecurityConfig. No top-level symbolic code; optional service traceId; validation errors contain field/message only. 409/503 details are draft business messages supported by DomainException(int, String), not new ErrorCode enum entries.
 
     ## Frontend quick start — hướng dẫn bàn giao
 
@@ -88,7 +88,7 @@ info:
     Idempotency-Key: 70000000-1111-4111-8111-111111111111
     ```
 
-    `POST /api/v1/orders/{id}/payment`, `PATCH /api/v1/notifications/{id}/read` và
+    `PATCH /api/v1/notifications/{id}/read` và
     `PATCH /api/v1/notifications/read-all` **không có request body**. Không tự động gửi
     `{}` hoặc gắn `Content-Type` cho các request này. Các GET/DELETE cũng không có body.
     Lấy UUID, payload và response example trực tiếp từ hai YAML; không gửi `{}` thay
@@ -1584,156 +1584,6 @@ paths:
       - ADMIN
       x-required-roles:
       - ADMIN
-  /api/v1/orders/{id}/payment:
-    post:
-      tags:
-      - Payment
-      operationId: initiateOrderPayment
-      summary: Get VietQR payment instructions
-      description: 'Owner only and order must be PENDING. Return the same instructions and the same 201 status on
-        repeat requests; no duplicate payment attempt or new memo is created. No request body, card data or client-supplied
-        amount. Instructions are synthetic mock data, not a usable bank destination or provider-generated QR. Payment
-        confirmation webhook is outside #88, not this contract.'
-      security:
-      - bearerAuth: []
-      x-required-privileges:
-      - CHECKOUT.START
-      responses:
-        '201':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PaymentInstructions'
-              examples:
-                default:
-                  $ref: '#/components/examples/PaymentInstructionsDefault'
-        '401':
-          description: A valid bearer token is required
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-              examples:
-                gateway:
-                  value:
-                    type: https://nexus/errors/unauthorized
-                    title: Unauthorized
-                    status: 401
-                    detail: A valid bearer token is required
-                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/payment
-                    traceId: api-shapes-mock-trace-001
-                service:
-                  value:
-                    type: urn:problem:unauthorized
-                    title: Unauthorized
-                    status: 401
-                    detail: A valid access token is required to access this resource
-                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/payment
-          headers:
-            WWW-Authenticate:
-              description: Bearer authentication challenge from gateway or service security advice
-              schema:
-                type: string
-              example: Bearer
-        '403':
-          description: The required privilege is missing
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-              examples:
-                gateway:
-                  value:
-                    type: https://nexus/errors/forbidden
-                    title: Forbidden
-                    status: 403
-                    detail: The required privilege is missing
-                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/payment
-                    traceId: api-shapes-mock-trace-001
-                service:
-                  value:
-                    type: urn:problem:forbidden
-                    title: Forbidden
-                    status: 403
-                    detail: You do not have permission to access this resource
-                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/payment
-                domain:
-                  value:
-                    type: urn:problem:domain-error
-                    title: Forbidden
-                    status: 403
-                    detail: You do not have permission!
-                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/payment
-        '404':
-          description: Not found!
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-              example:
-                type: urn:problem:domain-error
-                title: Not Found
-                status: 404
-                detail: Not found!
-                instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/payment
-        '409':
-          description: Only PENDING orders can initiate payment.
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-              example:
-                type: urn:problem:domain-error
-                title: Conflict
-                status: 409
-                detail: Only PENDING orders can initiate payment.
-                instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/payment
-        '400':
-          description: Invalid data
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-              examples:
-                invalidData:
-                  value:
-                    type: urn:problem:domain-error
-                    title: Bad Request
-                    status: 400
-                    detail: Invalid data
-                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/payment
-                invalidParameter:
-                  value:
-                    type: urn:problem:invalid-parameter
-                    title: Invalid Parameter
-                    status: 400
-                    detail: Value 'abc' is not a valid UUID for parameter 'id'
-                    instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/payment
-        '500':
-          description: An unexpected error occurred
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-              example:
-                type: urn:problem:internal-server-error
-                title: Internal Server Error
-                status: 500
-                detail: An unexpected error occurred
-                instance: /api/v1/orders/00000005-1111-4111-8111-111111111111/payment
-      parameters:
-      - name: id
-        in: path
-        required: true
-        description: Order UUID; subject to caller ownership checks.
-        schema:
-          type: string
-          format: uuid
-        example: 00000005-1111-4111-8111-111111111111
-      x-actor-roles:
-      - BUYER
-      x-gateway-privilege: CHECKOUT.START
 components:
   securitySchemes:
     bearerAuth:

@@ -6,6 +6,9 @@ import { resolve } from 'node:path';
 // schemas/examples; this check prevents delivered route inventory from drifting.
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const services = {
+  'api-gateway': [
+    'src/main/java/com/group5/apigateway/session/SessionController.java',
+  ],
   'user-service': [
     'src/main/java/com/group5/userservice/iam/AuthController.java',
     'src/main/java/com/group5/userservice/iam/UserController.java',
@@ -18,13 +21,20 @@ const services = {
   ],
   'commerce-service': [
     'src/main/java/com/group5/commerceservice/cart/controller/CartController.java',
+    'src/main/java/com/group5/commerceservice/checkout/controller/CheckoutController.java',
     'src/main/java/com/group5/commerceservice/order/controller/OrderController.java',
   ],
   'notification-service': [
     'src/main/java/com/group5/notificationservice/notification/NotificationController.java',
+    'src/main/java/com/group5/notificationservice/eventlog/EventLogController.java',
+    'src/main/java/com/group5/notificationservice/eventlog/AuditLogController.java',
   ],
   'payment-service': [
     'src/main/java/com/group5/paymentservice/payment/controller/PaymentController.java',
+    'src/main/java/com/group5/paymentservice/payment/controller/RefundController.java',
+  ],
+  'auction-service': [
+    'src/main/java/com/group5/auctionservice/auction/AuctionController.java',
   ],
 };
 const normalize = (route) => route.replace(/\{[^}]+\}/g, '{}');
