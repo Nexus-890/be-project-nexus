@@ -306,6 +306,29 @@ class SecurityConfigTest {
     }
 
     @Test
+    void refundsRequireOrderRefundAndABuyerTokenNeverReachesTheService() {
+        String complete = "/api/v1/refunds/" + ID + "/complete";
+        String buyer = "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of("BUYER"))
+                .claim("privileges", List.of("ORDER.VIEW", "CHECKOUT.START")));
+        client.post().uri("/api/v1/refunds").header(HttpHeaders.AUTHORIZATION, buyer)
+                .exchange().expectStatus().isForbidden();
+        client.get().uri("/api/v1/refunds?orderId=" + ID).header(HttpHeaders.AUTHORIZATION, buyer)
+                .exchange().expectStatus().isForbidden();
+        client.post().uri(complete).header(HttpHeaders.AUTHORIZATION, buyer)
+                .exchange().expectStatus().isForbidden();
+        assertThat(SERVICE_LOG).isEmpty();
+
+        String support = "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of("SUPPORT_STAFF"))
+                .claim("privileges", List.of("ORDER.REFUND")));
+        client.post().uri("/api/v1/refunds").header(HttpHeaders.AUTHORIZATION, support)
+                .exchange().expectStatus().isOk();
+        client.post().uri(complete).header(HttpHeaders.AUTHORIZATION, support)
+                .exchange().expectStatus().isOk();
+        assertThat(SERVICE_LOG).containsExactly("POST /api/v1/refunds", "POST " + complete);
+        assertThat(FORWARDED_TOKENS).containsExactly(support, support);
+    }
+
+    @Test
     void changingLastSignatureCharacterReturns401WithNoServiceLog() {
         String good = token(SIGNING_KEY, c -> c.claim("privileges", List.of("PROFILE.VIEW")));
         // RSA-2048 signatures end in two significant base64url bits; changing only

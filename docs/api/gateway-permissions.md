@@ -336,6 +336,9 @@ These older drafts add no public method/path pairs to the active table above.
 | GET | `/api/v1/orders/{id}/history` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #116 |
 | PATCH | `/api/v1/orders/{id}/status` | ADMIN | token only | none (role-only) | Service requires ADMIN; moves follow the order transition table, other moves return 409; audit actor and reason | #116 |
 | POST | `/api/v1/payments` | BUYER | CHECKOUT.START | CHECKOUT.START | Own PENDING group/session before dueAt; repeated call returns the same instructions | #120, #121 |
+| POST | `/api/v1/refunds` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Cancelled, paid order; one refund per order; same Idempotency-Key and body returns the stored refund | #247 |
+| GET | `/api/v1/refunds` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Refund of one order by orderId | #247 |
+| POST | `/api/v1/refunds/{id}/complete` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Records one manual REFUND transaction; repeating returns the completed refund | #247 |
 | GET | `/api/v1/notifications` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notifications only, including for ADMIN | #108 |
 | GET | `/api/v1/notifications/unread-count` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Count own unread notifications only | #108 |
 | PATCH | `/api/v1/notifications/{id}/read` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notification only; other caller returns 403 | #109 |
