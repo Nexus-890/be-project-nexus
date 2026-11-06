@@ -1,55 +1,27 @@
 package com.group5.notificationservice.health;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
+import java.time.Instant;
 
-import java.time.OffsetDateTime;
+public record BrokerHealth(
+        String name,
+        HealthStatus status,
+        Instant lastCheckedAt,
+        Instant lastFailureAt,
+        Instant lastRecoveredAt,
+        long version) {
 
-@Entity
-@Table(name = "broker_health")
-@Getter
-@NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class BrokerHealth {
-
-    @Id
-    @Column(name = "name", nullable = false, length = 50)
-    private String name;
-
-    @Enumerated(EnumType.STRING)
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(name = "status", nullable = false, columnDefinition = "health_status")
-    private HealthStatus status;
-
-    @Column(name = "last_checked_at", nullable = false)
-    private OffsetDateTime lastCheckedAt;
-
-    @Column(name = "last_failure_at")
-    private OffsetDateTime lastFailureAt;
-
-    @Column(name = "last_recovered_at")
-    private OffsetDateTime lastRecoveredAt;
-
-    public BrokerHealth(String name) {
-        this.name = name;
+    public static BrokerHealth unknown(String name) {
+        return new BrokerHealth(name, HealthStatus.UNKNOWN, null, null, null, 0);
     }
 
-    public void record(HealthStatus observed, OffsetDateTime checkedAt) {
-        if (observed == HealthStatus.DOWN && status != HealthStatus.DOWN) {
-            lastFailureAt = checkedAt;
+    // VERSION CHỈ TĂNG KHI ĐỔI TRẠNG THÁI -> MỖI VERSION LÀ ĐÚNG 1 LẦN CHUYỂN (healthVersion TRONG EVENT)
+    // RECOVERY KHÔNG XÓA lastFailureAt
+    public BrokerHealth observe(HealthStatus observed, Instant checkedAt) {
+        if (observed == status) {
+            return new BrokerHealth(name, status, checkedAt, lastFailureAt, lastRecoveredAt, version);
         }
-        if (observed == HealthStatus.UP && status == HealthStatus.DOWN) {
-            lastRecoveredAt = checkedAt;
-        }
-        status = observed;
-        lastCheckedAt = checkedAt;
+        Instant failure = observed == HealthStatus.DOWN ? checkedAt : lastFailureAt;
+        Instant recovered = observed == HealthStatus.UP && status == HealthStatus.DOWN ? checkedAt : lastRecoveredAt;
+        return new BrokerHealth(name, observed, checkedAt, failure, recovered, version + 1);
     }
 }

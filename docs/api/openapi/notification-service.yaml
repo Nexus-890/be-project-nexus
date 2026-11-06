@@ -2119,7 +2119,7 @@ paths:
       tags: [System Health]
       operationId: getSystemHealth
       summary: "Read the health of every service, Keycloak and the message broker"
-      description: "Requires SYSTEM.HEALTH.VIEW (ADMIN, SUPPORT_STAFF). Each configured service is looked up in Eureka and its /actuator/health is called with a 2 second timeout; a service that is missing from Eureka or does not answer is DOWN and the response is still 200. Keycloak is UP when its realm discovery document answers. Brokers come from the last BrokerHealthJob run."
+      description: "Requires SYSTEM.HEALTH.VIEW (ADMIN, SUPPORT_STAFF). Every instance of every configured service is looked up in Eureka and its /actuator/health is called in parallel under one shared 2 second deadline; a service is UP as soon as one instance answers 2xx, and DOWN when it is missing from Eureka or no instance answers before the deadline. The response is still 200. Keycloak is UP when its realm discovery document answers. Brokers come from the shared health state in Redis written by BrokerHealthJob; a broker is UNKNOWN with lastCheckedAt null before the first run or while Redis is unreachable."
       security:
         - bearerAuth: []
       x-required-privileges: [SYSTEM.HEALTH.VIEW]
@@ -2145,7 +2145,17 @@ paths:
                         - {name: "payment-service", status: "UP"}
                         - {name: "keycloak", status: "UP"}
                       brokers:
-                        - {name: "kafka", status: "UP", lastCheckedAt: "2026-11-04T09:30:15+07:00"}
+                        - {name: "kafka", status: "UP", lastCheckedAt: "2026-11-04T02:30:15Z"}
+                redisUnreachable:
+                  value:
+                    code: 0
+                    message: "response success"
+                    data:
+                      services:
+                        - {name: "user-service", status: "UP"}
+                        - {name: "keycloak", status: "UP"}
+                      brokers:
+                        - {name: "kafka", status: "UNKNOWN", lastCheckedAt: null}
         "401":
           description: "Unauthorized. Codes: UNAUTHENTICATED."
           headers:
@@ -2287,7 +2297,7 @@ paths:
       tags: [System Health]
       operationId: listBrokerHealth
       summary: "List message brokers with their last failure and recovery times"
-      description: "Requires SYSTEM.HEALTH.VIEW (ADMIN, SUPPORT_STAFF). BrokerHealthJob checks Kafka every 15 seconds and marks it DOWN only when one retry also fails. lastFailureAt is set when a broker goes DOWN and lastRecoveredAt when it comes back UP. The complete list is one logical page."
+      description: "Requires SYSTEM.HEALTH.VIEW (ADMIN, SUPPORT_STAFF). BrokerHealthJob checks Kafka every 15 seconds and marks it DOWN only when one retry also fails. The state lives in Redis under {environment}:health:{broker}; lastFailureAt is set when a broker goes DOWN and lastRecoveredAt when it comes back UP, and each change to DOWN or back to UP is recorded once in the event log as SystemHealthCheckFailed or SystemHealthCheckRecovered. A broker is UNKNOWN with null times before the first run or while Redis is unreachable. The complete list is one logical page."
       security:
         - bearerAuth: []
       x-required-privileges: [SYSTEM.HEALTH.VIEW]
@@ -2296,7 +2306,7 @@ paths:
       x-ownership: "Not user-owned; system-wide status."
       responses:
         "200":
-          description: "Every broker the job has checked, ordered by name."
+          description: "Every configured broker, ordered by name."
           content:
             application/json:
               schema:
@@ -2309,9 +2319,9 @@ paths:
                     data:
                       - name: "kafka"
                         status: "UP"
-                        lastCheckedAt: "2026-11-04T09:31:00+07:00"
-                        lastFailureAt: "2026-11-04T09:25:30+07:00"
-                        lastRecoveredAt: "2026-11-04T09:30:45+07:00"
+                        lastCheckedAt: "2026-11-04T02:31:00Z"
+                        lastFailureAt: "2026-11-04T02:25:30Z"
+                        lastRecoveredAt: "2026-11-04T02:30:45Z"
                     page: {number: 0, size: 1, totalElements: 1, totalPages: 1}
         "401":
           description: "Unauthorized. Codes: UNAUTHENTICATED."
@@ -2756,7 +2766,8 @@ components:
       additionalProperties: false
     HealthStatus:
       type: "string"
-      enum: ["UP", "DOWN"]
+      enum: ["UP", "DOWN", "UNKNOWN"]
+      description: "UNKNOWN is only used for brokers: not checked yet, or the Redis health state is unreachable."
     ServiceHealth:
       type: "object"
       required: ["name", "status"]
@@ -2777,6 +2788,7 @@ components:
         lastCheckedAt:
           type: "string"
           format: "date-time"
+          nullable: true
     BrokerHealth:
       type: "object"
       required: ["name", "status", "lastCheckedAt", "lastFailureAt", "lastRecoveredAt"]
@@ -2788,6 +2800,7 @@ components:
         lastCheckedAt:
           type: "string"
           format: "date-time"
+          nullable: true
         lastFailureAt:
           type: "string"
           format: "date-time"

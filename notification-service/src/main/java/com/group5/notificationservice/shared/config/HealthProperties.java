@@ -3,6 +3,7 @@ package com.group5.notificationservice.shared.config;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.validation.annotation.Validated;
@@ -19,5 +20,6 @@ public record HealthProperties(
                 "payment-service", "shipment-service", "rating-service", "notification-service"})
         List<@NotBlank String> services,
         @NotNull @DefaultValue("http://localhost:18080/realms/nexus") URI keycloakRealmUrl,
-        @NotNull @DefaultValue("2s") Duration timeout) {
+        @NotNull @DefaultValue("2s") Duration timeout,
+        @NotBlank @Size(max = 32) @DefaultValue("local") String environment) {
 }

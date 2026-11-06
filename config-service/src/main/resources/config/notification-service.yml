@@ -9,6 +9,18 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      connect-timeout: 300ms
+      timeout: 300ms
+
+management:
+  health:
+    redis:
+      enabled: false
 
 nexus:
   event-log:
@@ -42,6 +54,7 @@ nexus:
       - notification-service
     keycloak-realm-url: ${KEYCLOAK_REALM_URL:http://localhost:18080/realms/nexus}
     timeout: 2s
+    environment: ${NEXUS_ENVIRONMENT:local}
     broker-interval: PT15S
 
 springdoc:

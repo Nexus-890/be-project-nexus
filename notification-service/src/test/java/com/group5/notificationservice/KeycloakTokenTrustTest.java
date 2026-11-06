@@ -5,7 +5,7 @@ import com.group5.common_outbox.IdempotentConsumer;
 import com.group5.notificationservice.notification.NotificationRepository;
 import com.group5.notificationservice.eventlog.EventLogRepository;
 import com.group5.notificationservice.eventlog.EventLogRecorder;
-import com.group5.notificationservice.health.BrokerHealthRepository;
+import com.group5.notificationservice.health.HealthStateStore;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.RSASSASigner;
@@ -71,7 +71,7 @@ class KeycloakTokenTrustTest {
     @MockitoBean private NotificationRepository notifications;
     @MockitoBean private EventLogRepository eventLogs;
     @MockitoBean private EventLogRecorder eventLogRecorder;
-    @MockitoBean private BrokerHealthRepository brokerHealth;
+    @MockitoBean private HealthStateStore healthState;
     @MockitoBean private LockProvider lockProvider;
     private MockMvc client;
 

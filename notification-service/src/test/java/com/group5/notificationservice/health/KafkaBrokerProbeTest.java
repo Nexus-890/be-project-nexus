@@ -19,7 +19,7 @@ class KafkaBrokerProbeTest {
     void anUnreachableBrokerIsReportedWithinTheTimeout() {
         KafkaAdmin admin = new KafkaAdmin(Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, "127.0.0.1:1"));
         HealthProperties properties = new HealthProperties(List.of("user-service"),
-                URI.create("http://127.0.0.1:1/realms/nexus"), Duration.ofSeconds(1));
+                URI.create("http://127.0.0.1:1/realms/nexus"), Duration.ofSeconds(1), "test");
         KafkaBrokerProbe probe = new KafkaBrokerProbe(admin, properties);
 
         long started = System.nanoTime();

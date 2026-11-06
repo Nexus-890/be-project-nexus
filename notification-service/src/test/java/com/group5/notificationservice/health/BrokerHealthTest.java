@@ -2,62 +2,60 @@ package com.group5.notificationservice.health;
 
 import org.junit.jupiter.api.Test;
 
-import java.time.OffsetDateTime;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class BrokerHealthTest {
 
-    private static final OffsetDateTime T1 = OffsetDateTime.parse("2026-11-04T09:00:00+07:00");
-    private static final OffsetDateTime T2 = T1.plusSeconds(15);
-    private static final OffsetDateTime T3 = T2.plusSeconds(15);
+    private static final Instant T1 = Instant.parse("2026-11-04T02:00:00Z");
+    private static final Instant T2 = T1.plusSeconds(15);
+    private static final Instant T3 = T2.plusSeconds(15);
 
     @Test
     void firstCheckUpRecordsNoFailure() {
-        BrokerHealth health = new BrokerHealth("kafka");
+        BrokerHealth health = BrokerHealth.unknown("kafka").observe(HealthStatus.UP, T1);
 
-        health.record(HealthStatus.UP, T1);
-
-        assertThat(health.getStatus()).isEqualTo(HealthStatus.UP);
-        assertThat(health.getLastCheckedAt()).isEqualTo(T1);
-        assertThat(health.getLastFailureAt()).isNull();
-        assertThat(health.getLastRecoveredAt()).isNull();
+        assertThat(health.status()).isEqualTo(HealthStatus.UP);
+        assertThat(health.lastCheckedAt()).isEqualTo(T1);
+        assertThat(health.lastFailureAt()).isNull();
+        assertThat(health.lastRecoveredAt()).isNull();
+        assertThat(health.version()).isEqualTo(1);
     }
 
     @Test
-    void goingDownRecordsTheFailureTime() {
-        BrokerHealth health = new BrokerHealth("kafka");
-        health.record(HealthStatus.UP, T1);
+    void goingDownRecordsTheFailureTimeAndANewVersion() {
+        BrokerHealth up = BrokerHealth.unknown("kafka").observe(HealthStatus.UP, T1);
 
-        health.record(HealthStatus.DOWN, T2);
+        BrokerHealth down = up.observe(HealthStatus.DOWN, T2);
 
-        assertThat(health.getStatus()).isEqualTo(HealthStatus.DOWN);
-        assertThat(health.getLastFailureAt()).isEqualTo(T2);
-        assertThat(health.getLastRecoveredAt()).isNull();
+        assertThat(down.status()).isEqualTo(HealthStatus.DOWN);
+        assertThat(down.lastFailureAt()).isEqualTo(T2);
+        assertThat(down.lastRecoveredAt()).isNull();
+        assertThat(down.version()).isEqualTo(2);
     }
 
     @Test
     void comingBackRecordsTheRecoveryTimeAndKeepsTheFailureTime() {
-        BrokerHealth health = new BrokerHealth("kafka");
-        health.record(HealthStatus.UP, T1);
-        health.record(HealthStatus.DOWN, T2);
+        BrokerHealth down = BrokerHealth.unknown("kafka").observe(HealthStatus.UP, T1).observe(HealthStatus.DOWN, T2);
 
-        health.record(HealthStatus.UP, T3);
+        BrokerHealth up = down.observe(HealthStatus.UP, T3);
 
-        assertThat(health.getStatus()).isEqualTo(HealthStatus.UP);
-        assertThat(health.getLastCheckedAt()).isEqualTo(T3);
-        assertThat(health.getLastFailureAt()).isEqualTo(T2);
-        assertThat(health.getLastRecoveredAt()).isEqualTo(T3);
+        assertThat(up.status()).isEqualTo(HealthStatus.UP);
+        assertThat(up.lastCheckedAt()).isEqualTo(T3);
+        assertThat(up.lastFailureAt()).isEqualTo(T2);
+        assertThat(up.lastRecoveredAt()).isEqualTo(T3);
+        assertThat(up.version()).isEqualTo(3);
     }
 
     @Test
-    void stayingDownKeepsTheFirstFailureTime() {
-        BrokerHealth health = new BrokerHealth("kafka");
-        health.record(HealthStatus.DOWN, T1);
+    void stayingDownKeepsTheFirstFailureTimeAndTheVersion() {
+        BrokerHealth down = BrokerHealth.unknown("kafka").observe(HealthStatus.DOWN, T1);
 
-        health.record(HealthStatus.DOWN, T2);
+        BrokerHealth stillDown = down.observe(HealthStatus.DOWN, T2);
 
-        assertThat(health.getLastCheckedAt()).isEqualTo(T2);
-        assertThat(health.getLastFailureAt()).isEqualTo(T1);
+        assertThat(stillDown.lastCheckedAt()).isEqualTo(T2);
+        assertThat(stillDown.lastFailureAt()).isEqualTo(T1);
+        assertThat(stillDown.version()).isEqualTo(down.version());
     }
 }

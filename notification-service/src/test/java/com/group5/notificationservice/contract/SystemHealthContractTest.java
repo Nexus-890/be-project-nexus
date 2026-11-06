@@ -12,9 +12,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.OffsetDateTime;
+import java.time.Instant;
 import java.util.List;
 
+import static org.hamcrest.Matchers.hasKey;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -24,9 +25,9 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 class SystemHealthContractTest {
 
-    private static final OffsetDateTime CHECKED = OffsetDateTime.parse("2026-11-04T09:31:00+07:00");
-    private static final OffsetDateTime FAILED = OffsetDateTime.parse("2026-11-04T09:25:30+07:00");
-    private static final OffsetDateTime RECOVERED = OffsetDateTime.parse("2026-11-04T09:30:45+07:00");
+    private static final Instant CHECKED = Instant.parse("2026-11-04T02:31:00Z");
+    private static final Instant FAILED = Instant.parse("2026-11-04T02:25:30Z");
+    private static final Instant RECOVERED = Instant.parse("2026-11-04T02:30:45Z");
 
     private SystemHealthService service;
     private MockMvc mvc;
@@ -77,5 +78,24 @@ class SystemHealthContractTest {
                 .andExpect(jsonPath("$.page.size").value(1))
                 .andExpect(jsonPath("$.page.totalElements").value(1))
                 .andExpect(jsonPath("$.page.totalPages").value(1));
+    }
+
+    @Test
+    void anUnknownBrokerKeepsItsFieldsAsNull() throws Exception {
+        when(service.systemHealth()).thenReturn(new SystemHealthResponse(
+                List.of(new ServiceHealthResponse("keycloak", HealthStatus.UP)),
+                List.of(new BrokerStatusResponse("kafka", HealthStatus.UNKNOWN, null))));
+        when(service.brokers()).thenReturn(List.of(
+                new BrokerHealthResponse("kafka", HealthStatus.UNKNOWN, null, null, null)));
+
+        mvc.perform(get("/api/v1/system/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.brokers[0].status").value("UNKNOWN"))
+                .andExpect(jsonPath("$.data.brokers[0]", hasKey("lastCheckedAt")));
+        mvc.perform(get("/api/v1/system/health/brokers"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].status").value("UNKNOWN"))
+                .andExpect(jsonPath("$.data[0]", hasKey("lastFailureAt")))
+                .andExpect(jsonPath("$.data[0]", hasKey("lastRecoveredAt")));
     }
 }
