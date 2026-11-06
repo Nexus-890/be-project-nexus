@@ -67,6 +67,12 @@ service account holds the `realm-management` roles `manage-users`, `view-users`,
 assign the registration role and read role mappings. The client is not in
 `realm-nexus.json`, so an existing realm gets it on the next seed run.
 
+When `KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET` is set, the seed command also
+creates the confidential `notification-service` client (#191). Its service account
+holds only `realm-management` `view-users`, which notification-service needs to read
+a recipient's email before it sends a notification email. Leave the secret empty to
+skip it while `EMAIL_NOTIFICATION_ENABLED=false`.
+
 Access tokens are signed with RS256 and contain:
 
 - `sub`: the imported user UUID, unchanged from the other service seeds.

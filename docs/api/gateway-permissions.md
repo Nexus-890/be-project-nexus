@@ -24,9 +24,34 @@ still rejected. Listed SRS 2.7 privileges must appear verbatim in the JWT
 Downstream services validate JWTs again and enforce ownership/business rules
 independently, as required by ADR-006.
 
+Guest cart #112 adds `POST /api/v1/carts/guest` as public. The four existing
+cart read/item policies have `allow-guest: true`: anonymous requests pass to
+commerce-service, which checks `ALLOW_GUEST_CART`, the signed `X-Guest-Token`,
+ownership and inactivity expiry. Authenticated requests still require the table's
+exact privilege at the gateway and service; invalid bearer tokens never fall
+back to guest access. GET `/carts/me` additionally requires `CART.CREATE` for
+authenticated callers. Pricing, validation, checkout and merge remain protected.
+POST `/carts/me/merge` requires `CART.UPDATE` and downstream BUYER role.
+
+Set `ALLOW_GUEST_CART=true` and `CART_GUEST_TOKEN_SECRET` (Base64 of at least
+32 random bytes, identical across commerce instances) to enable guests.
+`CART_MERGE_ON_LOGIN` defaults true; when false merge returns
+`COMMERCE_CART_MERGE_DISABLED`. After the Keycloak callback the frontend submits
+the stored token as `{guestToken}` and clears it only after successful merge
+or a definitive 404. A catalog 502/503 rolls back the merge and leaves it retryable.
+Merge is atomic and one-use, caps duplicate quantities at 999 with
+`QUANTITY_CAPPED`, and retains invalid catalog/self-purchase lines in `data.issues`.
+Ordinary cart responses include an empty issues array; #188 validation can be
+used to refresh catalog findings. A cart does not reserve stock or clamp quantities
+to available inventory. `OUT_OF_STOCK` awaits actual inventory integration;
+neither merge nor the existing inventory stub proves stock availability.
+
 | Path | Method | Public or required privilege | Owning issue                                            |
 |---|---|---|---------------------------------------------------------|
 | `/api/v1/auth/register` | POST | Public | #74 — User registration with a default role             |
+| `/api/v1/auth/session` | POST | Public | #252 — HttpOnly refresh cookie: sign-in exchange |
+| `/api/v1/auth/refresh` | POST | Public | #252 — HttpOnly refresh cookie: renew the access token |
+| `/api/v1/auth/logout` | POST | Public | #252 — HttpOnly refresh cookie: sign out |
 | `/api/v1/products` | GET | Public | #99 — Product lists                                     |
 | `/api/v1/products/{id}` | GET | Public | #83 — Product create, update and read                   |
 | `/api/v1/categories/{id}` | GET | Public | #80 — Category create, update and read                  |
@@ -50,6 +75,8 @@ independently, as required by ADR-006.
 | `/api/v1/products/{id}/images/order` | PUT | PRODUCT.UPDATE | #123 — Reorder images; service requires SELLER and product ownership |
 | `/api/v1/skus/{id}` | PUT | PRODUCT.UPDATE | #86 — SKU create, update and read                       |
 | `/api/v1/carts/me` | GET | CART.VIEW | #110 — Cart: get-or-create and add item                 |
+| `/api/v1/carts/guest` | POST | Public | #112 — Guest owner cart creation |
+| `/api/v1/carts/me/merge` | POST | CART.UPDATE | #112 — One-use guest merge; service also requires BUYER |
 | `/api/v1/carts/me/items` | POST | CART.UPDATE | #110 — Cart: get-or-create and add item                 |
 | `/api/v1/carts/me/items/{id}` | PUT | CART.UPDATE | #111 — Cart: update and remove item                     |
 | `/api/v1/carts/me/items/{id}` | DELETE | CART.REMOVE_ITEM | #111 — Cart: update and remove item                     |
@@ -57,6 +84,7 @@ independently, as required by ADR-006.
 | `/api/v1/notifications/unread-count` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
 | `/api/v1/notifications/{id}/read` | PATCH | NOTIFICATION.VIEW | #109 — Mark own notification as read |
 | `/api/v1/notifications/read-all` | PATCH | NOTIFICATION.VIEW | #109 — Mark all own notifications as read |
+| `/api/v1/notifications/{id}/deliveries` | GET | NOTIFICATION.VIEW | #191 — Email channel and notification delivery retry |
 | `/api/v1/orders` | POST | ORDER.CREATE | #113 — Order creation from a cart; service also requires CHECKOUT.START |
 | `/api/v1/payments` | POST | CHECKOUT.START | #121 — Buyer reads own order group's immutable payment session |
 | `/api/v1/orders/{id}/history` | GET | ORDER.VIEW | #116 — Order state machine and status history |
@@ -65,6 +93,9 @@ independently, as required by ADR-006.
 | `/api/v1/orders/sales` | GET | ORDER.LIST | #190 — Seller orders; service additionally requires SELLER and JWT seller ownership |
 | `/api/v1/orders/{id}` | GET | ORDER.VIEW | #117 — Order read endpoints; the owner or ADMIN |
 | `/api/v1/orders/{id}/cancel` | POST | ORDER.CANCEL | #189 — Order cancellation; the buyer, ADMIN or SUPPORT_STAFF |
+| `/api/v1/carts/me/pricing` | GET | CART.VIEW | CRT-05 — Read-only cart pricing |
+| `/api/v1/carts/me/validate` | POST | CART.VIEW | CRT-06 — Read-only cart validation |
+| `/api/v1/checkout/preview` | POST | CHECKOUT.START | ORD-02 — Read-only checkout preview |
 | `/api/v1/webhooks/sepay` | POST | Public | #155 — payment-service; provider authentication remains downstream |
 | `/api/v1/webhooks/carriers/ghn` | POST | Public | #203 / #245 — shipment-service; owner-confirmed GHN callback |
 | `/api/v1/webhooks/carriers/ghtk` | POST | Public | #203 / #245 — shipment-service; owner-confirmed GHTK callback |
@@ -90,6 +121,8 @@ independently, as required by ADR-006.
 | `/api/v1/reputations/{userId}/history` | GET | USER.REPUTATION.VIEW | #213 — rating-service |
 | `/api/v1/auctions` | POST | AUCTION.CREATE | #140 — Create as SELLER; `sellerId` comes from the JWT subject |
 | `/api/v1/auctions/{id}/bids` | POST | AUCTION.BID | #146 — Place a bid as BUYER; the bidder cannot be the auction seller |
+| `/api/v1/auctions` | GET | Public | #143 — PUBLIC, non-deleted auctions; status defaults to ACTIVE, endAt ascending |
+| `/api/v1/auctions/{id}` | GET | Public | #143 — PUBLIC, non-deleted auction; hidden and missing rows return 404 |
 | `/api/v1/event-logs` | GET | EVENT_LOG.VIEW | #192 — Event log consumer and audit log |
 | `/api/v1/event-logs/{id}` | GET | EVENT_LOG.VIEW_DETAIL | #192 — Event log consumer and audit log |
 | `/api/v1/audit-logs` | GET | AUDIT_LOG.VIEW | #192 — Event log consumer and audit log |
@@ -104,6 +137,13 @@ the #88 commerce mock is superseded; it is not a runtime payment endpoint.
 `GET /api/v1/users/{id}` (#76) has no row on purpose: a caller may read their own
 record without `USER.VIEW`, which the gateway cannot decide. Any valid token passes
 the gateway and user-service allows the caller's own id or `USER.VIEW`.
+
+Role-only endpoints have no SRS 2.7 privilege, so they have no row in the table
+above: any valid token passes the gateway and the owning service checks the role.
+
+| Method | Path | Gateway | Service rule | Owning issue |
+|---|---|---|---|---|
+| POST | `/api/v1/inventory/intake` | token only | Service requires ADMIN | #130 — Inventory balance and stock intake |
 
 ## Order management and sales (#190)
 
@@ -334,6 +374,9 @@ These older drafts add no public method/path pairs to the active table above.
 | GET | `/api/v1/orders/{id}/history` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #116 |
 | PATCH | `/api/v1/orders/{id}/status` | ADMIN | token only | none (role-only) | Service requires ADMIN; moves follow the order transition table, other moves return 409; audit actor and reason | #116 |
 | POST | `/api/v1/payments` | BUYER | CHECKOUT.START | CHECKOUT.START | Own PENDING group/session before dueAt; repeated call returns the same instructions | #120, #121 |
+| POST | `/api/v1/refunds` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Cancelled, paid order; one refund per order; same Idempotency-Key and body returns the stored refund | #247 |
+| GET | `/api/v1/refunds` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Refund of one order by orderId | #247 |
+| POST | `/api/v1/refunds/{id}/complete` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Records one manual REFUND transaction; repeating returns the completed refund | #247 |
 | GET | `/api/v1/notifications` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notifications only, including for ADMIN | #108 |
 | GET | `/api/v1/notifications/unread-count` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Count own unread notifications only | #108 |
 | PATCH | `/api/v1/notifications/{id}/read` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notification only; other caller returns 403 | #109 |
@@ -354,7 +397,12 @@ Prism cannot prove any of these runtime security properties.
   selected by #88 scope and the two requested services, not obsolete sprint labels.
   Catalogue IDs:
   CRT-01..04, ORD-01/03..06, PAY-01 and NTF-01..04.
-- Not included: standalone pricing/validation/checkout preview, guest carts,
+- The legacy #88 draft excludes standalone pricing/validation/checkout preview;
+  CRT-05, CRT-06 and ORD-02 are now delivered in `openapi/commerce-service.yaml`
+  and registered in the active policy table above. Each reads only the JWT subject's
+  active cart, including for ADMIN. Preview requires CHECKOUT.START alone;
+  pricing/validation require CART.VIEW alone, without CART.CREATE.
+- Not included in the #88 draft: guest carts,
   buyer cancellation/refunds, notification preferences or push subscriptions.
   The Sepay webhook is outside #88, not a new public path in this draft. Cart expiry,
   outbox relay and notification consumers are jobs/consumers, not HTTP endpoints.
