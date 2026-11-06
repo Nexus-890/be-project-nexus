@@ -141,6 +141,24 @@ class InventoryIntakeIntegrationTest {
                 .containsEntry("available_quantity", 150).containsEntry("version", 1L);
     }
 
+    @Test
+    void aFailedLedgerInsertRollsTheBalanceBack() throws Exception {
+        UUID sku = UUID.randomUUID();
+        intake("admin", body(sku, null, 100)).andExpect(status().isCreated());
+        Map<String, Object> before = row(sku, defaultWarehouse);
+        jdbc.execute("ALTER TABLE inventory_movements ADD CONSTRAINT it_block_large_movement CHECK (quantity < 1000)");
+        try {
+            intake("admin", body(sku, null, 5000)).andExpect(status().is5xxServerError());
+            intake("admin", body(UUID.randomUUID(), null, 5000)).andExpect(status().is5xxServerError());
+        } finally {
+            jdbc.execute("ALTER TABLE inventory_movements DROP CONSTRAINT it_block_large_movement");
+        }
+
+        assertThat(row(sku, defaultWarehouse)).isEqualTo(before);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM inventory_balances", Integer.class)).isEqualTo(1);
+        assertThat(movementCount(sku)).isEqualTo(1);
+    }
+
     @RepeatedTest(5)
     void concurrentFirstIntakesLeaveOneRowWithTheSum() throws Exception {
         UUID sku = UUID.randomUUID();

@@ -19,7 +19,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 class InventoryMovementLedgerTest {
 
     private static final Pattern WRITES_TO_LEDGER = Pattern.compile(
-            "(update\\s+inventory_movements|delete\\s+from\\s+inventory_movements|truncate\\s+(table\\s+)?inventory_movements)");
+            "(update\\s+(inventory_movements|inventorymovement)\\b"
+                    + "|delete\\s+(from\\s+)?(inventory_movements|inventorymovement)\\b"
+                    + "|truncate\\s+(table\\s+)?inventory_movements\\b)");
 
     @Test
     void theEntityHasNoSetterAndHibernateTreatsItAsImmutable() {
