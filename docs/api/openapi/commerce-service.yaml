@@ -961,7 +961,7 @@ paths:
         - Cart
       operationId: updateOwnCartItem
       summary: Replace the quantity of an item in the current cart
-      description: With a valid bearer token, use the JWT subject cart and require the listed privileges; X-Guest-Token is ignored. Without bearer authentication, use an enabled guest cart identified by X-Guest-Token. Invalid bearer tokens return 401 without guest fallback. Guest tokens are signed opaque owner capabilities and expire after configured inactivity (7 days by default); viewing does not extend inactivity. Quantities are integers 1..999; add sums duplicates and rejects totals above 999. Cart operations do not reserve stock. Items must belong to the resolved active cart.
+      description: With a valid bearer token, use the JWT subject cart and require the listed privileges; X-Guest-Token is ignored. Without bearer authentication, use an enabled guest cart identified by X-Guest-Token. Invalid bearer tokens return 401 without guest fallback. Guest tokens are signed opaque owner capabilities and expire after configured inactivity (7 days by default); viewing does not extend inactivity. Quantities are integers 1..999; add sums duplicates and rejects totals above 999. Cart operations do not reserve stock. Items must belong to the resolved active cart. Replaces the quantity rather than incrementing it; existing unitPrice is preserved. Missing or inactive carts and missing or foreign items return the documented 404 cart error. No ADMIN ownership bypass.
       security:
         - bearerAuth: []
         - {}
@@ -1057,12 +1057,12 @@ paths:
                     type: urn:problem:invalid-request-body
                     title: Bad Request
                     status: 400
-                    detail: The request body is invalid or malformed
+                    detail: "The request body is invalid"
                     instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
                     code: INVALID_REQUEST_BODY
                 VALIDATION_FAILED:
                   value:
-                    type: urn:problem:validation-failed
+                    type: "urn:problem:validation-error"
                     title: Bad Request
                     status: 400
                     detail: The request data is invalid
@@ -1105,8 +1105,8 @@ paths:
                     code: UNAUTHENTICATED
                 COMMERCE_UNAUTHENTICATED:
                   value:
-                    type: urn:problem:domain-error
-                    title: Unauthorized
+                    type: "urn:problem:domain-error"
+                    title: "Unauthorized"
                     status: 401
                     detail: Unauthenticated
                     instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002
@@ -1394,7 +1394,7 @@ paths:
         - Cart
       operationId: removeOwnCartItem
       summary: Remove an item from the current cart
-      description: With a valid bearer token, use the JWT subject cart and require the listed privileges; X-Guest-Token is ignored. Without bearer authentication, use an enabled guest cart identified by X-Guest-Token. Invalid bearer tokens return 401 without guest fallback. Guest tokens are signed opaque owner capabilities and expire after configured inactivity (7 days by default); viewing does not extend inactivity. Quantities are integers 1..999; add sums duplicates and rejects totals above 999. Cart operations do not reserve stock. Items must belong to the resolved active cart.
+      description: With a valid bearer token, use the JWT subject cart and require the listed privileges; X-Guest-Token is ignored. Without bearer authentication, use an enabled guest cart identified by X-Guest-Token. Invalid bearer tokens return 401 without guest fallback. Guest tokens are signed opaque owner capabilities and expire after configured inactivity (7 days by default); viewing does not extend inactivity. Quantities are integers 1..999; add sums duplicates and rejects totals above 999. Cart operations do not reserve stock. Items must belong to the resolved active cart. Missing or inactive carts and missing or foreign items return the documented 404 cart error. No ADMIN ownership bypass. Success has no response body.
       security:
         - bearerAuth: []
         - {}
@@ -1518,8 +1518,8 @@ paths:
                     code: UNAUTHENTICATED
                 COMMERCE_UNAUTHENTICATED:
                   value:
-                    type: urn:problem:domain-error
-                    title: Unauthorized
+                    type: "urn:problem:domain-error"
+                    title: "Unauthorized"
                     status: 401
                     detail: Unauthenticated
                     instance: /api/v1/carts/me/items/68000000-0000-4000-8000-000000000002

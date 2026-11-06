@@ -6,6 +6,9 @@ import { resolve } from 'node:path';
 // schemas/examples; this check prevents delivered route inventory from drifting.
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const services = {
+  'api-gateway': [
+    'src/main/java/com/group5/apigateway/session/SessionController.java',
+  ],
   'user-service': [
     'src/main/java/com/group5/userservice/iam/AuthController.java',
     'src/main/java/com/group5/userservice/iam/UserController.java',
@@ -28,6 +31,7 @@ const services = {
   ],
   'payment-service': [
     'src/main/java/com/group5/paymentservice/payment/controller/PaymentController.java',
+    'src/main/java/com/group5/paymentservice/payment/controller/RefundController.java',
   ],
   'auction-service': [
     'src/main/java/com/group5/auctionservice/auction/AuctionController.java',

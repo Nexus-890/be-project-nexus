@@ -40,6 +40,9 @@ import org.springframework.security.web.server.authorization.ServerAccessDeniedH
 import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
 import org.springframework.security.web.server.savedrequest.NoOpServerRequestCache;
 import org.springframework.util.Assert;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.reactive.CorsConfigurationSource;
+import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import org.springframework.web.reactive.result.view.ViewResolver;
 import org.springframework.web.server.ServerWebExchange;
@@ -68,7 +71,8 @@ public class SecurityConfig {
     SecurityWebFilterChain securityWebFilterChain(
             ServerHttpSecurity http, GatewaySecurityProperties properties,
             ServerCodecConfigurer codecs, ObjectProvider<Tracer> tracer,
-            ReactiveJwtAuthenticationConverter jwtAuthenticationConverter) {
+            ReactiveJwtAuthenticationConverter jwtAuthenticationConverter,
+            CorsConfigurationSource corsConfigurationSource) {
 
         ServerAuthenticationEntryPoint entryPoint = (exchange, exception) -> {
             exchange.getResponse().getHeaders().set(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
@@ -79,6 +83,7 @@ public class SecurityConfig {
 
         List<Endpoint> endpoints = properties.endpoints();
         return http
+                .cors(cors -> cors.configurationSource(corsConfigurationSource))
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
                 .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
@@ -115,6 +120,29 @@ public class SecurityConfig {
                         .authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(deniedHandler))
                 .build();
+    }
+
+    // preflight OPTIONS của trình duyệt không kèm token nên CORS phải chạy trước bước kiểm JWT,
+    // đặt ở đây (Spring Security) chứ không đặt trong globalcors của Gateway
+    // cookie phiên cần allowCredentials = true, mà khi đó trình duyệt cấm origin "*" nên chỉ nhận origin ghi rõ
+    @Bean
+    CorsConfigurationSource corsConfigurationSource(GatewaySecurityProperties properties) {
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        List<String> origins = properties.getCorsAllowedOrigins();
+        if (origins.isEmpty()) {
+            return source;
+        }
+        origins.forEach(origin -> Assert.isTrue(!origin.contains("*"),
+                "CORS origin must be written in full, a wildcard cannot be used with cookies: " + origin));
+        CorsConfiguration cors = new CorsConfiguration();
+        cors.setAllowedOrigins(origins);
+        cors.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        cors.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "Idempotency-Key", "X-Requested-With", "X-Guest-Token"));
+        cors.setExposedHeaders(List.of("Retry-After", "X-RateLimit-Limit", "X-RateLimit-Remaining", "Location"));
+        cors.setAllowCredentials(true);
+        cors.setMaxAge(3600L);
+        source.registerCorsConfiguration("/**", cors);
+        return source;
     }
 
     @Bean
@@ -216,6 +244,7 @@ public class SecurityConfig {
     public static class GatewaySecurityProperties {
         private List<Endpoint> publicEndpoints = new ArrayList<>();
         private List<Endpoint> protectedEndpoints = new ArrayList<>();
+        private List<String> corsAllowedOrigins = new ArrayList<>();
 
         List<Endpoint> endpoints() {
             Set<String> pairs = new HashSet<>();
