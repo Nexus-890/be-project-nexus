@@ -10,6 +10,9 @@ public enum AuctionErrorCode implements ErrorCode {
     AUCTION_DURATION_TOO_LONG(HttpStatus.BAD_REQUEST, "Auction duration exceeds the configured maximum"),
     AUCTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Auction not found"),
     AUCTION_BID_TOO_LOW(HttpStatus.BAD_REQUEST, "Bid amount is below the minimum accepted bid"),
+    AUCTION_IDEMPOTENCY_KEY_REQUIRED(HttpStatus.BAD_REQUEST, "Idempotency-Key is required"),
+    AUCTION_INVALID_IDEMPOTENCY_KEY(HttpStatus.BAD_REQUEST, "Idempotency-Key must be a UUID"),
+    AUCTION_IDEMPOTENCY_KEY_CONFLICT(HttpStatus.CONFLICT, "Idempotency-Key was already used for another auction or bidder"),
     AUCTION_NOT_ACTIVE(HttpStatus.CONFLICT, "Auction is not ACTIVE"),
     AUCTION_SELLER_CANNOT_BID(HttpStatus.CONFLICT, "The seller cannot bid on their own auction");
 

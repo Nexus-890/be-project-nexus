@@ -89,7 +89,7 @@ independently, as required by ADR-006.
 | `/api/v1/reputations/{userId}/adjustments` | POST | USER.REPUTATION.ADJUST | #213 — rating-service; reason and score bounds checked downstream |
 | `/api/v1/reputations/{userId}/history` | GET | USER.REPUTATION.VIEW | #213 — rating-service |
 | `/api/v1/auctions` | POST | AUCTION.CREATE | #140 — Create as SELLER; `sellerId` comes from the JWT subject |
-| `/api/v1/auctions/{id}/bids` | POST | AUCTION.BID | #146 — Place a bid as BUYER; the bidder cannot be the auction seller |
+| `/api/v1/auctions/{id}/bids` | POST | AUCTION.BID | #146/#147 — Place a bid as BUYER; the bidder cannot be the auction seller. Required UUID `Idempotency-Key`; replay is restricted to the original bidder and auction |
 | `/api/v1/event-logs` | GET | EVENT_LOG.VIEW | #192 — Event log consumer and audit log |
 | `/api/v1/event-logs/{id}` | GET | EVENT_LOG.VIEW_DETAIL | #192 — Event log consumer and audit log |
 | `/api/v1/audit-logs` | GET | AUDIT_LOG.VIEW | #192 — Event log consumer and audit log |
@@ -537,7 +537,7 @@ A path with several roles in `x-required-roles` accepts any one of them.
 | POST | `/api/v1/auctions/{id}/cancel` | ADMIN, SELLER | AUCTION.CANCEL | AUCTION.CANCEL | Owner of the auction; only while it has no valid bid | #197 |
 | POST | `/api/v1/auctions/{id}/admin-cancel` | ADMIN | AUCTION.ADMIN_CANCEL | AUCTION.ADMIN_CANCEL | Any auction not yet settled or cancelled; audit actor and reason | #197 |
 | GET | `/api/v1/auctions/mine` | SELLER | AUCTION.LIST | AUCTION.LIST | Own auctions only | #198 |
-| POST | `/api/v1/auctions/{id}/bids` | BUYER | AUCTION.BID | AUCTION.BID | Not the auction's seller; caller-scoped idempotency key | #146, #147 |
+| POST | `/api/v1/auctions/{id}/bids` | BUYER | AUCTION.BID | AUCTION.BID | Not the auction's seller; globally unique UUID key replays only for the original bidder and auction | #146, #147 |
 | GET | `/api/v1/auctions/{id}/bids` | public | public | none (public) |  | #169 |
 | GET | `/api/v1/bids/mine` | BUYER | AUCTION.VIEW_BID_HISTORY | AUCTION.VIEW_BID_HISTORY | Own bids only | #198 |
 

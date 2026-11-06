@@ -48,13 +48,12 @@ public class Bid extends AuditedEntity {
     @Column(nullable = false, updatable = false)
     private Instant placedAt;
 
-    Bid(UUID auctionId, UUID bidderId, BigDecimal amount, Instant placedAt) {
+    Bid(UUID auctionId, UUID bidderId, BigDecimal amount, Instant placedAt, String idempotencyKey) {
         this.auctionId = auctionId;
         this.bidderId = bidderId;
         this.amount = amount;
         this.placedAt = placedAt;
-        // #147 will replace the internal key with the caller's Idempotency-Key and replay handling.
-        this.idempotencyKey = UUID.randomUUID().toString();
+        this.idempotencyKey = idempotencyKey;
     }
 
     public enum Status {
