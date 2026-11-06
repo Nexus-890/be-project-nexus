@@ -17,6 +17,8 @@ import com.group5.common_security.CurrentUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
@@ -185,6 +187,53 @@ class GuestCartLifecycleIntegrationTest {
         assertThat(service.getMyCart(buyer).getUserId()).isEqualTo(buyer.id());
     }
 
+    @Test void missingSellerRollsBackNewBuyerCartAndKeepsGuestRetryable() {
+        GuestCartResponse guest = guestWith(2);
+        var valid = catalog.getProductById(productId);
+        when(catalog.getProductById(productId)).thenReturn(ApiResponse.of(
+                new CatalogClient.ProductResponse(productId, null, "Product", "ACTIVE", List.of())));
+
+        assertCode(() -> service.mergeGuestCart(buyer, guest.guestToken()), "COMMERCE_INVALID_CATALOG_RESPONSE");
+        assertThat(carts.findByUserIdAndStatus(buyer.id(), CartStatus.ACTIVE)).isEmpty();
+        assertThat(service.getMyCart(null, guest.guestToken()).getItems().getFirst().getQuantity()).isEqualTo(2);
+
+        when(catalog.getProductById(productId)).thenReturn(valid);
+        assertThat(service.mergeGuestCart(buyer, guest.guestToken()).getItems().getFirst().getQuantity()).isEqualTo(2);
+    }
+
+    @Test void catalogOutageRollsBackAllMergedLinesAndAllowsExactlyOneRetry() {
+        GuestCartResponse guest = guestWith(2);
+        service.addItem(buyer, request(3));
+        UUID otherSku = UUID.randomUUID();
+        new JdbcTemplate(dataSource).update(
+                "INSERT INTO cart_items (cart_id, product_id, sku_id, quantity, price) VALUES (?, ?, ?, 4, 25)",
+                guest.cart().getId(), productId, otherSku);
+        when(catalog.getSkuById(otherSku)).thenThrow(feign.FeignException.errorStatus("getSkuById",
+                feign.Response.builder().status(503).reason("Unavailable")
+                        .request(feign.Request.create(feign.Request.HttpMethod.GET, "/sku", java.util.Map.of(),
+                                (byte[]) null, java.nio.charset.StandardCharsets.UTF_8, null)).build()));
+
+        assertCode(() -> service.mergeGuestCart(buyer, guest.guestToken()), "COMMERCE_CATALOG_UNAVAILABLE");
+        assertThat(service.getMyCart(buyer).getItems()).singleElement()
+                .satisfies(item -> assertThat(item.getQuantity()).isEqualTo(3));
+        assertThat(service.getMyCart(null, guest.guestToken()).getItems()).hasSize(2);
+        assertThat(carts.findById(guest.cart().getId()).orElseThrow().getStatus()).isEqualTo(CartStatus.ACTIVE);
+
+        CatalogSkuResponse recovered = new CatalogSkuResponse();
+        recovered.setId(otherSku);
+        recovered.setProductId(productId);
+        recovered.setPrice(new java.math.BigDecimal("25"));
+        recovered.setStatus("ACTIVE");
+        doReturn(ApiResponse.of(recovered)).when(catalog).getSkuById(otherSku);
+        CartResponse merged = service.mergeGuestCart(buyer, guest.guestToken());
+        assertThat(merged.getItems()).hasSize(2);
+        assertThat(merged.getItems()).filteredOn(item -> item.getSkuId().equals(skuId)).singleElement()
+                .satisfies(item -> assertThat(item.getQuantity()).isEqualTo(5));
+        assertThat(merged.getItems()).filteredOn(item -> item.getSkuId().equals(otherSku)).singleElement()
+                .satisfies(item -> assertThat(item.getQuantity()).isEqualTo(4));
+        assertCode(() -> service.mergeGuestCart(buyer, guest.guestToken()), "COMMERCE_GUEST_CART_NOT_FOUND");
+    }
+
     @Test void viewingDoesNotExtendExpiryAndExpiredGuestCannotMerge() {
         GuestCartResponse guest = guestWith(2);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
@@ -215,6 +264,20 @@ class GuestCartLifecycleIntegrationTest {
         assertThat(service.getMyCart(buyer).getItems().getFirst().getQuantity()).isEqualTo(3);
     }
 
+    @Test void concurrentDifferentBuyersCannotBothClaimTheSameGuestCart() throws Exception {
+        GuestCartResponse guest = guestWith(2);
+        CurrentUser otherBuyer = buyer();
+        List<String> results = race(() -> mergeOutcome(buyer, guest.guestToken()),
+                () -> mergeOutcome(otherBuyer, guest.guestToken()));
+        assertThat(results).containsExactlyInAnyOrder("OK", "COMMERCE_GUEST_CART_NOT_FOUND");
+        CurrentUser winner = results.getFirst().equals("OK") ? buyer : otherBuyer;
+        CurrentUser loser = results.getFirst().equals("OK") ? otherBuyer : buyer;
+        assertThat(carts.findByUserIdAndStatus(loser.id(), CartStatus.ACTIVE)).isEmpty();
+        assertThat(service.getMyCart(winner).getItems()).singleElement()
+                .satisfies(item -> assertThat(item.getQuantity()).isEqualTo(2));
+        assertThat(carts.findById(guest.cart().getId()).orElseThrow().getStatus()).isEqualTo(CartStatus.MERGED);
+    }
+
     @Test void twoGuestsMergingIntoTheSameNewUserCartDoNotLoseQuantities() throws Exception {
         GuestCartResponse first = guestWith(2);
         GuestCartResponse second = guestWith(3);
@@ -236,8 +299,48 @@ class GuestCartLifecycleIntegrationTest {
                 .isEqualTo(results.getLast().equals("OK") ? 3 : 2);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"update", "remove"})
+    void guestEditsRacingWithMergeAreAppliedBeforeMergeOrRejectedAfterIt(String operation) throws Exception {
+        GuestCartResponse guest = guestWith(2);
+        UUID itemId = service.getMyCart(null, guest.guestToken()).getItems().getFirst().getId();
+        List<String> results = race(() -> mergeOutcome(guest.guestToken()), () -> {
+            try {
+                if (operation.equals("update")) {
+                    UpdateCartItemRequest request = new UpdateCartItemRequest();
+                    request.setQuantity(5);
+                    service.updateCartItem(null, guest.guestToken(), itemId, request);
+                } else {
+                    service.removeCartItem(null, guest.guestToken(), itemId);
+                }
+                return "OK";
+            } catch (DomainException exception) {
+                return exception.getErrorCode();
+            }
+        });
+        assertThat(results.getFirst()).isEqualTo("OK");
+        assertThat(results.getLast()).isIn("OK", "COMMERCE_GUEST_CART_NOT_FOUND");
+        int expected = results.getLast().equals("OK") ? (operation.equals("update") ? 5 : 0) : 2;
+        assertThat(service.getMyCart(buyer).getItems().stream().mapToInt(item -> item.getQuantity()).sum()).isEqualTo(expected);
+    }
+
+    @Test void memberAddRacingWithMergeRetainsBothCommittedQuantities() throws Exception {
+        GuestCartResponse guest = guestWith(2);
+        service.addItem(buyer, request(3));
+        assertThat(race(() -> mergeOutcome(guest.guestToken()), () -> {
+            service.addItem(buyer, request(1));
+            return "OK";
+        })).containsExactly("OK", "OK");
+        assertThat(service.getMyCart(buyer).getItems()).singleElement()
+                .satisfies(item -> assertThat(item.getQuantity()).isEqualTo(6));
+    }
+
     private String mergeOutcome(String token) {
-        try { service.mergeGuestCart(buyer, token); return "OK"; }
+        return mergeOutcome(buyer, token);
+    }
+
+    private String mergeOutcome(CurrentUser user, String token) {
+        try { service.mergeGuestCart(user, token); return "OK"; }
         catch (DomainException exception) { return exception.getErrorCode(); }
     }
 

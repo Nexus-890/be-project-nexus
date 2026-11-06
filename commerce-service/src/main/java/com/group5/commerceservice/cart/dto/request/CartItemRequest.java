@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Max;
 import lombok.Getter;
 import lombok.Setter;
+import tools.jackson.databind.annotation.JsonDeserialize;
 
 import java.util.UUID;
 
@@ -18,5 +19,6 @@ public class CartItemRequest {
     @NotNull
     @Positive
     @Max(999)
+    @JsonDeserialize(using = CartQuantityDeserializer.class)
     private Integer quantity;
 }

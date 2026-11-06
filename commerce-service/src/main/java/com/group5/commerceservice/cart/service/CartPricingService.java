@@ -141,7 +141,8 @@ public class CartPricingService {
         try {
             var response = catalog.getProductById(productId);
             CatalogClient.ProductResponse product = response == null ? null : response.data();
-            if (product == null || !productId.equals(product.id()) || product.status() == null) {
+            if (product == null || !productId.equals(product.id()) || product.status() == null
+                    || product.sellerId() == null) {
                 throw new DomainException(CommerceErrorCode.INVALID_CATALOG_RESPONSE);
             }
             return product;

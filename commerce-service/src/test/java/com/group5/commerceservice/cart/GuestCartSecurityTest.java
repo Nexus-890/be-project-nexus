@@ -12,6 +12,8 @@ import com.group5.common_web.exception.GlobalExceptionHandler;
 import jakarta.servlet.Filter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
 import org.springframework.context.ApplicationContextInitializer;
@@ -132,6 +134,19 @@ class GuestCartSecurityTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"guestToken\":\"merged\"}"))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("COMMERCE_GUEST_CART_NOT_FOUND"))
                 .andExpect(jsonPath("$.instance").value("/api/v1/carts/me/merge"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1.5", "\"2\"", "true", "2147483648"})
+    void nonIntegerQuantityBodiesNeverReachTheCartService(String quantity) throws Exception {
+        mvc.perform(post("/api/v1/carts/me/items").header("X-Guest-Token", "owner-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"skuId\":\"" + UUID.randomUUID() + "\",\"quantity\":" + quantity + "}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(put("/api/v1/carts/me/items/" + UUID.randomUUID()).header("X-Guest-Token", "owner-token")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"quantity\":" + quantity + "}"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(service);
     }
 
     private static String itemBody(int quantity) { return "{\"skuId\":\"" + UUID.randomUUID() + "\",\"quantity\":" + quantity + "}"; }
