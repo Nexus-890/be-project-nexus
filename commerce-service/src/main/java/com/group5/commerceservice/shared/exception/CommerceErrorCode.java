@@ -14,6 +14,7 @@ public enum CommerceErrorCode implements ErrorCode {
     INVALID_ORDER_REQUEST(HttpStatus.BAD_REQUEST, "The order request is invalid"),
     INVALID_ORDER_FILTER(HttpStatus.BAD_REQUEST, "The order list filters are invalid"),
     CART_EMPTY(HttpStatus.BAD_REQUEST, "Cart is empty"),
+    INVALID_PRICING_CONFIGURATION(HttpStatus.INTERNAL_SERVER_ERROR, "Checkout price revalidation must be enabled"),
     FORBIDDEN(HttpStatus.FORBIDDEN, "You do not have permission"),
     ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "Order not found"),
     ILLEGAL_TRANSITION(HttpStatus.CONFLICT, "The order status transition is not allowed"),

@@ -15,6 +15,8 @@ servers:
 tags:
   - name: Payments
     description: Read payment instructions for an existing order-group session
+  - name: Refunds
+    description: Refunds of cancelled, paid seller orders, completed by a manual transfer
 paths:
   /api/v1/payments:
     post:
@@ -89,6 +91,180 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /api/v1/refunds:
+    post:
+      tags: [Refunds]
+      operationId: requestRefund
+      summary: Request the refund of a cancelled, paid seller order
+      description: >-
+        Requires ORDER.REFUND (Admin, Support Staff). One refund per order. The same
+        Idempotency-Key with the same orderId, reason and amount returns the stored refund,
+        even after it is completed; an omitted amount is compared as the full amount paid.
+        Payment-side funding evidence decides whether the order was paid; the order must
+        already be cancelled on the payment side. OrderCancelled already creates the full
+        refund for a paid order, so this endpoint serves cancelled, paid orders that have
+        no refund yet (for example data recovery). An order that already has a refund
+        returns 409 PAYMENT_REFUND_EXISTS; Support completes the existing refund with
+        /complete. Omitted amount means the full amount paid for this order.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [ADMIN, SUPPORT_STAFF]
+      x-required-privileges: [ORDER.REFUND]
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+            pattern: '^[!-~]{1,100}$'
+          description: Client key, printable ASCII; keys starting with system are reserved.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundRequest'
+      responses:
+        '202':
+          description: Refund requested, or the stored refund for a repeated key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResultApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  refundId: 01a1a602-0a8c-7c96-b2bb-1208b9900b76
+                  status: REQUESTED
+        '400':
+          description: Missing/invalid Idempotency-Key (PAYMENT_INVALID_REFUND_REQUEST), validation error, or amount above the paid amount (PAYMENT_REFUND_AMOUNT_EXCEEDED)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing/invalid bearer token (UNAUTHENTICATED)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Missing ORDER.REFUND (FORBIDDEN)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: No payment exists for this order (PAYMENT_ORDER_NOT_FOUND)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Order not cancelled or not paid (PAYMENT_ORDER_NOT_REFUNDABLE), order already refunded under another key (PAYMENT_REFUND_EXISTS), or key reused with another body (PAYMENT_REFUND_IDEMPOTENCY_CONFLICT)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+    get:
+      tags: [Refunds]
+      operationId: listRefunds
+      summary: List the refund of one order
+      description: Requires ORDER.REFUND. R1 has at most one refund per order.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [ADMIN, SUPPORT_STAFF]
+      x-required-privileges: [ORDER.REFUND]
+      parameters:
+        - in: query
+          name: orderId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Zero or one refund for the order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundListApiResponse'
+        '400':
+          description: Missing or malformed orderId (INVALID_PARAMETER)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing/invalid bearer token (UNAUTHENTICATED)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Missing ORDER.REFUND (FORBIDDEN)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/refunds/{id}/complete:
+    post:
+      tags: [Refunds]
+      operationId: completeRefund
+      summary: Record that the manual transfer back to the buyer is done
+      description: >-
+        Requires ORDER.REFUND. Records one REFUND payment transaction (MANUAL_TRANSFER) and
+        emits OrderRefundCompleted. Calling it again on a completed refund returns the stored
+        refund without a second transaction or event.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [ADMIN, SUPPORT_STAFF]
+      x-required-privileges: [ORDER.REFUND]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Refund completed, or already completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundApiResponse'
+        '400':
+          description: Malformed refund id (INVALID_PARAMETER)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing/invalid bearer token (UNAUTHENTICATED)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Missing ORDER.REFUND (FORBIDDEN)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Unknown refund (PAYMENT_REFUND_NOT_FOUND)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Refund changed by a concurrent request (PAYMENT_REFUND_CONFLICT)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
 components:
   securitySchemes:
     bearerAuth:
@@ -137,6 +313,112 @@ components:
         expiresAt:
           type: string
           format: date-time
+    RefundRequest:
+      type: object
+      required: [orderId, reason]
+      properties:
+        orderId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+          multipleOf: 0.01
+          description: Optional; at most the amount paid for this order. Omitted means the full paid amount.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+    RefundResultApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: object
+          required: [refundId, status]
+          properties:
+            refundId:
+              type: string
+              format: uuid
+            status:
+              $ref: '#/components/schemas/RefundStatus'
+    RefundStatus:
+      type: string
+      enum: [REQUESTED, COMPLETED]
+    Refund:
+      type: object
+      required: [refundId, orderId, amount, currency, status, reason, requestedAt, completedAt]
+      properties:
+        refundId:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          example: 300000.00
+        currency:
+          type: string
+          example: VND
+        status:
+          $ref: '#/components/schemas/RefundStatus'
+        reason:
+          type: string
+        requestedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+    RefundApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          $ref: '#/components/schemas/Refund'
+    RefundListApiResponse:
+      type: object
+      required: [code, message, data, page]
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: array
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/Refund'
+        page:
+          type: object
+          required: [number, size, totalElements, totalPages]
+          properties:
+            number:
+              type: integer
+            size:
+              type: integer
+            totalElements:
+              type: integer
+              format: int64
+            totalPages:
+              type: integer
     Problem:
       type: object
       required: [type, title, status, detail]

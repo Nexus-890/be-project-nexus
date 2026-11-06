@@ -3,6 +3,7 @@ package com.group5.commerceservice.cart;
 import com.group5.commerceservice.cart.controller.CartController;
 import com.group5.commerceservice.cart.dto.response.CartResponse;
 import com.group5.commerceservice.cart.service.CartService;
+import com.group5.commerceservice.cart.service.CartPricingService;
 import com.group5.commerceservice.shared.exception.CommerceErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_web.exception.GlobalExceptionHandler;
@@ -25,7 +26,7 @@ class CartResponseContractTest {
     private final UUID id = UUID.randomUUID();
     private MockMvc mvc;
     @BeforeEach void setup() {
-        mvc = MockMvcBuilders.standaloneSetup(new CartController(service))
+        mvc = MockMvcBuilders.standaloneSetup(new CartController(service, mock(CartPricingService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler(null)).build();
     }
     @Test void bothCartOperationsWrapTheirResultAndKeepStatus() throws Exception {
