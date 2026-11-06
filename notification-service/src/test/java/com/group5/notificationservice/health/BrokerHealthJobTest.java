@@ -1,12 +1,9 @@
 package com.group5.notificationservice.health;
 
-import com.group5.notificationservice.eventlog.EventLogRecorder;
 import com.group5.notificationservice.shared.config.HealthProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.dao.DataAccessResourceFailureException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -15,6 +12,7 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Comparator;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -22,11 +20,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -36,7 +31,6 @@ class BrokerHealthJobTest {
     private final JsonMapper mapper = JsonMapper.builder().build();
     private KafkaBrokerProbe probe;
     private HealthStateStore store;
-    private EventLogRecorder recorder;
     private BrokerHealthJob job;
     private BrokerHealth stored;
     private final Map<String, String> pending = new HashMap<>();
@@ -46,11 +40,10 @@ class BrokerHealthJobTest {
     void setup() {
         probe = mock(KafkaBrokerProbe.class);
         store = mock(HealthStateStore.class);
-        recorder = mock(EventLogRecorder.class);
         HealthProperties properties = new HealthProperties(List.of("user-service"),
                 URI.create("http://127.0.0.1:1/realms/nexus"), Duration.ofSeconds(1), "test");
         HealthTransitionEvents events = new HealthTransitionEvents(mock(ObjectProvider.class), properties);
-        job = new BrokerHealthJob(probe, store, events, recorder, mapper);
+        job = new BrokerHealthJob(probe, store, events, mapper);
 
         when(store.find(BrokerHealthJob.KAFKA)).thenAnswer(invocation -> Optional.ofNullable(stored));
         doAnswer(invocation -> stored = invocation.getArgument(0)).when(store).save(any());
@@ -62,7 +55,6 @@ class BrokerHealthJobTest {
         when(store.pendingEvents(BrokerHealthJob.KAFKA)).thenAnswer(invocation -> Map.copyOf(pending));
         doAnswer(invocation -> pending.remove(invocation.<String>getArgument(1)))
                 .when(store).removePending(eq(BrokerHealthJob.KAFKA), anyString());
-        when(recorder.recordRaw(anyString(), isNull())).thenReturn(true);
     }
 
     @Test
@@ -74,11 +66,11 @@ class BrokerHealthJobTest {
         verify(probe, times(2)).reachable();
         assertThat(stored.status()).isEqualTo(HealthStatus.UP);
         assertThat(stored.lastFailureAt()).isNull();
-        verify(recorder, never()).recordRaw(anyString(), any());
+        assertThat(pending).isEmpty();
     }
 
     @Test
-    void aFailedRetryMarksTheBrokerDownAndRecordsOneFailedEvent() {
+    void aFailedRetryMarksTheBrokerDownAndQueuesOneFailedEvent() {
         when(probe.reachable()).thenReturn(false, false);
 
         job.checkBrokers();
@@ -99,23 +91,23 @@ class BrokerHealthJobTest {
         assertThat(payload.has("lastRecoveredAt")).isTrue();
         assertThat(payload.get("lastRecoveredAt").isNull()).isTrue();
         assertThat(payload.get("reasonCode").asText()).isEqualTo(HealthTransitionEvents.BROKER_UNREACHABLE);
-        assertThat(pending).isEmpty();
+        assertThat(pending).containsOnlyKeys(event.get("eventId").asText());
     }
 
     @Test
-    void stayingDownDoesNotRecordAnotherEvent() {
+    void stayingDownDoesNotQueueAnotherEvent() {
         when(probe.reachable()).thenReturn(false);
 
         job.checkBrokers();
         job.checkBrokers();
         job.checkBrokers();
 
-        verify(recorder, times(1)).recordRaw(anyString(), isNull());
+        assertThat(pending).hasSize(1);
         assertThat(stored.version()).isEqualTo(1);
     }
 
     @Test
-    void theRecoveryIsRecordedOnceAndKeepsTheFailureTime() {
+    void theRecoveryIsQueuedOnceAndKeepsTheFailureTime() {
         when(probe.reachable()).thenReturn(false, false, true, true);
 
         job.checkBrokers();
@@ -135,25 +127,6 @@ class BrokerHealthJobTest {
     }
 
     @Test
-    void anEventThatCannotBeRecordedStaysPendingAndIsRecordedOnTheNextRun() {
-        when(probe.reachable()).thenReturn(false);
-        when(recorder.recordRaw(anyString(), isNull()))
-                .thenThrow(new DataAccessResourceFailureException("event_logs down"))
-                .thenReturn(true);
-
-        job.checkBrokers();
-        assertThat(pending).hasSize(1);
-        String envelope = pending.values().iterator().next();
-
-        job.checkBrokers();
-
-        ArgumentCaptor<String> raw = ArgumentCaptor.forClass(String.class);
-        verify(recorder, times(2)).recordRaw(raw.capture(), isNull());
-        assertThat(raw.getAllValues()).containsOnly(envelope);
-        assertThat(pending).isEmpty();
-    }
-
-    @Test
     void aReachableBrokerIsCheckedOnce() {
         when(probe.reachable()).thenReturn(true);
 
@@ -164,8 +137,8 @@ class BrokerHealthJobTest {
     }
 
     private List<JsonNode> recorded() {
-        ArgumentCaptor<String> raw = ArgumentCaptor.forClass(String.class);
-        verify(recorder, atLeastOnce()).recordRaw(raw.capture(), isNull());
-        return raw.getAllValues().stream().map(mapper::readTree).toList();
+        return pending.values().stream().map(mapper::readTree)
+                .sorted(Comparator.comparingLong(event -> event.get("payload").get("healthVersion").asLong()))
+                .toList();
     }
 }

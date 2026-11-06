@@ -2,6 +2,8 @@ package com.group5.notificationservice.health;
 
 import com.group5.notificationservice.eventlog.EventLogRecorder;
 import com.group5.notificationservice.shared.config.HealthProperties;
+import net.javacrumbs.shedlock.core.DefaultLockingTaskExecutor;
+import net.javacrumbs.shedlock.core.LockProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -63,6 +65,7 @@ class BrokerHealthJobIntegrationTest {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private EventLogRecorder recorder;
     @Autowired private JsonMapper mapper;
+    @Autowired private LockProvider lockProvider;
 
     @DynamicPropertySource
     static void containers(DynamicPropertyRegistry registry) {
@@ -80,7 +83,7 @@ class BrokerHealthJobIntegrationTest {
         assertThat(redis.hasKey("job-lock:it:brokerHealthJob")).isTrue();
         assertThat(state).containsEntry("status", "DOWN").containsEntry("version", "1")
                 .containsKeys("lastCheckedAt", "lastFailureAt").doesNotContainKey("lastRecoveredAt");
-        long recorded = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        long recorded = System.nanoTime() + Duration.ofSeconds(20).toNanos();
         while (redis.hasKey("it:health:kafka:pending") && System.nanoTime() < recorded) {
             Thread.sleep(50);
         }
@@ -99,7 +102,7 @@ class BrokerHealthJobIntegrationTest {
     }
 
     @Test
-    void aTransitionWrittenWhilePostgresIsDownIsLoggedOnceOnALaterRun() {
+    void aTransitionQueuedWhilePostgresIsDownIsLoggedOnceOnALaterRound() {
         AtomicBoolean postgresDown = new AtomicBoolean(true);
         EventLogRecorder flaky = mock(EventLogRecorder.class);
         when(flaky.recordRaw(anyString(), isNull())).thenAnswer(invocation -> {
@@ -114,30 +117,79 @@ class BrokerHealthJobIntegrationTest {
         HealthStateStore store = new HealthStateStore(redis, properties);
         @SuppressWarnings("unchecked")
         HealthTransitionEvents events = new HealthTransitionEvents(mock(ObjectProvider.class), properties);
-        BrokerHealthJob job = new BrokerHealthJob(probe, store, events, flaky, mapper);
+        BrokerHealthJob job = new BrokerHealthJob(probe, store, events, mapper);
+        HealthEventWriter writer = new HealthEventWriter(store, flaky, new DefaultLockingTaskExecutor(lockProvider),
+                20, Duration.ofSeconds(10), Duration.ofSeconds(5), Duration.ofMinutes(5));
 
         when(probe.reachable()).thenReturn(false);
         job.checkBrokers();
+        writer.drain();
         assertThat(store.find(BrokerHealthJob.KAFKA)).hasValueSatisfying(health ->
                 assertThat(health.status()).isEqualTo(HealthStatus.DOWN));
         assertThat(store.pendingEvents(BrokerHealthJob.KAFKA)).hasSize(1);
         assertThat(logged("retry:kafka")).isEmpty();
 
         postgresDown.set(false);
-        job.checkBrokers();
-        job.checkBrokers();
+        writer.drain();
+        writer.drain();
         assertThat(store.pendingEvents(BrokerHealthJob.KAFKA)).isEmpty();
         assertThat(logged("retry:kafka")).containsExactly(HealthTransitionEvents.FAILED);
 
         when(probe.reachable()).thenReturn(true);
         job.checkBrokers();
         job.checkBrokers();
+        writer.drain();
         BrokerHealth recovered = store.find(BrokerHealthJob.KAFKA).orElseThrow();
         assertThat(recovered.status()).isEqualTo(HealthStatus.UP);
         assertThat(recovered.version()).isEqualTo(2);
         assertThat(recovered.lastRecoveredAt()).isAfterOrEqualTo(recovered.lastFailureAt());
         assertThat(logged("retry:kafka"))
                 .containsExactly(HealthTransitionEvents.FAILED, HealthTransitionEvents.RECOVERED);
+    }
+
+    @Test
+    void aHangingPostgresNeverDelaysTheKafkaCheck() throws InterruptedException {
+        KafkaBrokerProbe probe = mock(KafkaBrokerProbe.class);
+        HealthProperties properties = new HealthProperties(List.of("user-service"),
+                URI.create("http://127.0.0.1:1/realms/nexus"), Duration.ofSeconds(1), "hang");
+        HealthStateStore store = new HealthStateStore(redis, properties);
+        @SuppressWarnings("unchecked")
+        HealthTransitionEvents events = new HealthTransitionEvents(mock(ObjectProvider.class), properties);
+        BrokerHealthJob job = new BrokerHealthJob(probe, store, events, mapper);
+        HealthEventWriter writer = new HealthEventWriter(store, recorder, new DefaultLockingTaskExecutor(lockProvider),
+                20, Duration.ofSeconds(10), Duration.ofMillis(100), Duration.ofSeconds(1));
+        writer.afterPropertiesSet();
+        try {
+            POSTGRES.getDockerClient().pauseContainerCmd(POSTGRES.getContainerId()).exec();
+            try {
+                when(probe.reachable()).thenReturn(false);
+                job.checkBrokers();
+                Thread.sleep(500);
+
+                when(probe.reachable()).thenReturn(true);
+                long started = System.nanoTime();
+                job.checkBrokers();
+                Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
+
+                assertThat(elapsed).isLessThan(Duration.ofSeconds(1));
+                assertThat(store.find(BrokerHealthJob.KAFKA)).hasValueSatisfying(health -> {
+                    assertThat(health.status()).isEqualTo(HealthStatus.UP);
+                    assertThat(health.version()).isEqualTo(2);
+                });
+                assertThat(store.pendingEvents(BrokerHealthJob.KAFKA)).hasSize(2);
+            } finally {
+                POSTGRES.getDockerClient().unpauseContainerCmd(POSTGRES.getContainerId()).exec();
+            }
+            long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+            while (!store.pendingEvents(BrokerHealthJob.KAFKA).isEmpty() && System.nanoTime() < deadline) {
+                Thread.sleep(100);
+            }
+            assertThat(store.pendingEvents(BrokerHealthJob.KAFKA)).isEmpty();
+            assertThat(logged("hang:kafka"))
+                    .containsExactlyInAnyOrder(HealthTransitionEvents.FAILED, HealthTransitionEvents.RECOVERED);
+        } finally {
+            writer.destroy();
+        }
     }
 
     private List<String> logged(String aggregateId) {
