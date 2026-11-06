@@ -143,6 +143,15 @@ nexus:
       - method: DELETE
         path: /api/v1/carts/me/items/{id}
         privilege: CART.REMOVE_ITEM
+      - method: GET
+        path: /api/v1/carts/me/pricing
+        privilege: CART.VIEW
+      - method: POST
+        path: /api/v1/carts/me/validate
+        privilege: CART.VIEW
+      - method: POST
+        path: /api/v1/checkout/preview
+        privilege: CHECKOUT.START
       - method: POST
         path: /api/v1/orders
         privilege: ORDER.CREATE

@@ -3,6 +3,9 @@ package com.group5.commerceservice.cart.controller;
 import com.group5.commerceservice.cart.dto.request.CartItemRequest;
 import com.group5.commerceservice.cart.dto.request.UpdateCartItemRequest;
 import com.group5.commerceservice.cart.dto.response.CartResponse;
+import com.group5.commerceservice.cart.dto.response.CartPricingResponse;
+import com.group5.commerceservice.cart.dto.response.CartValidationResponse;
+import com.group5.commerceservice.cart.service.CartPricingService;
 import com.group5.commerceservice.cart.service.CartService;
 import com.group5.common_security.CurrentUser;
 import com.group5.common_core.model.ApiResponse;
@@ -22,6 +25,21 @@ import java.util.UUID;
 public class CartController {
 
     private final CartService cartService;
+    private final CartPricingService cartPricingService;
+
+    @GetMapping("/me/pricing")
+    @PreAuthorize("hasAuthority('CART.VIEW')")
+    public ApiResponse<CartPricingResponse> pricing(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @RequestParam(required = false) String promoCode) {
+        return ApiResponse.of(cartPricingService.pricing(currentUser, promoCode));
+    }
+
+    @PostMapping("/me/validate")
+    @PreAuthorize("hasAuthority('CART.VIEW')")
+    public ApiResponse<CartValidationResponse> validate(@AuthenticationPrincipal CurrentUser currentUser) {
+        return ApiResponse.of(cartPricingService.validate(currentUser));
+    }
 
     // Gateway yêu cầu CART.VIEW (primary privilege).
     // Service yêu cầu thêm CART.CREATE vì GET /me có thể tạo cart lần đầu.

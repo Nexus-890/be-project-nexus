@@ -68,6 +68,9 @@ independently, as required by ADR-006.
 | `/api/v1/orders/sales` | GET | ORDER.LIST | #190 — Seller orders; service additionally requires SELLER and JWT seller ownership |
 | `/api/v1/orders/{id}` | GET | ORDER.VIEW | #117 — Order read endpoints; the owner or ADMIN |
 | `/api/v1/orders/{id}/cancel` | POST | ORDER.CANCEL | #189 — Order cancellation; the buyer, ADMIN or SUPPORT_STAFF |
+| `/api/v1/carts/me/pricing` | GET | CART.VIEW | CRT-05 — Read-only cart pricing |
+| `/api/v1/carts/me/validate` | POST | CART.VIEW | CRT-06 — Read-only cart validation |
+| `/api/v1/checkout/preview` | POST | CHECKOUT.START | ORD-02 — Read-only checkout preview |
 | `/api/v1/webhooks/sepay` | POST | Public | #155 — payment-service; provider authentication remains downstream |
 | `/api/v1/webhooks/carriers/ghn` | POST | Public | #203 / #245 — shipment-service; owner-confirmed GHN callback |
 | `/api/v1/webhooks/carriers/ghtk` | POST | Public | #203 / #245 — shipment-service; owner-confirmed GHTK callback |
@@ -359,7 +362,12 @@ Prism cannot prove any of these runtime security properties.
   selected by #88 scope and the two requested services, not obsolete sprint labels.
   Catalogue IDs:
   CRT-01..04, ORD-01/03..06, PAY-01 and NTF-01..04.
-- Not included: standalone pricing/validation/checkout preview, guest carts,
+- The legacy #88 draft excludes standalone pricing/validation/checkout preview;
+  CRT-05, CRT-06 and ORD-02 are now delivered in `openapi/commerce-service.yaml`
+  and registered in the active policy table above. Each reads only the JWT subject's
+  active cart, including for ADMIN. Preview requires CHECKOUT.START alone;
+  pricing/validation require CART.VIEW alone, without CART.CREATE.
+- Not included in the #88 draft: guest carts,
   buyer cancellation/refunds, notification preferences or push subscriptions.
   The Sepay webhook is outside #88, not a new public path in this draft. Cart expiry,
   outbox relay and notification consumers are jobs/consumers, not HTTP endpoints.
