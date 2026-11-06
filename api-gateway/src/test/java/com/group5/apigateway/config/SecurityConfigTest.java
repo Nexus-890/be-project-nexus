@@ -144,6 +144,58 @@ class SecurityConfigTest {
     }
 
     @Test
+    void preflightFromTheFrontendIsAnsweredWithoutATokenAndAllowsCredentials() {
+        client.options().uri("/api/v1/auth/register")
+                .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "content-type,idempotency-key,x-requested-with")
+                .exchange().expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000")
+                .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true")
+                .expectHeader().value(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, v -> assertThat(v).contains("POST"));
+        assertThat(SERVICE_LOG).isEmpty();
+    }
+
+    @Test
+    void guestCartPreflightAllowsTheGuestTokenHeader() {
+        client.options().uri("/api/v1/carts/me/items/" + ID)
+                .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PUT")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "content-type,x-guest-token")
+                .exchange().expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000")
+                .expectHeader().value(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS,
+                        value -> assertThat(value.toLowerCase(java.util.Locale.ROOT)).contains("x-guest-token"));
+        assertThat(SERVICE_LOG).isEmpty();
+    }
+
+    @Test
+    void preflightFromAnotherOriginIsRefused() {
+        client.options().uri(ME)
+                .header(HttpHeaders.ORIGIN, "http://evil.example")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                .exchange().expectStatus().isForbidden()
+                .expectHeader().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN);
+        assertThat(SERVICE_LOG).isEmpty();
+    }
+
+    @Test
+    void theActualResponseCarriesTheAllowOriginHeaderAndStillNeedsTheToken() {
+        client.get().uri(ME).header(HttpHeaders.ORIGIN, "http://localhost:3000").exchange()
+                .expectStatus().isUnauthorized()
+                .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000")
+                .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true");
+    }
+
+    @Test
+    void aWildcardOriginIsRejectedAtStartupBecauseItCannotBeUsedWithCookies() {
+        SecurityConfig.GatewaySecurityProperties properties = new SecurityConfig.GatewaySecurityProperties();
+        properties.setCorsAllowedOrigins(List.of("*"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new SecurityConfig().corsConfigurationSource(properties))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("wildcard");
+    }
+
+    @Test
     void markingNotificationsRequiresBearerTokenAtTheGateway() {
         for (String path : List.of("/api/v1/notifications/" + ID + "/read", "/api/v1/notifications/read-all")) {
             client.patch().uri(path).exchange().expectStatus().isUnauthorized()
@@ -267,6 +319,29 @@ class SecurityConfigTest {
     }
 
     @Test
+    void refundsRequireOrderRefundAndABuyerTokenNeverReachesTheService() {
+        String complete = "/api/v1/refunds/" + ID + "/complete";
+        String buyer = "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of("BUYER"))
+                .claim("privileges", List.of("ORDER.VIEW", "CHECKOUT.START")));
+        client.post().uri("/api/v1/refunds").header(HttpHeaders.AUTHORIZATION, buyer)
+                .exchange().expectStatus().isForbidden();
+        client.get().uri("/api/v1/refunds?orderId=" + ID).header(HttpHeaders.AUTHORIZATION, buyer)
+                .exchange().expectStatus().isForbidden();
+        client.post().uri(complete).header(HttpHeaders.AUTHORIZATION, buyer)
+                .exchange().expectStatus().isForbidden();
+        assertThat(SERVICE_LOG).isEmpty();
+
+        String support = "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of("SUPPORT_STAFF"))
+                .claim("privileges", List.of("ORDER.REFUND")));
+        client.post().uri("/api/v1/refunds").header(HttpHeaders.AUTHORIZATION, support)
+                .exchange().expectStatus().isOk();
+        client.post().uri(complete).header(HttpHeaders.AUTHORIZATION, support)
+                .exchange().expectStatus().isOk();
+        assertThat(SERVICE_LOG).containsExactly("POST /api/v1/refunds", "POST " + complete);
+        assertThat(FORWARDED_TOKENS).containsExactly(support, support);
+    }
+
+    @Test
     void changingLastSignatureCharacterReturns401WithNoServiceLog() {
         String good = token(SIGNING_KEY, c -> c.claim("privileges", List.of("PROFILE.VIEW")));
         // RSA-2048 signatures end in two significant base64url bits; changing only
@@ -361,7 +436,13 @@ class SecurityConfigTest {
             }
             String path = concretePath(endpoint.path());
             int requests = SERVICE_LOG.size();
-            client.method(endpoint.method()).uri(path).exchange().expectStatus().isUnauthorized();
+            var anonymousResponse = client.method(endpoint.method()).uri(path).exchange();
+            if (endpoint.allowGuest()) {
+                anonymousResponse.expectStatus().isOk();
+                requests++;
+            } else {
+                anonymousResponse.expectStatus().isUnauthorized();
+            }
             assertThat(SERVICE_LOG).hasSize(requests);
             client.method(endpoint.method()).uri(path)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY, c -> { }))
@@ -412,6 +493,22 @@ class SecurityConfigTest {
         client.get().uri("/api/v1/products").header(HttpHeaders.AUTHORIZATION, "Bearer not-a-jwt")
                 .exchange().expectStatus().isUnauthorized().expectBody().jsonPath("$.code").isNotEmpty();
         assertThat(SERVICE_LOG).isEmpty();
+    }
+
+    @Test
+    void guestCartPoliciesAllowAnonymousButStillRejectInvalidBearerAndProtectMerge() {
+        for (SecurityConfig.Endpoint endpoint : permissions.endpoints()) {
+            if (!endpoint.allowGuest()) continue;
+            String path = endpoint.path().replace("{id}", ID);
+            client.method(endpoint.method()).uri(path).header("X-Guest-Token", "guest-owner")
+                    .exchange().expectStatus().isOk();
+            client.method(endpoint.method()).uri(path).header("X-Guest-Token", "guest-owner")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer invalid")
+                    .exchange().expectStatus().isUnauthorized();
+        }
+        assertThat(SERVICE_LOG).hasSize(4);
+        client.post().uri("/api/v1/carts/me/merge").header("X-Guest-Token", "guest-owner")
+                .exchange().expectStatus().isUnauthorized();
     }
 
     @Test

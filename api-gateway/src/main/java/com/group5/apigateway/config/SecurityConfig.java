@@ -6,6 +6,7 @@ import lombok.Setter;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,6 +18,9 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.codec.HttpMessageWriter;
 import org.springframework.http.codec.ServerCodecConfigurer;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.authorization.AuthorizationResult;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
@@ -36,6 +40,9 @@ import org.springframework.security.web.server.authorization.ServerAccessDeniedH
 import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
 import org.springframework.security.web.server.savedrequest.NoOpServerRequestCache;
 import org.springframework.util.Assert;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.reactive.CorsConfigurationSource;
+import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import org.springframework.web.reactive.result.view.ViewResolver;
 import org.springframework.web.server.ServerWebExchange;
@@ -64,7 +71,8 @@ public class SecurityConfig {
     SecurityWebFilterChain securityWebFilterChain(
             ServerHttpSecurity http, GatewaySecurityProperties properties,
             ServerCodecConfigurer codecs, ObjectProvider<Tracer> tracer,
-            ReactiveJwtAuthenticationConverter jwtAuthenticationConverter) {
+            ReactiveJwtAuthenticationConverter jwtAuthenticationConverter,
+            CorsConfigurationSource corsConfigurationSource) {
 
         ServerAuthenticationEntryPoint entryPoint = (exchange, exception) -> {
             exchange.getResponse().getHeaders().set(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
@@ -75,6 +83,7 @@ public class SecurityConfig {
 
         List<Endpoint> endpoints = properties.endpoints();
         return http
+                .cors(cors -> cors.configurationSource(corsConfigurationSource))
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
                 .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
@@ -89,9 +98,18 @@ public class SecurityConfig {
                                     .permitAll());
                     endpoints.stream()
                             .filter(endpoint -> !endpoint.isPublic())
-                            .forEach(endpoint -> exchanges
-                                    .pathMatchers(endpoint.method(), matcherPath(endpoint.path()))
-                                    .hasAuthority(endpoint.privilege()));
+                            .forEach(endpoint -> {
+                                var rule = exchanges.pathMatchers(endpoint.method(), matcherPath(endpoint.path()));
+                                if (endpoint.allowGuest()) {
+                                    rule.access((authentication, context) -> authentication
+                                            .<AuthorizationResult>map(auth -> new AuthorizationDecision(auth instanceof AnonymousAuthenticationToken
+                                                    || auth.isAuthenticated() && auth.getAuthorities().stream()
+                                                    .anyMatch(authority -> authority.getAuthority().equals(endpoint.privilege()))))
+                                            .defaultIfEmpty(new AuthorizationDecision(true)));
+                                } else {
+                                    rule.hasAuthority(endpoint.privilege());
+                                }
+                            });
                     exchanges.anyExchange().authenticated();
                 })
                 .oauth2ResourceServer(resourceServer -> resourceServer
@@ -102,6 +120,29 @@ public class SecurityConfig {
                         .authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(deniedHandler))
                 .build();
+    }
+
+    // preflight OPTIONS của trình duyệt không kèm token nên CORS phải chạy trước bước kiểm JWT,
+    // đặt ở đây (Spring Security) chứ không đặt trong globalcors của Gateway
+    // cookie phiên cần allowCredentials = true, mà khi đó trình duyệt cấm origin "*" nên chỉ nhận origin ghi rõ
+    @Bean
+    CorsConfigurationSource corsConfigurationSource(GatewaySecurityProperties properties) {
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        List<String> origins = properties.getCorsAllowedOrigins();
+        if (origins.isEmpty()) {
+            return source;
+        }
+        origins.forEach(origin -> Assert.isTrue(!origin.contains("*"),
+                "CORS origin must be written in full, a wildcard cannot be used with cookies: " + origin));
+        CorsConfiguration cors = new CorsConfiguration();
+        cors.setAllowedOrigins(origins);
+        cors.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        cors.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "Idempotency-Key", "X-Requested-With", "X-Guest-Token"));
+        cors.setExposedHeaders(List.of("Retry-After", "X-RateLimit-Limit", "X-RateLimit-Remaining", "Location"));
+        cors.setAllowCredentials(true);
+        cors.setMaxAge(3600L);
+        source.registerCorsConfiguration("/**", cors);
+        return source;
     }
 
     @Bean
@@ -203,6 +244,7 @@ public class SecurityConfig {
     public static class GatewaySecurityProperties {
         private List<Endpoint> publicEndpoints = new ArrayList<>();
         private List<Endpoint> protectedEndpoints = new ArrayList<>();
+        private List<String> corsAllowedOrigins = new ArrayList<>();
 
         List<Endpoint> endpoints() {
             Set<String> pairs = new HashSet<>();
@@ -223,7 +265,13 @@ public class SecurityConfig {
         }
     }
 
-    public record Endpoint(HttpMethod method, String path, String privilege) {
+    public record Endpoint(HttpMethod method, String path, String privilege, boolean allowGuest) {
+        @ConstructorBinding
+        public Endpoint { }
+
+        public Endpoint(HttpMethod method, String path, String privilege) {
+            this(method, path, privilege, false);
+        }
         boolean isPublic() {
             return privilege == null;
         }

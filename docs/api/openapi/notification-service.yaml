@@ -929,6 +929,227 @@ paths:
                     detail: "An unexpected error occurred"
                     instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/read"
                     code: "INTERNAL_ERROR"
+  /api/v1/notifications/{id}/deliveries:
+    get:
+      tags: [Notifications]
+      operationId: listNotificationDeliveries
+      summary: "List delivery attempts of one own notification"
+      description: "Requires NOTIFICATION.VIEW and ownership by the JWT subject. Returns one delivery per channel with its attempts in order. The recipient address and raw provider error text are never returned; failures expose errorCode and retryable only."
+      security:
+        - bearerAuth: []
+      x-required-privileges: [NOTIFICATION.VIEW]
+      x-required-roles: []
+      x-gateway-privilege: NOTIFICATION.VIEW
+      x-ownership: "Only notifications belonging to the JWT subject."
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+          description: Notification ID.
+      responses:
+        "200":
+          description: Deliveries of the notification; empty when no channel was used.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationDeliveryListResponse"
+        "400":
+          description: "Bad Request. Codes: INVALID_PARAMETER."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [400]}
+                      code:
+                        type: string
+                        enum: ["INVALID_PARAMETER"]
+              examples:
+                INVALID_PARAMETER:
+                  value:
+                    type: "urn:problem:invalid-parameter"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "A request parameter is invalid"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/deliveries"
+                    code: "INVALID_PARAMETER"
+        "401":
+          description: "Unauthorized. Codes: UNAUTHENTICATED, NOTIFICATION_UNAUTHENTICATED."
+          headers:
+            WWW-Authenticate:
+              schema: {type: string}
+              description: Bearer challenge for security failures.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [401]}
+                      code:
+                        type: string
+                        enum: ["UNAUTHENTICATED","NOTIFICATION_UNAUTHENTICATED"]
+              examples:
+                UNAUTHENTICATED:
+                  value:
+                    type: "urn:problem:unauthenticated"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "A valid access token is required to access this resource"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/deliveries"
+                    code: "UNAUTHENTICATED"
+                NOTIFICATION_UNAUTHENTICATED:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "Unauthenticated!"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/deliveries"
+                    code: "NOTIFICATION_UNAUTHENTICATED"
+        "403":
+          description: "Forbidden. Codes: FORBIDDEN, NOTIFICATION_NOT_OWNER."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [403]}
+                      code:
+                        type: string
+                        enum: ["FORBIDDEN","NOTIFICATION_NOT_OWNER"]
+              examples:
+                FORBIDDEN:
+                  value:
+                    type: "urn:problem:forbidden"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission to access this resource"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/deliveries"
+                    code: "FORBIDDEN"
+                NOTIFICATION_NOT_OWNER:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "Notification belongs to another user"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/deliveries"
+                    code: "NOTIFICATION_NOT_OWNER"
+        "404":
+          description: "Not Found. Codes: NOTIFICATION_NOT_FOUND."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [404]}
+                      code:
+                        type: string
+                        enum: ["NOTIFICATION_NOT_FOUND"]
+              examples:
+                NOTIFICATION_NOT_FOUND:
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Not Found"
+                    status: 404
+                    detail: "Notification not found"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/deliveries"
+                    code: "NOTIFICATION_NOT_FOUND"
+        "405":
+          description: "Method Not Allowed. Codes: METHOD_NOT_ALLOWED."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [405]}
+                      code:
+                        type: string
+                        enum: ["METHOD_NOT_ALLOWED"]
+              examples:
+                METHOD_NOT_ALLOWED:
+                  value:
+                    type: "urn:problem:method-not-allowed"
+                    title: "Method Not Allowed"
+                    status: 405
+                    detail: "The HTTP method is not supported for this endpoint"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/deliveries"
+                    code: "METHOD_NOT_ALLOWED"
+        "406":
+          description: "Not Acceptable. Codes: NOT_ACCEPTABLE."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [406]}
+                      code:
+                        type: string
+                        enum: ["NOT_ACCEPTABLE"]
+              examples:
+                NOT_ACCEPTABLE:
+                  value:
+                    type: "urn:problem:not-acceptable"
+                    title: "Not Acceptable"
+                    status: 406
+                    detail: "The requested response format is not supported"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/deliveries"
+                    code: "NOT_ACCEPTABLE"
+        "429":
+          description: "Too Many Requests. Codes: RATE_LIMITED."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [429]}
+                      code:
+                        type: string
+                        enum: ["RATE_LIMITED"]
+              examples:
+                RATE_LIMITED:
+                  value:
+                    type: "urn:problem:rate-limited"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many requests; retry after the indicated delay"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/deliveries"
+                    code: "RATE_LIMITED"
+        "500":
+          description: "Internal Server Error. Codes: INTERNAL_ERROR."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status: {type: integer, enum: [500]}
+                      code:
+                        type: string
+                        enum: ["INTERNAL_ERROR"]
+              examples:
+                INTERNAL_ERROR:
+                  value:
+                    type: "urn:problem:internal-error"
+                    title: "Internal Server Error"
+                    status: 500
+                    detail: "An unexpected error occurred"
+                    instance: "/api/v1/notifications/c8000000-0000-4000-8000-000000000005/deliveries"
+                    code: "INTERNAL_ERROR"
   /api/v1/notifications/read-all:
     patch:
       tags: [Notifications]
@@ -2612,6 +2833,42 @@ components:
               format: "int64"
               minimum: 0
       additionalProperties: false
+    NotificationDeliveryAttempt:
+      type: "object"
+      required: ["id","attemptNumber","status","attemptedAt","completedAt","errorCode","retryable"]
+      properties:
+        id: {type: "string", format: "uuid"}
+        attemptNumber: {type: "integer", minimum: 1}
+        status: {type: "string", enum: ["STARTED","SUCCEEDED","FAILED"]}
+        attemptedAt: {type: "string", format: "date-time"}
+        completedAt: {type: "string", format: "date-time", nullable: true}
+        errorCode: {type: "string", nullable: true, description: "Symbolic failure code such as SMTP_UNAVAILABLE or RECIPIENT_NOT_FOUND; null on success."}
+        retryable: {type: "boolean"}
+    NotificationDelivery:
+      type: "object"
+      required: ["id","channel","status","attemptCount","nextAttemptAt","createdAt","updatedAt","attempts"]
+      properties:
+        id: {type: "string", format: "uuid"}
+        channel: {type: "string", enum: ["EMAIL","PUSH","SMS"]}
+        status: {type: "string", enum: ["PENDING","SENT","FAILED","SKIPPED"]}
+        attemptCount: {type: "integer", minimum: 0}
+        nextAttemptAt: {type: "string", format: "date-time", nullable: true, description: "When the next send is due while PENDING; null once SENT or FAILED."}
+        createdAt: {type: "string", format: "date-time"}
+        updatedAt: {type: "string", format: "date-time"}
+        attempts:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/NotificationDeliveryAttempt"
+    NotificationDeliveryListResponse:
+      type: "object"
+      required: ["code","message","data"]
+      properties:
+        code: {type: "integer", default: 0}
+        message: {type: "string", default: "response success"}
+        data:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/NotificationDelivery"
     EventLogSummary:
       type: object
       required:

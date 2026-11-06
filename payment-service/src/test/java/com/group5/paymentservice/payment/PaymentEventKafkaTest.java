@@ -71,7 +71,7 @@ class PaymentEventKafkaTest extends PaymentDatabaseTestSupport {
         kafka.send(Topics.COMMERCE, 0, firstGroup.toString(), checkoutA).get(10, TimeUnit.SECONDS);
         kafka.send(Topics.COMMERCE, 0, secondGroup.toString(), checkoutB).get(10, TimeUnit.SECONDS);
 
-        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
+        await().atMost(Duration.ofSeconds(30)).ignoreExceptions().untilAsserted(() -> {
             assertThat(jdbc.queryForObject("SELECT status::text FROM payment_sessions WHERE order_group_id = ?",
                     String.class, firstGroup)).isEqualTo("CANCELED");
             assertThat(jdbc.queryForObject("SELECT status::text FROM payment_sessions WHERE order_group_id = ?",

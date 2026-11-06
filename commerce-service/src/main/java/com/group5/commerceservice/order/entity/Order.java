@@ -88,6 +88,9 @@ public class Order {
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
+    @Column(name = "last_refund_version", nullable = false)
+    private long lastRefundVersion;
+
     @Version
     private long version;
 

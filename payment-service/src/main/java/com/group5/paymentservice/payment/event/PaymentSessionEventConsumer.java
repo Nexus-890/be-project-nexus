@@ -4,8 +4,10 @@ import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.EventKafka;
 import com.group5.common_events.Topics;
 import com.group5.paymentservice.payment.event.payload.CheckoutPaymentRequested;
+import com.group5.paymentservice.payment.event.payload.OrderCancelled;
 import com.group5.paymentservice.payment.event.payload.OrderGroupCancelled;
 import com.group5.paymentservice.payment.service.PaymentSessionEventHandler;
+import com.group5.paymentservice.payment.service.RefundService;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
@@ -15,10 +17,12 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 public class PaymentSessionEventConsumer {
     private final PaymentSessionEventHandler handler;
+    private final RefundService refunds;
     private final JsonMapper mapper;
 
-    public PaymentSessionEventConsumer(PaymentSessionEventHandler handler, JsonMapper mapper) {
+    public PaymentSessionEventConsumer(PaymentSessionEventHandler handler, RefundService refunds, JsonMapper mapper) {
         this.handler = handler;
+        this.refunds = refunds;
         this.mapper = mapper;
     }
 
@@ -36,6 +40,7 @@ public class PaymentSessionEventConsumer {
                 requireGroupKey(record);
                 handler.cancel(typed(event, OrderGroupCancelled.class));
             }
+            case "OrderCancelled" -> refunds.cancelled(typed(event, OrderCancelled.class));
             default -> {}
         }
     }

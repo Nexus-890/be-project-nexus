@@ -33,6 +33,13 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     @Query(value = "SELECT id FROM orders WHERE order_group_id = :groupId ORDER BY id FOR UPDATE", nativeQuery = true)
     List<UUID> lockGroupOrders(UUID groupId);
 
+    @Query(value = "SELECT last_refund_version FROM orders WHERE id = :id FOR UPDATE", nativeQuery = true)
+    Optional<Long> lockRefundVersion(UUID id);
+
+    @Modifying
+    @Query(value = "UPDATE orders SET last_refund_version = :refundVersion WHERE id = :id", nativeQuery = true)
+    int recordRefundVersion(UUID id, long refundVersion);
+
     @Query("select o.id from Order o where o.orderGroup.id = :groupId and o.status = :status order by o.id")
     List<UUID> findIdsByGroupAndStatus(UUID groupId, OrderStatus status);
 
