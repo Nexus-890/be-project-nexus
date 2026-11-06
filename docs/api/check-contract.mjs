@@ -33,6 +33,9 @@ const services = {
     'src/main/java/com/group5/paymentservice/payment/controller/PaymentController.java',
     'src/main/java/com/group5/paymentservice/payment/controller/RefundController.java',
   ],
+  'inventory-service': [
+    'src/main/java/com/group5/inventoryservice/inventory/InventoryController.java',
+  ],
   'auction-service': [
     'src/main/java/com/group5/auctionservice/auction/AuctionController.java',
   ],

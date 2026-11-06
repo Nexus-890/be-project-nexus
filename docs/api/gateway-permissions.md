@@ -134,6 +134,13 @@ the #88 commerce mock is superseded; it is not a runtime payment endpoint.
 record without `USER.VIEW`, which the gateway cannot decide. Any valid token passes
 the gateway and user-service allows the caller's own id or `USER.VIEW`.
 
+Role-only endpoints have no SRS 2.7 privilege, so they have no row in the table
+above: any valid token passes the gateway and the owning service checks the role.
+
+| Method | Path | Gateway | Service rule | Owning issue |
+|---|---|---|---|---|
+| POST | `/api/v1/inventory/intake` | token only | Service requires ADMIN | #130 — Inventory balance and stock intake |
+
 ## Order management and sales (#190)
 
 Both order-list operations require `ORDER.LIST` at the gateway and service. They
