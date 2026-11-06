@@ -6,8 +6,10 @@ import org.springframework.stereotype.Repository;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Repository
 public class DeliveryRepository {
@@ -26,21 +28,26 @@ public class DeliveryRepository {
                 """, notificationId, Timestamp.from(dueAt));
     }
 
-    // KHÓA CÁC DELIVERY ĐẾN HẠN BẰNG FOR UPDATE SKIP LOCKED
-    // -> CHẠY NHIỀU INSTANCE CŨNG KHÔNG CÓ 2 WORKER GỬI CÙNG 1 EMAIL, KHÔNG CẦN SHEDLOCK
-    public List<DueDelivery> lockDueEmails(Instant now, int limit) {
+    // KHÓA DELIVERY ĐẾN HẠN BẰNG FOR UPDATE SKIP LOCKED -> 2 WORKER KHÔNG NHẬN CÙNG 1 DELIVERY CÙNG LÚC
+    // BỎ QUA CÁC DELIVERY LƯỢT NÀY ĐÃ NHẬN (excluded) -> 1 LƯỢT KHÔNG GỬI LẠI NGAY DELIVERY VỪA LỖI
+    public List<DueDelivery> lockDueEmails(Instant now, int limit, Collection<UUID> excluded) {
         return jdbc.query("""
                 SELECT d.id, d.notification_id, d.attempt_count, n.user_id, n.title, n.content
                 FROM notification_deliveries d
                 JOIN notifications n ON n.id = d.notification_id
                 WHERE d.status = 'PENDING' AND d.channel = 'EMAIL' AND d.next_attempt_at <= ?
+                  AND NOT (d.id = ANY (CAST(? AS uuid[])))
                 ORDER BY d.next_attempt_at
                 LIMIT ?
                 FOR UPDATE OF d SKIP LOCKED
                 """, (rs, i) -> new DueDelivery(rs.getObject("id", UUID.class),
                 rs.getObject("notification_id", UUID.class), rs.getInt("attempt_count"),
                 rs.getObject("user_id", UUID.class), rs.getString("title"), rs.getString("content")),
-                Timestamp.from(now), limit);
+                Timestamp.from(now), uuidArray(excluded), limit);
+    }
+
+    private static String uuidArray(Collection<UUID> ids) {
+        return ids.stream().map(UUID::toString).collect(Collectors.joining(",", "{", "}"));
     }
 
     public void markExhausted(UUID deliveryId, Instant now) {
@@ -63,6 +70,18 @@ public class DeliveryRepository {
                 VALUES (?, ?, 'STARTED', ?)
                 RETURNING id
                 """, UUID.class, deliveryId, attemptNumber, Timestamp.from(now));
+    }
+
+    public boolean ownsAttempt(UUID deliveryId, UUID attemptId, Instant now) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM notification_delivery_attempts a
+                    JOIN notification_deliveries d ON d.id = a.delivery_id
+                    WHERE a.id = ? AND d.id = ? AND a.status = 'STARTED'
+                      AND d.status = 'PENDING' AND d.next_attempt_at > ?
+                )
+                """, Boolean.class, attemptId, deliveryId, Timestamp.from(now)));
     }
 
     public List<TimedOutAttempt> closeStartedAttempts(UUID deliveryId, Instant now) {

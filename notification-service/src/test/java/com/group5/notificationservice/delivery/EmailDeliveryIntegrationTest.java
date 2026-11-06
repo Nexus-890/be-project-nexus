@@ -2,7 +2,9 @@ package com.group5.notificationservice.delivery;
 
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.Topics;
+import com.group5.notificationservice.eventlog.EventLogRepository;
 import com.group5.notificationservice.notification.DomainEventConsumer;
+import com.group5.notificationservice.shared.config.DeliveryProperties;
 import jakarta.servlet.Filter;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,10 +29,17 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -81,6 +90,10 @@ class EmailDeliveryIntegrationTest {
     @Autowired private DomainEventConsumer consumer;
     @Autowired private DeliveryRetryJob job;
     @Autowired private JavaMailSenderImpl mailSender;
+    @Autowired private DeliveryService deliveryService;
+    @Autowired private DeliveryProperties properties;
+    @Autowired private EmailSender sender;
+    @Autowired private EventLogRepository eventLogs;
     @MockitoBean private RecipientDirectory recipients;
     @MockitoBean private JwtDecoder decoder;
     private MockMvc mvc;
@@ -131,6 +144,12 @@ class EmailDeliveryIntegrationTest {
         assertThat(attempts(notificationId)).extracting(row -> row.get("status")).containsExactly("SUCCEEDED");
         assertThat(attempts(notificationId).getFirst().get("provider_message_id")).isNotNull();
         assertThat(eventTypes()).containsExactly("NotificationSent");
+        EventLogRepository.EventLogDetail detail = eventDetail("NotificationSent");
+        assertThat(detail.payload().get("deliveryId").asString()).isEqualTo(sent.get("id").toString());
+        assertThat(detail.payload().get("notificationId").asString()).isEqualTo(notificationId.toString());
+        assertThat(detail.envelope().get("eventType").asString()).isEqualTo("NotificationSent");
+        assertThat(detail.envelope().get("aggregateId").asString()).isEqualTo(sent.get("id").toString());
+        assertThat(detail.rawEnvelope()).contains("\"eventType\":\"NotificationSent\"");
         assertThat(job.runOnce()).isZero();
         assertThat(messages()).hasSize(1);
     }
@@ -154,6 +173,11 @@ class EmailDeliveryIntegrationTest {
                 .containsExactly("FAILED", "SUCCEEDED");
         assertThat(messages()).hasSize(1);
         assertThat(eventTypes()).containsExactly("NotificationFailed", "NotificationSent");
+        EventLogRepository.EventLogDetail failedEvent = eventDetail("NotificationFailed");
+        assertThat(failedEvent.payload().get("errorCode").asString()).isEqualTo("SMTP_UNAVAILABLE");
+        assertThat(failedEvent.payload().get("deliveryStatus").asString()).isEqualTo("PENDING");
+        assertThat(failedEvent.envelope().get("eventType").asString()).isEqualTo("NotificationFailed");
+        assertThat(failedEvent.rawEnvelope()).isNotNull();
     }
 
     @Test
@@ -222,6 +246,63 @@ class EmailDeliveryIntegrationTest {
         assertThat(attempts(notificationId)).extracting(row -> row.get("status")).containsExactly(
                 "FAILED", "SUCCEEDED");
         assertThat(delivery(notificationId).get("status")).isEqualTo("SENT");
+        assertThat(messages()).hasSize(1);
+    }
+
+    @Test
+    void aWorkerStillSendingAfterTheFirstLeaseWouldEndNeverSendsAnEmailTwice() {
+        for (int i = 0; i < 20; i++) {
+            receiveOrderCreated("NX-20261106-%04d".formatted(i));
+        }
+        FakeClock clock = new FakeClock(Instant.now());
+        Map<String, Integer> sends = new ConcurrentHashMap<>();
+        AtomicInteger sent = new AtomicInteger();
+        AtomicReference<DeliveryRetryJob> otherInstance = new AtomicReference<>();
+        EmailSender sevenSecondsPerEmail = new EmailSender(mailSender, properties) {
+            @Override
+            public String send(String to, String subject, String text) {
+                clock.advance(Duration.ofSeconds(7));
+                sends.merge(text, 1, Integer::sum);
+                if (sent.incrementAndGet() == 18) {
+                    otherInstance.get().runOnce();
+                }
+                return "<" + UUID.randomUUID() + "@nexus.test>";
+            }
+        };
+        DeliveryRetryJob first = new DeliveryRetryJob(deliveryService, recipients, sevenSecondsPerEmail, clock,
+                properties);
+        otherInstance.set(new DeliveryRetryJob(deliveryService, recipients, sevenSecondsPerEmail, clock, properties));
+
+        first.runOnce();
+
+        assertThat(sent).hasValue(20);
+        assertThat(sends).hasSize(20).allSatisfy((text, count) -> assertThat(count).isEqualTo(1));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_deliveries WHERE status = 'SENT'",
+                Long.class)).isEqualTo(20);
+        assertThat(jdbc.queryForList("SELECT status::text FROM notification_delivery_attempts", String.class))
+                .hasSize(20).containsOnly("SUCCEEDED");
+    }
+
+    @Test
+    void aWorkerWhoseLeaseRanOutBeforeSendingLeavesTheEmailToTheNextClaim() throws Exception {
+        UUID notificationId = receiveOrderCreated("NX-20261106-0100");
+        FakeClock clock = new FakeClock(Instant.now());
+        when(recipients.emailOf(BUYER)).thenAnswer(invocation -> {
+            clock.advance(properties.getAttemptTimeout().plusSeconds(1));
+            return BUYER_EMAIL;
+        });
+        DeliveryRetryJob slowLookup = new DeliveryRetryJob(deliveryService, recipients, sender, clock, properties);
+
+        assertThat(slowLookup.runOnce()).isEqualTo(1);
+        assertThat(messages()).isEmpty();
+        assertThat(attempts(notificationId)).extracting(row -> row.get("status")).containsExactly("STARTED");
+
+        when(recipients.emailOf(BUYER)).thenReturn(BUYER_EMAIL);
+        assertThat(slowLookup.runOnce()).isEqualTo(1);
+        assertThat(attempts(notificationId)).extracting(row -> row.get("error_code"))
+                .containsExactly("ATTEMPT_TIMED_OUT", null);
+        assertThat(attempts(notificationId)).extracting(row -> row.get("status"))
+                .containsExactly("FAILED", "SUCCEEDED");
         assertThat(messages()).hasSize(1);
     }
 
@@ -298,6 +379,12 @@ class EmailDeliveryIntegrationTest {
                 + " ORDER BY occurred_at, received_at", String.class);
     }
 
+    private EventLogRepository.EventLogDetail eventDetail(String eventType) {
+        UUID id = jdbc.queryForObject("SELECT id FROM event_logs WHERE event_type = ? ORDER BY occurred_at LIMIT 1",
+                UUID.class, eventType);
+        return eventLogs.detail(id.toString());
+    }
+
     private static List<JsonNode> messages() throws Exception {
         JsonNode body = JsonMapper.shared().readTree(mailpit("GET", "/api/v1/messages"));
         return body.get("messages").valueStream().toList();
@@ -308,6 +395,33 @@ class EmailDeliveryIntegrationTest {
                         + MAILPIT.getMappedPort(8025) + path))
                 .method(method, HttpRequest.BodyPublishers.noBody()).build();
         return HTTP.send(request, HttpResponse.BodyHandlers.ofString()).body();
+    }
+
+    private static final class FakeClock extends Clock {
+        private final AtomicReference<Instant> now;
+
+        private FakeClock(Instant start) {
+            this.now = new AtomicReference<>(start);
+        }
+
+        void advance(Duration duration) {
+            now.updateAndGet(current -> current.plus(duration));
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return now.get();
+        }
     }
 
     private static Jwt token(String value, UUID userId, List<String> privileges) {

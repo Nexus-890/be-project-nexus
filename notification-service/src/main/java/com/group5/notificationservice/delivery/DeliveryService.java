@@ -7,9 +7,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -31,23 +33,36 @@ public class DeliveryService {
         this.events = events;
     }
 
+    // NHẬN TỪNG DELIVERY MỘT, NGAY TRƯỚC KHI GỬI -> LEASE TÍNH CHO ĐÚNG 1 EMAIL, KHÔNG CHO CẢ BATCH
     // TRANSACTION NÀY CHỈ GHI ATTEMPT = STARTED RỒI COMMIT, GỬI SMTP NẰM NGOÀI TRANSACTION
     @Transactional
-    public List<Claim> claimDue(Instant now) {
-        List<Claim> claims = new ArrayList<>();
-        for (DueDelivery delivery : deliveries.lockDueEmails(now, properties.getBatchSize())) {
+    public Optional<Claim> claimNext(Instant now, Collection<UUID> alreadyClaimed) {
+        Set<UUID> skipped = new HashSet<>(alreadyClaimed);
+        for (DueDelivery delivery = nextDue(now, skipped); delivery != null; delivery = nextDue(now, skipped)) {
+            skipped.add(delivery.id());
             closeTimedOutAttempts(delivery, now);
             if (delivery.attemptCount() >= retryPolicy.limit()) {
                 deliveries.markExhausted(delivery.id(), now);
                 continue;
             }
             int attemptNumber = delivery.attemptCount() + 1;
-            UUID attemptId = deliveries.startAttempt(delivery.id(), attemptNumber,
-                    now.plus(properties.getAttemptTimeout()), now);
-            claims.add(new Claim(delivery.id(), delivery.notificationId(), attemptId, attemptNumber,
+            Instant leaseUntil = now.plus(properties.getAttemptTimeout());
+            UUID attemptId = deliveries.startAttempt(delivery.id(), attemptNumber, leaseUntil, now);
+            return Optional.of(new Claim(delivery.id(), delivery.notificationId(), attemptId, attemptNumber,
                     delivery.userId(), delivery.title(), delivery.content()));
         }
-        return claims;
+        return Optional.empty();
+    }
+
+    // CHỈ GỬI KHI ATTEMPT VẪN STARTED VÀ LEASE CHƯA HẾT. HẾT LEASE = WORKER KHÁC ĐÃ ĐƯỢC PHÉP NHẬN LẠI
+    @Transactional(readOnly = true)
+    public boolean stillOwns(Claim claim, Instant now) {
+        return deliveries.ownsAttempt(claim.deliveryId(), claim.attemptId(), now);
+    }
+
+    private DueDelivery nextDue(Instant now, Collection<UUID> skipped) {
+        List<DueDelivery> due = deliveries.lockDueEmails(now, 1, skipped);
+        return due.isEmpty() ? null : due.getFirst();
     }
 
     @Transactional

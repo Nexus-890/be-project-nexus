@@ -1,11 +1,11 @@
 package com.group5.notificationservice.delivery;
 
 import com.group5.common_events.EventEnvelope;
+import com.group5.notificationservice.eventlog.EventLogRecorder;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -13,14 +13,11 @@ import java.util.UUID;
 @Component
 public class DeliveryEventRecorder {
 
-    private final DeliveryEventLogRepository eventLogs;
-    private final JsonMapper mapper;
+    private final EventLogRecorder eventLogs;
     private final ObjectProvider<Tracer> tracer;
 
-    public DeliveryEventRecorder(DeliveryEventLogRepository eventLogs, JsonMapper mapper,
-                                 ObjectProvider<Tracer> tracer) {
+    public DeliveryEventRecorder(EventLogRecorder eventLogs, ObjectProvider<Tracer> tracer) {
         this.eventLogs = eventLogs;
-        this.mapper = mapper;
         this.tracer = tracer;
     }
 
@@ -32,12 +29,12 @@ public class DeliveryEventRecorder {
         record("NotificationFailed", payload.deliveryId(), payload.failedAt(), payload);
     }
 
-    // GHI THẲNG VÀO event_logs TRONG CÙNG TRANSACTION VỚI KẾT QUẢ GỬI, KHÔNG ĐI QUA KAFKA (TOPIC = none)
-    // KHI #192 (!121) MERGE THÌ ĐỔI CHỖ NÀY SANG EventLogRecorder.record(envelope)
+    // GHI CẢ ENVELOPE QUA RECORDER CỦA #192, CÙNG TRANSACTION VỚI KẾT QUẢ GỬI, KHÔNG ĐI QUA KAFKA (TOPIC = none)
+    // -> API DETAIL ĐỌC ĐƯỢC payload, METADATA VÀ rawEnvelope NHƯ EVENT TỪ KAFKA
     private void record(String eventType, UUID deliveryId, Instant occurredAt, Object payload) {
         EventEnvelope<Object> envelope = new EventEnvelope<>(UUID.randomUUID(), eventType, deliveryId.toString(),
                 occurredAt, traceId(), payload);
-        eventLogs.insert(envelope, mapper.writeValueAsString(envelope.payload()));
+        eventLogs.record(envelope);
     }
 
     private String traceId() {
