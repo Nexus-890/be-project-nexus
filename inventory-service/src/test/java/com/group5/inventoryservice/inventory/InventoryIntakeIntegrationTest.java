@@ -58,6 +58,7 @@ class InventoryIntakeIntegrationTest {
     private static final UUID BUYER_ID = UUID.randomUUID();
     @Autowired private WebApplicationContext context;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private InventoryMovementRepository movements;
     @MockitoBean private JwtDecoder decoder;
     private MockMvc mvc;
     private UUID defaultWarehouse;
@@ -71,6 +72,7 @@ class InventoryIntakeIntegrationTest {
 
     @BeforeEach
     void setup() {
+        jdbc.update("DELETE FROM inventory_movements");
         jdbc.update("DELETE FROM inventory_balances");
         jdbc.update("INSERT INTO warehouses (code, name) VALUES ('WH_IT', 'Intake test') ON CONFLICT (code) DO NOTHING");
         defaultWarehouse = warehouseId("WH_IT");
@@ -99,6 +101,30 @@ class InventoryIntakeIntegrationTest {
                 .containsEntry("warehouse_id", defaultWarehouse)
                 .containsEntry("created_by", ADMIN_ID).containsEntry("updated_by", ADMIN_ID);
         assertThat(defaultWarehouse).isNotEqualTo(warehouseId("WH_001"));
+    }
+
+    @Test
+    void flywayAddsIntakeAndCommitToTheMovementType() {
+        String values = jdbc.queryForObject("SELECT enum_range(NULL::inventory_movement_type)::text", String.class);
+        assertThat(values).contains("INTAKE", "COMMIT", "RESERVE", "RELEASE");
+    }
+
+    @Test
+    void eachIntakeWritesOneIntakeMovementWhoseSumMatchesTheTotal() throws Exception {
+        UUID sku = UUID.randomUUID();
+        intake("admin", body(sku, null, 100)).andExpect(status().isCreated());
+        intake("admin", body(sku, null, 50)).andExpect(status().isCreated());
+
+        UUID balanceId = (UUID) row(sku, defaultWarehouse).get("id");
+        List<InventoryMovement> ledger = movements.findBySkuIdAndWarehouseIdOrderByCreatedAtAscIdAsc(sku,
+                defaultWarehouse);
+        assertThat(ledger).extracting(InventoryMovement::getMovementType)
+                .containsExactly(MovementType.INTAKE, MovementType.INTAKE);
+        assertThat(ledger).extracting(InventoryMovement::getQuantity).containsExactly(100, 50);
+        assertThat(ledger).extracting(InventoryMovement::getReferenceId).containsOnly(balanceId);
+        assertThat(ledger).extracting(InventoryMovement::getCreatedBy).containsOnly(ADMIN_ID);
+        assertThat(ledger).allSatisfy(movement -> assertThat(movement.getCreatedAt()).isNotNull());
+        assertThat(intakeSum(sku)).isEqualTo(row(sku, defaultWarehouse).get("total_quantity"));
     }
 
     @Test
@@ -142,6 +168,8 @@ class InventoryIntakeIntegrationTest {
         assertThat(rowCount(sku)).isEqualTo(1);
         assertThat(row(sku, defaultWarehouse)).containsEntry("total_quantity", 55)
                 .containsEntry("available_quantity", 55);
+        assertThat(movementCount(sku)).isEqualTo(callers);
+        assertThat(intakeSum(sku)).isEqualTo(55);
     }
 
     @Test
@@ -157,6 +185,7 @@ class InventoryIntakeIntegrationTest {
                 .andExpect(header().string("WWW-Authenticate", "Bearer"));
 
         assertThat(rowCount(sku)).isZero();
+        assertThat(movementCount(sku)).isZero();
     }
 
     @Test
@@ -172,6 +201,8 @@ class InventoryIntakeIntegrationTest {
                     .andExpect(jsonPath("$.errors[0].field").value("quantity"));
         }
         assertThat(row(sku, defaultWarehouse)).isEqualTo(before);
+        assertThat(movementCount(sku)).isEqualTo(1);
+        assertThat(intakeSum(sku)).isEqualTo(100);
     }
 
     @Test
@@ -187,6 +218,7 @@ class InventoryIntakeIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("INVENTORY_WAREHOUSE_NOT_FOUND"));
         assertThat(rowCount(sku)).isEqualTo(1);
+        assertThat(movementCount(sku)).isEqualTo(1);
     }
 
     private ResultActions intake(String token, String body) throws Exception {
@@ -209,6 +241,17 @@ class InventoryIntakeIntegrationTest {
 
     private int rowCount(UUID sku) {
         return jdbc.queryForObject("SELECT count(*) FROM inventory_balances WHERE sku_id = ?", Integer.class, sku);
+    }
+
+    private int movementCount(UUID sku) {
+        return jdbc.queryForObject("SELECT count(*) FROM inventory_movements WHERE sku_id = ?", Integer.class, sku);
+    }
+
+    private Integer intakeSum(UUID sku) {
+        return jdbc.queryForObject("""
+                SELECT COALESCE(sum(quantity), 0)::int FROM inventory_movements
+                WHERE sku_id = ? AND movement_type = 'INTAKE'
+                """, Integer.class, sku);
     }
 
     private static Jwt token(String value, UUID userId, String role) {
