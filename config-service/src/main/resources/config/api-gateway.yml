@@ -245,6 +245,9 @@ nexus:
       - method: PATCH
         path: /api/v1/notifications/{id}/read
         privilege: NOTIFICATION.VIEW
+      - method: GET
+        path: /api/v1/notifications/{id}/deliveries
+        privilege: NOTIFICATION.VIEW
       - method: PATCH
         path: /api/v1/notifications/read-all
         privilege: NOTIFICATION.VIEW
