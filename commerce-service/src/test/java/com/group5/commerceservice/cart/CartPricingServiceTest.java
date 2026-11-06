@@ -186,6 +186,12 @@ class CartPricingServiceTest {
         assertCode(() -> service.validate(user), "COMMERCE_INVALID_CATALOG_RESPONSE");
     }
 
+    @Test void missingSellerIdentityCannotSilentlySkipMergeOwnershipChecks() {
+        when(catalog.getProductById(line.getProductId())).thenReturn(ApiResponse.of(
+                new CatalogClient.ProductResponse(line.getProductId(), null, "Product", "ACTIVE", List.of())));
+        assertCode(() -> service.mergeIssues(user), "COMMERCE_INVALID_CATALOG_RESPONSE");
+    }
+
     @Test void invalidStoredQuantityIsACommerceError() {
         line.setQuantity(0);
         assertCode(() -> service.preview(user, null), "COMMERCE_INVALID_QUANTITY");

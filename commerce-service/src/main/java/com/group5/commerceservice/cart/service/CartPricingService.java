@@ -56,7 +56,15 @@ public class CartPricingService {
                 BigDecimal.ZERO, BigDecimal.ZERO, result.subtotal(), result.issues());
     }
 
+    public List<CartIssue> mergeIssues(CurrentUser user) {
+        return calculate(user, false, true).issues();
+    }
+
     private Calculation calculate(CurrentUser user, boolean rejectEmpty) {
+        return calculate(user, rejectEmpty, false);
+    }
+
+    private Calculation calculate(CurrentUser user, boolean rejectEmpty, boolean merging) {
         if (user == null || user.id() == null) throw new DomainException(CommerceErrorCode.UNAUTHENTICATED);
         if (!properties.isPriceRevalidation()) {
             throw new DomainException(CommerceErrorCode.INVALID_PRICING_CONFIGURATION);
@@ -83,6 +91,9 @@ public class CartPricingService {
             }
             //else nếu map có productId đó rùi - lấy ra product được bth
             CatalogClient.ProductResponse product = products.get(line.getProductId());
+            if (merging && product != null && user.id().equals(product.sellerId())) {
+                issues.add(new CartIssue(line.getId(), line.getSkuId(), SELF_PURCHASE));
+            }
             //
             if (sku == null || product == null || !sku.getStatus().equals("ACTIVE")
                     || !product.status().equals("ACTIVE")) {
@@ -130,7 +141,8 @@ public class CartPricingService {
         try {
             var response = catalog.getProductById(productId);
             CatalogClient.ProductResponse product = response == null ? null : response.data();
-            if (product == null || !productId.equals(product.id()) || product.status() == null) {
+            if (product == null || !productId.equals(product.id()) || product.status() == null
+                    || product.sellerId() == null) {
                 throw new DomainException(CommerceErrorCode.INVALID_CATALOG_RESPONSE);
             }
             return product;

@@ -157,6 +157,19 @@ class SecurityConfigTest {
     }
 
     @Test
+    void guestCartPreflightAllowsTheGuestTokenHeader() {
+        client.options().uri("/api/v1/carts/me/items/" + ID)
+                .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PUT")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "content-type,x-guest-token")
+                .exchange().expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000")
+                .expectHeader().value(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS,
+                        value -> assertThat(value.toLowerCase(java.util.Locale.ROOT)).contains("x-guest-token"));
+        assertThat(SERVICE_LOG).isEmpty();
+    }
+
+    @Test
     void preflightFromAnotherOriginIsRefused() {
         client.options().uri(ME)
                 .header(HttpHeaders.ORIGIN, "http://evil.example")
@@ -423,7 +436,13 @@ class SecurityConfigTest {
             }
             String path = concretePath(endpoint.path());
             int requests = SERVICE_LOG.size();
-            client.method(endpoint.method()).uri(path).exchange().expectStatus().isUnauthorized();
+            var anonymousResponse = client.method(endpoint.method()).uri(path).exchange();
+            if (endpoint.allowGuest()) {
+                anonymousResponse.expectStatus().isOk();
+                requests++;
+            } else {
+                anonymousResponse.expectStatus().isUnauthorized();
+            }
             assertThat(SERVICE_LOG).hasSize(requests);
             client.method(endpoint.method()).uri(path)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY, c -> { }))
@@ -475,6 +494,22 @@ class SecurityConfigTest {
         client.get().uri("/api/v1/products").header(HttpHeaders.AUTHORIZATION, "Bearer not-a-jwt")
                 .exchange().expectStatus().isUnauthorized().expectBody().jsonPath("$.code").isNotEmpty();
         assertThat(SERVICE_LOG).isEmpty();
+    }
+
+    @Test
+    void guestCartPoliciesAllowAnonymousButStillRejectInvalidBearerAndProtectMerge() {
+        for (SecurityConfig.Endpoint endpoint : permissions.endpoints()) {
+            if (!endpoint.allowGuest()) continue;
+            String path = endpoint.path().replace("{id}", ID);
+            client.method(endpoint.method()).uri(path).header("X-Guest-Token", "guest-owner")
+                    .exchange().expectStatus().isOk();
+            client.method(endpoint.method()).uri(path).header("X-Guest-Token", "guest-owner")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer invalid")
+                    .exchange().expectStatus().isUnauthorized();
+        }
+        assertThat(SERVICE_LOG).hasSize(4);
+        client.post().uri("/api/v1/carts/me/merge").header("X-Guest-Token", "guest-owner")
+                .exchange().expectStatus().isUnauthorized();
     }
 
     @Test

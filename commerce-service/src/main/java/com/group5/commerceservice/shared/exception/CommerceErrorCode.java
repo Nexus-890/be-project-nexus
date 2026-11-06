@@ -4,6 +4,11 @@ import com.group5.common_core.constant.ErrorCode;
 import org.springframework.http.HttpStatus;
 
 public enum CommerceErrorCode implements ErrorCode {
+    GUEST_CART_DISABLED(HttpStatus.FORBIDDEN, "Guest carts are disabled"),
+    CART_MERGE_DISABLED(HttpStatus.FORBIDDEN, "Guest cart merge is disabled"),
+    GUEST_CART_NOT_FOUND(HttpStatus.NOT_FOUND, "Guest cart not found or no longer active"),
+    CART_NOT_FOUND(HttpStatus.NOT_FOUND, "Cart or cart item not found"),
+    INVALID_GUEST_CONFIGURATION(HttpStatus.INTERNAL_SERVER_ERROR, "Guest cart token signing is not configured correctly"),
     INVALID_QUANTITY(HttpStatus.BAD_REQUEST, "Quantity is invalid"),
     SKU_NOT_FOUND(HttpStatus.NOT_FOUND, "SKU not found"),
     DB_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Database error"),

@@ -1,6 +1,8 @@
 package com.group5.inventoryservice;
 
 import com.group5.common_security.CurrentUser;
+import com.group5.inventoryservice.inventory.InventoryBalanceRepository;
+import com.group5.inventoryservice.inventory.WarehouseRepository;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.RSASSASigner;
@@ -20,6 +22,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -57,6 +60,8 @@ class KeycloakTokenTrustTest {
     private static final RSAKey LEGACY_KEY = key();
     private static final HttpServer JWKS = jwks();
     @Autowired private WebApplicationContext context;
+    @MockitoBean private InventoryBalanceRepository balances;
+    @MockitoBean private WarehouseRepository warehouses;
     private MockMvc client;
 
     @DynamicPropertySource

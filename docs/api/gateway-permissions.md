@@ -24,6 +24,28 @@ still rejected. Listed SRS 2.7 privileges must appear verbatim in the JWT
 Downstream services validate JWTs again and enforce ownership/business rules
 independently, as required by ADR-006.
 
+Guest cart #112 adds `POST /api/v1/carts/guest` as public. The four existing
+cart read/item policies have `allow-guest: true`: anonymous requests pass to
+commerce-service, which checks `ALLOW_GUEST_CART`, the signed `X-Guest-Token`,
+ownership and inactivity expiry. Authenticated requests still require the table's
+exact privilege at the gateway and service; invalid bearer tokens never fall
+back to guest access. GET `/carts/me` additionally requires `CART.CREATE` for
+authenticated callers. Pricing, validation, checkout and merge remain protected.
+POST `/carts/me/merge` requires `CART.UPDATE` and downstream BUYER role.
+
+Set `ALLOW_GUEST_CART=true` and `CART_GUEST_TOKEN_SECRET` (Base64 of at least
+32 random bytes, identical across commerce instances) to enable guests.
+`CART_MERGE_ON_LOGIN` defaults true; when false merge returns
+`COMMERCE_CART_MERGE_DISABLED`. After the Keycloak callback the frontend submits
+the stored token as `{guestToken}` and clears it only after successful merge
+or a definitive 404. A catalog 502/503 rolls back the merge and leaves it retryable.
+Merge is atomic and one-use, caps duplicate quantities at 999 with
+`QUANTITY_CAPPED`, and retains invalid catalog/self-purchase lines in `data.issues`.
+Ordinary cart responses include an empty issues array; #188 validation can be
+used to refresh catalog findings. A cart does not reserve stock or clamp quantities
+to available inventory. `OUT_OF_STOCK` awaits actual inventory integration;
+neither merge nor the existing inventory stub proves stock availability.
+
 | Path | Method | Public or required privilege | Owning issue                                            |
 |---|---|---|---------------------------------------------------------|
 | `/api/v1/auth/register` | POST | Public | #74 — User registration with a default role             |
@@ -53,6 +75,8 @@ independently, as required by ADR-006.
 | `/api/v1/products/{id}/images/order` | PUT | PRODUCT.UPDATE | #123 — Reorder images; service requires SELLER and product ownership |
 | `/api/v1/skus/{id}` | PUT | PRODUCT.UPDATE | #86 — SKU create, update and read                       |
 | `/api/v1/carts/me` | GET | CART.VIEW | #110 — Cart: get-or-create and add item                 |
+| `/api/v1/carts/guest` | POST | Public | #112 — Guest owner cart creation |
+| `/api/v1/carts/me/merge` | POST | CART.UPDATE | #112 — One-use guest merge; service also requires BUYER |
 | `/api/v1/carts/me/items` | POST | CART.UPDATE | #110 — Cart: get-or-create and add item                 |
 | `/api/v1/carts/me/items/{id}` | PUT | CART.UPDATE | #111 — Cart: update and remove item                     |
 | `/api/v1/carts/me/items/{id}` | DELETE | CART.REMOVE_ITEM | #111 — Cart: update and remove item                     |
@@ -60,6 +84,7 @@ independently, as required by ADR-006.
 | `/api/v1/notifications/unread-count` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
 | `/api/v1/notifications/{id}/read` | PATCH | NOTIFICATION.VIEW | #109 — Mark own notification as read |
 | `/api/v1/notifications/read-all` | PATCH | NOTIFICATION.VIEW | #109 — Mark all own notifications as read |
+| `/api/v1/notifications/{id}/deliveries` | GET | NOTIFICATION.VIEW | #191 — Email channel and notification delivery retry |
 | `/api/v1/orders` | POST | ORDER.CREATE | #113 — Order creation from a cart; service also requires CHECKOUT.START |
 | `/api/v1/payments` | POST | CHECKOUT.START | #121 — Buyer reads own order group's immutable payment session |
 | `/api/v1/orders/{id}/history` | GET | ORDER.VIEW | #116 — Order state machine and status history |
@@ -111,6 +136,13 @@ the #88 commerce mock is superseded; it is not a runtime payment endpoint.
 `GET /api/v1/users/{id}` (#76) has no row on purpose: a caller may read their own
 record without `USER.VIEW`, which the gateway cannot decide. Any valid token passes
 the gateway and user-service allows the caller's own id or `USER.VIEW`.
+
+Role-only endpoints have no SRS 2.7 privilege, so they have no row in the table
+above: any valid token passes the gateway and the owning service checks the role.
+
+| Method | Path | Gateway | Service rule | Owning issue |
+|---|---|---|---|---|
+| POST | `/api/v1/inventory/intake` | token only | Service requires ADMIN | #130 — Inventory balance and stock intake |
 
 ## Order management and sales (#190)
 
