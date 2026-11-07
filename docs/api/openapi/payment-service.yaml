@@ -1,12 +1,15 @@
 openapi: 3.0.3
 info:
-  title: Nexus payment initiation
+  title: Nexus payments, refunds and SePay webhooks
   version: 1.0.0
   description: >-
-    Issue #121 bank-transfer VietQR initiation. HTTP 201 returns an ApiResponse with
+    Bank-transfer VietQR initiation, manual refunds and authenticated SePay callbacks.
+    Payment initiation returns HTTP 201 with an ApiResponse containing
     code, message and data containing a numeric whole-VND amount, including repeated reads.
     CheckoutPaymentRequested creates the immutable session and seller instructions;
-    the HTTP endpoint never creates a transaction, memo or replacement session.
+    the initiation endpoint never creates a transaction, memo or replacement session.
+    The SePay callback verifies the original bytes and matches a session without
+    changing payment or order state; its protocol acknowledgement is not wrapped.
 servers:
   - url: http://localhost:8080
     description: API gateway
@@ -17,7 +20,120 @@ tags:
     description: Read payment instructions for an existing order-group session
   - name: Refunds
     description: Refunds of cancelled, paid seller orders, completed by a manual transfer
+  - name: Webhooks
+    description: Provider-authenticated bank-transfer callbacks
 paths:
+  /api/v1/webhooks/sepay:
+    post:
+      tags: [Webhooks]
+      operationId: receiveSepayWebhook
+      summary: Verify a SePay callback and match its payment session
+      description: >-
+        Public at the gateway and payment service; no bearer token is required.
+        Before parsing JSON or querying payment_db, verifies HMAC-SHA256 over the
+        ASCII timestamp, one dot byte and the original request body bytes. Missing,
+        malformed, stale or invalid signature/timestamp headers return 401. The
+        absolute timestamp skew must be at most 300 seconds. A nonempty normalized
+        code takes precedence over content, even if that code has no matching
+        session. Otherwise content is normalized and looked up exactly first; only
+        if that fails is one configured leading bank prefix (for example SEVQR)
+        removed for another exact lookup. Normalization trims, uppercases using
+        Locale.ROOT and removes Unicode whitespace. The remaining memo must be
+        1-32 uppercase ASCII letters/digits for an exact payment_sessions.memo_code
+        lookup. There is no arbitrary substring matching. Missing, invalid or
+        unknown memos are accepted with one WARN naming the normalized memo.
+        A valid parsed object returns 200 whether matched or unmatched. This
+        operation does not check amount, account, transfer direction, session state
+        or deadline, create transactions, change orders or emit events. The native
+        SePay acknowledgement is exempt from ApiResponse using @ProtocolResponse.
+      security: []
+      parameters:
+        - in: header
+          name: X-SePay-Signature
+          required: false
+          description: >-
+            Required for authentication; omission is handled as 401 rather than
+            request binding failure. HMAC-SHA256 digest of the timestamp and exact
+            raw body, using the server-configured webhook secret.
+          schema:
+            type: string
+            pattern: '^sha256=[0-9a-f]{64}$'
+        - in: header
+          name: X-SePay-Timestamp
+          required: false
+          description: >-
+            Required for authentication; omission is handled as 401. Original Unix
+            seconds used as the signed prefix, within 300 seconds of the server clock.
+          schema:
+            type: string
+            pattern: '^[0-9]{1,19}$'
+      requestBody:
+        required: false
+        description: >-
+          SePay sends JSON. The controller reads original bytes before JSON parsing;
+          an absent body fails signature verification with 401. Unknown object
+          properties are ignored, and no provider field is required by this matching
+          stage. A signed body that cannot be parsed into this object returns 400.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SepayWebhookRequest'
+            example:
+              id: 100001
+              gateway: ACB
+              transactionDate: '2026-11-05 17:00:00'
+              accountNumber: '0000000002'
+              code: ' nx20261105001 '
+              content: SEVQR NX20261105001
+              transferType: in
+              transferAmount: 350000
+              accumulated: 350000
+              subAccount: null
+              referenceCode: SYNTHETIC-TEST-100001
+              description: Synthetic example; not the immutable captured delivery
+      responses:
+        '200':
+          description: >-
+            Verified, parsed callback accepted, including an unmatched memo. Native
+            SePay protocol response, without code/message/data or session information.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SepayWebhookAcknowledgement'
+              example:
+                success: true
+        '400':
+          description: >-
+            Signature verified, but the JSON is malformed, null, not an object or
+            contains a value incompatible with the DTO (PAYMENT_INVALID_WEBHOOK_REQUEST).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Bad Request
+                status: 400
+                detail: The webhook body must be a valid SePay JSON object
+                instance: /api/v1/webhooks/sepay
+                code: PAYMENT_INVALID_WEBHOOK_REQUEST
+        '401':
+          description: >-
+            Missing body/headers, malformed signature or timestamp, expired timestamp,
+            or a signature mismatch (PAYMENT_UNAUTHENTICATED). No parsing, lookup or
+            business change occurs. If an invalid bearer token is supplied despite
+            this public route, shared security can reject it with UNAUTHENTICATED.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Unauthorized
+                status: 401
+                detail: The webhook signature is invalid
+                instance: /api/v1/webhooks/sepay
+                code: PAYMENT_UNAUTHENTICATED
   /api/v1/payments:
     post:
       tags: [Payments]
@@ -272,6 +388,64 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    SepayWebhookRequest:
+      type: object
+      additionalProperties: true
+      description: >-
+        Provider wire object. Fields are optional and nullable at this stage;
+        amount, timestamp text and direction are not business-validated here.
+        Unknown fields are ignored. A missing memo produces an accepted no-match.
+      properties:
+        id:
+          type: integer
+          format: int64
+          nullable: true
+        gateway:
+          type: string
+          nullable: true
+        transactionDate:
+          type: string
+          nullable: true
+          description: Provider timestamp text, preserved without date-format validation
+        accountNumber:
+          type: string
+          nullable: true
+          description: Receiving account text; preserve leading zeros
+        code:
+          type: string
+          nullable: true
+          description: Provider-extracted memo; takes precedence when nonempty after normalization
+        content:
+          type: string
+          nullable: true
+          description: Fallback memo source; exact normalized lookup precedes a retry with one configured leading prefix removed
+        transferType:
+          type: string
+          nullable: true
+          description: Provider transfer direction; not restricted to an enum at this stage
+        transferAmount:
+          type: number
+          nullable: true
+        accumulated:
+          type: number
+          nullable: true
+        subAccount:
+          type: string
+          nullable: true
+        referenceCode:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+    SepayWebhookAcknowledgement:
+      type: object
+      required: [success]
+      additionalProperties: false
+      properties:
+        success:
+          type: boolean
+          enum: [true]
     PaymentInitApiResponse:
       type: object
       required: [code, message, data]
@@ -421,7 +595,7 @@ components:
               type: integer
     Problem:
       type: object
-      required: [type, title, status, detail]
+      required: [type, title, status, detail, instance, code]
       properties:
         type:
           type: string
@@ -430,6 +604,8 @@ components:
         status:
           type: integer
         detail:
+          type: string
+        instance:
           type: string
         code:
           type: string

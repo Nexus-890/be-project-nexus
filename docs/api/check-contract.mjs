@@ -33,6 +33,7 @@ const services = {
   'payment-service': [
     'src/main/java/com/group5/paymentservice/payment/controller/PaymentController.java',
     'src/main/java/com/group5/paymentservice/payment/controller/RefundController.java',
+    'src/main/java/com/group5/paymentservice/payment/controller/SepayWebhookController.java',
   ],
   'inventory-service': [
     'src/main/java/com/group5/inventoryservice/inventory/InventoryController.java',
