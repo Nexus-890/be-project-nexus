@@ -220,3 +220,34 @@ This verifies the **new 310-byte provider capture**, using
 `SEPAY_CAPTURE_BODY_PATH`. The old 305-byte repository fixture and its hash are
 unchanged; its original signing inputs were not recovered or reverified. No
 staging deployment or Live bank transfer was required for this acceptance.
+
+## Develop integration verification — 2026-11-08
+
+Integrated `origin/develop` at `2100394` into the #155 branch. The merge retained
+the new payment-initiation `transferContent`/`serverNow` fields and the system
+health APIs alongside the webhook, with no source conflicts.
+
+On JDK 21, full payment-service `clean verify` passed **187 tests, 0 failures,
+0 errors, 0 skipped**, including all three real provider-capture tests. Migrations
+and Hibernate `ddl-auto: validate` ran against a new isolated PostgreSQL 18.6
+database. Gateway `verify` passed **75/75** and config-service `verify` passed
+**5/5**. The merged contract inventory passed with **64 operations** and payment
+OpenAPI passed Redocly 2.63.0 lint.
+
+The rebuilt gateway and payment-service applications also passed all five smoke
+cases for a matched memo and all five for an unmatched memo on separate local
+ports. A request without Authorization and with an altered signature returned
+service 401 `PAYMENT_UNAUTHENTICATED`. Fingerprints of all five payment tables
+were unchanged; the unmatched request produced exactly one WARN and the matched
+request produced none. Signature, secret and full-body markers were absent from
+application logs. Both temporary application processes were stopped afterward.
+
+The first payment verification attempt reused the earlier test database and
+encountered 12 refund-test idempotency conflicts because those tests retain fixed
+keys between runs. Repeating the full suite against a newly created empty test
+database passed without production or test-code changes. For a full external-DB
+run, use a fresh dedicated database rather than one containing previous suite
+data. Testcontainers normally provides this isolation automatically.
+
+Integration logs are retained outside Git at
+`D:/KyOJT/.artifacts/issue155-integration-20261108/`.

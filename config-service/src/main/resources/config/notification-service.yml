@@ -9,6 +9,13 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      connect-timeout: 300ms
+      timeout: 300ms
   mail:
     host: ${MAIL_HOST:localhost}
     port: ${MAILPIT_SMTP_PORT:1025}
@@ -16,6 +23,11 @@ spring:
       mail.smtp.connectiontimeout: 5000
       mail.smtp.timeout: 5000
       mail.smtp.writetimeout: 5000
+
+management:
+  health:
+    redis:
+      enabled: false
 
 nexus:
   event-log:
@@ -51,6 +63,21 @@ nexus:
   outbox:
     relay:
       enabled: false
+  health:
+    services:
+      - user-service
+      - catalog-service
+      - commerce-service
+      - auction-service
+      - inventory-service
+      - payment-service
+      - shipment-service
+      - rating-service
+      - notification-service
+    keycloak-realm-url: ${KEYCLOAK_REALM_URL:http://localhost:18080/realms/nexus}
+    timeout: 2s
+    environment: ${NEXUS_ENVIRONMENT:local}
+    broker-interval: PT15S
 
 springdoc:
   api-docs:

@@ -24,6 +24,7 @@ class SepayPaymentProviderTest {
         var request = request("350000.00", "VND", "NX20261105001");
         var result = provider.initiate(request);
         assertThat(result.bankAccount()).isEqualTo("0000000002");
+        assertThat(result.transferContent()).isEqualTo("NX20261105001");
         assertThat(result.qrImageUrl()).isEqualTo(
                 "https://vietqr.app/img?acc=0000000002&bank=970416"
                         + "&amount=350000&des=NX20261105001&template=compact"
@@ -38,6 +39,7 @@ class SepayPaymentProviderTest {
         var request = request("350000.00", "VND", "NX20261105001");
         var result = vietinbank.initiate(request);
 
+        assertThat(result.transferContent()).isEqualTo("SEVQR NX20261105001");
         assertThat(result.qrImageUrl()).isEqualTo(
                 "https://vietqr.app/img?acc=0123456789&bank=970415"
                         + "&amount=350000&des=SEVQR%20NX20261105001&template=compact"
