@@ -1,6 +1,7 @@
 package com.group5.notificationservice.health;
 
 import com.group5.common_events.EventEnvelope;
+import com.group5.notificationservice.shared.config.SchedulingConfig;
 import lombok.RequiredArgsConstructor;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -25,7 +26,8 @@ public class BrokerHealthJob {
     private final JsonMapper mapper;
 
     // CHỈ PROBE VÀ GHI REDIS (TIMEOUT 300ms). VIỆC GHI event_logs DO HealthEventWriter LÀM TRÊN THREAD RIÊNG
-    @Scheduled(fixedDelayString = "${nexus.health.broker-interval:PT15S}")
+    @Scheduled(fixedDelayString = "${nexus.health.broker-interval:PT15S}",
+            scheduler = SchedulingConfig.HEALTH_SCHEDULER)
     @SchedulerLock(name = "brokerHealthJob", lockAtMostFor = "PT1M", lockAtLeastFor = "PT5S")
     public void checkBrokers() {
         HealthStatus observed = probe.reachable() || probe.reachable() ? HealthStatus.UP : HealthStatus.DOWN;

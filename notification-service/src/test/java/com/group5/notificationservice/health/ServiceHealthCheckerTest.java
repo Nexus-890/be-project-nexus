@@ -11,7 +11,11 @@ import org.springframework.cloud.client.ServiceInstance;
 import org.springframework.cloud.client.discovery.DiscoveryClient;
 
 import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -20,8 +24,10 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
+import static java.nio.charset.StandardCharsets.US_ASCII;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -34,6 +40,8 @@ class ServiceHealthCheckerTest {
 
     private final List<HttpServer> servers = new ArrayList<>();
     private final List<ServiceHealthChecker> checkers = new ArrayList<>();
+    private final List<ServerSocket> drippers = new ArrayList<>();
+    private final AtomicInteger openDrips = new AtomicInteger();
     private final CountDownLatch release = new CountDownLatch(1);
     private DiscoveryClient discoveryClient;
 
@@ -47,6 +55,13 @@ class ServiceHealthCheckerTest {
         release.countDown();
         checkers.forEach(ServiceHealthChecker::destroy);
         servers.forEach(server -> server.stop(0));
+        drippers.forEach(socket -> {
+            try {
+                socket.close();
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+        });
     }
 
     @Test
@@ -135,6 +150,18 @@ class ServiceHealthCheckerTest {
         assertThat(elapsed).isLessThan(WITHIN_DEADLINE);
     }
 
+    @Test
+    void probesStillRunningAtTheDeadlineAreCancelledInsteadOfPilingUp() throws Exception {
+        register("catalog-service", dripping());
+        ServiceHealthChecker checker = checker(serve(200), "catalog-service");
+
+        for (int round = 1; round <= 3; round++) {
+            assertThat(checker.checkAll()).first()
+                    .isEqualTo(new ServiceHealthResponse("catalog-service", HealthStatus.DOWN));
+            assertThat(openDripsAfter(Duration.ofSeconds(2))).as("probes still open after round %d", round).isZero();
+        }
+    }
+
     private ServiceHealthChecker checker(URI keycloak, String... services) {
         HealthProperties properties = new HealthProperties(List.of(services), keycloak.resolve("/realms/nexus"),
                 TIMEOUT, "test");
@@ -177,5 +204,47 @@ class ServiceHealthCheckerTest {
         server.start();
         servers.add(server);
         return URI.create("http://127.0.0.1:" + server.getAddress().getPort());
+    }
+
+    // TRẢ HEADER 200 NGAY RỒI NHỎ GIỌT BODY 1 BYTE / 50ms -> READ TIMEOUT TỪNG LẦN ĐỌC KHÔNG BAO GIỜ HẾT
+    private URI dripping() throws IOException {
+        ServerSocket server = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
+        drippers.add(server);
+        Thread.ofVirtual().start(() -> {
+            while (!server.isClosed()) {
+                try {
+                    Socket socket = server.accept();
+                    openDrips.incrementAndGet();
+                    Thread.ofVirtual().start(() -> drip(socket));
+                } catch (IOException e) {
+                    return;
+                }
+            }
+        });
+        return URI.create("http://127.0.0.1:" + server.getLocalPort());
+    }
+
+    private void drip(Socket socket) {
+        try (socket; OutputStream out = socket.getOutputStream()) {
+            out.write("HTTP/1.1 200 OK\r\nContent-Length: 1000000\r\n\r\n".getBytes(US_ASCII));
+            out.flush();
+            while (true) {
+                out.write('x');
+                out.flush();
+                Thread.sleep(50);
+            }
+        } catch (IOException e) {
+            openDrips.decrementAndGet();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private int openDripsAfter(Duration wait) throws InterruptedException {
+        long until = System.nanoTime() + wait.toNanos();
+        while (openDrips.get() > 0 && System.nanoTime() < until) {
+            Thread.sleep(50);
+        }
+        return openDrips.get();
     }
 }

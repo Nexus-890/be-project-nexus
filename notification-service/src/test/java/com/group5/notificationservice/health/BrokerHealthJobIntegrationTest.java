@@ -93,7 +93,7 @@ class BrokerHealthJobIntegrationTest {
                        payload->'payload'->>'healthVersion' AS version, source_topic
                 FROM event_logs WHERE aggregate_id = 'it:kafka'
                 """)).singleElement().satisfies(row -> {
-            assertThat(row.get("event_type")).isEqualTo(HealthTransitionEvents.FAILED);
+            assertThat(row.get("event_type")).isEqualTo(HealthTransitionEvents.UNAVAILABLE);
             assertThat(row.get("previous")).isEqualTo("UNKNOWN");
             assertThat(row.get("version")).isEqualTo("1");
             assertThat(row.get("source_topic")).isNull();
@@ -133,7 +133,7 @@ class BrokerHealthJobIntegrationTest {
         writer.drain();
         writer.drain();
         assertThat(store.pendingEvents(BrokerHealthJob.KAFKA)).isEmpty();
-        assertThat(logged("retry:kafka")).containsExactly(HealthTransitionEvents.FAILED);
+        assertThat(logged("retry:kafka")).containsExactly(HealthTransitionEvents.UNAVAILABLE);
 
         when(probe.reachable()).thenReturn(true);
         job.checkBrokers();
@@ -144,7 +144,7 @@ class BrokerHealthJobIntegrationTest {
         assertThat(recovered.version()).isEqualTo(2);
         assertThat(recovered.lastRecoveredAt()).isAfterOrEqualTo(recovered.lastFailureAt());
         assertThat(logged("retry:kafka"))
-                .containsExactly(HealthTransitionEvents.FAILED, HealthTransitionEvents.RECOVERED);
+                .containsExactly(HealthTransitionEvents.UNAVAILABLE, HealthTransitionEvents.RECOVERED);
     }
 
     @Test
@@ -186,7 +186,7 @@ class BrokerHealthJobIntegrationTest {
             }
             assertThat(store.pendingEvents(BrokerHealthJob.KAFKA)).isEmpty();
             assertThat(logged("hang:kafka"))
-                    .containsExactlyInAnyOrder(HealthTransitionEvents.FAILED, HealthTransitionEvents.RECOVERED);
+                    .containsExactlyInAnyOrder(HealthTransitionEvents.UNAVAILABLE, HealthTransitionEvents.RECOVERED);
         } finally {
             writer.destroy();
         }

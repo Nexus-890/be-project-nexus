@@ -6,8 +6,8 @@ import com.group5.notificationservice.health.HealthStatus;
 import java.time.Instant;
 
 @JsonInclude(JsonInclude.Include.ALWAYS)
-public record SystemHealthCheckFailed(
-        String serviceName,
+public record MessageBrokerUnavailable(
+        String brokerName,
         String environment,
         HealthStatus previousStatus,
         HealthStatus status,

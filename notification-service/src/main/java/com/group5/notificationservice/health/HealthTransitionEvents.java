@@ -1,8 +1,8 @@
 package com.group5.notificationservice.health;
 
 import com.group5.common_events.EventEnvelope;
-import com.group5.notificationservice.health.event.SystemHealthCheckFailed;
-import com.group5.notificationservice.health.event.SystemHealthCheckRecovered;
+import com.group5.notificationservice.health.event.MessageBrokerUnavailable;
+import com.group5.notificationservice.health.event.MessageBrokerRecovered;
 import com.group5.notificationservice.shared.config.HealthProperties;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
@@ -15,8 +15,8 @@ import java.util.UUID;
 @Component
 public class HealthTransitionEvents {
 
-    public static final String FAILED = "SystemHealthCheckFailed";
-    public static final String RECOVERED = "SystemHealthCheckRecovered";
+    public static final String UNAVAILABLE = "MessageBrokerUnavailable";
+    public static final String RECOVERED = "MessageBrokerRecovered";
     public static final String BROKER_UNREACHABLE = "BROKER_UNREACHABLE";
 
     private final ObjectProvider<Tracer> tracer;
@@ -34,12 +34,12 @@ public class HealthTransitionEvents {
             return Optional.empty();
         }
         if (current.status() == HealthStatus.DOWN) {
-            return Optional.of(envelope(FAILED, current, new SystemHealthCheckFailed(current.name(), environment,
-                    previous.status(), current.status(), current.version(), current.lastCheckedAt(),
+            return Optional.of(envelope(UNAVAILABLE, current, new MessageBrokerUnavailable(current.name(),
+                    environment, previous.status(), current.status(), current.version(), current.lastCheckedAt(),
                     current.lastFailureAt(), current.lastRecoveredAt(), BROKER_UNREACHABLE)));
         }
         if (current.status() == HealthStatus.UP && previous.status() == HealthStatus.DOWN) {
-            return Optional.of(envelope(RECOVERED, current, new SystemHealthCheckRecovered(current.name(), environment,
+            return Optional.of(envelope(RECOVERED, current, new MessageBrokerRecovered(current.name(), environment,
                     previous.status(), current.status(), current.version(), current.lastCheckedAt(),
                     current.lastFailureAt(), current.lastRecoveredAt())));
         }

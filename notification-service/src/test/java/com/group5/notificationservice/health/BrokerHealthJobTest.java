@@ -78,10 +78,11 @@ class BrokerHealthJobTest {
         assertThat(stored.status()).isEqualTo(HealthStatus.DOWN);
         assertThat(stored.lastFailureAt()).isNotNull();
         JsonNode event = recorded().getFirst();
-        assertThat(event.get("eventType").asText()).isEqualTo(HealthTransitionEvents.FAILED);
+        assertThat(event.get("eventType").asText()).isEqualTo(HealthTransitionEvents.UNAVAILABLE);
         assertThat(event.get("aggregateId").asText()).isEqualTo("test:kafka");
         JsonNode payload = event.get("payload");
-        assertThat(payload.get("serviceName").asText()).isEqualTo("kafka");
+        assertThat(payload.get("brokerName").asText()).isEqualTo("kafka");
+        assertThat(payload.has("serviceName")).isFalse();
         assertThat(payload.get("environment").asText()).isEqualTo("test");
         assertThat(payload.get("previousStatus").asText()).isEqualTo("UNKNOWN");
         assertThat(payload.get("status").asText()).isEqualTo("DOWN");
@@ -116,7 +117,7 @@ class BrokerHealthJobTest {
 
         List<JsonNode> events = recorded();
         assertThat(events).extracting(event -> event.get("eventType").asText())
-                .containsExactly(HealthTransitionEvents.FAILED, HealthTransitionEvents.RECOVERED);
+                .containsExactly(HealthTransitionEvents.UNAVAILABLE, HealthTransitionEvents.RECOVERED);
         JsonNode recovered = events.get(1).get("payload");
         assertThat(recovered.get("previousStatus").asText()).isEqualTo("DOWN");
         assertThat(recovered.get("status").asText()).isEqualTo("UP");
