@@ -1,0 +1,35 @@
+diff --git a/be-project-nexus/auction-service/src/main/java/com/group5/auctionservice/auction/AuctionRepository.java b/be-project-nexus/auction-service/src/main/java/com/group5/auctionservice/auction/AuctionRepository.java
+index 3076492..34c4034 100644
+--- a/be-project-nexus/auction-service/src/main/java/com/group5/auctionservice/auction/AuctionRepository.java
++++ b/be-project-nexus/auction-service/src/main/java/com/group5/auctionservice/auction/AuctionRepository.java
+@@ -12,16 +12,26 @@ import java.util.UUID;
+
+ public interface AuctionRepository extends JpaRepository<Auction, UUID> {
+
++    // Deliberately unsafe mutation for #148 red proof only.
++    default int acceptBid(UUID id, UUID bidderId, BigDecimal amount) {
++        Auction snapshot = findAvailableById(id).orElse(null);
++        if (snapshot == null || snapshot.getStatus() != Auction.Status.ACTIVE
++                || snapshot.getSellerId().equals(bidderId)
++                || snapshot.getCurrentPrice().add(snapshot.getBidIncrement()).compareTo(amount) > 0) {
++            return 0;
++        }
++        return overwriteBid(id, bidderId, amount, snapshot.getBidCount() + 1);
++    }
++
+     @Modifying(clearAutomatically = true)
+     @Query(value = """
+             UPDATE auctions
+             SET current_price = :amount, leader_bidder_id = :bidderId,
+-                bid_count = bid_count + 1, version = version + 1,
++                bid_count = :nextCount, version = version + 1,
+                 updated_at = now(), updated_by = :bidderId
+-            WHERE id = :id AND status = 'ACTIVE' AND deleted_at IS NULL
+-                AND seller_id <> :bidderId AND current_price + bid_increment <= :amount
++            WHERE id = :id
+             """, nativeQuery = true)
+-    int acceptBid(UUID id, UUID bidderId, BigDecimal amount);
++    int overwriteBid(UUID id, UUID bidderId, BigDecimal amount, int nextCount);
+
+     @Query(value = "SELECT * FROM auctions WHERE id = :id AND deleted_at IS NULL", nativeQuery = true)
+     Optional<Auction> findAvailableById(UUID id);

@@ -1,0 +1,26 @@
+Actual local restored green result, 2026-11-07 Asia/Saigon
+Base: #146 commit 486367f, PostgreSQL 18-alpine, Java 21.
+Command: ./mvnw -B -Duser.timezone=UTC clean verify (from auction-service)
+Unchanged BidConcurrencyIT.java SHA256: AD40E16E393E7EEE474534CA39057AD652D09CF898EFD16C4CC344E4EE51EFE1
+Production AuctionRepository restored before this clean build.
+
+Actual Maven output:
+[INFO] Tests run: 17, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 35.95 s -- in com.group5.auctionservice.auction.AuctionReadIntegrationTest
+[INFO] Tests run: 19, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 13.89 s -- in com.group5.auctionservice.KeycloakTokenTrustTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 4.164 s -- in com.group5.auctionservice.contract.AuctionApiArchitectureTest
+[INFO] Tests run: 37, Failures: 0, Errors: 0, Skipped: 0
+BID_CONCURRENCY run=1 requests=50 bidders=10 accepted=3 rejected=47 highest=1500000.00 invariants=PASS
+BID_CONCURRENCY run=2 requests=50 bidders=10 accepted=2 rejected=48 highest=1500000.00 invariants=PASS
+BID_CONCURRENCY run=3 requests=50 bidders=10 accepted=3 rejected=47 highest=1500000.00 invariants=PASS
+BID_CONCURRENCY run=4 requests=50 bidders=10 accepted=4 rejected=46 highest=1500000.00 invariants=PASS
+BID_CONCURRENCY run=5 requests=50 bidders=10 accepted=3 rejected=47 highest=1500000.00 invariants=PASS
+BID_CONCURRENCY run=6 requests=50 bidders=10 accepted=5 rejected=45 highest=1500000.00 invariants=PASS
+BID_CONCURRENCY run=7 requests=50 bidders=10 accepted=3 rejected=47 highest=1500000.00 invariants=PASS
+BID_CONCURRENCY run=8 requests=50 bidders=10 accepted=2 rejected=48 highest=1500000.00 invariants=PASS
+BID_CONCURRENCY run=9 requests=50 bidders=10 accepted=3 rejected=47 highest=1500000.00 invariants=PASS
+BID_CONCURRENCY run=10 requests=50 bidders=10 accepted=3 rejected=47 highest=1500000.00 invariants=PASS
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 43.09 s -- in com.group5.auctionservice.bidding.BidConcurrencyIT
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
+[INFO] Total time:  02:03 min
+[INFO] Finished at: 2026-11-07T06:55:55Z
