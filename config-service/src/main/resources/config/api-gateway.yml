@@ -267,6 +267,9 @@ nexus:
       - method: POST
         path: /api/v1/auctions
         privilege: AUCTION.CREATE
+      - method: POST
+        path: /api/v1/auctions/{id}/bids
+        privilege: AUCTION.BID
       - method: GET
         path: /api/v1/event-logs
         privilege: EVENT_LOG.VIEW

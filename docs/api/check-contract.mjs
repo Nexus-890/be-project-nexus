@@ -39,6 +39,7 @@ const services = {
   ],
   'auction-service': [
     'src/main/java/com/group5/auctionservice/auction/AuctionController.java',
+    'src/main/java/com/group5/auctionservice/bidding/BidController.java',
   ],
 };
 const normalize = (route) => route.replace(/\{[^}]+\}/g, '{}');

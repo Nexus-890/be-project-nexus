@@ -1,6 +1,8 @@
 package com.group5.auctionservice;
 
 import com.group5.auctionservice.auction.AuctionRepository;
+import com.group5.auctionservice.bidding.BidRepository;
+import com.group5.common_outbox.OutboxWriter;
 import com.group5.common_security.CurrentUser;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -57,7 +59,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "management.tracing.export.zipkin.enabled=false",
         "spring.autoconfigure.exclude=org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration,"
                 + "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration,"
-                + "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration",
+                + "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration,"
+                + "com.group5.common_outbox.autoconfigure.IdempotentConsumerAutoConfiguration",
         "nexus.security.jwt.issuer=http://localhost:18080/realms/nexus",
         "nexus.security.jwt.audience=nexus-services",
         "nexus.auction.default-bid-increment=27.50"
@@ -72,6 +75,8 @@ class KeycloakTokenTrustTest {
     private static final HttpServer JWKS = jwks();
     @Autowired private WebApplicationContext context;
     @MockitoBean private AuctionRepository auctions;
+    @MockitoBean private BidRepository bids;
+    @MockitoBean private OutboxWriter outbox;
     @MockitoBean private Clock clock;
     private MockMvc client;
 
