@@ -122,6 +122,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/reputations/{userId}/adjustments` | POST | USER.REPUTATION.ADJUST | #213 — rating-service; reason and score bounds checked downstream |
 | `/api/v1/reputations/{userId}/history` | GET | USER.REPUTATION.VIEW | #213 — rating-service |
 | `/api/v1/auctions` | POST | AUCTION.CREATE | #140 — Create as SELLER; `sellerId` comes from the JWT subject |
+| `/api/v1/auctions/{id}/schedule` | POST | AUCTION.UPDATE | #144 — Owner with SELLER role publishes a CREATED auction |
 | `/api/v1/auctions` | GET | Public | #143 — PUBLIC, non-deleted auctions; status defaults to ACTIVE, endAt ascending |
 | `/api/v1/auctions/{id}` | GET | Public | #143 — PUBLIC, non-deleted auction; hidden and missing rows return 404 |
 | `/api/v1/event-logs` | GET | EVENT_LOG.VIEW | #192 — Event log consumer and audit log |
@@ -579,7 +580,7 @@ A path with several roles in `x-required-roles` accepts any one of them.
 |---|---|---|---|---|---|---|
 | POST | `/api/v1/auctions` | ADMIN, SELLER | AUCTION.CREATE | AUCTION.CREATE | Seller of the product; ADMIN on behalf of a seller | #140, #141, #142 |
 | PUT | `/api/v1/auctions/{id}` | ADMIN, SELLER | AUCTION.UPDATE | AUCTION.UPDATE | Owner of the auction; frozen once it has started | #197 |
-| POST | `/api/v1/auctions/{id}/schedule` | ADMIN, SELLER | AUCTION.UPDATE | AUCTION.UPDATE | Owner of the auction; only from CREATED | #144 |
+| POST | `/api/v1/auctions/{id}/schedule` | SELLER | AUCTION.UPDATE | AUCTION.UPDATE | Owner of the auction; only from CREATED | #144 |
 | GET | `/api/v1/auctions/{id}` | public | public | none (public) |  | #143 |
 | GET | `/api/v1/auctions` | public | public | none (public) |  | #143 |
 | GET | `/api/v1/auctions/{id}/state` | public | public | none (public) |  | #168 |

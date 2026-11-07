@@ -578,7 +578,6 @@ paths:
       x-catalogue-id: AUC-03
       x-owning-issue: '#144'
       x-actor-roles:
-      - ADMIN
       - SELLER
       x-gateway-privilege: AUCTION.UPDATE
       x-required-privileges:
@@ -621,11 +620,6 @@ paths:
                   originalEndAt: '2026-11-06T10:00:00Z'
                   extensionCount: 0
                   status: SCHEDULED
-                  finalPrice: null
-                  paymentDueAt: null
-                  orderId: null
-                  cancelledBy: null
-                  cancelledReason: null
         '401':
           description: 'Unauthorized. Codes: `UNAUTHENTICATED`.'
           content:
@@ -667,7 +661,7 @@ paths:
                     type: urn:problem:domain-error
                     title: Forbidden
                     status: 403
-                    detail: Only the owner can do this
+                    detail: This actor cannot perform the auction action
                     instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/schedule
                     code: AUCTION_FORBIDDEN
         '404':
