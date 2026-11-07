@@ -54,7 +54,9 @@ class PaymentSessionEventsTest extends PaymentDatabaseTestSupport {
         assertThat(response.bankAccount()).isEqualTo("0000000002");
         assertThat(response.qrImageUrl()).startsWith("https://vietqr.app/img?")
                 .contains("amount=350000&des=" + response.memoCode());
-        assertThat(payments.initiate(buyer(manifest), manifest.orderGroupId())).isEqualTo(response);
+        var repeated = payments.initiate(buyer(manifest), manifest.orderGroupId());
+        assertThat(repeated).usingRecursiveComparison().ignoringFields("serverNow").isEqualTo(response);
+        assertThat(repeated.serverNow()).isAfterOrEqualTo(response.serverNow());
         listener.receive(record(firstEvent));
         handler.checkout(checkout(manifest)); // Another envelope ID for the same business request.
         var reordered = new CheckoutPaymentRequested(manifest.orderGroupId(), manifest.buyerId(), "VND",

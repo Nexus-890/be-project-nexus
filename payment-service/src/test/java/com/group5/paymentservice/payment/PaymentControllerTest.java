@@ -79,13 +79,15 @@ class PaymentControllerTest {
     @Autowired private WebApplicationContext context;
     @Autowired private PaymentSessionRepository sessions;
     @Autowired private PaymentInstructionRepository instructions;
+    @Autowired private Clock clock;
     private MockMvc mvc;
     private PaymentSession session;
     private List<PaymentInstruction> plan;
 
     @BeforeEach
     void setUp() {
-        reset(sessions, instructions);
+        reset(sessions, instructions, clock);
+        when(clock.instant()).thenReturn(NOW);
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
         session = new PaymentSession();
@@ -117,7 +119,9 @@ class PaymentControllerTest {
                 .andExpect(jsonPath("$.data.amount").value(350000))
                 .andExpect(jsonPath("$.data.bankAccount").value("0000000002"))
                 .andExpect(jsonPath("$.data.memoCode").value("NX20261105001"))
+                .andExpect(jsonPath("$.data.transferContent").value("SEVQR NX20261105001"))
                 .andExpect(jsonPath("$.data.expiresAt").value("2026-11-05T10:15:00Z"))
+                .andExpect(jsonPath("$.data.serverNow").value("2026-11-05T10:00:00Z"))
                 .andExpect(jsonPath("$.data.qrImageUrl").value(org.hamcrest.Matchers.containsString(
                         "amount=350000&des=SEVQR%20NX20261105001")))
                 .andReturn().getResponse().getContentAsString();
@@ -128,6 +132,25 @@ class PaymentControllerTest {
         verify(instructions, times(2)).findBySessionIdOrderByOrderId(session.getId());
         verifyNoMoreInteractions(sessions, instructions);
         assertThat(session.getStatus()).isEqualTo(PaymentSessionStatus.PENDING);
+    }
+
+    @Test
+    void repeatedReadRefreshesServerTimeWithoutExtendingDeadlineOrReplacingMemo() throws Exception {
+        String first = call("buyer", request()).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.serverNow").value("2026-11-05T10:00:00Z"))
+                .andReturn().getResponse().getContentAsString();
+        when(clock.instant()).thenReturn(NOW.plusSeconds(120));
+        String second = call("buyer", request()).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.serverNow").value("2026-11-05T10:02:00Z"))
+                .andExpect(jsonPath("$.data.memoCode").value("NX20261105001"))
+                .andExpect(jsonPath("$.data.transferContent").value("SEVQR NX20261105001"))
+                .andExpect(jsonPath("$.data.expiresAt").value("2026-11-05T10:15:00Z"))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(second.replace("2026-11-05T10:02:00Z", "2026-11-05T10:00:00Z"))
+                .isEqualTo(first);
+        verify(sessions, times(2)).findByOrderGroupId(GROUP);
+        verify(instructions, times(2)).findBySessionIdOrderByOrderId(session.getId());
+        verifyNoMoreInteractions(sessions, instructions);
     }
 
     @Test
@@ -231,7 +254,7 @@ class PaymentControllerTest {
     static class TestApplication {
         @Bean PaymentSessionRepository sessions() { return mock(PaymentSessionRepository.class); }
         @Bean PaymentInstructionRepository instructions() { return mock(PaymentInstructionRepository.class); }
-        @Bean Clock clock() { return Clock.fixed(NOW, ZoneOffset.UTC); }
+        @Bean Clock clock() { return mock(Clock.class); }
         @Bean JwtDecoder jwtDecoder() {
             return token -> {
                 if ("invalid".equals(token)) throw new BadJwtException("Invalid test token");
