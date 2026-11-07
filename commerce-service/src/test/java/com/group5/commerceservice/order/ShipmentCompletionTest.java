@@ -1,0 +1,458 @@
+package com.group5.commerceservice.order;
+
+import com.group5.commerceservice.order.entity.Order;
+import com.group5.commerceservice.order.event.OrderCompleted;
+import com.group5.commerceservice.order.event.OrderEventPublisher;
+import com.group5.commerceservice.order.repository.OrderRepository;
+import com.group5.commerceservice.order.service.OrderStateMachine;
+import com.group5.common_events.EventEnvelope;
+import com.group5.common_events.EventEnvelopeFactory;
+import com.group5.common_events.Topics;
+import com.group5.common_outbox.IdempotentConsumer;
+import com.group5.common_outbox.OutboxWriter;
+import com.group5.common_security.CurrentUserAuditor;
+import com.group5.common_security.CurrentUser;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.TraceContext;
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.AuditorAware;
+import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.orm.jpa.JpaTransactionManager;
+import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
+import org.springframework.orm.jpa.SharedEntityManagerCreator;
+import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
+import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+import javax.sql.DataSource;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.when;
+
+@SpringJUnitConfig(ShipmentCompletionTest.JpaConfig.class)
+class ShipmentCompletionTest {
+    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final AtomicInteger ORDER_NUMBERS = new AtomicInteger();
+    private static final UUID SYSTEM = new UUID(0, 0);
+
+    static { POSTGRES.start(); }
+
+    @Autowired private ShipmentEventConsumer listener;
+    @Autowired private OrderEventPublisher publisher;
+    @Autowired private DataSource dataSource;
+    @Autowired private OrderReceiptService receipts;
+    @Autowired private PendingShipmentEvents pending;
+    @Autowired private ShipmentRetryJob retries;
+    @Autowired private PlatformTransactionManager transactions;
+    @Autowired private ShipmentStatusHandler handler;
+    @Autowired private Tracer tracer;
+
+    @BeforeEach
+    void resetPublisher() {
+        reset(publisher);
+        jdbc().update("DELETE FROM pending_order_shipment_events");
+    }
+
+    @Test
+    void handPublishedPickupAndDeliveryCompleteTheOrderAndPublishThePersistedSnapshot() {
+        Fixture order = order(OrderStatus.PAID, OrderType.STANDARD);
+        send(event(order, "ShipmentPickedUp"));
+        assertThat(status(order)).isEqualTo("SHIPPED");
+        assertThat(history(order)).containsExactly("PAID -> SHIPPED");
+        assertThat(outboxCount(order)).isZero();
+
+        send(event(order, "ShipmentDelivered"));
+
+        assertThat(status(order)).isEqualTo("COMPLETED");
+        assertThat(history(order)).containsExactly("PAID -> SHIPPED", "SHIPPED -> DELIVERED", "DELIVERED -> COMPLETED");
+        assertThat(outboxCount(order)).isEqualTo(1);
+        JsonNode envelope = completion(order);
+        JsonNode payload = envelope.get("payload");
+        assertThat(envelope.get("eventType").asString()).isEqualTo("OrderCompleted");
+        assertThat(envelope.get("aggregateId").asString()).isEqualTo(order.id().toString());
+        assertThat(payload.get("orderId").asString()).isEqualTo(order.id().toString());
+        assertThat(payload.get("orderGroupId").asString()).isEqualTo(order.groupId().toString());
+        assertThat(payload.get("buyerId").asString()).isEqualTo(order.buyerId().toString());
+        assertThat(payload.get("sellerId").asString()).isEqualTo(order.sellerId().toString());
+        assertThat(payload.get("orderType").asString()).isEqualTo("STANDARD");
+        assertThat(payload.get("referenceId").isNull()).isTrue();
+        assertThat(payload.get("orderNumber").asString()).isEqualTo(order.number());
+        assertThat(payload.get("orderVersion").asLong()).isEqualTo(3)
+                .isEqualTo(jdbc().queryForObject("SELECT version FROM orders WHERE id = ?", Long.class, order.id()));
+        Instant storedCompletion = jdbc().queryForObject("""
+                SELECT created_at FROM order_status_history WHERE order_id = ? AND new_status = 'COMPLETED'
+                """, (rs, row) -> rs.getObject(1, OffsetDateTime.class).toInstant(), order.id());
+        assertThat(Instant.parse(payload.get("completedAt").asString())).isEqualTo(storedCompletion);
+        assertThat(payload.get("receiptHtml").asString()).contains(order.number(), "Snapshot phone", "SKU-RECEIPT");
+        assertThat(receipts.invoice(new CurrentUser(order.buyerId(), Set.of("BUYER"), Set.of("ORDER.VIEW")), order.id()))
+                .isEqualTo(payload.get("receiptHtml").asString());
+        assertThat(jdbc().queryForList("SELECT DISTINCT changed_by FROM order_status_history WHERE order_id = ?",
+                UUID.class, order.id())).containsExactly(SYSTEM);
+        assertThat(jdbc().queryForObject("SELECT topic FROM outbox WHERE aggregate_id = ?", String.class,
+                order.id().toString())).isEqualTo(Topics.COMMERCE);
+    }
+
+    @Test
+    void theSamePickupAndDeliveryAreAppliedOnlyOnce() {
+        Fixture order = order(OrderStatus.PAID, OrderType.STANDARD);
+        var pickup = event(order, "ShipmentPickedUp");
+        var delivery = event(order, "ShipmentDelivered");
+        send(pickup);
+        send(pickup);
+        send(delivery);
+        send(delivery);
+
+        assertThat(history(order)).hasSize(3);
+        assertThat(outboxCount(order)).isEqualTo(1);
+        assertThat(processed(pickup.eventId())).isEqualTo(1);
+        assertThat(processed(delivery.eventId())).isEqualTo(1);
+    }
+
+    @Test
+    void differentDeliveryEnvelopeIdsRacingForOneOrderPublishOnlyOneCompletion() throws Exception {
+        Fixture order = order(OrderStatus.SHIPPED, OrderType.STANDARD);
+        var first = event(order, "ShipmentDelivered");
+        var second = new EventEnvelope<>(UUID.randomUUID(), first.eventType(), first.aggregateId(),
+                first.occurredAt(), first.traceId(), first.payload());
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var futures = List.of(first, second).stream().map(event -> pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Missing start signal");
+                send(event);
+                return true;
+            })).toList();
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            for (var future : futures) assertThat(future.get(20, TimeUnit.SECONDS)).isTrue();
+        }
+
+        assertThat(status(order)).isEqualTo("COMPLETED");
+        assertThat(history(order)).containsExactly("SHIPPED -> DELIVERED", "DELIVERED -> COMPLETED");
+        assertThat(outboxCount(order)).isEqualTo(1);
+        assertThat(processed(first.eventId())).isEqualTo(1);
+        assertThat(processed(second.eventId())).isEqualTo(1);
+    }
+
+    @Test
+    void deliveryBeforePickupIsDurablyParkedAndARecreatedJobCompletesItWithoutKafkaResending() {
+        Fixture order = order(OrderStatus.PAID, OrderType.STANDARD);
+        var delivery = event(order, "ShipmentDelivered");
+        send(delivery);
+        send(delivery);
+        assertThat(status(order)).isEqualTo("PAID");
+        assertThat(history(order)).isEmpty();
+        assertThat(processed(delivery.eventId())).isEqualTo(1);
+        assertThat(pendingCount()).isEqualTo(1);
+        assertThat(retries.runOnce()).isZero();
+        send(event(order, "ShipmentPickedUp"));
+        assertThat(tracer.currentSpan()).isNull();
+        ShipmentRetryJob restarted = new ShipmentRetryJob(pending, handler, transactions, tracer);
+        assertThat(restarted.runOnce()).isEqualTo(1);
+        assertThat(status(order)).isEqualTo("COMPLETED");
+        assertThat(outboxCount(order)).isEqualTo(1);
+        assertThat(pendingCount()).isZero();
+        assertThat(tracer.currentSpan()).isNull();
+        assertThat(completion(order).get("traceId").asString()).hasSize(32);
+        assertThat(restarted.runOnce()).isZero();
+    }
+
+    @Test
+    void failureAfterWritingTheOutboxRollsBackBothTransitionsHistoryAndClaim() {
+        Fixture order = order(OrderStatus.SHIPPED, OrderType.STANDARD);
+        var delivery = event(order, "ShipmentDelivered");
+        doAnswer(invocation -> {
+            invocation.callRealMethod();
+            throw new IllegalStateException("Fail after completion outbox insert");
+        }).when(publisher).orderCompleted(any(OrderCompleted.class));
+
+        assertThatThrownBy(() -> send(delivery)).isInstanceOf(IllegalStateException.class)
+                .hasMessage("Fail after completion outbox insert");
+
+        assertThat(status(order)).isEqualTo("SHIPPED");
+        assertThat(history(order)).isEmpty();
+        assertThat(outboxCount(order)).isZero();
+        assertThat(processed(delivery.eventId())).isZero();
+        reset(publisher);
+        send(delivery);
+        assertThat(status(order)).isEqualTo("COMPLETED");
+        assertThat(outboxCount(order)).isEqualTo(1);
+    }
+
+    @Test
+    void pendingOrdersKeepPickupDurableUntilThePaymentArrives() {
+        Fixture order = order(OrderStatus.PENDING, OrderType.STANDARD);
+        var pickup = event(order, "ShipmentPickedUp");
+        send(pickup);
+        assertThat(status(order)).isEqualTo("PENDING");
+        assertThat(history(order)).isEmpty();
+        assertThat(processed(pickup.eventId())).isEqualTo(1);
+        assertThat(pendingCount()).isEqualTo(1);
+        assertThat(retries.runOnce()).isZero();
+        jdbc().update("UPDATE orders SET status = 'PAID' WHERE id = ?", order.id());
+        assertThat(retries.runOnce()).isEqualTo(1);
+        assertThat(status(order)).isEqualTo("SHIPPED");
+        assertThat(pendingCount()).isZero();
+    }
+
+    @Test
+    void aFailedPendingCompletionKeepsItsInboxRowAndRollsBackHistoryAndOutbox() {
+        Fixture order = order(OrderStatus.PAID, OrderType.STANDARD);
+        var delivery = event(order, "ShipmentDelivered");
+        send(delivery);
+        send(event(order, "ShipmentPickedUp"));
+        doAnswer(invocation -> {
+            invocation.callRealMethod();
+            throw new IllegalStateException("Failure after pending completion outbox insert");
+        }).when(publisher).orderCompleted(any(OrderCompleted.class));
+
+        assertThat(retries.runOnce()).isZero();
+        assertThat(status(order)).isEqualTo("SHIPPED");
+        assertThat(history(order)).containsExactly("PAID -> SHIPPED");
+        assertThat(outboxCount(order)).isZero();
+        assertThat(pendingCount()).isEqualTo(1);
+        reset(publisher);
+        assertThat(retries.runOnce()).isEqualTo(1);
+        assertThat(status(order)).isEqualTo("COMPLETED");
+        assertThat(outboxCount(order)).isEqualTo(1);
+        assertThat(pendingCount()).isZero();
+    }
+
+    @Test
+    void moreThanOneHundredWaitingEventsDoNotStarveAReadyCompletion() {
+        Fixture waiting = order(OrderStatus.PAID, OrderType.STANDARD);
+        jdbc().update("""
+                INSERT INTO pending_order_shipment_events (event_id, envelope)
+                SELECT id, jsonb_set(?::jsonb, '{eventId}', to_jsonb(id::text))
+                FROM (SELECT uuidv7() AS id FROM generate_series(1,101)) waiting
+                """, JsonMapper.shared().writeValueAsString(event(waiting, "ShipmentDelivered")));
+        Fixture ready = order(OrderStatus.PAID, OrderType.STANDARD);
+        send(event(ready, "ShipmentDelivered"));
+        send(event(ready, "ShipmentPickedUp"));
+
+        assertThat(retries.runOnce()).isEqualTo(1);
+        assertThat(status(ready)).isEqualTo("COMPLETED");
+        assertThat(status(waiting)).isEqualTo("PAID");
+        assertThat(pendingCount()).isEqualTo(101);
+    }
+
+    @Test
+    void latePickupAndDeliveryCannotReverseCompletedOrCanceledOrders() {
+        for (OrderStatus initial : List.of(OrderStatus.COMPLETED, OrderStatus.CANCELED, OrderStatus.REFUNDED)) {
+            Fixture order = order(initial, OrderType.STANDARD);
+            send(event(order, "ShipmentPickedUp"));
+            send(event(order, "ShipmentDelivered"));
+            assertThat(status(order)).isEqualTo(initial.name());
+            assertThat(history(order)).isEmpty();
+            assertThat(outboxCount(order)).isZero();
+        }
+    }
+
+    @Test
+    void auctionCompletionPreservesTheCanonicalAuctionReference() {
+        Fixture order = order(OrderStatus.SHIPPED, OrderType.AUCTION);
+        send(event(order, "ShipmentDelivered"));
+        JsonNode payload = completion(order).get("payload");
+        assertThat(payload.get("orderType").asString()).isEqualTo("AUCTION");
+        assertThat(payload.get("referenceId").asString()).isEqualTo(order.referenceId().toString());
+    }
+
+    @Test
+    void aShipmentForAnotherBuyerRollsBackWithoutChangingTheOrder() {
+        Fixture order = order(OrderStatus.PAID, OrderType.STANDARD);
+        var valid = event(order, "ShipmentPickedUp");
+        ShipmentStatusChanged p = valid.payload();
+        var otherBuyer = new ShipmentStatusChanged(p.shipmentId(), p.orderId(), UUID.randomUUID(), p.warehouseId(),
+                p.carrier(), p.trackingCode(), p.status(), p.historyId(), p.shipmentVersion(), p.source(),
+                p.carrierEventId(), p.actorId(), p.changedAt(), p.reason());
+        var invalid = new EventEnvelope<>(valid.eventId(), valid.eventType(), valid.aggregateId(), valid.occurredAt(),
+                valid.traceId(), otherBuyer);
+
+        assertThatThrownBy(() -> send(invalid)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(status(order)).isEqualTo("PAID");
+        assertThat(history(order)).isEmpty();
+        assertThat(processed(invalid.eventId())).isZero();
+    }
+
+    private void send(EventEnvelope<ShipmentStatusChanged> event) {
+        Span span = tracer.nextSpan().name("shipment-listener-test").start();
+        try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
+            listener.receive(new ConsumerRecord<>(Topics.SHIPMENT, 0, 0, event.payload().orderId().toString(),
+                    new EventEnvelope<>(event.eventId(), event.eventType(), event.aggregateId(), event.occurredAt(),
+                            event.traceId(), JsonMapper.shared().valueToTree(event.payload()))));
+        } finally {
+            span.end();
+        }
+    }
+
+    private static EventEnvelope<ShipmentStatusChanged> event(Fixture order, String type) {
+        boolean delivered = "ShipmentDelivered".equals(type);
+        var payload = new ShipmentStatusChanged(order.shipmentId(), order.id(), order.buyerId(), UUID.randomUUID(),
+                "GHN", "GHN-204", delivered ? "DELIVERED" : "SHIPPED", UUID.randomUUID(), delivered ? 2L : 1L,
+                "CARRIER_WEBHOOK", "GHN:" + UUID.randomUUID(), SYSTEM, "2026-11-07T12:00:00Z", null);
+        return new EventEnvelope<>(UUID.randomUUID(), type, payload.shipmentId().toString(), Instant.now(),
+                "204shipment", payload);
+    }
+
+    private Fixture order(OrderStatus status, OrderType type) {
+        UUID buyer = UUID.randomUUID();
+        UUID seller = UUID.randomUUID();
+        UUID group = jdbc().queryForObject("""
+                INSERT INTO order_groups (buyer_id, idempotency_key, total_amount, due_at)
+                VALUES (?, ?, 300000.00, now() + interval '15 minutes') RETURNING id
+                """, UUID.class, buyer, UUID.randomUUID().toString());
+        String number = "NX-SHIP-%08d".formatted(ORDER_NUMBERS.incrementAndGet());
+        UUID reference = type == OrderType.AUCTION ? UUID.randomUUID() : null;
+        UUID id = jdbc().queryForObject("""
+                INSERT INTO orders (order_group_id, user_id, seller_id, order_number, order_type, reference_id, status,
+                                    subtotal, total_amount, idempotency_key)
+                VALUES (?, ?, ?, ?, CAST(? AS order_type), ?, CAST(? AS order_status), 300000.00, 300000.00, ?)
+                RETURNING id
+                """, UUID.class, group, buyer, seller, number, type.name(), reference, status.name(), UUID.randomUUID().toString());
+        jdbc().update("""
+                INSERT INTO order_items (order_id, product_id, sku_id, product_name, sku_code, quantity, unit_price, total_price)
+                VALUES (?, ?, ?, 'Snapshot phone', 'SKU-RECEIPT', 2, 150000.00, 300000.00)
+                """, id, UUID.randomUUID(), UUID.randomUUID());
+        return new Fixture(id, group, buyer, seller, number, UUID.randomUUID(), reference);
+    }
+
+    private String status(Fixture order) {
+        return jdbc().queryForObject("SELECT status::text FROM orders WHERE id = ?", String.class, order.id());
+    }
+
+    private List<String> history(Fixture order) {
+        return jdbc().queryForList("""
+                SELECT previous_status::text || ' -> ' || new_status::text
+                FROM order_status_history WHERE order_id = ? ORDER BY created_at, id
+                """, String.class, order.id());
+    }
+
+    private long processed(UUID eventId) {
+        return jdbc().queryForObject("SELECT count(*) FROM processed_events WHERE event_id = ? AND consumer = ?",
+                Long.class, eventId, ShipmentStatusHandler.CONSUMER);
+    }
+
+    private long outboxCount(Fixture order) {
+        return jdbc().queryForObject("SELECT count(*) FROM outbox WHERE aggregate_id = ? AND event_type = 'OrderCompleted'",
+                Long.class, order.id().toString());
+    }
+
+    private long pendingCount() {
+        return jdbc().queryForObject("SELECT count(*) FROM pending_order_shipment_events", Long.class);
+    }
+
+    private JsonNode completion(Fixture order) {
+        return JsonMapper.shared().readTree(jdbc().queryForObject("SELECT payload::text FROM outbox WHERE aggregate_id = ?",
+                String.class, order.id().toString()));
+    }
+
+    private JdbcTemplate jdbc() { return new JdbcTemplate(dataSource); }
+
+    private record Fixture(UUID id, UUID groupId, UUID buyerId, UUID sellerId, String number, UUID shipmentId,
+                           UUID referenceId) { }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableTransactionManagement
+    @EnableJpaRepositories(basePackageClasses = OrderRepository.class)
+    @EnableJpaAuditing(auditorAwareRef = "auditor")
+    @Import({OrderStateMachine.class, ShipmentStatusHandler.class, ShipmentEventConsumer.class,
+            OrderReceiptRenderer.class, OrderReceiptService.class, PendingShipmentEvents.class, ShipmentRetryJob.class})
+    static class JpaConfig {
+        @Bean AuditorAware<UUID> auditor() { return new CurrentUserAuditor(); }
+        @Bean JsonMapper jsonMapper() { return JsonMapper.shared(); }
+        @Bean Validator validator() { return Validation.buildDefaultValidatorFactory().getValidator(); }
+        @Bean JdbcTemplate jdbcTemplate(DataSource source) { return new JdbcTemplate(source); }
+
+        @Bean
+        Tracer tracer() {
+            Tracer tracer = Mockito.mock(Tracer.class);
+            ThreadLocal<Span> current = new ThreadLocal<>();
+            when(tracer.currentSpan()).thenAnswer(invocation -> current.get());
+            when(tracer.nextSpan()).thenAnswer(invocation -> {
+                Span span = Mockito.mock(Span.class, Mockito.RETURNS_SELF);
+                TraceContext context = Mockito.mock(TraceContext.class);
+                when(context.traceId()).thenReturn(UUID.randomUUID().toString().replace("-", ""));
+                when(span.context()).thenReturn(context);
+                return span;
+            });
+            when(tracer.withSpan(any(Span.class))).thenAnswer(invocation -> {
+                Span previous = current.get();
+                current.set(invocation.getArgument(0));
+                return (Tracer.SpanInScope) () -> {
+                    if (previous == null) current.remove(); else current.set(previous);
+                };
+            });
+            return tracer;
+        }
+
+        @Bean
+        DataSource dataSource() {
+            DataSource source = new DriverManagerDataSource(POSTGRES.getJdbcUrl() + "&currentSchema=commerce_shipment",
+                    POSTGRES.getUsername(), POSTGRES.getPassword());
+            Flyway.configure().dataSource(source).schemas("commerce_shipment")
+                    .defaultSchema("commerce_shipment").load().migrate();
+            return source;
+        }
+
+        @Bean
+        IdempotentConsumer idempotentConsumer(EntityManagerFactory factory, PlatformTransactionManager transactions) {
+            return new IdempotentConsumer(SharedEntityManagerCreator.createSharedEntityManager(factory),
+                    new TransactionTemplate(transactions));
+        }
+
+        @Bean
+        OrderEventPublisher orderEventPublisher(DataSource source, PlatformTransactionManager transactions, Tracer tracer) {
+            return Mockito.spy(new OrderEventPublisher(new OutboxWriter(new JdbcTemplate(source), JsonMapper.shared(), transactions),
+                    new EventEnvelopeFactory(tracer, Clock.systemUTC())));
+        }
+
+        @Bean
+        LocalContainerEntityManagerFactoryBean entityManagerFactory(DataSource source) {
+            var factory = new LocalContainerEntityManagerFactoryBean();
+            factory.setDataSource(source);
+            factory.setPackagesToScan(Order.class.getPackageName());
+            factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
+            factory.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto", "validate"));
+            return factory;
+        }
+
+        @Bean
+        PlatformTransactionManager transactionManager(EntityManagerFactory factory) { return new JpaTransactionManager(factory); }
+    }
+}

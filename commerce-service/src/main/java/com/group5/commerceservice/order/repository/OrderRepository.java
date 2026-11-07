@@ -30,6 +30,9 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     @Query("select o.status from Order o where o.id = :id")
     Optional<OrderStatus> findStatusById(UUID id);
 
+    @Query(value = "SELECT id FROM orders WHERE id = :id FOR UPDATE", nativeQuery = true)
+    Optional<UUID> lockOrder(UUID id);
+
     @Query(value = "SELECT id FROM orders WHERE order_group_id = :groupId ORDER BY id FOR UPDATE", nativeQuery = true)
     List<UUID> lockGroupOrders(UUID groupId);
 

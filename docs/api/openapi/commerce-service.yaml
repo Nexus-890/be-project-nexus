@@ -17,7 +17,7 @@ tags:
     description: "Read-only checkout confirmation preview."
   -
     name: "Orders"
-    description: "Checkout, order reads, cancellation, administrative status changes and order history."
+    description: "Checkout, order reads and HTML receipts, cancellation, administrative status changes and order history."
   -
     name: "Order references"
     description: "Internal product reference lookup."
@@ -4452,6 +4452,435 @@ paths:
                     status: 504
                     detail: "The service did not answer in time"
                     instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002"
+                    code: "GATEWAY_TIMEOUT"
+      x-gateway-privilege: "ORDER.VIEW"
+      parameters:
+        -
+          name: "id"
+          in: "path"
+          required: true
+          description: "Resource UUID."
+          schema:
+            type: "string"
+            format: "uuid"
+  /api/v1/orders/{id}/invoice:
+    get:
+      tags:
+        - "Orders"
+      operationId: "getInvoice"
+      summary: "Read the completed order HTML receipt"
+      description: "Requires ORDER.VIEW and buyer ownership by the JWT subject, including for ADMIN and SUPPORT_STAFF. Ownership is checked before completion, so another user receives 403 for every order status. Only COMPLETED orders return a document; other statuses return 409 COMMERCE_ORDER_NOT_COMPLETED. The HTML receipt uses stored seller-order item and price snapshots. The 200 response is a protocol document marked @ProtocolResponse, without a JSON envelope; errors remain Problem Details."
+      security:
+        -
+          bearerAuth: []
+
+      x-required-privileges:
+        - "ORDER.VIEW"
+      x-required-roles: []
+      x-ownership: "JWT subject must equal the order buyer; no role bypass."
+      x-protocol-response: true
+      responses:
+        "200":
+          description: "HTML receipt for the caller's completed seller order."
+          headers:
+            Cache-Control:
+              description: "Keep the private receipt out of shared and browser caches."
+              schema:
+                type: string
+                enum: [no-store]
+            X-Content-Type-Options:
+              schema:
+                type: string
+                enum: [nosniff]
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                completedOrderReceipt:
+                  summary: "Receipt generated from stored order snapshots"
+                  value: |
+                    <!doctype html>
+                    <html lang="en"><head><meta charset="UTF-8"><title>Order receipt</title></head>
+                    <body><h1>Order receipt</h1><p>NX-20261120-00000001</p>
+                    <p>Status: COMPLETED</p><table><thead><tr><th>Item</th><th>Quantity</th><th>Unit price</th><th>Total</th></tr></thead>
+                    <tbody><tr><td>Phone</td><td>2</td><td>150000 VND</td><td>300000 VND</td></tr></tbody></table>
+                    <p>Total: 300000 VND</p></body></html>
+        "400":
+          description: "Bad Request. Codes: `INVALID_PARAMETER`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 400
+                      code:
+                        type: "string"
+                        enum:
+                          - "INVALID_PARAMETER"
+
+              examples:
+                INVALID_PARAMETER:
+                  summary: "INVALID_PARAMETER"
+                  value:
+                    type: "urn:problem:invalid-parameter"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "A request parameter is invalid"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/invoice"
+                    code: "INVALID_PARAMETER"
+        "401":
+          description: "Unauthorized. Codes: `UNAUTHENTICATED`, `COMMERCE_UNAUTHENTICATED`."
+          headers:
+            WWW-Authenticate:
+              description: "Bearer challenge for security failures; domain failures may omit it."
+              schema:
+                type: "string"
+                example: "Bearer"
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 401
+                      code:
+                        type: "string"
+                        enum:
+                          - "UNAUTHENTICATED"
+                          - "COMMERCE_UNAUTHENTICATED"
+
+              examples:
+                UNAUTHENTICATED:
+                  summary: "UNAUTHENTICATED"
+                  value:
+                    type: "urn:problem:unauthenticated"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "A valid access token is required to access this resource"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/invoice"
+                    code: "UNAUTHENTICATED"
+                COMMERCE_UNAUTHENTICATED:
+                  summary: "COMMERCE_UNAUTHENTICATED"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "Unauthenticated"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/invoice"
+                    code: "COMMERCE_UNAUTHENTICATED"
+        "403":
+          description: "Forbidden. Codes: `FORBIDDEN`, `COMMERCE_FORBIDDEN`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 403
+                      code:
+                        type: "string"
+                        enum:
+                          - "FORBIDDEN"
+                          - "COMMERCE_FORBIDDEN"
+
+              examples:
+                FORBIDDEN:
+                  summary: "FORBIDDEN"
+                  value:
+                    type: "urn:problem:forbidden"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission to access this resource"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/invoice"
+                    code: "FORBIDDEN"
+                COMMERCE_FORBIDDEN:
+                  summary: "COMMERCE_FORBIDDEN"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/invoice"
+                    code: "COMMERCE_FORBIDDEN"
+        "404":
+          description: "Not Found. Codes: `COMMERCE_ORDER_NOT_FOUND`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 404
+                      code:
+                        type: "string"
+                        enum:
+                          - "COMMERCE_ORDER_NOT_FOUND"
+
+              examples:
+                COMMERCE_ORDER_NOT_FOUND:
+                  summary: "COMMERCE_ORDER_NOT_FOUND"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Not Found"
+                    status: 404
+                    detail: "Order not found"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/invoice"
+                    code: "COMMERCE_ORDER_NOT_FOUND"
+        "405":
+          description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 405
+                      code:
+                        type: "string"
+                        enum:
+                          - "METHOD_NOT_ALLOWED"
+
+              examples:
+                METHOD_NOT_ALLOWED:
+                  summary: "METHOD_NOT_ALLOWED"
+                  value:
+                    type: "urn:problem:method-not-allowed"
+                    title: "Method Not Allowed"
+                    status: 405
+                    detail: "The HTTP method is not supported for this endpoint"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/invoice"
+                    code: "METHOD_NOT_ALLOWED"
+        "406":
+          description: "Not Acceptable. Codes: `NOT_ACCEPTABLE`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 406
+                      code:
+                        type: "string"
+                        enum:
+                          - "NOT_ACCEPTABLE"
+
+              examples:
+                NOT_ACCEPTABLE:
+                  summary: "NOT_ACCEPTABLE"
+                  value:
+                    type: "urn:problem:not-acceptable"
+                    title: "Not Acceptable"
+                    status: 406
+                    detail: "The requested response format is not supported"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/invoice"
+                    code: "NOT_ACCEPTABLE"
+        "409":
+          description: "Conflict. Codes: `COMMERCE_ORDER_NOT_COMPLETED`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum: [409]
+                      code:
+                        type: string
+                        enum: [COMMERCE_ORDER_NOT_COMPLETED]
+              examples:
+                COMMERCE_ORDER_NOT_COMPLETED:
+                  summary: "The owner's order is not completed"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: Conflict
+                    status: 409
+                    detail: "The order is not completed"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/invoice"
+                    code: COMMERCE_ORDER_NOT_COMPLETED
+        "429":
+          description: "Too Many Requests. Codes: `RATE_LIMITED`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 429
+                      code:
+                        type: "string"
+                        enum:
+                          - "RATE_LIMITED"
+
+              examples:
+                RATE_LIMITED:
+                  summary: "RATE_LIMITED"
+                  value:
+                    type: "urn:problem:rate-limited"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many requests; retry after the indicated delay"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/invoice"
+                    code: "RATE_LIMITED"
+          headers:
+            Retry-After:
+              description: "Present when supplied by the limiter."
+              schema:
+                type: "string"
+        "500":
+          description: "Internal Server Error. Codes: `INTERNAL_ERROR`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 500
+                      code:
+                        type: "string"
+                        enum:
+                          - "INTERNAL_ERROR"
+
+              examples:
+                INTERNAL_ERROR:
+                  summary: "INTERNAL_ERROR"
+                  value:
+                    type: "urn:problem:internal-error"
+                    title: "Internal Server Error"
+                    status: 500
+                    detail: "An unexpected error occurred"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/invoice"
+                    code: "INTERNAL_ERROR"
+        "503":
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 503
+                      code:
+                        type: "string"
+                        enum:
+                          - "SERVICE_UNAVAILABLE"
+
+              examples:
+                SERVICE_UNAVAILABLE:
+                  summary: "SERVICE_UNAVAILABLE"
+                  value:
+                    type: "urn:problem:service-unavailable"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "A required service is unavailable"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/invoice"
+                    code: "SERVICE_UNAVAILABLE"
+        "504":
+          description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 504
+                      code:
+                        type: "string"
+                        enum:
+                          - "GATEWAY_TIMEOUT"
+
+              examples:
+                GATEWAY_TIMEOUT:
+                  summary: "GATEWAY_TIMEOUT"
+                  value:
+                    type: "urn:problem:gateway-timeout"
+                    title: "Gateway Timeout"
+                    status: 504
+                    detail: "The service did not answer in time"
+                    instance: "/api/v1/orders/68000000-0000-4000-8000-000000000002/invoice"
                     code: "GATEWAY_TIMEOUT"
       x-gateway-privilege: "ORDER.VIEW"
       parameters:

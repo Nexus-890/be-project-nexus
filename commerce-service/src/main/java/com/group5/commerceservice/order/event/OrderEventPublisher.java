@@ -48,6 +48,11 @@ public class OrderEventPublisher {
                 envelopes.create("OrderCancelled", payload.orderId().toString(), payload));
     }
 
+    public void orderCompleted(OrderCompleted payload) {
+        outbox.write("Order", Topics.COMMERCE,
+                envelopes.create("OrderCompleted", payload.orderId().toString(), payload));
+    }
+
     public void orderGroupCancelled(OrderGroupCancelled payload) {
         outbox.write("OrderGroup", Topics.COMMERCE,
                 envelopes.create("OrderGroupCancelled", payload.orderGroupId().toString(), payload));

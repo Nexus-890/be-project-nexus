@@ -62,7 +62,9 @@ public class DeliveryRetryJob {
                         claim.deliveryId(), claim.attemptNumber());
                 return;
             }
-            String messageId = sender.send(email, claim.title(), claim.content());
+            String messageId = claim.emailHtml() == null
+                    ? sender.send(email, claim.title(), claim.content())
+                    : sender.send(email, claim.title(), claim.emailHtml(), true);
             deliveries.succeeded(claim, messageId, clock.instant());
             log.info("NOTIFICATION_DELIVERY_SENT deliveryId={} attempt={} to={}",
                     claim.deliveryId(), claim.attemptNumber(), Emails.mask(email));

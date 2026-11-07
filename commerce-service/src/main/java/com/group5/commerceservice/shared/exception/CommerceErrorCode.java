@@ -22,6 +22,7 @@ public enum CommerceErrorCode implements ErrorCode {
     INVALID_PRICING_CONFIGURATION(HttpStatus.INTERNAL_SERVER_ERROR, "Checkout price revalidation must be enabled"),
     FORBIDDEN(HttpStatus.FORBIDDEN, "You do not have permission"),
     ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "Order not found"),
+    ORDER_NOT_COMPLETED(HttpStatus.CONFLICT, "The receipt is available only after the order is completed"),
     ILLEGAL_TRANSITION(HttpStatus.CONFLICT, "The order status transition is not allowed"),
     IDEMPOTENCY_KEY_NOT_OWNED(HttpStatus.BAD_REQUEST, "Idempotency-Key cannot be used for this request"),
     IDEMPOTENCY_CONFLICT(HttpStatus.CONFLICT, "Idempotency-Key was already used for another request"),

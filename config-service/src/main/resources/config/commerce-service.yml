@@ -47,3 +47,4 @@ nexus:
     idempotency-enabled: ${ORDER_IDEMPOTENCY_ENABLED:true}
     inventory-stub-enabled: true
     payment-timeout-minutes: 15
+    shipment-retry-interval: ${ORDER_SHIPMENT_RETRY_INTERVAL:5s}

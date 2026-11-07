@@ -66,8 +66,8 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
         "nexus.notification.delivery.retry-limit=3",
         "nexus.notification.delivery.base-delay=0ms", "nexus.notification.delivery.max-delay=0ms",
         "nexus.notification.delivery.poll-interval=1h",
-        "spring.mail.properties.mail.smtp.connectiontimeout=2000",
-        "spring.mail.properties.mail.smtp.timeout=2000"
+        "spring.mail.properties.mail.smtp.connectiontimeout=10000",
+        "spring.mail.properties.mail.smtp.timeout=10000"
 })
 class EmailDeliveryIntegrationTest {
 
@@ -178,6 +178,55 @@ class EmailDeliveryIntegrationTest {
         assertThat(failedEvent.payload().get("deliveryStatus").asString()).isEqualTo("PENDING");
         assertThat(failedEvent.envelope().get("eventType").asString()).isEqualTo("NotificationFailed");
         assertThat(failedEvent.rawEnvelope()).isNotNull();
+    }
+
+    @Test
+    void completedOrderReceiptSurvivesDuplicateDeliveryAndSmtpRetryAsHtml() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        String html = "<!doctype html><html><head><meta charset=\"UTF-8\"></head><body>"
+                + "<h1>Receipt NX-204-0001</h1><p>Cà phê &amp; tea</p><p>Total: 125000.00 VND</p></body></html>";
+        JsonNode payload = JsonMapper.shared().valueToTree(Map.of("orderId", orderId, "buyerId", BUYER,
+                "orderNumber", "NX-204-0001", "receiptHtml", html));
+        EventEnvelope<JsonNode> envelope = new EventEnvelope<>(UUID.randomUUID(), "OrderCompleted", orderId.toString(),
+                Instant.now(), "4bf92f3577b34da6a3ce929d0e0e4736", payload);
+        ConsumerRecord<String, EventEnvelope<JsonNode>> record =
+                new ConsumerRecord<>(Topics.COMMERCE, 0, 0L, orderId.toString(), envelope);
+        mailSender.setPort(CLOSED_PORT);
+
+        consumer.receive(record);
+        consumer.receive(record);
+
+        UUID notificationId = jdbc.queryForObject("SELECT id FROM notifications", UUID.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_deliveries", Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT email_html FROM notifications WHERE id = ?", String.class,
+                notificationId)).isEqualTo(html);
+        assertThat(delivery(notificationId).get("attempt_count")).isEqualTo(0);
+        assertThat(messages()).isEmpty();
+        mvc.perform(get("/api/v1/notifications").header("Authorization", "Bearer buyer"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].content").value(
+                        "Your order NX-204-0001 is complete. Your receipt is ready."))
+                .andExpect(jsonPath("$.data[0].emailHtml").doesNotExist());
+
+        assertThat(job.runOnce()).isEqualTo(1);
+        assertThat(attempts(notificationId)).extracting(row -> row.get("error_code"))
+                .containsExactly("SMTP_UNAVAILABLE");
+        mailSender.setPort(MAILPIT.getMappedPort(1025));
+        assertThat(job.runOnce()).isEqualTo(1);
+
+        List<JsonNode> inbox = messages();
+        assertThat(inbox).hasSize(1);
+        JsonNode message = JsonMapper.shared().readTree(mailpit("GET", "/api/v1/message/"
+                + inbox.getFirst().get("ID").asString()));
+        assertThat(message.get("To").get(0).get("Address").asString()).isEqualTo(BUYER_EMAIL);
+        assertThat(message.get("Subject").asString()).isEqualTo("Order receipt");
+        // SMTP terminates body lines with CRLF; Mailpit retains that final transport newline.
+        assertThat(message.get("HTML").asString().stripTrailing()).isEqualTo(html);
+        assertThat(attempts(notificationId)).extracting(row -> row.get("status"))
+                .containsExactly("FAILED", "SUCCEEDED");
+        assertThat(eventTypes()).containsExactly("NotificationFailed", "NotificationSent");
+        assertThat(job.runOnce()).isZero();
+        assertThat(messages()).hasSize(1);
     }
 
     @Test
