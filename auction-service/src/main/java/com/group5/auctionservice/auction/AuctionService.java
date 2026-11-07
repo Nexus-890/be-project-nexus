@@ -28,6 +28,7 @@ public class AuctionService {
     private final AuctionRepository auctions;
     private final AuctionProperties properties;
     private final Clock clock;
+    private final AuctionStateMachine stateMachine;
 
     @Transactional(readOnly = true)
     public AuctionResponse get(UUID id) {
@@ -37,7 +38,7 @@ public class AuctionService {
     }
 
     @Transactional(readOnly = true)
-    public Page<AuctionResponse> list(Auction.Status status, int page, int size) {
+    public Page<AuctionResponse> list(AuctionStatus status, int page, int size) {
         var pageable = PageRequest.of(page, size, Sort.by("endAt").ascending().and(Sort.by("id")));
         return auctions.findByVisibilityAndStatusAndDeletedAtIsNull(Auction.Visibility.PUBLIC, status, pageable)
                 .map(AuctionResponse::from);
@@ -67,5 +68,16 @@ public class AuctionService {
         Auction auction = new Auction(request.productId(), request.skuId(), seller.id(), request.title(),
                 request.startingPrice(), increment, request.startAt(), request.endAt());
         return AuctionResponse.from(auctions.save(auction));
+    }
+
+    @Transactional
+    public AuctionResponse schedule(UUID id, CurrentUser seller) {
+        Auction auction = auctions.findForUpdateByIdAndDeletedAtIsNull(id)
+                .orElseThrow(() -> new DomainException(AuctionErrorCode.AUCTION_NOT_FOUND));
+        if (!auction.getSellerId().equals(seller.id())) {
+            throw new DomainException(AuctionErrorCode.AUCTION_FORBIDDEN);
+        }
+        stateMachine.transition(auction, AuctionStatus.SCHEDULED);
+        return AuctionResponse.from(auction);
     }
 }
