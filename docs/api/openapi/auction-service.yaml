@@ -6,7 +6,7 @@ servers:
   - url: http://localhost:8080
 tags:
   - name: Auctions
-    description: Seller auction creation and public reads from stored auction snapshots
+    description: Seller auction creation and scheduling, and public reads from stored auction snapshots
 security:
   - bearerAuth: []
 paths:
@@ -274,6 +274,69 @@ paths:
                 code: AUCTION_NOT_FOUND
         '401':
           $ref: '#/components/responses/InvalidBearer'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/UnexpectedError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/auctions/{id}/schedule:
+    post:
+      tags: [Auctions]
+      operationId: scheduleAuction
+      summary: Publish an auction as its seller
+      description: Changes an owned auction from CREATED to SCHEDULED using its existing time window.
+      x-catalogue-id: AUC-03
+      x-required-roles: [SELLER]
+      x-required-privileges: [AUCTION.UPDATE]
+      x-ownership: The auction sellerId must match the authenticated JWT subject.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Auction UUID.
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: The auction snapshot with status SCHEDULED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAuctionResponse'
+        '400':
+          description: 'INVALID_PARAMETER — Invalid auction UUID.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: 'UNAUTHENTICATED — A valid bearer token is required.'
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge.
+              schema: {type: string}
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: 'FORBIDDEN for missing role or privilege, or AUCTION_FORBIDDEN when the seller does not own the auction.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'AUCTION_NOT_FOUND — The auction does not exist or was soft-deleted.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: 'AUCTION_ILLEGAL_TRANSITION — The owned auction is no longer CREATED.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':

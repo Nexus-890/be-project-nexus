@@ -461,6 +461,23 @@ class SecurityConfigTest {
     }
 
     @Test
+    void auctionScheduleRequiresUpdatePrivilegeAndDoesNotInheritPublicGet() {
+        String path = "/api/v1/auctions/" + ID + "/schedule";
+        client.post().uri(path).exchange().expectStatus().isUnauthorized();
+        client.post().uri(path)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                        c -> c.claim("privileges", List.of("AUCTION.CREATE"))))
+                .exchange().expectStatus().isForbidden();
+        assertThat(SERVICE_LOG).isEmpty();
+
+        client.post().uri(path)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                        c -> c.claim("privileges", List.of("AUCTION.UPDATE"))))
+                .exchange().expectStatus().isOk();
+        assertThat(SERVICE_LOG).containsExactly("POST " + path);
+    }
+
+    @Test
     void postProductsDoesNotInheritPublicGetAndScopeOrRoleCannotGrantPrivilege() {
         client.post().uri("/api/v1/products").exchange().expectStatus().isUnauthorized();
         for (Consumer<JWTClaimsSet.Builder> claim : List.<Consumer<JWTClaimsSet.Builder>>of(

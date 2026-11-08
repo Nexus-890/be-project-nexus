@@ -37,7 +37,7 @@ public class AuctionController {
 
     @GetMapping
     public ApiResponse<List<AuctionResponse>> list(
-            @RequestParam(defaultValue = "ACTIVE") Auction.Status status,
+            @RequestParam(defaultValue = "ACTIVE") AuctionStatus status,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size) {
         var result = auctions.list(status, page, size);
@@ -50,5 +50,11 @@ public class AuctionController {
     @PreAuthorize("hasRole('SELLER') and hasAuthority('AUCTION.CREATE')")
     public ApiResponse<AuctionResponse> create(@Valid @RequestBody CreateAuctionRequest request, CurrentUser user) {
         return ApiResponse.of(auctions.create(request, user));
+    }
+
+    @PostMapping("/{id}/schedule")
+    @PreAuthorize("hasRole('SELLER') and hasAuthority('AUCTION.UPDATE')")
+    public ApiResponse<AuctionResponse> schedule(@PathVariable UUID id, CurrentUser user) {
+        return ApiResponse.of(auctions.schedule(id, user));
     }
 }
