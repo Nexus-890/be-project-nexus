@@ -10,5 +10,7 @@ public record PaymentInitResponse(
         String bankAccount,
         BigDecimal amount,
         String memoCode,
-        Instant expiresAt) {
+        String transferContent,
+        Instant expiresAt,
+        Instant serverNow) {
 }

@@ -60,7 +60,8 @@ public class RouteConfig {
                 .route("notification-service", route -> route
                         .path("/api/v1/notifications", "/api/v1/notifications/**",
                                 "/api/v1/event-logs", "/api/v1/event-logs/**",
-                                "/api/v1/audit-logs", "/api/v1/audit-logs/**")
+                                "/api/v1/audit-logs", "/api/v1/audit-logs/**",
+                                "/api/v1/system/health", "/api/v1/system/health/**")
                         .filters(filters -> filters.requestRateLimiter(config ->
                                 config.setRateLimiter(limiter)
                                         .setKeyResolver(resolver)

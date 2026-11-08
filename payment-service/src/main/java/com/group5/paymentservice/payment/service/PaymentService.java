@@ -63,7 +63,8 @@ public class PaymentService {
                 session.getId(), session.getTotalAmount(), session.getCurrency(),
                 session.getMemoCode(), session.getDueAt().toInstant()));
         return new PaymentInitResponse(session.getId(), result.qrImageUrl(), result.bankAccount(),
-                session.getTotalAmount(), session.getMemoCode(), session.getDueAt().toInstant());
+                session.getTotalAmount(), session.getMemoCode(), result.transferContent(),
+                session.getDueAt().toInstant(), clock.instant());
     }
 
     private void verifyInstructions(PaymentSession session, List<PaymentInstruction> plan) {

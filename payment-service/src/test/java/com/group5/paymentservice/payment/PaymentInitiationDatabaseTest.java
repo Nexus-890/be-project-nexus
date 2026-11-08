@@ -69,7 +69,9 @@ class PaymentInitiationDatabaseTest extends PaymentDatabaseTestSupport {
         var first = payments.initiate(buyer(buyerId), groupId);
         assertThat(first.amount()).isEqualByComparingTo("350000");
         assertThat(first.memoCode()).isEqualTo(beforeSession.get("memo_code"));
-        assertThat(payments.initiate(buyer(buyerId), groupId)).isEqualTo(first);
+        var second = payments.initiate(buyer(buyerId), groupId);
+        assertThat(second).usingRecursiveComparison().ignoringFields("serverNow").isEqualTo(first);
+        assertThat(second.serverNow()).isAfterOrEqualTo(first.serverNow()).isBeforeOrEqualTo(clock.instant());
         assertThat(sessions.findByOrderGroupId(groupId)).isPresent();
         assertThat(instructions.findBySessionIdOrderByOrderId(sessionId)).hasSize(2);
         assertThat(jdbc.queryForMap("SELECT * FROM payment_sessions WHERE id = ?", sessionId))
