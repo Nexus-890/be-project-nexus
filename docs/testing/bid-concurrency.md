@@ -97,3 +97,18 @@ The local green result is recorded in [green-result.txt](evidence/bid148/green-r
 Local execution and CI lint do not satisfy the acceptance criterion requiring a
 green GitLab pipeline. Link this document and the red result from the #148 MR;
 leave that CI criterion unchecked until the real pipeline passes.
+
+## Scope audit — 08/11/2026
+
+MR !134 is stacked on the #146 feature branch until !129 merges. Its diff
+contains only #148 QA, common-test, Maven/CI setup and evidence. It does not add
+bid idempotency (#147) or receipt completion (#204).
+
+The existing one-line tracing configuration fix is preserved:
+`management.tracing.export.enabled=false`. The red/green evidence above records
+the earlier test revision at `fecaf00`; its assertion and request logic are
+unchanged by this configuration fix. The updated test compiles, but PostgreSQL
+reruns on 08/11 were blocked by Docker Desktop engine startup. Do not treat the
+historical evidence as a new run of this revision. Pipeline #41794 failed before
+execution with `stuck_pending_no_matching_runners`; a green remote CI run remains
+outstanding. After #146 merges, retarget !134 to develop and recheck its diff.
