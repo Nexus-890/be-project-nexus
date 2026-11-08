@@ -58,7 +58,7 @@ import static org.junit.jupiter.api.Assertions.assertAll;
         "spring.datasource.hikari.connection-init-sql=SET statement_timeout = '30s'",
         "server.tomcat.threads.max=60",
         "spring.kafka.listener.auto-startup=false", "spring.kafka.admin.auto-create=false",
-        "nexus.outbox.relay.enabled=false", "management.tracing.enabled=false"
+        "nexus.outbox.relay.enabled=false", "management.tracing.export.enabled=false"
 })
 @Import(BidConcurrencyIT.TokenConfig.class)
 class BidConcurrencyIT extends PostgresIntegrationTest {
