@@ -15,12 +15,14 @@ import java.util.UUID;
 public class InventoryService {
 
     private final InventoryBalanceRepository balances;
+    private final InventoryMovementRepository movements;
     private final WarehouseRepository warehouses;
     private final InventoryProperties properties;
 
-    public InventoryService(InventoryBalanceRepository balances, WarehouseRepository warehouses,
-                            InventoryProperties properties) {
+    public InventoryService(InventoryBalanceRepository balances, InventoryMovementRepository movements,
+                            WarehouseRepository warehouses, InventoryProperties properties) {
         this.balances = balances;
+        this.movements = movements;
         this.warehouses = warehouses;
         this.properties = properties;
     }
@@ -30,9 +32,11 @@ public class InventoryService {
         UUID warehouseId = resolveWarehouse(request.warehouseId());
         balances.intake(request.skuId(), warehouseId, request.quantity(), currentUser.id());
         // ĐỌC LẠI DÒNG SAU KHI UPSERT ĐỂ TRẢ VỀ SỐ MỚI NHẤT (clearAutomatically ĐÃ XÓA CACHE CŨ)
-        return balances.findBySkuIdAndWarehouseId(request.skuId(), warehouseId)
-                .map(BalanceResponse::from)
-                .orElseThrow();
+        InventoryBalance balance = balances.findBySkuIdAndWarehouseId(request.skuId(), warehouseId).orElseThrow();
+        // GHI SỔ KHO CÙNG TRANSACTION VỚI SỐ TỒN -> LỖI Ở ĐÂU THÌ CẢ 2 CÙNG ROLLBACK, KHÔNG LỆCH NHAU
+        movements.record(request.skuId(), warehouseId, MovementType.INTAKE, request.quantity(), balance.getId(),
+                currentUser.id());
+        return BalanceResponse.from(balance);
     }
 
     private UUID resolveWarehouse(UUID warehouseId) {
