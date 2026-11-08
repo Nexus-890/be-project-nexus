@@ -5,6 +5,7 @@ import com.group5.common_outbox.IdempotentConsumer;
 import com.group5.notificationservice.notification.NotificationRepository;
 import com.group5.notificationservice.eventlog.EventLogRepository;
 import com.group5.notificationservice.eventlog.EventLogRecorder;
+import com.group5.notificationservice.health.HealthStateStore;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.RSASSASigner;
@@ -14,6 +15,7 @@ import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.sun.net.httpserver.HttpServer;
+import net.javacrumbs.shedlock.core.LockProvider;
 import jakarta.servlet.Filter;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -69,6 +71,8 @@ class KeycloakTokenTrustTest {
     @MockitoBean private NotificationRepository notifications;
     @MockitoBean private EventLogRepository eventLogs;
     @MockitoBean private EventLogRecorder eventLogRecorder;
+    @MockitoBean private HealthStateStore healthState;
+    @MockitoBean private LockProvider lockProvider;
     private MockMvc client;
 
     @DynamicPropertySource

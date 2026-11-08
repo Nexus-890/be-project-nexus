@@ -45,7 +45,7 @@ public class SepayPaymentProvider implements PaymentProvider {
                 + "&des=" + encode(content)
                 + "&template=" + encode(properties.vietqrTemplate())
                 + "&showinfo=true&holder=" + encode(properties.accountName());
-        return new PaymentInitiationResult(url, properties.bankAccount());
+        return new PaymentInitiationResult(url, properties.bankAccount(), content);
     }
 
     private static String encode(String value) {

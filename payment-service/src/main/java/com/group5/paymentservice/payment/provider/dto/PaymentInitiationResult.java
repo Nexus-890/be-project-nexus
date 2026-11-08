@@ -6,5 +6,7 @@ public record PaymentInitiationResult(
         @NotBlank
         String qrImageUrl,
         @NotBlank
-        String bankAccount) {
+        String bankAccount,
+        @NotBlank
+        String transferContent) {
 }

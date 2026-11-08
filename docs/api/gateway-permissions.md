@@ -84,6 +84,8 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/notifications/unread-count` | GET | NOTIFICATION.VIEW | #108 — Notification list and unread count |
 | `/api/v1/notifications/{id}/read` | PATCH | NOTIFICATION.VIEW | #109 — Mark own notification as read |
 | `/api/v1/notifications/read-all` | PATCH | NOTIFICATION.VIEW | #109 — Mark all own notifications as read |
+| `/api/v1/system/health` | GET | SYSTEM.HEALTH.VIEW | #193 — Service and broker health; ADMIN and SUPPORT_STAFF |
+| `/api/v1/system/health/brokers` | GET | SYSTEM.HEALTH.VIEW | #193 — Broker health with failure and recovery times |
 | `/api/v1/notifications/{id}/deliveries` | GET | NOTIFICATION.VIEW | #191 — Email channel and notification delivery retry |
 | `/api/v1/orders` | POST | ORDER.CREATE | #113 — Order creation from a cart; service also requires CHECKOUT.START |
 | `/api/v1/payments` | POST | CHECKOUT.START | #121 — Buyer reads own order group's immutable payment session |
