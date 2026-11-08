@@ -323,5 +323,3 @@ class BidPlacementIntegrationTest {
         PlatformTransactionManager transactionManager(EntityManagerFactory factory) { return new JpaTransactionManager(factory); }
     }
 }
-
-
