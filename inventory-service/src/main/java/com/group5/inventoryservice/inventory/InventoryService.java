@@ -6,6 +6,9 @@ import com.group5.inventoryservice.inventory.dto.BalanceResponse;
 import com.group5.inventoryservice.inventory.dto.IntakeRequest;
 import com.group5.inventoryservice.shared.config.InventoryProperties;
 import com.group5.inventoryservice.shared.exception.InventoryErrorCode;
+import com.group5.inventoryservice.warehouse.entity.Warehouse;
+import com.group5.inventoryservice.warehouse.enums.WarehouseStatus;
+import com.group5.inventoryservice.warehouse.repository.WarehouseRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,15 +43,19 @@ public class InventoryService {
     }
 
     private UUID resolveWarehouse(UUID warehouseId) {
+        Warehouse warehouse;
         if (warehouseId != null) {
-            if (!warehouses.existsById(warehouseId)) {
-                throw new DomainException(InventoryErrorCode.WAREHOUSE_NOT_FOUND);
-            }
-            return warehouseId;
+            warehouse = warehouses.findByIdForIntake(warehouseId)
+                    .orElseThrow(() -> new DomainException(InventoryErrorCode.WAREHOUSE_NOT_FOUND));
+        } else {
+            // Kho mặc định lấy theo code trong config, không hardcode UUID.
+            warehouse = warehouses.findByCodeForIntake(properties.defaultWarehouseCode())
+                    .orElseThrow(() -> new DomainException(InventoryErrorCode.DEFAULT_WAREHOUSE_NOT_FOUND));
         }
-        // KHÔNG GỬI warehouseId -> LẤY KHO MẶC ĐỊNH THEO CODE TRONG CONFIG (WH_001), KHÔNG HARDCODE UUID
-        return warehouses.findByCode(properties.defaultWarehouseCode())
-                .map(Warehouse::getId)
-                .orElseThrow(() -> new DomainException(InventoryErrorCode.DEFAULT_WAREHOUSE_NOT_FOUND));
+
+        if (warehouse.getStatus() != WarehouseStatus.ACTIVE) {
+            throw new DomainException(InventoryErrorCode.WAREHOUSE_UNAVAILABLE);
+        }
+        return warehouse.getId();
     }
 }

@@ -3,7 +3,7 @@ package com.group5.inventoryservice;
 import com.group5.common_security.CurrentUser;
 import com.group5.inventoryservice.inventory.InventoryBalanceRepository;
 import com.group5.inventoryservice.inventory.InventoryMovementRepository;
-import com.group5.inventoryservice.inventory.WarehouseRepository;
+import com.group5.inventoryservice.warehouse.repository.WarehouseRepository;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.RSASSASigner;

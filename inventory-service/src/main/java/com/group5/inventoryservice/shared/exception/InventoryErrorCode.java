@@ -4,7 +4,9 @@ import com.group5.common_core.constant.ErrorCode;
 import org.springframework.http.HttpStatus;
 
 public enum InventoryErrorCode implements ErrorCode {
+    DUPLICATE_WAREHOUSE_CODE(HttpStatus.CONFLICT, "Warehouse code already exists"),
     WAREHOUSE_NOT_FOUND(HttpStatus.NOT_FOUND, "Warehouse not found"),
+    WAREHOUSE_UNAVAILABLE(HttpStatus.CONFLICT, "Warehouse is not active for stock intake"),
     DEFAULT_WAREHOUSE_NOT_FOUND(HttpStatus.INTERNAL_SERVER_ERROR,
             "The configured default warehouse does not exist");
 
