@@ -151,6 +151,10 @@ above: any valid token passes the gateway and the owning service checks the role
 | POST | `/api/v1/inventory/reservations` | token only | Service requires BUYER; commerce-service forwards the buyer token | #134 — Reserve stock with a conditional update |
 | POST | `/api/v1/inventory/reservations/{id}/confirm` | not routed | Service requires ADMIN; the OrderPaid consumer calls the service method in-process | #136 — Confirm and release a reservation |
 | POST | `/api/v1/inventory/reservations/{id}/release` | not routed | Service requires ADMIN; the OrderCancelled consumer calls the service method in-process | #136 — Confirm and release a reservation |
+| GET | `/api/v1/inventory/reservations` | token only | Service requires ADMIN or SUPPORT_STAFF | #200 — Inventory support reads and stock adjustment |
+| GET | `/api/v1/inventory/balances` | token only | Service requires ADMIN, or SELLER with `skuId` of a SKU whose product catalog-service shows with the caller as `sellerId` | #200 — Inventory support reads and stock adjustment |
+| POST | `/api/v1/inventory/adjustments` | token only | Service requires ADMIN; writes one ADJUSTMENT ledger row with the reason | #200 — Inventory support reads and stock adjustment |
+| GET | `/api/v1/inventory/movements` | token only | Service requires ADMIN or SUPPORT_STAFF | #200 — Inventory support reads and stock adjustment |
 
 `not routed` means the inventory route leaves the path out: with a valid token the
 gateway answers 404 and nothing reaches inventory-service, without a token it answers
@@ -646,6 +650,8 @@ A path with several roles in `x-required-roles` accepts any one of them.
   `inventory_movement_type` values plus `INTAKE` and `COMMIT`, which V6 adds (#131).
   #200 writes `ADJUSTMENT`. The schema document still names an `ADJUST` value that no
   issue writes.
+  As delivered, the `type` filter and `movementType` use only the five values the
+  service writes: `INTAKE`, `RESERVE`, `RELEASE`, `COMMIT` and `ADJUSTMENT`.
 - **Money:** a JSON number, per ADR-008. It differs from the #88 decimal strings.
 - **Error codes:** the `AUCTION_*` and `INVENTORY_*` names under
   `x-business-error-codes` are proposals, except `AUCTION_BID_TOO_LOW` and
