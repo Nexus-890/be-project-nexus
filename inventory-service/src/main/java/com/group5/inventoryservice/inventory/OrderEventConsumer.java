@@ -3,6 +3,7 @@ package com.group5.inventoryservice.inventory;
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.EventKafka;
 import com.group5.common_events.Topics;
+import com.group5.common_outbox.IdempotentConsumer;
 import com.group5.inventoryservice.reservation.service.ReservationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +18,9 @@ import tools.jackson.databind.json.JsonMapper;
 @RequiredArgsConstructor
 public class OrderEventConsumer {
 
+    static final String ORDER_PAID_CONSUMER = "inventory-order-paid";
+
+    private final IdempotentConsumer idempotent;
     private final ReservationService reservations;
     private final JsonMapper mapper;
 
@@ -25,7 +29,7 @@ public class OrderEventConsumer {
     public void receive(ConsumerRecord<String, EventEnvelope<JsonNode>> record) {
         EventEnvelope<JsonNode> event = record.value();
         if ("OrderPaid".equals(event.eventType())) {
-            orderPaid(typed(event, OrderPaid.class));
+            idempotent.handle(ORDER_PAID_CONSUMER, typed(event, OrderPaid.class), this::orderPaid);
         }
     }
 

@@ -61,6 +61,7 @@ class OrderPaidConsumerIntegrationTest {
 
     @BeforeEach
     void setup() {
+        jdbc.update("DELETE FROM processed_events");
         jdbc.update("DELETE FROM inventory_movements");
         jdbc.update("DELETE FROM inventory_reservations");
         jdbc.update("DELETE FROM inventory_balances");
@@ -97,12 +98,30 @@ class OrderPaidConsumerIntegrationTest {
     }
 
     @Test
+    void orderPaidDeliveredTwiceLeavesTheBalanceOfOneDeliveryAndOneCommitRow() {
+        UUID order = UUID.randomUUID();
+        UUID sku = heldStock(sku("10"), 10, 2);
+        hold(order, sku, 2);
+        UUID eventId = UUID.randomUUID();
+        consumer.receive(orderPaid(eventId, order, "STANDARD"));
+        Map<String, Object> afterFirst = balance(sku);
+
+        consumer.receive(orderPaid(eventId, order, "STANDARD"));
+
+        assertThat(balance(sku)).isEqualTo(afterFirst);
+        assertThat(movements(sku, "COMMIT")).hasSize(1);
+        assertThat(processed(eventId)).isEqualTo(1);
+    }
+
+    @Test
     void anOrderWithNoReservationCompletesAndLogsOneInfoLine(CapturedOutput output) {
         UUID order = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
 
-        consumer.receive(orderPaid(UUID.randomUUID(), order, "STANDARD"));
+        consumer.receive(orderPaid(eventId, order, "STANDARD"));
 
         assertThat(movementCount()).isZero();
+        assertThat(processed(eventId)).isEqualTo(1);
         assertThat(output.getAll().lines().filter(line -> line.contains("ORDER_PAID_NO_RESERVATION")))
                 .singleElement().asString().contains(" INFO ").contains("orderId=" + order);
     }
@@ -141,6 +160,7 @@ class OrderPaidConsumerIntegrationTest {
         assertThat(status(firstHold)).isEqualTo("HELD");
         assertThat(status(secondHold)).isEqualTo("HELD");
         assertThat(movementCount()).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM processed_events", Integer.class)).isZero();
     }
 
     private ConsumerRecord<String, EventEnvelope<JsonNode>> orderPaid(UUID eventId, UUID order, String orderType) {
@@ -197,6 +217,11 @@ class OrderPaidConsumerIntegrationTest {
                 SELECT quantity, reference_id, created_by FROM inventory_movements
                 WHERE sku_id = ? AND movement_type = CAST(? AS inventory_movement_type)
                 """, sku, type);
+    }
+
+    private int processed(UUID eventId) {
+        return jdbc.queryForObject("SELECT count(*) FROM processed_events WHERE event_id = ? AND consumer = ?",
+                Integer.class, eventId, OrderEventConsumer.ORDER_PAID_CONSUMER);
     }
 
     private int movementCount() {
