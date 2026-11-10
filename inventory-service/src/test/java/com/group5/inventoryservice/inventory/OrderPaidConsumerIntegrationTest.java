@@ -79,6 +79,20 @@ class OrderPaidConsumerIntegrationTest {
     }
 
     @Test
+    void anAuctionOrderHoldWithItsOrderIdIsConfirmedTheSameWay() {
+        UUID order = UUID.randomUUID();
+        UUID sku = heldStock(sku("10"), 1, 1);
+        UUID reservation = hold(order, sku, 1);
+
+        consumer.receive(orderPaid(UUID.randomUUID(), order, "AUCTION"));
+
+        assertBalance(sku, 1, 0, 0, 1);
+        assertThat(status(reservation)).isEqualTo("CONFIRMED");
+        assertThat(movements(sku, "COMMIT")).containsExactly(Map.of("quantity", 1,
+                "reference_id", reservation, "created_by", SYSTEM_ACTOR));
+    }
+
+    @Test
     void aTwoLineOrderConfirmsBothReservations() {
         UUID order = UUID.randomUUID();
         UUID first = heldStock(sku("10"), 10, 2);
@@ -115,12 +129,14 @@ class OrderPaidConsumerIntegrationTest {
     }
 
     private ConsumerRecord<String, EventEnvelope<JsonNode>> orderPaid(UUID eventId, UUID order, String orderType) {
+        String auction = "AUCTION".equals(orderType) ? "\"" + UUID.randomUUID() + "\"" : "null";
         JsonNode payload = JSON.readTree("""
                 {"orderId":"%s","buyerId":"%s","orderNumber":"NX-TEST-0001","orderType":"%s",
-                 "referenceId":null,"paidAt":"2026-11-11T03:00:00Z","orderGroupId":"%s","sellerId":"%s",
+                 "referenceId":%s,"paidAt":"2026-11-11T03:00:00Z","orderGroupId":"%s","sellerId":"%s",
                  "orderVersion":1,"paidAmount":"300000.00","currency":"VND","warehouseId":"%s",
                  "shippingFee":"0.00","shippingInfo":{"items":[]}}
-                """.formatted(order, UUID.randomUUID(), orderType, UUID.randomUUID(), UUID.randomUUID(), warehouse));
+                """.formatted(order, UUID.randomUUID(), orderType, auction, UUID.randomUUID(), UUID.randomUUID(),
+                        warehouse));
         EventEnvelope<JsonNode> envelope = new EventEnvelope<>(eventId, "OrderPaid", order.toString(),
                 Instant.now(), "trace-order-paid", payload);
         return new ConsumerRecord<>(Topics.COMMERCE, 0, 0, order.toString(), envelope);
