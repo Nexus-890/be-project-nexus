@@ -3,9 +3,9 @@ info:
   title: Nexus inventory
   version: 1.0.0
   description: >-
-    Issue #130 stock intake and #134 stock reservation. Every 2xx body is an ApiResponse with code, message and data;
-    every error is Problem Details. Quantities are stored per SKU and warehouse in
-    inventory_balances, where total equals available plus reserved plus unavailable.
+    Issue #130 stock intake, #134 stock reservation and #136 confirming a reservation. Every 2xx body is an ApiResponse with code, message and data; every error
+    is Problem Details. Quantities are stored per SKU and warehouse in inventory_balances,
+    where total equals available plus reserved plus unavailable.
 servers:
   - url: http://localhost:8080
     description: API gateway
@@ -167,8 +167,8 @@ paths:
                   expiresAt: '2026-11-05T10:15:00Z'
         '400':
           description: >-
-            A missing orderGroupId, empty items, a missing field or a quantity of 0 or less
-            (VALIDATION_FAILED), or the same orderId and skuId twice
+            A missing orderGroupId, no items or more than 100, a missing field or a quantity
+            outside 1 to 999 (VALIDATION_FAILED), or the same orderId and skuId twice
             (INVENTORY_DUPLICATE_RESERVATION_ITEM)
           content:
             application/problem+json:
@@ -258,6 +258,98 @@ paths:
                 detail: The configured default warehouse does not exist
                 instance: /api/v1/inventory/reservations
                 code: INVENTORY_DEFAULT_WAREHOUSE_NOT_FOUND
+  /api/v1/inventory/reservations/{id}/confirm:
+    post:
+      tags: [Reservations]
+      operationId: confirmReservation
+      summary: Move a held reservation out of stock for good
+      description: >-
+        Paid: reserved goes down and unavailable goes up by the reservation's quantity, the
+        status becomes CONFIRMED and one COMMIT ledger row is written, in one transaction. The
+        status change is conditional on HELD inside the UPDATE, so a repeat, or two calls at
+        once, change the stock once. Not routed from the gateway: a call from outside gets 404
+        there and never reaches inventory-service. The service requires the ADMIN role; the event consumers
+        of the later issues call the same service method in-process.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [system]
+      x-gateway-privilege: not routed
+      x-required-roles: [ADMIN]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The reservation id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Done, or already done by an earlier call. No body.
+        '400':
+          description: The id is not a UUID
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:invalid-parameter
+                title: Bad Request
+                status: 400
+                detail: A request parameter is invalid
+                instance: /api/v1/inventory/reservations/not-a-uuid/confirm
+                code: INVALID_PARAMETER
+                errors:
+                  - field: id
+                    code: INVALID_PARAMETER
+                    detail: A valid value is required
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: The caller does not have the ADMIN role
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:forbidden
+                title: Forbidden
+                status: 403
+                detail: You do not have permission to access this resource
+                instance: /api/v1/inventory/reservations/0195f0a3-3333-7333-8333-333333333333/confirm
+                code: FORBIDDEN
+        '404':
+          description: No reservation has this id
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Not Found
+                status: 404
+                detail: Reservation not found
+                instance: /api/v1/inventory/reservations/0195f0a3-3333-7333-8333-333333333333/confirm
+                code: INVENTORY_RESERVATION_NOT_FOUND
+        '409':
+          description: >-
+            The reservation is RELEASED or EXPIRED, so its stock is no longer held
+            (INVENTORY_ILLEGAL_TRANSITION). Nothing changes.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Conflict
+                status: 409
+                detail: The reservation is not HELD
+                instance: /api/v1/inventory/reservations/0195f0a3-3333-7333-8333-333333333333/confirm
+                code: INVENTORY_ILLEGAL_TRANSITION
 components:
   securitySchemes:
     bearerAuth:

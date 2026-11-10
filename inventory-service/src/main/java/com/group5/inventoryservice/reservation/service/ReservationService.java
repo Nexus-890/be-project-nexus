@@ -76,6 +76,38 @@ public class ReservationService {
                 expiresAt);
     }
 
+    @Transactional
+    public void confirm(UUID reservationId, CurrentUser currentUser) {
+        UUID actor = currentUser.id();
+        if (reservations.confirmHeld(reservationId, actor) == 0) {
+            requireAlready(reservationId, Set.of(ReservationStatus.CONFIRMED));
+            return;
+        }
+        InventoryReservation reservation = find(reservationId);
+        requireMoved(balances.commitReserved(reservation.getSkuId(), reservation.getWarehouseId(),
+                reservation.getQuantity(), actor), reservation);
+        movements.record(reservation.getSkuId(), reservation.getWarehouseId(), MovementType.COMMIT,
+                reservation.getQuantity(), reservation.getId(), actor);
+    }
+
+    private void requireAlready(UUID reservationId, Set<ReservationStatus> done) {
+        if (!done.contains(find(reservationId).getStatus())) {
+            throw new DomainException(InventoryErrorCode.ILLEGAL_TRANSITION);
+        }
+    }
+
+    private InventoryReservation find(UUID reservationId) {
+        return reservations.findById(reservationId)
+                .orElseThrow(() -> new DomainException(InventoryErrorCode.RESERVATION_NOT_FOUND));
+    }
+
+    private static void requireMoved(int changedRows, InventoryReservation reservation) {
+        if (changedRows == 0) {
+            throw new IllegalStateException("No balance row holds the reserved quantity of reservation "
+                    + reservation.getId());
+        }
+    }
+
     private static void rejectDuplicateItems(List<ReserveRequest.Item> items) {
         Set<ItemKey> seen = new HashSet<>();
         for (ReserveRequest.Item item : items) {
