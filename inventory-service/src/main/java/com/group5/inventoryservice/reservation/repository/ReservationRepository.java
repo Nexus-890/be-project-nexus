@@ -14,6 +14,8 @@ public interface ReservationRepository extends JpaRepository<InventoryReservatio
 
     List<InventoryReservation> findByOrderIdInAndWarehouseId(Collection<UUID> orderIds, UUID warehouseId);
 
+    List<InventoryReservation> findByOrderIdOrderBySkuIdAscIdAsc(UUID orderId);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(nativeQuery = true, value = """
             UPDATE inventory_reservations

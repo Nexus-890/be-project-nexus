@@ -37,6 +37,7 @@ import java.util.stream.Collectors;
 public class ReservationService {
 
     private static final String ORDER_ITEM_UNIQUE_INDEX = "uq_reservation_order_item";
+    private static final UUID SYSTEM_ACTOR = new UUID(0, 0);
 
     private final InventoryBalanceRepository balances;
     private final InventoryMovementRepository movements;
@@ -78,7 +79,17 @@ public class ReservationService {
 
     @Transactional
     public void confirm(UUID reservationId, CurrentUser currentUser) {
-        UUID actor = currentUser.id();
+        confirmAs(reservationId, currentUser.id());
+    }
+
+    @Transactional
+    public int confirmOrder(UUID orderId) {
+        List<InventoryReservation> held = reservations.findByOrderIdOrderBySkuIdAscIdAsc(orderId);
+        held.forEach(reservation -> confirmAs(reservation.getId(), SYSTEM_ACTOR));
+        return held.size();
+    }
+
+    private void confirmAs(UUID reservationId, UUID actor) {
         if (reservations.confirmHeld(reservationId, actor) == 0) {
             requireAlready(reservationId, Set.of(ReservationStatus.CONFIRMED));
             return;
