@@ -3495,7 +3495,7 @@ paths:
                         -
                           id: "c8000000-0000-4000-8000-000000000003"
                           productId: "c8000000-0000-4000-8000-000000000002"
-                          skuCode: "SHOE-BLACK-42"
+                          skuCode: "SKU-c8000000000040008000000000000002-01"
                           color: "Black"
                           size: "42"
                           price: 150000.5
@@ -5130,7 +5130,6 @@ paths:
             schema:
               $ref: "#/components/schemas/WriteSku"
             example:
-              skuCode: "SHOE-BLACK-42"
               color: "Black"
               size: "42"
               price: 150000.5
@@ -5150,7 +5149,7 @@ paths:
                     data:
                       id: "c8000000-0000-4000-8000-000000000003"
                       productId: "c8000000-0000-4000-8000-000000000002"
-                      skuCode: "SHOE-BLACK-42"
+                      skuCode: "SKU-c8000000000040008000000000000002-01"
                       color: "Black"
                       size: "42"
                       price: 150000.5
@@ -5198,9 +5197,9 @@ paths:
                     code: "VALIDATION_FAILED"
                     errors:
                       -
-                        field: "skuCode"
+                        field: "size"
                         code: "VALIDATION_NOT_BLANK"
-                        detail: "Invalid value for skuCode"
+                        detail: "Invalid value for size"
                       -
                         field: "color"
                         code: "VALIDATION_NOT_BLANK"
@@ -5635,7 +5634,7 @@ paths:
                       -
                         id: "c8000000-0000-4000-8000-000000000003"
                         productId: "c8000000-0000-4000-8000-000000000002"
-                        skuCode: "SHOE-BLACK-42"
+                        skuCode: "SKU-c8000000000040008000000000000002-01"
                         color: "Black"
                         size: "42"
                         price: 150000.5
@@ -5997,7 +5996,6 @@ paths:
             schema:
               $ref: "#/components/schemas/WriteSku"
             example:
-              skuCode: "SHOE-BLACK-42"
               color: "Black"
               size: "42"
               price: 150000.5
@@ -6017,7 +6015,7 @@ paths:
                     data:
                       id: "c8000000-0000-4000-8000-000000000003"
                       productId: "c8000000-0000-4000-8000-000000000002"
-                      skuCode: "SHOE-BLACK-42"
+                      skuCode: "SKU-c8000000000040008000000000000002-01"
                       color: "Black"
                       size: "42"
                       price: 150000.5
@@ -6065,9 +6063,9 @@ paths:
                     code: "VALIDATION_FAILED"
                     errors:
                       -
-                        field: "skuCode"
+                        field: "size"
                         code: "VALIDATION_NOT_BLANK"
-                        detail: "Invalid value for skuCode"
+                        detail: "Invalid value for size"
                       -
                         field: "color"
                         code: "VALIDATION_NOT_BLANK"
@@ -6511,7 +6509,7 @@ paths:
                     data:
                       id: "c8000000-0000-4000-8000-000000000003"
                       productId: "c8000000-0000-4000-8000-000000000002"
-                      skuCode: "SHOE-BLACK-42"
+                      skuCode: "SKU-c8000000000040008000000000000002-01"
                       color: "Black"
                       size: "42"
                       price: 150000.5
@@ -8075,6 +8073,8 @@ components:
           format: "uuid"
         skuCode:
           type: "string"
+          maxLength: 60
+          description: "Generated on create as `SKU-<productId without dashes>-<NN>`, NN the next number for that product (01, 02, ...). An update never changes it. SKUs created before keep the code they had."
         color:
           type: "string"
           nullable: true
@@ -8090,17 +8090,12 @@ components:
           description: "Current persisted SKU status string, initially ACTIVE. This issue does not restrict the existing string column to a new enum."
     WriteSku:
       type: "object"
+      description: "The SKU code is not part of the request. A `skuCode` sent in the body is ignored."
       required:
-        - "skuCode"
         - "color"
         - "size"
         - "price"
       properties:
-        skuCode:
-          type: "string"
-          pattern: "\\S"
-          minLength: 1
-          maxLength: 60
         color:
           type: "string"
           pattern: "\\S"
