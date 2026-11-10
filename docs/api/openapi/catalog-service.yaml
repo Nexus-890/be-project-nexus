@@ -2212,6 +2212,7 @@ paths:
                       categoryId: "c8000000-0000-4000-8000-000000000001"
                       sellerId: "68000000-0000-4000-8000-000000000002"
                       minPrice: null
+                      maxPrice: null
         "400":
           description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`."
           content:
@@ -2675,6 +2676,7 @@ paths:
                         categoryId: "c8000000-0000-4000-8000-000000000001"
                         sellerId: "68000000-0000-4000-8000-000000000002"
                         minPrice: 150000.5
+                        maxPrice: 150000.5
                     page:
                       number: 0
                       size: 10
@@ -3034,6 +3036,7 @@ paths:
                       categoryId: "c8000000-0000-4000-8000-000000000001"
                       sellerId: "68000000-0000-4000-8000-000000000002"
                       minPrice: null
+                      maxPrice: null
         "400":
           description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`."
           content:
@@ -3489,6 +3492,7 @@ paths:
                       categoryId: "c8000000-0000-4000-8000-000000000001"
                       sellerId: "68000000-0000-4000-8000-000000000002"
                       minPrice: null
+                      maxPrice: null
                       description: "Demo product"
                       auctionEnable: false
                       skus:
@@ -4269,6 +4273,7 @@ paths:
                         categoryId: "c8000000-0000-4000-8000-000000000001"
                         sellerId: "68000000-0000-4000-8000-000000000002"
                         minPrice: 150000.5
+                        maxPrice: 150000.5
                     page:
                       number: 0
                       size: 10
@@ -4677,6 +4682,7 @@ paths:
                       categoryId: "c8000000-0000-4000-8000-000000000001"
                       sellerId: "68000000-0000-4000-8000-000000000002"
                       minPrice: null
+                      maxPrice: null
         "400":
           description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `CATALOG_INVALID_PRODUCT_STATUS_TRANSITION`."
           content:
@@ -7904,6 +7910,7 @@ components:
         - "categoryId"
         - "sellerId"
         - "minPrice"
+        - "maxPrice"
       properties:
         id:
           type: "string"
@@ -7927,7 +7934,12 @@ components:
         minPrice:
           type: "number"
           minimum: 0
-          description: "Existing BigDecimal JSON number; this migration preserves the delivered numeric wire format."
+          description: "Lowest SKU price of the product; null when it has no SKU. Existing BigDecimal JSON number; this migration preserves the delivered numeric wire format."
+          nullable: true
+        maxPrice:
+          type: "number"
+          minimum: 0
+          description: "Highest SKU price of the product; equals minPrice when every SKU has one price, null when it has no SKU. BigDecimal JSON number."
           nullable: true
         images:
           type: array
@@ -7944,6 +7956,7 @@ components:
         - "categoryId"
         - "sellerId"
         - "minPrice"
+        - "maxPrice"
         - "description"
         - "auctionEnable"
         - "skus"
@@ -7971,7 +7984,12 @@ components:
         minPrice:
           type: "number"
           minimum: 0
-          description: "Existing BigDecimal JSON number; this migration preserves the delivered numeric wire format."
+          description: "Lowest SKU price of the product; null when it has no SKU. Existing BigDecimal JSON number; this migration preserves the delivered numeric wire format."
+          nullable: true
+        maxPrice:
+          type: "number"
+          minimum: 0
+          description: "Highest SKU price of the product; equals minPrice when every SKU has one price, null when it has no SKU. BigDecimal JSON number."
           nullable: true
         description:
           type: "string"
