@@ -6,6 +6,8 @@ import com.group5.inventoryservice.inventory.dto.BalanceResponse;
 import com.group5.inventoryservice.inventory.dto.IntakeRequest;
 import com.group5.inventoryservice.inventory.dto.StockResponse;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,9 +15,11 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -41,5 +45,10 @@ public class InventoryController {
     @GetMapping("/{skuId}")
     public ApiResponse<StockResponse> available(@PathVariable UUID skuId) {
         return ApiResponse.of(stock.available(skuId));
+    }
+
+    @GetMapping
+    public ApiResponse<List<StockResponse>> available(@RequestParam @NotEmpty List<@NotNull UUID> skuIds) {
+        return ApiResponse.list(stock.available(skuIds));
     }
 }

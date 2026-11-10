@@ -18,10 +18,14 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -123,6 +127,59 @@ class StockReadIntegrationTest {
     }
 
     @Test
+    void theBatchExposesAvailableOnlyToo() throws Exception {
+        UUID sku = UUID.randomUUID();
+        balance(sku, defaultWarehouse, 10, 4, 6);
+
+        mvc.perform(get("/api/v1/inventory").param("skuIds", sku.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].length()").value(2))
+                .andExpect(jsonPath("$.data[0].available").value(4))
+                .andExpect(jsonPath("$.data[0].total").doesNotExist())
+                .andExpect(jsonPath("$.data[0].reserved").doesNotExist())
+                .andExpect(jsonPath("$.data[0].unavailable").doesNotExist());
+    }
+
+    @Test
+    void threeSkuIdsReturnThreeEntriesInRequestOrderFromOneSelect() throws Exception {
+        UUID a = UUID.randomUUID();
+        UUID b = UUID.randomUUID();
+        UUID c = UUID.randomUUID();
+        balance(a, defaultWarehouse, 5, 5, 0);
+        balance(c, defaultWarehouse, 9, 7, 2);
+        SqlCapture.STATEMENTS.clear();
+
+        mvc.perform(get("/api/v1/inventory").param("skuIds", c + "," + a + "," + b))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasSize(3)))
+                .andExpect(jsonPath("$.data[0].skuId").value(c.toString()))
+                .andExpect(jsonPath("$.data[0].available").value(7))
+                .andExpect(jsonPath("$.data[1].skuId").value(a.toString()))
+                .andExpect(jsonPath("$.data[1].available").value(5))
+                .andExpect(jsonPath("$.data[2].skuId").value(b.toString()))
+                .andExpect(jsonPath("$.data[2].available").value(0))
+                .andExpect(jsonPath("$.page.totalElements").value(3));
+
+        List<String> balanceReads = SqlCapture.STATEMENTS.stream()
+                .map(sql -> sql.toLowerCase(Locale.ROOT))
+                .filter(sql -> sql.contains("inventory_balances"))
+                .toList();
+        assertThat(balanceReads).hasSize(1);
+        assertThat(balanceReads.getFirst()).startsWith("select").contains(" in ");
+    }
+
+    @Test
+    void theSameSkuTwiceIsReturnedOnce() throws Exception {
+        UUID sku = UUID.randomUUID();
+        balance(sku, defaultWarehouse, 8, 8, 0);
+
+        mvc.perform(get("/api/v1/inventory").param("skuIds", sku + "," + sku))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasSize(1)))
+                .andExpect(jsonPath("$.data[0].available").value(8));
+    }
+
+    @Test
     void onlyTheDefaultWarehouseIsRead() throws Exception {
         UUID sku = UUID.randomUUID();
         balance(sku, otherWarehouse, 50, 50, 0);
@@ -130,6 +187,36 @@ class StockReadIntegrationTest {
         mvc.perform(get("/api/v1/inventory/" + sku))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.available").value(0));
+    }
+
+    @Test
+    void hundredIdsAreReadButHundredAndOneReturn400() throws Exception {
+        mvc.perform(get("/api/v1/inventory").param("skuIds", ids(100)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", hasSize(100)));
+        SqlCapture.STATEMENTS.clear();
+
+        mvc.perform(get("/api/v1/inventory").param("skuIds", ids(101)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
+                .andExpect(jsonPath("$.code").value("INVENTORY_TOO_MANY_SKUS"))
+                .andExpect(jsonPath("$.detail").value("At most 100 SKU ids can be read at once"));
+        assertThat(SqlCapture.STATEMENTS).noneMatch(sql -> sql.contains("inventory_balances"));
+    }
+
+    @Test
+    void missingEmptyOrMalformedIdsReturn400() throws Exception {
+        mvc.perform(get("/api/v1/inventory"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+        mvc.perform(get("/api/v1/inventory").param("skuIds", ""))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        mvc.perform(get("/api/v1/inventory").param("skuIds", UUID.randomUUID() + ",not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
     }
 
     @Test
@@ -150,6 +237,11 @@ class StockReadIntegrationTest {
 
     private UUID warehouseId(String code) {
         return jdbc.queryForObject("SELECT id FROM warehouses WHERE code = ?", UUID.class, code);
+    }
+
+    private static String ids(int count) {
+        return IntStream.range(0, count).mapToObj(i -> UUID.randomUUID().toString())
+                .collect(Collectors.joining(","));
     }
 
     private static Jwt token() {
