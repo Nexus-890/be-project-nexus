@@ -13,18 +13,24 @@ public interface InventoryMovementRepository extends Repository<InventoryMovemen
 
     default void record(UUID skuId, UUID warehouseId, MovementType type, int quantity, UUID referenceId,
                         UUID actor) {
-        insert(skuId, warehouseId, type.name(), quantity, referenceId, actor);
+        insert(skuId, warehouseId, type.name(), quantity, referenceId, null, actor);
+    }
+
+    default void recordAdjustment(UUID skuId, UUID warehouseId, int quantityDelta, UUID referenceId, String reason,
+                                  UUID actor) {
+        insert(skuId, warehouseId, MovementType.ADJUSTMENT.name(), quantityDelta, referenceId, reason, actor);
     }
 
     @Modifying(flushAutomatically = true)
     @Query(nativeQuery = true, value = """
             INSERT INTO inventory_movements
-                (sku_id, warehouse_id, movement_type, quantity, reference_id, created_by, updated_by)
+                (sku_id, warehouse_id, movement_type, quantity, reference_id, reason, created_by, updated_by)
             VALUES (:skuId, :warehouseId, CAST(:type AS inventory_movement_type), :quantity, :referenceId,
-                    :actor, :actor)
+                    :reason, :actor, :actor)
             """)
     int insert(@Param("skuId") UUID skuId, @Param("warehouseId") UUID warehouseId, @Param("type") String type,
-               @Param("quantity") int quantity, @Param("referenceId") UUID referenceId, @Param("actor") UUID actor);
+               @Param("quantity") int quantity, @Param("referenceId") UUID referenceId,
+               @Param("reason") String reason, @Param("actor") UUID actor);
 
     List<InventoryMovement> findBySkuIdAndWarehouseIdOrderByCreatedAtAscIdAsc(UUID skuId, UUID warehouseId);
 }

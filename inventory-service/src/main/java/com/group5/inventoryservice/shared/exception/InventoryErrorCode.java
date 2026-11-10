@@ -13,7 +13,9 @@ public enum InventoryErrorCode implements ErrorCode {
     RESERVATION_CONFLICT(HttpStatus.CONFLICT,
             "These orders already hold reservations that differ from this request"),
     RESERVATION_NOT_FOUND(HttpStatus.NOT_FOUND, "Reservation not found"),
-    ILLEGAL_TRANSITION(HttpStatus.CONFLICT, "The reservation is not HELD");
+    ILLEGAL_TRANSITION(HttpStatus.CONFLICT, "The reservation is not HELD"),
+    BALANCE_NOT_FOUND(HttpStatus.NOT_FOUND, "SKU balance not found"),
+    NEGATIVE_QUANTITY(HttpStatus.CONFLICT, "The adjustment would make a quantity negative");
 
     private final HttpStatus status;
     private final String message;

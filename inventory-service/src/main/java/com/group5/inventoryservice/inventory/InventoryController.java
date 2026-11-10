@@ -2,6 +2,7 @@ package com.group5.inventoryservice.inventory;
 
 import com.group5.common_core.model.ApiResponse;
 import com.group5.common_security.CurrentUser;
+import com.group5.inventoryservice.inventory.dto.AdjustmentRequest;
 import com.group5.inventoryservice.inventory.dto.BalanceResponse;
 import com.group5.inventoryservice.inventory.dto.IntakeRequest;
 import com.group5.inventoryservice.inventory.dto.StockResponse;
@@ -50,5 +51,13 @@ public class InventoryController {
     @GetMapping
     public ApiResponse<List<StockResponse>> available(@RequestParam @NotEmpty List<@NotNull UUID> skuIds) {
         return ApiResponse.list(stock.available(skuIds));
+    }
+
+    @PostMapping("/adjustments")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<BalanceResponse> adjust(@Valid @RequestBody AdjustmentRequest request,
+                                               CurrentUser currentUser) {
+        return ApiResponse.of(service.adjust(request, currentUser));
     }
 }
