@@ -1,4 +1,4 @@
-package com.group5.shipmentservice.shipping;
+package com.group5.shipmentservice.shipping.enums;
 
 /** Values shared by shipments and shipment_history in PostgreSQL. */
 public enum ShipmentStatus {

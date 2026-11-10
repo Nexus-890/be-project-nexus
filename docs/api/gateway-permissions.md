@@ -101,9 +101,8 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/webhooks/sepay` | POST | Public | #155 — payment-service; provider authentication remains downstream |
 | `/api/v1/webhooks/carriers/ghn` | POST | Public | #203 / #245 — shipment-service; owner-confirmed GHN callback |
 | `/api/v1/webhooks/carriers/ghtk` | POST | Public | #203 / #245 — shipment-service; owner-confirmed GHTK callback |
-| `/api/v1/shipping/provinces` | GET | Public | #201 — shipment-service address list |
-| `/api/v1/shipping/districts` | GET | Public | #201 — shipment-service address list; provinceCode query required downstream |
-| `/api/v1/shipping/wards` | GET | Public | #201 — shipment-service address list; districtCode query required downstream |
+| `/api/v1/shipping/provinces` | GET | Public | #201 — danh mục GHN v3 hai cấp; chỉ trả tỉnh/thành phố đang hoạt động; shipment-service cũng cho phép truy cập không JWT |
+| `/api/v1/shipping/wards` | GET | Public | #201 — bắt buộc provinceCode v3; chỉ trả phường/xã đang hoạt động thuộc đúng tỉnh/thành phố |
 | `/api/v1/payments` | GET | ORDER.REFUND | #207 — payment-service; service enforces actor and order visibility |
 | `/api/v1/refunds` | POST | ORDER.REFUND | #247 — payment-service; funded amount and idempotency enforced downstream |
 | `/api/v1/refunds` | GET | ORDER.REFUND | #247 — payment-service; order visibility enforced downstream |
