@@ -553,6 +553,38 @@ nonempty-body criterion. Implementation MRs still need to register the gateway
 privilege and enforce the full downstream policy before deployment; these drafts
 and Prism cannot demonstrate runtime authorization.
 
+## Sprint 3 contract handoff (#139)
+
+The following rules describe the Sprint 3 contract boundary, including paths
+whose owners have not implemented them yet. They do not register runtime routes.
+The active policy table/config above remains the source for enabled endpoints.
+
+| Method | Path / family | Bearer policy | Downstream rule | Owning issue / status |
+| --- | --- | --- | --- | --- |
+| GET | `/api/v1/auctions/{id}/state` | Public | One-second data cache; fresh serverTime; masked leader; public visibility | #168, [draft response](auction-service.yaml) |
+| POST | `/api/v1/auctions/{id}/bids` | AUCTION.BID | BUYER, not own auction; caller-scoped Idempotency-Key | #146/#147, draft until delivered |
+| POST | `/api/v1/orders/{id}/shipping-confirmation` | Authenticated; privilege decision belongs to #172 | BUYER and winner/order owner; PENDING; linked hold, address and pricing checks; repeated identical confirmation writes no second manifest | #172, proposed policy; owner must register on delivery |
+| POST | `/api/v1/webhooks/**` | Public callback contract family; no bearer required | Provider authentication is mandatory in each receiving service; this row does not enable a wildcard matcher | #139 design scope; concrete routes below |
+| POST | `/api/v1/webhooks/sepay` | Public, enabled | Verify signature/timestamp over raw bytes before parsing; native ACK; no payment-state change in #155 | #155, [delivered contract](openapi/payment-service.yaml) |
+| POST | `/api/v1/webhooks/carriers/ghn`, `/api/v1/webhooks/carriers/ghtk` | Public, enabled | Carrier-specific validation at shipment-service | #203/#245 |
+
+**Target contract versus enabled paths:** the #139 Sprint 3 contract declares
+`POST /api/v1/webhooks/**` public without bearer authentication. Each callback
+still requires its provider's authentication at its owning service. The current
+#245/#155 runtime registers the supported POST paths individually; it does not
+yet enable the wildcard. When an implementation adopts the family matcher, it
+must update gateway and receiving-service policies with their security tests,
+and preserve routing to the callback's owner. A public policy does not create a
+route or a handler. This contract revision documents the requested public family;
+it does not activate a runtime authorization change.
+
+The state endpoint must support two-second polling under #168's gateway test;
+neither this table nor an OpenAPI example proves rate-limit/latency acceptance.
+The shipping-confirmation policy is a proposal for #172 approval, not an
+implemented permission claim. The six event publishers/consumers and transaction
+handoff are in [events.md](events.md#sprint-3-handoff-139). Their Kafka consumers
+are not public HTTP endpoints.
+
 ## API shapes draft (#124) — inventory and auction
 
 These **26 method/path contracts** are drafts (`0.1.0-draft`) for the
