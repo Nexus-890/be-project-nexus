@@ -76,7 +76,6 @@ public class SkuService {
         validatePrice(request.getPrice());
 
         //Áp dụng update cho Sku có tồn tại
-        sku.setSkuCode(request.getSkuCode().trim());
         sku.setColor(request.getColor().trim());
         sku.setSize(request.getSize().trim());
         sku.setPrice(request.getPrice());
