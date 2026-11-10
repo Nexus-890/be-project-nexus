@@ -5,8 +5,11 @@ import com.group5.common_events.Topics;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -37,6 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "nexus.security.jwt.issuer=user-service", "nexus.security.jwt.audience=nexus-services",
         "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/jwks", "management.tracing.enabled=false"
 })
+@ExtendWith(OutputCaptureExtension.class)
 class OrderPaidConsumerIntegrationTest {
     private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18");
     static { POSTGRES.start(); }
@@ -90,6 +94,17 @@ class OrderPaidConsumerIntegrationTest {
         assertThat(status(reservation)).isEqualTo("CONFIRMED");
         assertThat(movements(sku, "COMMIT")).containsExactly(Map.of("quantity", 1,
                 "reference_id", reservation, "created_by", SYSTEM_ACTOR));
+    }
+
+    @Test
+    void anOrderWithNoReservationCompletesAndLogsOneInfoLine(CapturedOutput output) {
+        UUID order = UUID.randomUUID();
+
+        consumer.receive(orderPaid(UUID.randomUUID(), order, "STANDARD"));
+
+        assertThat(movementCount()).isZero();
+        assertThat(output.getAll().lines().filter(line -> line.contains("ORDER_PAID_NO_RESERVATION")))
+                .singleElement().asString().contains(" INFO ").contains("orderId=" + order);
     }
 
     @Test

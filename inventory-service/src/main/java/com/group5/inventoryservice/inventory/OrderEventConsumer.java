@@ -32,6 +32,11 @@ public class OrderEventConsumer {
     private void orderPaid(EventEnvelope<OrderPaid> event) {
         OrderPaid paid = event.payload();
         int confirmed = reservations.confirmOrder(paid.orderId());
+        if (confirmed == 0) {
+            log.info("ORDER_PAID_NO_RESERVATION eventId={} orderId={} orderType={}",
+                    event.eventId(), paid.orderId(), paid.orderType());
+            return;
+        }
         log.info("ORDER_PAID_STOCK_CONFIRMED eventId={} orderId={} orderType={} reservations={}",
                 event.eventId(), paid.orderId(), paid.orderType(), confirmed);
     }
