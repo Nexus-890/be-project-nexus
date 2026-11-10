@@ -1,6 +1,8 @@
 package com.group5.inventoryservice.inventory;
 
 import com.group5.inventoryservice.inventory.dto.StockResponse;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -92,4 +94,12 @@ public interface InventoryBalanceRepository extends JpaRepository<InventoryBalan
             """)
     int adjust(@Param("skuId") UUID skuId, @Param("warehouseId") UUID warehouseId,
                @Param("delta") int delta, @Param("actor") UUID actor);
+
+    @Query("""
+            SELECT b FROM InventoryBalance b
+            WHERE (:skuId IS NULL OR b.skuId = :skuId)
+              AND (:warehouseId IS NULL OR b.warehouseId = :warehouseId)
+            """)
+    Page<InventoryBalance> search(@Param("skuId") UUID skuId, @Param("warehouseId") UUID warehouseId,
+                                  Pageable pageable);
 }

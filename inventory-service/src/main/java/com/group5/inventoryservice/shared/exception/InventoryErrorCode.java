@@ -15,7 +15,9 @@ public enum InventoryErrorCode implements ErrorCode {
     RESERVATION_NOT_FOUND(HttpStatus.NOT_FOUND, "Reservation not found"),
     ILLEGAL_TRANSITION(HttpStatus.CONFLICT, "The reservation is not HELD"),
     BALANCE_NOT_FOUND(HttpStatus.NOT_FOUND, "SKU balance not found"),
-    NEGATIVE_QUANTITY(HttpStatus.CONFLICT, "The adjustment would make a quantity negative");
+    NEGATIVE_QUANTITY(HttpStatus.CONFLICT, "The adjustment would make a quantity negative"),
+    FORBIDDEN(HttpStatus.FORBIDDEN, "The caller does not own this SKU"),
+    CATALOG_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "The catalog could not confirm who owns this SKU");
 
     private final HttpStatus status;
     private final String message;
