@@ -82,7 +82,7 @@ public class Auction extends AuditedEntity {
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(nullable = false, columnDefinition = "auction_status")
-    private Status status = Status.CREATED;
+    private AuctionStatus status = AuctionStatus.CREATED;
 
     private UUID winnerId;
 
@@ -118,8 +118,8 @@ public class Auction extends AuditedEntity {
         this.originalEndAt = endAt;
     }
 
-    public enum Status {
-        CREATED, SCHEDULED, ACTIVE, ENDED, WON, SETTLED, FAILED, PAYMENT_TIMEOUT, CANCELLED
+    void setStatus(AuctionStatus status) {
+        this.status = status;
     }
 
     public enum Visibility {

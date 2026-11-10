@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 
 public enum PaymentErrorCode implements ErrorCode {
     UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "A valid buyer identity is required"),
+    INVALID_WEBHOOK_REQUEST(HttpStatus.BAD_REQUEST, "The webhook body must be a valid SePay JSON object"),
     CHECKOUT_PRIVILEGE_REQUIRED(HttpStatus.FORBIDDEN, "CHECKOUT.START is required"),
     ORDER_GROUP_ID_REQUIRED(HttpStatus.BAD_REQUEST, "orderGroupId is required"),
     SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "Payment session is not available"),
