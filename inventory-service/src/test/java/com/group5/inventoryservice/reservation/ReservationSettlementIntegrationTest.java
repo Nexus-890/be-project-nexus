@@ -102,6 +102,21 @@ class ReservationSettlementIntegrationTest {
     }
 
     @Test
+    void releasingTwoHeldUnitsAtAvailable8Reserved2Leaves10Available0Reserved0Unavailable() throws Exception {
+        UUID sku = stock(10);
+        UUID reservation = reserve(sku, 2);
+
+        settle("admin", reservation, "release").andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+
+        assertBalance(sku, 10, 10, 0, 0);
+        assertThat(reservation(reservation)).containsEntry("status", "RELEASED");
+        assertThat(reservation(reservation).get("released_at")).isNotNull();
+        assertThat(movements(sku, "RELEASE")).containsExactly(Map.of("quantity", 2,
+                "reference_id", reservation, "created_by", ADMIN_ID));
+    }
+
+    @Test
     void confirmingTwiceLeavesTheBalanceOfOneCallAndOneCommitRow() throws Exception {
         UUID sku = stock(10);
         UUID reservation = reserve(sku, 2);
@@ -115,10 +130,43 @@ class ReservationSettlementIntegrationTest {
     }
 
     @Test
+    void releasingTwiceLeavesTheBalanceOfOneCallAndOneReleaseRow() throws Exception {
+        UUID sku = stock(10);
+        UUID reservation = reserve(sku, 2);
+        settle("admin", reservation, "release").andExpect(status().isNoContent());
+        Map<String, Object> afterFirst = balance(sku);
+        Map<String, Object> reservationAfterFirst = reservation(reservation);
+
+        settle("admin", reservation, "release").andExpect(status().isNoContent());
+
+        assertThat(balance(sku)).isEqualTo(afterFirst);
+        assertThat(reservation(reservation)).isEqualTo(reservationAfterFirst);
+        assertThat(movements(sku, "RELEASE")).hasSize(1);
+    }
+
+    @Test
+    void releasingAConfirmedReservationReturns409AndLeavesTheBalanceUnchanged() throws Exception {
+        UUID sku = stock(10);
+        UUID reservation = reserve(sku, 2);
+        settle("admin", reservation, "confirm").andExpect(status().isNoContent());
+        Map<String, Object> before = balance(sku);
+
+        settle("admin", reservation, "release")
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
+                .andExpect(jsonPath("$.code").value("INVENTORY_ILLEGAL_TRANSITION"))
+                .andExpect(jsonPath("$.instance").value(PATH + "/" + reservation + "/release"));
+
+        assertThat(balance(sku)).isEqualTo(before);
+        assertThat(reservation(reservation)).containsEntry("status", "CONFIRMED");
+        assertThat(movements(sku, "RELEASE")).isEmpty();
+    }
+
+    @Test
     void confirmingAReleasedReservationReturns409AndLeavesTheBalanceUnchanged() throws Exception {
         UUID sku = stock(10);
         UUID reservation = reserve(sku, 2);
-        jdbc.update("UPDATE inventory_reservations SET status = 'RELEASED' WHERE id = ?", reservation);
+        settle("admin", reservation, "release").andExpect(status().isNoContent());
         Map<String, Object> before = balance(sku);
 
         settle("admin", reservation, "confirm")
@@ -131,7 +179,7 @@ class ReservationSettlementIntegrationTest {
     }
 
     @Test
-    void anExpiredReservationCannotBeConfirmed() throws Exception {
+    void anExpiredReservationCannotBeConfirmedAndReleasingItChangesNothing() throws Exception {
         UUID sku = stock(10);
         UUID reservation = reserve(sku, 2);
         jdbc.update("UPDATE inventory_reservations SET status = 'EXPIRED' WHERE id = ?", reservation);
@@ -140,6 +188,7 @@ class ReservationSettlementIntegrationTest {
         settle("admin", reservation, "confirm")
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVENTORY_ILLEGAL_TRANSITION"));
+        settle("admin", reservation, "release").andExpect(status().isNoContent());
 
         assertThat(balance(sku)).isEqualTo(before);
         assertThat(reservation(reservation)).containsEntry("status", "EXPIRED");
@@ -147,16 +196,29 @@ class ReservationSettlementIntegrationTest {
     }
 
     @Test
-    void onlyOneOfManyParallelConfirmsChangesTheStock() throws Exception {
+    void onlyOneOfManyParallelCallsChangesTheStock() throws Exception {
         UUID sku = stock(10);
-        UUID reservation = reserve(sku, 2);
+        UUID confirmed = reserve(sku, 2);
+        UUID contested = reserve(sku, 3);
 
-        List<Integer> codes = parallel(List.of("confirm", "confirm", "confirm", "confirm", "confirm", "confirm"),
-                reservation);
+        List<Integer> sameCall = parallel(List.of("confirm", "confirm", "confirm", "confirm", "confirm", "confirm"),
+                confirmed);
+        List<Integer> mixed = parallel(List.of("confirm", "release", "confirm", "release", "confirm", "release"),
+                contested);
 
-        assertThat(codes).containsOnly(204);
-        assertBalance(sku, 10, 8, 0, 2);
-        assertThat(movements(sku, "COMMIT")).hasSize(1);
+        assertThat(sameCall).containsOnly(204);
+        assertThat(movements(sku, "COMMIT")).extracting(row -> row.get("reference_id")).containsOnlyOnce(confirmed);
+        String winner = (String) reservation(contested).get("status");
+        int expectedConflicts = 3;
+        assertThat(mixed).filteredOn(code -> code == 409).hasSize(expectedConflicts);
+        assertThat(mixed).filteredOn(code -> code == 204).hasSize(3);
+        if (winner.equals("CONFIRMED")) {
+            assertBalance(sku, 10, 5, 0, 5);
+        } else {
+            assertThat(winner).isEqualTo("RELEASED");
+            assertBalance(sku, 10, 8, 0, 2);
+        }
+        assertThat(movementCount()).isEqualTo(4);
     }
 
     @Test
@@ -165,7 +227,7 @@ class ReservationSettlementIntegrationTest {
         UUID reservation = reserve(sku, 2);
         Map<String, Object> before = balance(sku);
 
-        for (String action : List.of("confirm")) {
+        for (String action : List.of("confirm", "release")) {
             settle("admin", UUID.randomUUID(), action)
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.code").value("INVENTORY_RESERVATION_NOT_FOUND"));

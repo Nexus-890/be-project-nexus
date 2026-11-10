@@ -40,4 +40,10 @@ public class ReservationController {
         reservationService.confirm(id, currentUser);
     }
 
+    @PostMapping("/{id}/release")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasRole('ADMIN')")
+    public void release(@PathVariable UUID id, CurrentUser currentUser) {
+        reservationService.release(id, currentUser);
+    }
 }

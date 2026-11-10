@@ -23,4 +23,13 @@ public interface ReservationRepository extends JpaRepository<InventoryReservatio
             """)
     int confirmHeld(@Param("id") UUID id, @Param("actor") UUID actor);
 
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(nativeQuery = true, value = """
+            UPDATE inventory_reservations
+            SET status      = 'RELEASED',
+                released_at = now(),
+                updated_by  = :actor
+            WHERE id = :id AND status = 'HELD'
+            """)
+    int releaseHeld(@Param("id") UUID id, @Param("actor") UUID actor);
 }
