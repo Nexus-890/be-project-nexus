@@ -12,7 +12,7 @@ import com.group5.inventoryservice.reservation.dto.request.ReserveRequest;
 import com.group5.inventoryservice.reservation.dto.response.ReservationResponse;
 import com.group5.inventoryservice.reservation.entity.InventoryReservation;
 import com.group5.inventoryservice.reservation.repository.ReservationRepository;
-import com.group5.inventoryservice.shared.config.InventoryProperties;
+import com.group5.inventoryservice.shared.config.ReservationTimeout;
 import com.group5.inventoryservice.shared.exception.InventoryErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -42,7 +42,7 @@ public class ReservationService {
     private final InventoryMovementRepository movements;
     private final ReservationRepository reservations;
     private final WarehouseResolver warehouses;
-    private final InventoryProperties properties;
+    private final ReservationTimeout reservationTimeout;
 
     @Transactional
     public ReservationResponse reserve(ReserveRequest request, CurrentUser currentUser) {
@@ -64,7 +64,7 @@ public class ReservationService {
         }
 
         OffsetDateTime createdAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
-        OffsetDateTime expiresAt = createdAt.plusMinutes(properties.reservationTimeoutMinutes());
+        OffsetDateTime expiresAt = reservationTimeout.expiresAt(createdAt);
         List<InventoryReservation> created = save(items.stream()
                 .map(item -> InventoryReservation.held(item.orderId(), item.skuId(), warehouseId, item.quantity(),
                         createdAt, expiresAt))

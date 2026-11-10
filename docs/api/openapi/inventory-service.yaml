@@ -566,7 +566,10 @@ components:
         expiresAt:
           type: string
           format: date-time
-          description: In UTC; the same for every item of the request
+          description: >-
+            In UTC with a Z offset; the same for every item of the request. The time of the
+            request plus nexus.inventory.reservation-timeout-minutes from Config Server (30 by
+            default), read again on /actuator/refresh.
     InsufficientStockProblem:
       allOf:
         - $ref: '#/components/schemas/Problem'
