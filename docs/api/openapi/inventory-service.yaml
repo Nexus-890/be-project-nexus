@@ -3,7 +3,7 @@ info:
   title: Nexus inventory
   version: 1.0.0
   description: >-
-    Issue #130 stock intake. Every 2xx body is an ApiResponse with code, message and data;
+    Issue #130 stock intake and #134 stock reservation. Every 2xx body is an ApiResponse with code, message and data;
     every error is Problem Details. Quantities are stored per SKU and warehouse in
     inventory_balances, where total equals available plus reserved plus unavailable.
 servers:
@@ -14,6 +14,8 @@ servers:
 tags:
   - name: Stock
     description: Receive stock into a warehouse
+  - name: Reservations
+    description: Hold stock for the orders of one order group
 paths:
   /api/v1/inventory/intake:
     post:
@@ -117,6 +119,145 @@ paths:
                 detail: The configured default warehouse does not exist
                 instance: /api/v1/inventory/intake
                 code: INVENTORY_DEFAULT_WAREHOUSE_NOT_FOUND
+  /api/v1/inventory/reservations:
+    post:
+      tags: [Reservations]
+      operationId: reserveStock
+      summary: Hold stock for the orders of one order group
+      description: >-
+        Sent by commerce-service with the buyer's token while it creates the orders; the
+        frontend does not call it. Each SKU is reserved by one UPDATE whose WHERE clause
+        requires available_quantity to cover the quantity, in SKU order, all in one
+        transaction: one shortage reserves nothing. Items of the same SKU are checked
+        against their sum. Every reservation is HELD in the warehouse whose code is
+        nexus.inventory.default-warehouse-code, keeps its item's orderId and writes one
+        RESERVE ledger row. orderGroupId is not stored. Sending the same items again
+        returns the reservations already held. The gateway only requires a valid token;
+        the service requires the BUYER role.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [BUYER]
+      x-required-roles: [BUYER]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReserveRequest'
+            example:
+              orderGroupId: 0195f0a3-1111-7111-8111-111111111111
+              items:
+                - orderId: 0195f0a3-2222-7222-8222-222222222222
+                  skuId: 0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a81
+                  quantity: 2
+      responses:
+        '201':
+          description: The reservations held for the items, in request order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  reservationIds:
+                    - 0195f0a3-3333-7333-8333-333333333333
+                  warehouseId: 0195f0a1-0000-7000-8000-000000000001
+                  expiresAt: '2026-11-05T10:15:00Z'
+        '400':
+          description: >-
+            A missing orderGroupId, empty items, a missing field or a quantity of 0 or less
+            (VALIDATION_FAILED), or the same orderId and skuId twice
+            (INVENTORY_DUPLICATE_RESERVATION_ITEM)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                VALIDATION_FAILED:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/inventory/reservations
+                    code: VALIDATION_FAILED
+                    errors:
+                      - field: items[0].quantity
+                        code: VALIDATION_POSITIVE
+                        detail: must be greater than 0
+                INVENTORY_DUPLICATE_RESERVATION_ITEM:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Each order and SKU pair may appear only once
+                    instance: /api/v1/inventory/reservations
+                    code: INVENTORY_DUPLICATE_RESERVATION_ITEM
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: The caller does not have the BUYER role
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:forbidden
+                title: Forbidden
+                status: 403
+                detail: You do not have permission to access this resource
+                instance: /api/v1/inventory/reservations
+                code: FORBIDDEN
+        '409':
+          description: >-
+            Not enough stock for a SKU (INVENTORY_INSUFFICIENT_STOCK, with skuId, available
+            and requested), or these orders already hold reservations that differ from the
+            request (INVENTORY_RESERVATION_CONFLICT). Nothing is reserved.
+          content:
+            application/problem+json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/InsufficientStockProblem'
+                  - $ref: '#/components/schemas/Problem'
+              examples:
+                INVENTORY_INSUFFICIENT_STOCK:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: Not enough stock; nothing was reserved
+                    instance: /api/v1/inventory/reservations
+                    code: INVENTORY_INSUFFICIENT_STOCK
+                    skuId: 0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a81
+                    available: 1
+                    requested: 2
+                INVENTORY_RESERVATION_CONFLICT:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: These orders already hold reservations that differ from this request
+                    instance: /api/v1/inventory/reservations
+                    code: INVENTORY_RESERVATION_CONFLICT
+        '500':
+          description: The configured default warehouse code matches no warehouse
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Internal Server Error
+                status: 500
+                detail: The configured default warehouse does not exist
+                instance: /api/v1/inventory/reservations
+                code: INVENTORY_DEFAULT_WAREHOUSE_NOT_FOUND
 components:
   securitySchemes:
     bearerAuth:
@@ -179,6 +320,82 @@ components:
           type: integer
           format: int32
           minimum: 0
+    ReserveRequest:
+      type: object
+      required: [orderGroupId, items]
+      properties:
+        orderGroupId:
+          type: string
+          format: uuid
+          description: Identifies the request; not stored
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ReserveItem'
+    ReserveItem:
+      type: object
+      required: [orderId, skuId, quantity]
+      properties:
+        orderId:
+          type: string
+          format: uuid
+          description: The seller order that owns the item; stored on its reservation
+        skuId:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+    ReservationApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          default: response success
+          example: response success
+        data:
+          $ref: '#/components/schemas/Reservation'
+    Reservation:
+      type: object
+      required: [reservationIds, warehouseId, expiresAt]
+      properties:
+        reservationIds:
+          type: array
+          description: One per item, in request order
+          items:
+            type: string
+            format: uuid
+        warehouseId:
+          type: string
+          format: uuid
+        expiresAt:
+          type: string
+          format: date-time
+          description: In UTC; the same for every item of the request
+    InsufficientStockProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [skuId, available, requested]
+          properties:
+            skuId:
+              type: string
+              format: uuid
+            available:
+              type: integer
+              format: int32
+              minimum: 0
+            requested:
+              type: integer
+              format: int32
+              minimum: 1
     Problem:
       type: object
       required: [type, title, status, detail]
