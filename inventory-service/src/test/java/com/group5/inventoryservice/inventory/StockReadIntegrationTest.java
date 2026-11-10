@@ -5,7 +5,9 @@ import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -19,6 +21,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
@@ -30,6 +33,7 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup;
@@ -225,6 +229,31 @@ class StockReadIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
                 .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+    }
+
+    @Test
+    void onlyTheTwoStockReadsArePublic() throws Exception {
+        mvc.perform(get("/api/v1/inventory/not-a-uuid"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", "Bearer"));
+        mvc.perform(get("/api/v1/inventory/reservations"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/inventory/" + UUID.randomUUID() + "/extra"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void theTestUsesThePublicPathsOfTheConfigServerFile() {
+        YamlPropertiesFactoryBean yaml = new YamlPropertiesFactoryBean();
+        yaml.setResources(new FileSystemResource(
+                "../config-service/src/main/resources/config/inventory-service.yml"));
+        Properties config = yaml.getObject();
+
+        assertThat(config).containsEntry("nexus.security.public-endpoints[0].method", BATCH_METHOD)
+                .containsEntry("nexus.security.public-endpoints[0].path", BATCH_PATH)
+                .containsEntry("nexus.security.public-endpoints[1].method", SINGLE_METHOD)
+                .containsEntry("nexus.security.public-endpoints[1].path", SINGLE_PATH)
+                .doesNotContainKey("nexus.security.public-endpoints[2].path");
     }
 
     private void balance(UUID sku, UUID warehouse, int total, int available, int reserved) {
