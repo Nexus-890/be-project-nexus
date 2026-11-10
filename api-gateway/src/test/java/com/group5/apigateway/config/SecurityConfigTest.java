@@ -332,6 +332,22 @@ class SecurityConfigTest {
     }
 
     @Test
+    void confirmAndReleaseAreNotRoutedSoAnOutsideCallGets404AndNeverReachesInventory() {
+        String admin = "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of("ADMIN")));
+        for (String action : List.of("confirm", "release")) {
+            String path = "/api/v1/inventory/reservations/" + ID + "/" + action;
+            client.post().uri(path).exchange().expectStatus().isUnauthorized();
+            client.post().uri(path).header(HttpHeaders.AUTHORIZATION, admin).exchange()
+                    .expectStatus().isNotFound().expectBody()
+                    .jsonPath("$.type").isEqualTo("https://nexus/errors/not-found");
+        }
+        assertThat(DOMAIN_LOG).isEmpty();
+        assertThat(SERVICE_LOG).isEmpty();
+        client.post().uri("/api/v1/inventory/reservations").header(HttpHeaders.AUTHORIZATION, admin).exchange()
+                .expectStatus().isOk().expectBody(String.class).isEqualTo("inventory-service");
+    }
+
+    @Test
     void refundsRequireOrderRefundAndABuyerTokenNeverReachesTheService() {
         String complete = "/api/v1/refunds/" + ID + "/complete";
         String buyer = "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of("BUYER"))

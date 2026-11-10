@@ -147,6 +147,12 @@ above: any valid token passes the gateway and the owning service checks the role
 |---|---|---|---|---|
 | POST | `/api/v1/inventory/intake` | token only | Service requires ADMIN | #130 — Inventory balance and stock intake |
 | POST | `/api/v1/inventory/reservations` | token only | Service requires BUYER; commerce-service forwards the buyer token | #134 — Reserve stock with a conditional update |
+| POST | `/api/v1/inventory/reservations/{id}/confirm` | not routed | Service requires ADMIN; the OrderPaid consumer calls the service method in-process | #136 — Confirm and release a reservation |
+| POST | `/api/v1/inventory/reservations/{id}/release` | not routed | Service requires ADMIN; the OrderCancelled consumer calls the service method in-process | #136 — Confirm and release a reservation |
+
+`not routed` means the inventory route leaves the path out: with a valid token the
+gateway answers 404 and nothing reaches inventory-service, without a token it answers
+401 like any other unknown path.
 
 ## Order management and sales (#190)
 
