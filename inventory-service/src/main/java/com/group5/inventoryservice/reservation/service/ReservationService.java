@@ -7,6 +7,7 @@ import com.group5.inventoryservice.inventory.InventoryBalanceRepository;
 import com.group5.inventoryservice.inventory.InventoryMovementRepository;
 import com.group5.inventoryservice.inventory.MovementType;
 import com.group5.inventoryservice.inventory.WarehouseResolver;
+import com.group5.inventoryservice.reservation.ReservationStatus;
 import com.group5.inventoryservice.reservation.dto.request.ReserveRequest;
 import com.group5.inventoryservice.reservation.dto.response.ReservationResponse;
 import com.group5.inventoryservice.reservation.entity.InventoryReservation;
@@ -86,7 +87,7 @@ public class ReservationService {
 
     private static SortedMap<UUID, Integer> quantitiesBySku(List<ReserveRequest.Item> items) {
         return items.stream().collect(Collectors.toMap(ReserveRequest.Item::skuId, ReserveRequest.Item::quantity,
-                Integer::sum, TreeMap::new));
+                Math::addExact, TreeMap::new));
     }
 
     private DomainException insufficientStock(UUID skuId, UUID warehouseId, int requested) {
@@ -111,6 +112,9 @@ public class ReservationService {
 
     private static ReservationResponse replay(List<ReserveRequest.Item> items, List<InventoryReservation> existing,
                                               UUID warehouseId) {
+        if (existing.stream().anyMatch(row -> row.getStatus() != ReservationStatus.HELD)) {
+            throw new DomainException(InventoryErrorCode.RESERVATION_CONFLICT);
+        }
         Map<ItemKey, InventoryReservation> held = existing.stream()
                 .collect(Collectors.toMap(row -> new ItemKey(row.getOrderId(), row.getSkuId()), Function.identity()));
         if (held.size() != items.size()) {

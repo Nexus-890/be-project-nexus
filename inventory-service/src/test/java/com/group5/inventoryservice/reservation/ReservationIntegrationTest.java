@@ -257,6 +257,47 @@ class ReservationIntegrationTest {
     }
 
     @Test
+    void aRepeatAfterTheReservationLeftHeldReturns409AndChangesNothing() throws Exception {
+        UUID sku = stock(10);
+        String body = body(item(UUID.randomUUID(), sku, 2));
+        reserve("buyer", body).andExpect(status().isCreated());
+
+        for (String status : new String[] {"RELEASED", "EXPIRED", "CONFIRMED"}) {
+            jdbc.update("UPDATE inventory_reservations SET status = CAST(? AS inventory_reservation_status)", status);
+            Map<String, Object> before = balance(sku);
+
+            reserve("buyer", body)
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("INVENTORY_RESERVATION_CONFLICT"));
+
+            assertThat(balance(sku)).isEqualTo(before);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM inventory_reservations", Integer.class)).isEqualTo(1);
+            assertThat(movementCount("RESERVE")).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void theLargestQuantitiesOfOneSkuAreSummedWithoutOverflowAndCannotFreeOtherReservations() throws Exception {
+        UUID sku = stock(10);
+        reserve("buyer", body(item(UUID.randomUUID(), sku, 2))).andExpect(status().isCreated());
+        Map<String, Object> before = balance(sku);
+
+        reserve("buyer", body(item(UUID.randomUUID(), sku, 999), item(UUID.randomUUID(), sku, 999)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVENTORY_INSUFFICIENT_STOCK"))
+                .andExpect(jsonPath("$.available").value(8))
+                .andExpect(jsonPath("$.requested").value(1998));
+        reserve("buyer", body(item(UUID.randomUUID(), sku, Integer.MAX_VALUE),
+                item(UUID.randomUUID(), sku, Integer.MAX_VALUE)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        assertThat(balance(sku)).isEqualTo(before).containsEntry("available_quantity", 8)
+                .containsEntry("reserved_quantity", 2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM inventory_reservations", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
     void theSameOrderAndSkuTwiceInOneRequestReturns400() throws Exception {
         UUID sku = stock(10);
         UUID order = UUID.randomUUID();
@@ -282,11 +323,19 @@ class ReservationIntegrationTest {
         reserve("buyer", "{\"items\":[" + item(UUID.randomUUID(), sku, 1) + "]}")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("orderGroupId"));
-        for (int quantity : new int[] {0, -2}) {
+        for (int quantity : new int[] {0, -2, 1000, Integer.MAX_VALUE}) {
             reserve("buyer", body(item(UUID.randomUUID(), sku, quantity)))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errors[0].field").value("items[0].quantity"));
         }
+        String[] tooMany = new String[101];
+        for (int i = 0; i < tooMany.length; i++) {
+            tooMany[i] = item(UUID.randomUUID(), sku, 1);
+        }
+        reserve("buyer", body(tooMany))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[0].field").value("items"));
 
         assertThat(balance(sku)).isEqualTo(before);
         assertNothingReserved();
