@@ -52,10 +52,10 @@ There is no H2 fallback and no Docker-based skipping.
 
 ## CI
 
-The `inventory-tests` job in the root `.gitlab-ci.yml` installs `lib` and runs
-inventory `verify` with Java 21 and Docker-in-Docker. It keeps the JUnit and
-Failsafe reports even when the job fails. It needs a runner that allows a
-privileged Docker service.
+CI cannot run on the project's GitLab host, so there is no CI job for this test.
+The green and red runs are recorded as terminal screenshots in
+[01-green-verify.png](evidence/reservation135/01-green-verify.png) and
+[02-red-read-then-write.png](evidence/reservation135/02-red-read-then-write.png).
 
 ## Red proof
 
