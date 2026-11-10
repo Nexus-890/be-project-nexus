@@ -25,3 +25,4 @@ nexus:
   inventory:
     default-warehouse-code: WH_001
     allow-oversell: ${ALLOW_OVERSELL:false}
+    reservation-timeout-minutes: ${INVENTORY_RESERVATION_TIMEOUT_MINUTES:30}
