@@ -146,6 +146,7 @@ above: any valid token passes the gateway and the owning service checks the role
 | Method | Path | Gateway | Service rule | Owning issue |
 |---|---|---|---|---|
 | POST | `/api/v1/inventory/intake` | token only | Service requires ADMIN | #130 — Inventory balance and stock intake |
+| POST | `/api/v1/inventory/reservations` | token only | Service requires BUYER; commerce-service forwards the buyer token | #134 — Reserve stock with a conditional update |
 
 ## Order management and sales (#190)
 

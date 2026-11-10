@@ -24,3 +24,4 @@ nexus:
       jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:18080/realms/nexus/protocol/openid-connect/certs}
   inventory:
     default-warehouse-code: WH_001
+    allow-oversell: ${ALLOW_OVERSELL:false}

@@ -319,6 +319,19 @@ class SecurityConfigTest {
     }
 
     @Test
+    void reservingStockNeedsATokenAndForwardsTheBuyerBearerToInventory() {
+        String path = "/api/v1/inventory/reservations";
+        client.post().uri(path).exchange().expectStatus().isUnauthorized()
+                .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        assertThat(DOMAIN_LOG).isEmpty();
+        String buyer = "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of("BUYER")));
+        client.post().uri(path).header(HttpHeaders.AUTHORIZATION, buyer).exchange()
+                .expectStatus().isOk().expectBody(String.class).isEqualTo("inventory-service");
+        assertThat(DOMAIN_LOG).containsExactly("inventory-service POST " + path);
+        assertThat(FORWARDED_TOKENS).containsExactly(buyer);
+    }
+
+    @Test
     void refundsRequireOrderRefundAndABuyerTokenNeverReachesTheService() {
         String complete = "/api/v1/refunds/" + ID + "/complete";
         String buyer = "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of("BUYER"))
