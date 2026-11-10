@@ -12,10 +12,6 @@ import java.math.BigDecimal;
 @NoArgsConstructor
 public class SkuRequest {
 
-    @NotBlank(message = "SKU code cannot be empty")
-    @Size(max = 60, message = "SKU code cannot exceed 60 characters")
-    private String skuCode;
-
     @NotBlank(message = "Color cannot be empty")
     @Size(max = 50, message = "Color cannot exceed 50 characters")
     private String color;

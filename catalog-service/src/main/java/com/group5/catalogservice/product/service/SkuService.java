@@ -19,9 +19,13 @@ import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Service
 public class SkuService {
+
+    private static final String SKU_CODE_PREFIX = "SKU-";
+    private static final Pattern SKU_NUMBER = Pattern.compile("\\d{1,9}");
 
     private final SkuRepository skuRepository;
     private final ProductRepository productRepository;
@@ -52,7 +56,7 @@ public class SkuService {
         //Map dữ liệu qua SKU mới
         Skus sku = new Skus();
         sku.setProduct(product);
-        sku.setSkuCode(request.getSkuCode().trim());
+        sku.setSkuCode(nextSkuCode(product.getId()));
         sku.setColor(request.getColor().trim());
         sku.setSize(request.getSize().trim());
         sku.setPrice(request.getPrice());
@@ -146,6 +150,17 @@ public class SkuService {
         if (!currentUser.id().equals(product.getSellerId())) {
             throw new DomainException(CatalogErrorCode.UNAUTHORIZED);
         }
+    }
+
+    private String nextSkuCode(UUID productId) {
+        String prefix = SKU_CODE_PREFIX + productId.toString().replace("-", "") + "-";
+        int last = skuRepository.findSkuCodes(productId, prefix + "%").stream()
+                .map(code -> code.substring(prefix.length()))
+                .filter(SKU_NUMBER.asMatchPredicate())
+                .mapToInt(Integer::parseInt)
+                .max()
+                .orElse(0);
+        return prefix + String.format("%02d", last + 1);
     }
 
     private void validatePrice(BigDecimal price) {
