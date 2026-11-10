@@ -48,7 +48,9 @@ public class SkuService {
         requirePrivilege(currentUser, "PRODUCT.UPDATE");
 
         // Đảm bảo sản phẩm tồn tại và người dùng được quyền quản lý.
-        Product product = findEditableProduct(productId, currentUser);
+        Product product = skuRepository.findProductForSkuCreate(productId)
+                .orElseThrow(() -> new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND));
+        checkProductOwner(product, currentUser);
 
         //Chaeck giá tiền hợp lệ
         validatePrice(request.getPrice());

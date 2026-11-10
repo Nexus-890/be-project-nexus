@@ -20,8 +20,14 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
@@ -91,6 +97,35 @@ class SkuCodeGenerationTest {
         assertThat(first).isEqualTo(prefix + "01");
         assertThat(second).isEqualTo(prefix + "02");
         assertThat(codesInDatabase()).containsExactly(prefix + "01", prefix + "02");
+    }
+
+    @Test
+    void parallelCreatesOnOneProductAllReturn201WithDifferentCodes() throws Exception {
+        int requests = 8;
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<MvcResult>> results = new ArrayList<>();
+        try (var pool = Executors.newFixedThreadPool(requests)) {
+            for (int i = 1; i <= requests; i++) {
+                String body = "{\"color\":\"Black\",\"size\":\"S" + i + "\",\"price\":100000}";
+                results.add(pool.submit(() -> {
+                    start.await();
+                    return mvc.perform(post("/api/v1/products/{id}/skus", productId)
+                            .header("Authorization", "Bearer seller")
+                            .contentType(MediaType.APPLICATION_JSON).content(body)).andReturn();
+                }));
+            }
+            start.countDown();
+            List<String> codes = new ArrayList<>();
+            for (Future<MvcResult> result : results) {
+                MvcResult response = result.get(30, TimeUnit.SECONDS);
+                assertThat(response.getResponse().getStatus()).isEqualTo(201);
+                codes.add(code(response));
+            }
+            List<String> expected = IntStream.rangeClosed(1, requests)
+                    .mapToObj(n -> prefix + String.format("%02d", n)).toList();
+            assertThat(codes).containsExactlyInAnyOrderElementsOf(expected);
+            assertThat(codesInDatabase()).containsExactlyElementsOf(expected);
+        }
     }
 
     @Test
