@@ -43,6 +43,10 @@ const services = {
   'auction-service': [
     'src/main/java/com/group5/auctionservice/auction/AuctionController.java',
   ],
+  'shipment-service': [
+    'src/main/java/com/group5/shipmentservice/shipping/controller/CarrierController.java',
+    'src/main/java/com/group5/shipmentservice/shipping/controller/ShippingController.java',
+  ],
 };
 const normalize = (route) => route.replace(/\{[^}]+\}/g, '{}');
 let total = 0;
