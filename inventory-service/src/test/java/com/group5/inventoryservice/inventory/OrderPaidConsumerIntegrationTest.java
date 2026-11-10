@@ -127,7 +127,7 @@ class OrderPaidConsumerIntegrationTest {
     }
 
     @Test
-    void aTwoLineOrderConfirmsBothReservations() {
+    void aTwoLineOrderConfirmsBothReservationsWithOneCommitRowEach() {
         UUID order = UUID.randomUUID();
         UUID first = heldStock(sku("10"), 10, 2);
         UUID second = heldStock(sku("20"), 5, 1);
@@ -140,6 +140,11 @@ class OrderPaidConsumerIntegrationTest {
         assertBalance(second, 5, 4, 0, 1);
         assertThat(status(firstHold)).isEqualTo("CONFIRMED");
         assertThat(status(secondHold)).isEqualTo("CONFIRMED");
+        assertThat(movementCount()).isEqualTo(2);
+        assertThat(movements(first, "COMMIT")).containsExactly(Map.of("quantity", 2,
+                "reference_id", firstHold, "created_by", SYSTEM_ACTOR));
+        assertThat(movements(second, "COMMIT")).containsExactly(Map.of("quantity", 1,
+                "reference_id", secondHold, "created_by", SYSTEM_ACTOR));
     }
 
     @Test
