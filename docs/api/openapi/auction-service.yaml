@@ -286,8 +286,9 @@ paths:
       operationId: placeBid
       summary: Place a bid as a buyer
       description: >
-        Places a bid on an ACTIVE auction. The auction price is advanced by a
-        conditional update, so concurrent bids cannot both win the same price.
+        Places a bid on an ACTIVE auction from startAt (inclusive) to endAt
+        (exclusive). Outside that window, bids are refused even if the status is still ACTIVE.
+        A conditional update prevents concurrent bids from both winning the same price.
         The authenticated buyer may not bid on their own auction.
       x-catalogue-id: BID-01
       x-required-roles: [BUYER]
@@ -398,7 +399,7 @@ paths:
                 instance: /api/v1/auctions/019a5509-abcd-7111-8111-111111111111/bids
                 code: AUCTION_NOT_FOUND
         '409':
-          description: Auction is not active or the bidder is the auction seller.
+          description: Auction is outside its bid window, is not ACTIVE, or the bidder is the auction seller.
           content:
             application/problem+json:
               schema:
