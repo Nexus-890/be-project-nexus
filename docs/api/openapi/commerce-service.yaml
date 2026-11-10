@@ -6991,7 +6991,7 @@ components:
         total:
           type: "number"
           minimum: 0
-          description: "subtotal + taxAmount - discountAmount. Unknown shipping is excluded until #201."
+          description: "subtotal - discountAmount + taxAmount + estimatedShippingFee. A null estimatedShippingFee counts as 0 until #201."
     CartIssue:
       type: object
       required:
@@ -7077,7 +7077,7 @@ components:
         total:
           type: "number"
           minimum: 0
-          description: "Numeric VND amount; BigDecimal preserves the existing cart money contract."
+          description: "subtotal - discountAmount + taxAmount + shippingFee. A null shippingFee counts as 0 until #201."
         issues:
           type: "array"
           items:

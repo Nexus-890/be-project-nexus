@@ -92,6 +92,17 @@ class CartPricingServiceTest {
         assertThat(service.validate(user).valid()).isTrue();
     }
 
+    @Test void pricingAndPreviewTotalsAreSubtotalMinusDiscountPlusTaxPlusShipping() {
+        var pricing = service.pricing(user, null);
+        var preview = service.preview(user, null);
+
+        assertThat(pricing.total()).isEqualByComparingTo(pricing.subtotal().subtract(pricing.discountAmount())
+                .add(pricing.taxAmount()));
+        assertThat(preview.total()).isEqualByComparingTo(preview.subtotal().subtract(preview.discountAmount())
+                .add(preview.taxAmount()));
+        assertThat(preview.total()).isEqualByComparingTo(pricing.total());
+    }
+
     @Test void shippingStaysUnknownAboveFreeShippingThresholdUntilQuoteExists() {
         properties.setFreeShippingThreshold(new BigDecimal("100"));
         assertThat(service.pricing(user, null).estimatedShippingFee()).isNull();
