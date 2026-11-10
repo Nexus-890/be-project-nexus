@@ -12,6 +12,7 @@ import com.group5.paymentservice.payment.entity.PaymentSession;
 import com.group5.paymentservice.payment.enums.PaymentSessionStatus;
 import com.group5.paymentservice.payment.repository.PaymentSessionRepository;
 import com.group5.paymentservice.payment.service.PaymentMatcher;
+import com.group5.paymentservice.payment.service.PaymentConfirmationService;
 import com.group5.paymentservice.shared.config.SepayProperties;
 import com.group5.paymentservice.shared.config.SepayWebhookConfiguration;
 import com.group5.paymentservice.shared.config.SepayWebhookProperties;
@@ -61,6 +62,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+/** Kiểm tra chữ ký trên raw body, ACK SePay và bảo vệ endpoint trước khi xử lý thanh toán. */
 @ExtendWith(SpringExtension.class)
 @WebAppConfiguration
 @ContextConfiguration(classes = SepayWebhookControllerTest.TestApplication.class,
@@ -218,6 +220,8 @@ class SepayWebhookControllerTest {
     @EnableConfigurationProperties({SepayProperties.class, SepayWebhookProperties.class})
     @Import({SepayWebhookController.class, PaymentMatcher.class, SepayWebhookConfiguration.class})
     static class TestApplication {
+        // Mock nghiệp vụ để các ca controller chỉ kiểm tra xác thực, memo và định dạng response.
+        @Bean PaymentConfirmationService confirmation() { return mock(PaymentConfirmationService.class); }
         @Bean PaymentSessionRepository sessions() { return mock(PaymentSessionRepository.class); }
         @Bean Clock clock() { return Clock.fixed(NOW, ZoneOffset.UTC); }
         @Bean JwtDecoder jwtDecoder() { return token -> { throw new BadJwtException("No bearer expected for this webhook"); }; }

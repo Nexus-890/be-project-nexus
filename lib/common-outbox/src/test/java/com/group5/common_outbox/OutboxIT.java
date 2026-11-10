@@ -185,6 +185,29 @@ class OutboxIT {
         assertThat(count("publication_audit")).isEqualTo(1);
     }
 
+    /** Kiểm tra trên Kafka thật: key theo nghiệp vụ khác aggregateId nhưng envelope không đổi. */
+    @Test
+    void applicationKeyIsUsedByKafkaWithoutChangingThePersistedEnvelope() {
+        String aggregateId = UUID.randomUUID().toString();
+        String partitionId = UUID.randomUUID().toString();
+        EventEnvelope<?> event = new EventEnvelope<>(UUID.randomUUID(), "GroupedOperation", aggregateId,
+                Instant.parse("2026-11-10T08:00:00Z"), "4bf92f3577b34da6a3ce929d0e0e4736",
+                Map.of("partitionId", partitionId));
+        transaction.executeWithoutResult(status -> writer.write("Operation", topic, event));
+        OutboxRelay custom = new OutboxRelay(jdbc, MAPPER, eventTemplate(application),
+                application.getBean(PlatformTransactionManager.class), Duration.ofSeconds(5),
+                envelope -> envelope.payload().get("partitionId").asString());
+
+        custom.publishPending();
+
+        assertThat(unpublished()).isZero();
+        List<ConsumerRecord<String, String>> records = consumeAll();
+        assertThat(records).hasSize(1);
+        assertThat(records.getFirst().key()).isEqualTo(partitionId);
+        assertThat(MAPPER.readTree(records.getFirst().value())).isEqualTo(MAPPER.valueToTree(event));
+        assertThat(count("publication_audit")).isEqualTo(1);
+    }
+
     @Test
     void twoInstancesClaimDisjointBatchesAndPublishExactly200RecordsWithoutFailures() throws Exception {
         List<EventEnvelope<?>> events = writeEvents(200);

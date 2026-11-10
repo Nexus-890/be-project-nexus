@@ -43,6 +43,13 @@ public class OrderGroup {
     @Column(name = "paid_at")
     private OffsetDateTime paidAt;
 
+    // Tham chiếu logic sang Payment, không tạo FK chéo DB; cặp ID dùng để nhận diện lại đúng receipt.
+    @Column(name = "payment_session_id")
+    private UUID paymentSessionId;
+
+    @Column(name = "payment_transaction_id")
+    private UUID paymentTransactionId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 

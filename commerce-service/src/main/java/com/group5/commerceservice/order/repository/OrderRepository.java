@@ -40,6 +40,12 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     @Query(value = "UPDATE orders SET last_refund_version = :refundVersion WHERE id = :id", nativeQuery = true)
     int recordRefundVersion(UUID id, long refundVersion);
 
+    // Chỉ ghi paid_at lần đầu sau khi state machine đã chuyển PAID, không ghi đè bằng chứng thanh toán cũ.
+    @Modifying
+    @Query(value = "UPDATE orders SET paid_at = :paidAt WHERE id = :id AND status = 'PAID' AND paid_at IS NULL",
+            nativeQuery = true)
+    int recordPaidAt(UUID id, java.time.OffsetDateTime paidAt);
+
     @Query("select o.id from Order o where o.orderGroup.id = :groupId and o.status = :status order by o.id")
     List<UUID> findIdsByGroupAndStatus(UUID groupId, OrderStatus status);
 
