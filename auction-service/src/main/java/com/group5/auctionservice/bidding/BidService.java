@@ -2,6 +2,7 @@ package com.group5.auctionservice.bidding;
 
 import com.group5.auctionservice.auction.Auction;
 import com.group5.auctionservice.auction.AuctionRepository;
+import com.group5.auctionservice.auction.AuctionStatus;
 import com.group5.auctionservice.bidding.dto.BidResponse;
 import com.group5.auctionservice.bidding.dto.PlaceBidRequest;
 import com.group5.auctionservice.shared.exception.AuctionErrorCode;
@@ -40,7 +41,7 @@ public class BidService {
             if (auction.getSellerId().equals(bidder.id())) {
                 throw new DomainException(AuctionErrorCode.AUCTION_SELLER_CANNOT_BID);
             }
-            if (auction.getStatus() != Auction.Status.ACTIVE) {
+            if (auction.getStatus() != AuctionStatus.ACTIVE) {
                 throw new DomainException(AuctionErrorCode.AUCTION_NOT_ACTIVE);
             }
             BigDecimal minimum = auction.getCurrentPrice().add(auction.getBidIncrement());

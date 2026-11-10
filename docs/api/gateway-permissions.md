@@ -123,6 +123,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/reputations/{userId}/history` | GET | USER.REPUTATION.VIEW | #213 — rating-service |
 | `/api/v1/auctions` | POST | AUCTION.CREATE | #140 — Create as SELLER; `sellerId` comes from the JWT subject |
 | `/api/v1/auctions/{id}/bids` | POST | AUCTION.BID | #146 — Place a bid as BUYER; the bidder cannot be the auction seller |
+| `/api/v1/auctions/{id}/schedule` | POST | AUCTION.UPDATE | #144 — Owner with SELLER role publishes a CREATED auction |
 | `/api/v1/auctions` | GET | Public | #143 — PUBLIC, non-deleted auctions; status defaults to ACTIVE, endAt ascending |
 | `/api/v1/auctions/{id}` | GET | Public | #143 — PUBLIC, non-deleted auction; hidden and missing rows return 404 |
 | `/api/v1/event-logs` | GET | EVENT_LOG.VIEW | #192 — Event log consumer and audit log |
@@ -173,8 +174,9 @@ returns 200 with empty `data` and the actual `page` totals.
 
 The table above is the **active gateway configuration**, including policies
 registered ahead of their downstream implementation. It does not assert that a
-feature API exists. Payment initiation (#121) is implemented on the integrated
-develop baseline. Callbacks (#155/#203), shipping (#201/#202), payment reads/refunds
+feature API exists. Payment initiation (#121) and SePay signature/memo matching
+(#155) are implemented; SePay settlement remains separate work. Carrier callbacks
+(#203), shipping (#201/#202), payment reads/refunds
 (#207/#247), and rating/reputation (#212/#213) require their owning implementations
 for live business acceptance. The older API-shape drafts below do not add runtime policies.
 
@@ -189,6 +191,18 @@ Business prefixes in this table are under `/api/v1/` and include their base path
 and descendants. Routing and public access are separate: the carrier callback
 prefix has one owner, but only the two explicit POST paths above bypass bearer
 authentication. No catch-all webhook route or public policy exists.
+
+**SePay callback (#155):** `POST /api/v1/webhooks/sepay` is also explicitly public
+in payment-service's `nexus.security.public-endpoints`. The service verifies
+`X-SePay-Signature` and `X-SePay-Timestamp` against the original body bytes before
+parsing JSON or looking up the memo. Invalid signatures return service Problem
+Details with `PAYMENT_UNAUTHENTICATED` (401), including requests without a bearer
+token. Accepted callbacks return native `{"success":true}` (200), including
+unmatched memos; this stage only matches a session and performs no settlement.
+The [delivered payment contract](openapi/payment-service.yaml) documents the
+request, acknowledgement and errors; the [test guide](../testing/sepay-webhook.md)
+covers local and captured-delivery verification. The earlier #245 fixture tests
+below remain routing evidence, separate from actual SePay endpoint tests.
 
 **Carrier callback contract (#203 / #245):** the local endpoint catalogue
 (`Endpoints!F132:G132`) defines POST `/api/v1/webhooks/carriers/{carrier}`.
@@ -580,7 +594,7 @@ A path with several roles in `x-required-roles` accepts any one of them.
 |---|---|---|---|---|---|---|
 | POST | `/api/v1/auctions` | ADMIN, SELLER | AUCTION.CREATE | AUCTION.CREATE | Seller of the product; ADMIN on behalf of a seller | #140, #141, #142 |
 | PUT | `/api/v1/auctions/{id}` | ADMIN, SELLER | AUCTION.UPDATE | AUCTION.UPDATE | Owner of the auction; frozen once it has started | #197 |
-| POST | `/api/v1/auctions/{id}/schedule` | ADMIN, SELLER | AUCTION.UPDATE | AUCTION.UPDATE | Owner of the auction; only from CREATED | #144 |
+| POST | `/api/v1/auctions/{id}/schedule` | SELLER | AUCTION.UPDATE | AUCTION.UPDATE | Owner of the auction; only from CREATED | #144 |
 | GET | `/api/v1/auctions/{id}` | public | public | none (public) |  | #143 |
 | GET | `/api/v1/auctions` | public | public | none (public) |  | #143 |
 | GET | `/api/v1/auctions/{id}/state` | public | public | none (public) |  | #168 |

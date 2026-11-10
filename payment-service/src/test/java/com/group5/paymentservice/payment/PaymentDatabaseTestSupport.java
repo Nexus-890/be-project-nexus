@@ -15,6 +15,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
         "nexus.payment.provider=SEPAY", "nexus.payment.sepay.bank-id=970416",
         "nexus.payment.sepay.bank-account=0000000002", "nexus.payment.sepay.account-name=DO VAN A",
         "nexus.payment.sepay.vietqr-template=compact",
+        "nexus.payment.sepay.webhook.secret=unit-test-only-webhook-secret",
+        "nexus.security.public-endpoints[0].method=POST",
+        "nexus.security.public-endpoints[0].path=/api/v1/webhooks/sepay",
         "nexus.security.jwt.issuer=user-service", "nexus.security.jwt.audience=nexus-services",
         "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/.well-known/jwks.json"
 })
