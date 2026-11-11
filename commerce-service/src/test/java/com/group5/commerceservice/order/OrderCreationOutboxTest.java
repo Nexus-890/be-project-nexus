@@ -13,6 +13,8 @@ import com.group5.commerceservice.order.service.InventoryClient;
 import com.group5.commerceservice.order.service.OrderService;
 import com.group5.commerceservice.order.service.OrderStateMachine;
 import com.group5.commerceservice.order.service.PricingService;
+import com.group5.commerceservice.order.service.OrderShippingService;
+import com.group5.commerceservice.shared.exception.CommerceErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_core.model.ApiResponse;
 import com.group5.common_events.EventEnvelopeFactory;
@@ -67,7 +69,7 @@ import static org.mockito.Mockito.when;
 class OrderCreationOutboxTest {
     private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
     private static final CreateOrderRequest REQUEST = new CreateOrderRequest(new CreateOrderRequest.ShippingAddress(
-            "Buyer", "0900000000", "1 Main Street", "Ward 1", "District 1", "Ho Chi Minh", "VN"), "SEPAY");
+            "Buyer", "0900000000", "1 Main Street", "1003646", "1000001", "VN"), "SEPAY");
 
     static {
         POSTGRES.start();
@@ -83,7 +85,8 @@ class OrderCreationOutboxTest {
     @BeforeEach
     void prepareCheckout() {
         reset(publisher, catalogClient, inventoryClient);
-        when(inventoryClient.reserve(any(), any(), anyInt())).thenReturn(true);
+        when(inventoryClient.reserve(any(), any())).thenReturn(new InventoryClient.Reservation(
+                List.of(UUID.randomUUID()), UUID.randomUUID(), java.time.OffsetDateTime.parse("2031-02-03T04:05:06.123456Z")));
         outboxBefore = count("SELECT count(*) FROM outbox");
     }
 
@@ -156,10 +159,10 @@ class OrderCreationOutboxTest {
     @Test
     void aRefusedReservationLeavesNoCreationEventOrOrder() {
         Fixture fixture = cart();
-        when(inventoryClient.reserve(any(), any(), anyInt())).thenReturn(true, false);
+        when(inventoryClient.reserve(any(), any())).thenThrow(new DomainException(CommerceErrorCode.INSUFFICIENT_STOCK));
 
         assertThatThrownBy(() -> orderService.create(fixture.buyer(), UUID.randomUUID().toString(), REQUEST))
-                .isInstanceOf(DomainException.class).extracting("errorCode").isEqualTo("COMMERCE_ITEM_UNAVAILABLE");
+                .isInstanceOf(DomainException.class).extracting("errorCode").isEqualTo("COMMERCE_INSUFFICIENT_STOCK");
 
         assertNoCreation(fixture);
     }
@@ -179,7 +182,7 @@ class OrderCreationOutboxTest {
     }
 
     @Test
-    void manifestDeadlinesComeFromTheStoredRowsEvenWhenPersistenceChangesThem() {
+    void reservationDeadlineReplacesInsertDefaultsBeforeManifestIsPublished() {
         jdbc().execute("""
                 CREATE FUNCTION checkout_test_deadline() RETURNS trigger LANGUAGE plpgsql AS $$
                 BEGIN
@@ -204,7 +207,7 @@ class OrderCreationOutboxTest {
                     .isEqualTo("2031-02-03T04:05:06.123456Z");
             assertThat(manifest.envelope().get("payload").get("orders").valueStream()
                     .map(order -> order.get("paymentDueAt").asString()).toList())
-                    .containsOnly("2031-02-03T04:06:07.654321Z");
+                    .containsOnly("2031-02-03T04:05:06.123456Z");
         } finally {
             jdbc().execute("DROP TRIGGER checkout_test_order ON orders");
             jdbc().execute("DROP TRIGGER checkout_test_group ON order_groups");
@@ -340,6 +343,15 @@ class OrderCreationOutboxTest {
     @EnableJpaAuditing(auditorAwareRef = "auditor")
     @Import({OrderService.class, OrderStateMachine.class, PricingService.class})
     static class JpaConfig {
+        // Fixture báo giá tách riêng khỏi transport Shipping; các test này kiểm nghiệp vụ Order hiện hữu.
+        @Bean
+        OrderShippingService shipping() {
+            OrderShippingService shipping = Mockito.mock(OrderShippingService.class);
+            Mockito.when(shipping.quote(Mockito.any(), Mockito.any())).thenReturn(new OrderShippingService.Quote(
+                    BigDecimal.ZERO, new OrderShippingService.Parcel(1200, 30, 20, 15), "FAKE", "STANDARD",
+                    java.time.OffsetDateTime.parse("2031-02-04T04:05:06Z")));
+            return shipping;
+        }
         @Bean
         DataSource dataSource() {
             DataSource source = new DriverManagerDataSource(POSTGRES.getJdbcUrl() + "&currentSchema=commerce_creation_outbox",

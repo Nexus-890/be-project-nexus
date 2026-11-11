@@ -17,4 +17,8 @@ public class CatalogSkuResponse {
     private String size;
     private BigDecimal price;
     private String status;
+    private ShippingParcel shippingParcel;
+
+    /** Số đo một gói SKU do người bán khai báo; không lấy từ checkout request. */
+    public record ShippingParcel(Integer weightGrams, Integer lengthCm, Integer widthCm, Integer heightCm) { }
 }

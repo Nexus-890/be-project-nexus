@@ -17,7 +17,12 @@ public record OrderResponse(
         OrderStatus status,
         OffsetDateTime createdAt,
         BigDecimal totalAmount,
-        List<OrderItemResponse> items) {
+        List<OrderItemResponse> items,
+        UUID orderGroupId,
+        BigDecimal subtotal,
+        BigDecimal shippingFee,
+        BigDecimal discountAmount,
+        BigDecimal taxAmount) {
 
     public OrderResponse {
         items = List.copyOf(items);

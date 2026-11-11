@@ -53,13 +53,13 @@ class OrderResponseContractTest {
 
     @Test void orderOperationsWrapResultsAndPreserveCreationReplayAndListSemantics() throws Exception {
         var order = new OrderResponse(id, "NX-TEST", user.id(), user.id(), OrderType.STANDARD,
-                OrderStatus.PENDING, OffsetDateTime.now(), BigDecimal.TEN, List.of());
+                OrderStatus.PENDING, OffsetDateTime.now(), BigDecimal.TEN, List.of(), id, BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
         var group = new OrderGroupResponse(id, "PENDING", BigDecimal.TEN, "VND", OffsetDateTime.now(), List.of(order));
         when(service.create(eq(user), eq("key-1"), any())).thenReturn(
                 new OrderService.CreationResult(true, group), new OrderService.CreationResult(false, group));
         String request = """
                 {"shippingAddress":{"recipientName":"Buyer","phoneNumber":"0900000000","addressLine":"1 Main St",
-                "ward":"Ward 1","district":"District 1","city":"Ho Chi Minh","countryCode":"VN"},"paymentMethod":"SEPAY"}
+                "wardCode":"1003646","provinceCode":"1000001","countryCode":"VN"},"paymentMethod":"SEPAY"}
                 """;
         for (int status : List.of(201, 200)) {
             mvc.perform(post("/api/v1/orders").header("Idempotency-Key", "key-1")
@@ -87,7 +87,7 @@ class OrderResponseContractTest {
 
     @Test void orderReadsWrapTheOrderAndPutThePageBesideTheList() throws Exception {
         var order = new OrderResponse(id, "NX-TEST", user.id(), user.id(), OrderType.STANDARD,
-                OrderStatus.PENDING, OffsetDateTime.now(), BigDecimal.TEN, List.of());
+                OrderStatus.PENDING, OffsetDateTime.now(), BigDecimal.TEN, List.of(), id, BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
         when(service.getOrder(user, id)).thenReturn(order);
         mvc.perform(get("/api/v1/orders/{id}", id)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0)).andExpect(jsonPath("$.data.orderId").value(id.toString()))
@@ -112,7 +112,7 @@ class OrderResponseContractTest {
         OffsetDateTime to = OffsetDateTime.parse("2026-11-03T23:59:59+07:00");
         OffsetDateTime createdAt = OffsetDateTime.parse("2026-11-02T08:15:30Z");
         var order = new OrderResponse(id, "NX-MANAGE", buyerId, sellerId, OrderType.AUCTION, OrderStatus.PAID,
-                createdAt, new BigDecimal("150000.00"), List.of());
+                createdAt, new BigDecimal("150000.00"), List.of(), id, new BigDecimal("150000.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
         when(service.listManaged(user, buyerId, sellerId, OrderStatus.PAID, OrderType.AUCTION, from, to, 1, 2))
                 .thenReturn(new PageImpl<>(List.of(order), PageRequest.of(1, 2), 3));
 
@@ -142,7 +142,7 @@ class OrderResponseContractTest {
         UUID buyerId = UUID.randomUUID();
         OffsetDateTime createdAt = OffsetDateTime.parse("2026-11-02T08:15:30Z");
         var order = new OrderResponse(id, "NX-SALES", buyerId, user.id(), OrderType.STANDARD, OrderStatus.PENDING,
-                createdAt, new BigDecimal("150000.00"), List.of());
+                createdAt, new BigDecimal("150000.00"), List.of(), id, new BigDecimal("150000.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
         when(service.listSales(user, OrderStatus.PENDING, from, to, 0, 5))
                 .thenReturn(new PageImpl<>(List.of(order), PageRequest.of(0, 5), 1));
 
@@ -223,7 +223,7 @@ class OrderResponseContractTest {
 
     @Test void cancellationWrapsTheGroupAndNamesItsFailures() throws Exception {
         var order = new OrderResponse(id, "NX-TEST", user.id(), user.id(), OrderType.STANDARD,
-                OrderStatus.CANCELED, OffsetDateTime.now(), BigDecimal.TEN, List.of());
+                OrderStatus.CANCELED, OffsetDateTime.now(), BigDecimal.TEN, List.of(), id, BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
         var group = new OrderGroupResponse(id, "CANCELED", BigDecimal.TEN, "VND", OffsetDateTime.now(), List.of(order));
         when(service.cancel(eq(user), eq(id), any())).thenReturn(group);
         mvc.perform(post("/api/v1/orders/{id}/cancel", id).contentType(MediaType.APPLICATION_JSON)
@@ -239,6 +239,39 @@ class OrderResponseContractTest {
         mvc.perform(post("/api/v1/orders/{id}/cancel", id).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"Changed my mind\"}"))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("COMMERCE_ORDER_NOT_CANCELLABLE"));
+    }
+
+    // Không gọi service khi mã địa giới bắt buộc thiếu, tránh tạo đơn trước bước validation.
+    @Test void missingWardCodeIs400BeforeCreatingAnyOrder() throws Exception {
+        mvc.perform(post("/api/v1/orders").header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"shippingAddress":{"recipientName":"Buyer","phoneNumber":"0900000138",
+                        "addressLine":"138 Street","provinceCode":"1000001","countryCode":"VN"},"paymentMethod":"SEPAY"}
+                        """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.errors[0].field").value("shippingAddress.wardCode"));
+        verifyNoInteractions(service);
+    }
+
+    // Kiểm tra envelope của group và giữ đủ thông tin SKU/count trong lỗi tồn kho.
+    @Test void groupEndpointAndStockProblemKeepThePublishedContract() throws Exception {
+        var group = new OrderGroupResponse(id, "PENDING", BigDecimal.TEN, "VND", OffsetDateTime.now(), List.of());
+        when(service.getGroup(user, id)).thenReturn(group);
+        mvc.perform(get("/api/v1/orders/groups/{id}", id)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.orderGroupId").value(id.toString()))
+                .andExpect(jsonPath("$.code").value(0)).andExpect(jsonPath("$.page").doesNotExist());
+        when(service.create(any(), any(), any())).thenThrow(new DomainException(CommerceErrorCode.INSUFFICIENT_STOCK,
+                "SKU has one available", java.util.Map.of("skuId", id, "available", 1, "requested", 2)));
+        mvc.perform(post("/api/v1/orders").header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"shippingAddress":{"recipientName":"Buyer","phoneNumber":"0900000138",
+                        "addressLine":"138 Street","wardCode":"1003646","provinceCode":"1000001","countryCode":"VN"},"paymentMethod":"SEPAY"}
+                        """))
+                .andExpect(status().isConflict()).andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("COMMERCE_INSUFFICIENT_STOCK"))
+                .andExpect(jsonPath("$.skuId").value(id.toString())).andExpect(jsonPath("$.available").value(1))
+                .andExpect(jsonPath("$.requested").value(2));
     }
 
     @Test void transitionFailuresExposeNamedProblemDetails() throws Exception {

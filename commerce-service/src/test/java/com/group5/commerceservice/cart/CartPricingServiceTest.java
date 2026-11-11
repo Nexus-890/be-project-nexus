@@ -32,7 +32,8 @@ class CartPricingServiceTest {
     private final CartItemRepository items = mock(CartItemRepository.class);
     private final CatalogClient catalog = mock(CatalogClient.class);
     private final CheckoutProperties properties = new CheckoutProperties();
-    private final CartPricingService service = new CartPricingService(carts, items, catalog, properties);
+    private final CartPricingService service = new CartPricingService(carts, items, catalog, properties,
+            mock(com.group5.commerceservice.order.service.PricingService.class));
     private final CurrentUser user = new CurrentUser(UUID.randomUUID(), Set.of("BUYER"), Set.of());
     private final Cart cart = new Cart();
     private final CartItem line = new CartItem();

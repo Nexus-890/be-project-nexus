@@ -1,6 +1,7 @@
 package com.group5.catalogservice.product.service;
 
 import com.group5.catalogservice.product.dto.request.SkuRequest;
+import com.group5.catalogservice.product.dto.ShippingParcel;
 import com.group5.catalogservice.product.dto.response.SkuResponse;
 import com.group5.catalogservice.product.entity.Product;
 import com.group5.catalogservice.product.entity.Skus;
@@ -62,6 +63,7 @@ public class SkuService {
         sku.setColor(request.getColor().trim());
         sku.setSize(request.getSize().trim());
         sku.setPrice(request.getPrice());
+        applyShippingParcel(sku, request.getShippingParcel());
 
         return toResponse(saveSku(sku));
     }
@@ -85,6 +87,7 @@ public class SkuService {
         sku.setColor(request.getColor().trim());
         sku.setSize(request.getSize().trim());
         sku.setPrice(request.getPrice());
+        applyShippingParcel(sku, request.getShippingParcel());
 
         return toResponse(saveSku(sku));
     }
@@ -201,6 +204,17 @@ public class SkuService {
         return false;
     }
 
+    /** Ghi đủ bốn số đo cùng lúc; client cũ không gửi vẫn giữ metadata đã có. */
+    private void applyShippingParcel(Skus sku, ShippingParcel parcel) {
+        if (parcel == null) {
+            return;
+        }
+        sku.setShippingWeightGrams(parcel.weightGrams());
+        sku.setShippingLengthCm(parcel.lengthCm());
+        sku.setShippingWidthCm(parcel.widthCm());
+        sku.setShippingHeightCm(parcel.heightCm());
+    }
+
     private SkuResponse toResponse(Skus sku) {
         return new SkuResponse(
                 sku.getId(),
@@ -209,7 +223,10 @@ public class SkuService {
                 sku.getColor(),
                 sku.getSize(),
                 sku.getPrice(),
-                sku.getStatus()
+                sku.getStatus(),
+                sku.getShippingWeightGrams() == null ? null : new ShippingParcel(
+                        sku.getShippingWeightGrams(), sku.getShippingLengthCm(),
+                        sku.getShippingWidthCm(), sku.getShippingHeightCm())
         );
     }
 }
