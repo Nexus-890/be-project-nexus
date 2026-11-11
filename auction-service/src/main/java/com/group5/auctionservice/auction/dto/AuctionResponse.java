@@ -1,6 +1,7 @@
 package com.group5.auctionservice.auction.dto;
 
 import com.group5.auctionservice.auction.Auction;
+import com.group5.auctionservice.auction.AuctionStatus;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -22,7 +23,7 @@ public record AuctionResponse(
         Instant endAt,
         Instant originalEndAt,
         short extensionCount,
-        Auction.Status status
+        AuctionStatus status
 ) {
     public static AuctionResponse from(Auction auction) {
         return new AuctionResponse(

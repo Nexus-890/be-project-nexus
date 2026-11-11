@@ -12,6 +12,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface PaymentSessionRepository extends JpaRepository<PaymentSession, UUID> {
+    Optional<PaymentSession> findByMemoCode(String memoCode);
+
     Optional<PaymentSession> findByOrderGroupId(UUID orderGroupId);
 
     @Query(value = "SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(:key, 0))", nativeQuery = true)

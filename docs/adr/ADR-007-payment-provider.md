@@ -2,7 +2,7 @@
 
 **Status:** Proposed — SePay account/API access and a Live receiving bank are available; the Test Mode signature spike is complete. A named payer and fixed amount are agreed for the authorized Live smoke test.
 
-**Date:** 2026-10-17; updated 2026-10-19.
+**Date:** 2026-10-17; updated 2026-10-19; capture handover addendum 2026-11-07.
 
 **Scope:** SePay integration spike and evidence only. This ADR does not implement payment initiation, a production webhook endpoint, order transitions, wallet credit, or escrow.
 
@@ -108,6 +108,40 @@ The first successful capture is intentionally immutable: later valid callbacks r
 
 ## Local capture and replay procedure (Windows PowerShell)
 
+### Capture handover addendum — 2026-11-07 (#155)
+
+The Test Mode dashboard currently had no webhook definitions or send history
+when inspected by the user. This establishes current dashboard state; the cause
+and timing of removal were not established and do not independently disprove
+the historical spike. The old capture's signing inputs could not be located.
+
+The user created a temporary Test Mode webhook and triggered a new simulated
+incoming transfer. Its raw body and original headers were captured after
+successful HMAC/freshness verification at `2026-11-07T13:29:13.102598500Z`.
+The new body is **310 bytes**, SHA-256
+`232E5E78688074700F6E06E76CC07F9334D47DE56205C30360ECEEDE8D6F6B56`.
+The actual payment-service HTTP controller/security test, original-signature
+test and one-byte body-tampering test passed **3/3**, with no failures, errors or
+skips, at 20:34:24 Asia/Saigon on 2026-11-07 using JDK 21. A one-character
+signature mutation returned service 401 `PAYMENT_UNAUTHENTICATED`; the genuine
+delivery returned native 200 without a bearer token. The historical replay
+clock was fixed to the original timestamp; the live capture used system time.
+
+The new capture remains outside Git at
+`D:/KyOJT/.artifacts/sepay-captures/issue-155-20261107/`. It retains `body.json`,
+`headers.txt`, `received-at.txt`, the test log and a repeatable local replay
+script. Its secret is stored as `webhook-secret.dpapi` with Windows CurrentUser
+encryption. This requires the same Windows user/machine; portable shared
+secret-storage/access remains a team handover task. The former temporary-only
+storage did not provide sufficient inputs for a subsequent maintainer to rerun
+the old capture, so the new handover records both location and loading method.
+
+`WebhookCapturedDeliveryTest` accepts optional `SEPAY_CAPTURE_BODY_PATH` for the
+new external capture. Without it, the original repository fixture remains the
+default. That 305-byte fixture and the historical hash above are unchanged;
+the new signature does not verify or replace the old fixture. See
+[the #155 capture verification guide](../testing/sepay-webhook.md#fresh-provider-capture-and-acceptance--2026-11-07).
+
 Keep this repeatable procedure for maintainers. Use **Windows PowerShell 5.1 or PowerShell 7**, **JDK 21**, the project's Maven wrapper, and `cloudflared.exe` on the **same Windows machine**. Under #240 the verifier and its tests live in `payment-service`; no running payment application, Config Service, database, or staging endpoint is required for this temporary receiver.
 
 ### 1. Start the receiver in the first PowerShell window
@@ -152,7 +186,7 @@ try {
 }
 if ([string]::IsNullOrWhiteSpace($env:SEPAY_WEBHOOK_SECRET)) { throw 'HMAC secret is required' }
 $source = @'
-import com.group5.paymentservice.payment.WebhookSignatureVerifier;
+import com.group5.paymentservice.payment.provider.sepay.WebhookSignatureVerifier;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.net.InetSocketAddress;
@@ -272,7 +306,7 @@ Get-FileHash -LiteralPath $sample -Algorithm SHA256
 
 If the first test fails with `Set SEPAY_WEBHOOK_SECRET outside Git before enabling captured-delivery tests`, verify whether that variable is present **in the same terminal that invokes Maven**. Do not print its value. Re-enter the **matching** existing secret via `Read-Host -AsSecureString`, then rerun. A wrong/new secret cannot verify the captured signature.
 
-The two opt-in tests must both run (not skip): one accepts the original provider-sent body with the original signature/timestamp, and the other changes **one byte** and expects verification to fail. The test uses a fixed historical clock at the captured header timestamp.
+All three current opt-in tests must run without skips: accept the original provider-sent body/signature, reject a one-byte body mutation, and exercise the actual HTTP controller/security chain with an accepted delivery and a one-character signature mutation. The tests use a fixed historical clock at the captured header timestamp.
 
 To remove the session's secret/header variables after validating (preserve a separate approved secret store):
 
