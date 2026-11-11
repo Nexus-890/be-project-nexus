@@ -7,9 +7,9 @@ WH_001 balances and their INTAKE rows in one inventory_db transaction. Existing
 stock, ledger rows and SKU identities are preserved, including after purchases.
 Use libpq password files/environment for credentials; do not put passwords in commands.
 .EXAMPLE
-.\seed-demo-stock.ps1 -Container nexus-postgres -DatabaseUser nexus
+pwsh -File .\seed-demo-stock.ps1 -Container nexus-postgres -DatabaseUser nexus
 .EXAMPLE
-.\seed-demo-stock.ps1 -PsqlPath psql -CatalogConnection 'host=127.0.0.1 dbname=catalog_db user=nexus' -InventoryConnection 'host=127.0.0.1 dbname=inventory_db user=nexus'
+pwsh -File .\seed-demo-stock.ps1 -PsqlPath psql -CatalogConnection 'host=127.0.0.1 dbname=catalog_db user=nexus' -InventoryConnection 'host=127.0.0.1 dbname=inventory_db user=nexus'
 #>
 [CmdletBinding(DefaultParameterSetName = 'Container')]
 param(
@@ -17,6 +17,10 @@ param(
     [string]$Container = 'nexus-postgres',
     [Parameter(Mandatory, ParameterSetName = 'Container')]
     [string]$DatabaseUser,
+    [Parameter(ParameterSetName = 'Container')]
+    [string]$CatalogDatabase = 'catalog_db',
+    [Parameter(ParameterSetName = 'Container')]
+    [string]$InventoryDatabase = 'inventory_db',
     [Parameter(ParameterSetName = 'Local')]
     [string]$PsqlPath = 'psql',
     [Parameter(Mandatory, ParameterSetName = 'Local')]
@@ -34,7 +38,8 @@ function Invoke-SeedDatabase([string]$Database, [string]$Sql) {
         $connection = if ($Database -eq 'catalog_db') { $CatalogConnection } else { $InventoryConnection }
         $output = $Sql | & $PsqlPath -X -q -A -t -v ON_ERROR_STOP=1 -d $connection
     } else {
-        $output = $Sql | & docker exec -i $Container psql -X -q -A -t -v ON_ERROR_STOP=1 -U $DatabaseUser -d $Database
+        $databaseName = if ($Database -eq 'catalog_db') { $CatalogDatabase } else { $InventoryDatabase }
+        $output = $Sql | & docker exec -i $Container psql -X -q -A -t -v ON_ERROR_STOP=1 -U $DatabaseUser -d $databaseName
     }
     if ($LASTEXITCODE -ne 0) { throw "Demo stock seed failed in $Database; inspect the PostgreSQL error above." }
     return ($output -join "`n").Trim()

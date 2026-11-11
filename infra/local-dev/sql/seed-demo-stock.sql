@@ -29,7 +29,7 @@ WITH inserted_balances AS (
     RETURNING id
 )
 SELECT jsonb_build_object(
-    'demoSkus', 10,
+    'demoSkus', jsonb_array_length('__DEMO_SKU_IDS_JSON__'::jsonb),
     'newBalances', (SELECT count(*) FROM inserted_balances),
     'newMovements', (SELECT count(*) FROM inserted_movements)
 )::text;

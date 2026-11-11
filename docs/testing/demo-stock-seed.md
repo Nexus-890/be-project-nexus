@@ -14,16 +14,16 @@ This is an explicit demo setup step, not a production startup migration.
 
 ## Run after the services have migrated
 
-From `be-project-nexus`, with the local PostgreSQL container:
+From `be-project-nexus`, use PowerShell 7 (`pwsh`) with the local PostgreSQL container:
 
 ```powershell
-./infra/local-dev/seed-demo-stock.ps1 -Container nexus-postgres -DatabaseUser nexus
+pwsh -File ./infra/local-dev/seed-demo-stock.ps1 -Container nexus-postgres -DatabaseUser nexus
 ```
 
 Use the actual configured database user. For local PostgreSQL/libpq connections:
 
 ```powershell
-./infra/local-dev/seed-demo-stock.ps1 -PsqlPath psql `
+pwsh -File ./infra/local-dev/seed-demo-stock.ps1 -PsqlPath psql `
   -CatalogConnection 'host=127.0.0.1 port=5432 dbname=catalog_db user=nexus' `
   -InventoryConnection 'host=127.0.0.1 port=5432 dbname=inventory_db user=nexus'
 ```
@@ -31,7 +31,8 @@ Use the actual configured database user. For local PostgreSQL/libpq connections:
 Keep passwords in libpq password files/environment or the container's configured
 authentication. The script never reads account data or prints connection strings.
 On a fresh inventory, expect `demoSkus=10`, `newBalances=10`, `newMovements=10`.
-An identical rerun returns zero new balances/movements. The ten UUIDs must match
+`demoSkus` reports the input UUID array length, including on reruns where no new
+balance is inserted. An identical rerun returns zero new balances/movements. The ten UUIDs must match
 catalog V4's two exact codes for each of the five V3 demo products; missing SKUs
 abort before any inventory write. Custom SKUs are outside this seed.
 
@@ -52,22 +53,35 @@ unrelated ledger history, change catalog UUIDs, or append an intake to an existi
 balance. Existing data is left for its owning reconciliation workflow.
 
 After restarting the app, stock remains persisted. Restarting or explicitly
-rerunning this script does not add another seed intake. Stock read API #132 is
-not yet merged on the baseline; query `inventory_balances` to verify quantities
-without claiming a live HTTP read passed.
+rerunning this script does not add another seed intake. Query `inventory_balances`
+to verify quantities; the seed verifier does not exercise the HTTP stock API.
 
 ## Verify in disposable PostgreSQL 18 databases
 
+With an existing disposable PostgreSQL 18 container (no host psql or exposed
+database port required):
+
 ```powershell
-./docs/testing/verify-demo-stock.ps1 -Port 56533 -DatabaseUser postgres `
+pwsh -File ./docs/testing/verify-demo-stock.ps1 -Container nexus-postgres -DatabaseUser nexus
+```
+
+Or with a local PostgreSQL 18 server and psql:
+
+```powershell
+pwsh -File ./docs/testing/verify-demo-stock.ps1 -Port 56533 -DatabaseUser postgres `
   -PsqlPath 'path/to/PostgreSQL18/bin/psql.exe'
 ```
 
 The verifier creates only randomly named test databases and drops them in a
-finally block. It applies the real catalog/inventory SQL migrations, separately
+finally block; it never seeds the container's existing catalog_db/inventory_db.
+The selected database user must be able to create and drop these test databases.
+The container must already be running; the verifier does not create or remove it.
+It applies the real catalog/inventory SQL migrations, separately
 committing each file so V6's new enum values are available afterward. It executes
 the production script, checks all four #133 data criteria, reruns with consumed
 stock and unrelated data, compares two independently seeded catalogs, and forces
 a ledger error to verify rollback. It also checks missing catalog variants and
 missing/inactive warehouse failures. This checks SQL setup and seeding, not
-Flyway's engine, HTTP authorization or checkout integration.
+Flyway's engine, HTTP authorization or checkout integration. Seed accepts
+`-CatalogDatabase` and `-InventoryDatabase` in Container mode so the verifier and
+its concurrent jobs target only the temporary databases.
