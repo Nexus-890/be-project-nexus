@@ -73,6 +73,35 @@ group transition.
 
 ## Automated verification
 
+### Unit tests — không cần Docker
+
+Các unit test dùng JUnit/Mockito, clock cố định và dữ liệu riêng trong bộ nhớ;
+không cần chạy Payment, Commerce, PostgreSQL, Kafka, Keycloak hoặc cấu hình secret.
+Từ `be-project-nexus`, dùng JDK 21 và chạy:
+
+```powershell
+Push-Location payment-service
+.\mvnw.cmd '-Duser.timezone=UTC' '-Dtest=PaymentConfirmationServiceTest,SepayWebhookControllerUnitTest,PaymentOutboxConfigurationTest' test
+Pop-Location
+Push-Location commerce-service
+.\mvnw.cmd '-Duser.timezone=UTC' '-Dtest=CheckoutPaymentConfirmedConsumerTest' test
+Pop-Location
+```
+
+| Test class | Hành vi được kiểm tra |
+| --- | --- |
+| `PaymentConfirmationServiceTest` | Receipt đúng tổng 350000, funding đủ hai instructions, manifest, receipt trùng, điều kiện session/plan, biên deadline, dữ liệu tiền và thứ tự gọi pending refunds. |
+| `SepayWebhookControllerUnitTest` | Group lấy từ session đã match, dữ liệu provider được giữ nguyên, raw body bị sửa không tới nghiệp vụ; lỗi confirmation phải truyền ra ngoài để provider retry. |
+| `CheckoutPaymentConfirmedConsumerTest` | Routing envelope/key, buyer và manifest, binding payment của nhóm đã PAID, trạng thái đóng, biên deadline và `OrderPaid` lấy từ snapshot. |
+| `PaymentOutboxConfigurationTest` | Kafka key theo group, aggregate theo session và metadata giữ nguyên khi serialize. |
+
+Unit test không dùng mock để kết luận SQL chống trùng khi chạy đồng thời hoặc
+transaction đã rollback. Các kiểm chứng đó thuộc các integration test bên dưới.
+AC thời gian toàn chuỗi và đối chiếu `inventory_balances` trước/sau cũng cần
+integration/end-to-end evidence, không được suy ra từ unit test.
+
+### PostgreSQL và Kafka integration tests
+
 Use JDK 21 and a fresh isolated PostgreSQL database or Docker Desktop with Linux
 containers. From `be-project-nexus`, build the shared libraries before compiling
 services that use the relay extension:
