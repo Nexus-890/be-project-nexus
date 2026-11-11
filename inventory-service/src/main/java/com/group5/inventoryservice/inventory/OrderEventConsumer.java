@@ -19,13 +19,15 @@ import tools.jackson.databind.json.JsonMapper;
 @RequiredArgsConstructor
 public class OrderEventConsumer {
 
+    public static final String LISTENER_ID = "inventory-order-events";
     static final String ORDER_PAID_CONSUMER = "inventory-order-paid";
 
     private final IdempotentConsumer idempotent;
     private final ReservationService reservations;
     private final JsonMapper mapper;
 
-    @KafkaListener(topics = Topics.COMMERCE, groupId = "${nexus.inventory.consumer-group:inventory-order-events}",
+    @KafkaListener(id = LISTENER_ID, topics = Topics.COMMERCE,
+            groupId = "${nexus.inventory.consumer-group:inventory-order-events}",
             containerFactory = EventKafka.LISTENER_CONTAINER_FACTORY)
     public void receive(ConsumerRecord<String, EventEnvelope<JsonNode>> record) {
         EventEnvelope<JsonNode> event = record.value();
