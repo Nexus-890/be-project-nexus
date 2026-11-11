@@ -20,6 +20,9 @@ springdoc:
 
 nexus:
   shipping:
+    order-paid-consumer-enabled: ${SHIPPING_ORDER_PAID_CONSUMER_ENABLED:true}
+    tracking-retry-backoff-ms: ${SHIPPING_TRACKING_RETRY_BACKOFF_MS:30000}
+    tracking-retry-poll-ms: ${SHIPPING_TRACKING_RETRY_POLL_MS:5000}
     carrier: ${SHIPPING_CARRIER:NONE}
     api-timeout-ms: ${SHIPPING_API_TIMEOUT_MS:3000}
     retry-limit: ${SHIPPING_RETRY_LIMIT:3}
@@ -28,6 +31,7 @@ nexus:
     breaker-failure-threshold: ${SHIPPING_BREAKER_FAILURE_THRESHOLD:5}
     breaker-open-ms: ${SHIPPING_BREAKER_OPEN_MS:30000}
     catalog-base-url: ${SHIPPING_CATALOG_BASE_URL:}
+    commerce-base-url: ${SHIPPING_COMMERCE_BASE_URL:}
     default-warehouse-id: ${SHIPPING_DEFAULT_WAREHOUSE_ID:}
     default-pickup:
       province-code: ${SHIPPING_PICKUP_PROVINCE_CODE:}

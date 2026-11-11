@@ -209,7 +209,8 @@ class CarrierControllerTest {
             DataJpaRepositoriesAutoConfiguration.class,
             HibernateJpaAutoConfiguration.class,
             FlywayAutoConfiguration.class
-    })
+    }, excludeName = {"com.group5.common_outbox.autoconfigure.IdempotentConsumerAutoConfiguration",
+            "com.group5.common_outbox.autoconfigure.OutboxAutoConfiguration"})
     @Import({ShippingConfiguration.class, CarrierRegistry.class, CarrierExecutor.class,
             CarrierService.class, CarrierController.class,
             ShipmentSecurityProblemAdvice.class, ShipmentExceptionHandler.class})

@@ -156,6 +156,25 @@ class OutboxRelayTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void domainRelayCanChooseAPublicationKeyWithoutChangingTheEnvelope() {
+        OutboxRelay domainRelay = new OutboxRelay(jdbc, mapper, kafka, transactions, Duration.ofMillis(50)) {
+            @Override
+            protected String publicationKey(OutboxEntry entry, EventEnvelope<?> envelope) {
+                return "domain-order-1";
+            }
+        };
+        rows(entry(event));
+        acknowledge();
+
+        domainRelay.publishPending();
+
+        ArgumentCaptor<EventEnvelope<?>> sent = ArgumentCaptor.captor();
+        verify(kafka).send(eq(Topics.CATALOG), eq("domain-order-1"), sent.capture());
+        assertThat(sent.getValue().aggregateId()).isEqualTo(event.aggregateId());
+        verify(jdbc).update(OutboxRelay.MARK_PUBLISHED_SQL, event.eventId());
+    }
+
     @SuppressWarnings("unchecked")
     private void rows(OutboxEntry... entries) {
         when(jdbc.query(eq(OutboxRelay.CLAIM_SQL), any(RowMapper.class))).thenReturn(List.of(entries));

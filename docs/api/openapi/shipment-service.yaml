@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Nexus vận chuyển
-  version: 2.1.0
+  version: 2.3.0
   description: >-
     Issue #201: danh sách nhà vận chuyển, địa giới GHN v3 hai cấp sau sáp nhập và báo giá bằng preview. Bản
     2.1 bổ sung insuranceValue tùy chọn, độc lập với subtotal của catalog; bỏ trống hoặc null tương đương 0.
@@ -11,7 +11,11 @@ info:
     20.000g và HEAVY từ 20.000g. Các trường bổ sung recipient/parcel còn cần chốt với contract checkout; xem
     shipping-contract-review-201.md. Mọi phản hồi JSON thành công có code, message, data và page theo ADR-008.
     Lỗi do shipment-service phát ra có mã SHIPMENT_*; lỗi do gateway phát ra trước khi tới dịch vụ giữ mã
-    chung của gateway.
+    chung của gateway. Bản 2.2 bổ sung #202: tạo shipment từ snapshot OrderPaid, tạo thủ công có
+    Idempotency-Key và đọc shipment có kiểm tra chủ sở hữu. Bản 2.3 hoàn tất manual creation bằng snapshot
+    PAID đọc trực tiếp từ commerce-service khi shipment chưa tồn tại. Fake hỗ trợ tạo tracking; GHN create thuộc
+    tích hợp riêng. Snapshot thiếu dữ liệu chuẩn bị hoặc carrier chưa khả dụng giữ PENDING_TRACKING.
+    Tracking retry không bổ sung dữ liệu chuẩn bị còn thiếu; #202 chưa có endpoint hoàn tất chuẩn bị.
 servers:
   - url: http://localhost:8080
     description: Cổng API của hệ thống
@@ -24,7 +28,333 @@ tags:
     description: Địa giới GHN v3 theo mô hình hai cấp
   - name: Shipping quotes
     description: Báo giá và thời gian giao hàng dự kiến
+  - name: Shipments
+    description: Tạo và đọc shipment của đơn đã thanh toán
 paths:
+  /api/v1/shipments:
+    post:
+      tags:
+        - Shipments
+      operationId: createShipment
+      summary: Tạo shipment thủ công từ snapshot đơn đã thanh toán
+      description: >-
+        Yêu cầu SHIPPING.CREATE_SHIPMENT và một trong hai vai trò ADMIN hoặc SUPPORT_STAFF. Buyer có
+        privilege tạo nhưng thiếu vai trò vận hành vẫn bị từ chối 403. Nguồn buyerId, shippingFee và
+        shippingInfo lấy từ đơn đã thanh toán, không nhận các trường này từ client và không đọc commerce_db.
+        Khi chưa có shipment, gọi trực tiếp GET /internal/v1/orders/{id}/shipping-snapshot của commerce bằng
+        bearer của caller, có timeout và circuit breaker. Chỉ đơn PAID có snapshot hợp lệ được tạo. Đơn
+        không tồn tại trả 404 SHIPMENT_ORDER_NOT_FOUND; chưa PAID trả 409 SHIPMENT_ORDER_NOT_PAID; upstream
+        không khả dụng trả 503 SHIPMENT_COMMERCE_UNAVAILABLE; snapshot sai trả 502 SHIPMENT_INVALID_ORDER_SNAPSHOT.
+        warehouseId, carrier và serviceType tùy chọn được dùng để chọn dispatch cho shipment mới. Kho và
+        pickup phải có nguồn tin cậy; không dùng pickup cũ cho kho khác. Bỏ trống dùng lựa chọn tin cậy của
+        đơn hoặc cấu hình shipping. Khi shipment đã tồn tại, các giá trị nếu gửi phải khớp lựa chọn đã lưu;
+        không đổi carrier/service/kho sau khi có request identity. Khác lựa chọn trả 409 SHIPMENT_IDEMPOTENCY_CONFLICT.
+        Mỗi order chỉ có một shipment. Cùng Idempotency-Key và cùng yêu cầu trả lại shipment đã tạo;
+        tái dùng khóa cho yêu cầu khác hoặc lựa chọn xung đột với shipment hiện có trả 409. Key đầu tiên
+        được lưu trên shipment cùng fingerprint nội dung request; một key khác cho shipment đã gắn key
+        cũng trả 409 SHIPMENT_IDEMPOTENCY_CONFLICT.
+        Phản hồi thành công luôn là 201 với Location của shipment. Carrier tạm lỗi hoặc thiếu dữ liệu
+        chuẩn bị giữ shipment PENDING_TRACKING với trackingCode=null; job retry dùng shipment.id làm
+        request identity ổn định. Manual transaction ghi shipment/history/outbox trước khi gọi carrier;
+        consumer OrderPaid còn ghi processed marker trong cùng transaction. Hai đường tạo dùng cùng khóa
+        order và unique order_id, nên chạy đồng thời vẫn chỉ có một shipment và một creation event.
+        ShipmentCreated ghi nhận creation PENDING_TRACKING, trackingCode=null;
+        GET phản ánh tracking được bổ sung sau, không ghi thêm ShipmentCreated.
+        Retry không thể tự cấp parcel/pickup còn thiếu và #202 chưa có endpoint bổ sung dữ liệu chuẩn bị.
+      security:
+        - bearerAuth: []
+      x-required-privileges:
+        - SHIPPING.CREATE_SHIPMENT
+      x-required-roles:
+        - ADMIN
+        - SUPPORT_STAFF
+      x-ownership: >-
+        Chỉ ADMIN hoặc SUPPORT_STAFF có privilege tạo được thao tác trên đơn; buyerId luôn lấy từ
+        snapshot tin cậy, không phải danh tính do client gửi. x-required-roles ở operation này là ANY-of.
+      x-error-codes:
+        '400':
+          - SHIPMENT_IDEMPOTENCY_KEY_REQUIRED
+          - SHIPMENT_VALIDATION_FAILED
+          - SHIPMENT_INVALID_REQUEST_BODY
+          - SHIPMENT_INVALID_PARAMETER
+        '401':
+          - SHIPMENT_UNAUTHENTICATED
+          - UNAUTHENTICATED
+        '403':
+          - SHIPMENT_FORBIDDEN
+          - FORBIDDEN
+        '404':
+          - SHIPMENT_ORDER_NOT_FOUND
+          - SHIPMENT_WAREHOUSE_NOT_FOUND
+        '405':
+          - SHIPMENT_METHOD_NOT_ALLOWED
+        '406':
+          - SHIPMENT_NOT_ACCEPTABLE
+        '409':
+          - SHIPMENT_IDEMPOTENCY_CONFLICT
+          - SHIPMENT_ORDER_NOT_PAID
+        '415':
+          - SHIPMENT_UNSUPPORTED_MEDIA_TYPE
+        '422':
+          - SHIPMENT_NO_SERVICE
+        '429':
+          - RATE_LIMITED
+        '500':
+          - SHIPMENT_INTERNAL_ERROR
+          - INTERNAL_ERROR
+        '502':
+          - SHIPMENT_INVALID_ORDER_SNAPSHOT
+        '503':
+          - SHIPMENT_COMMERCE_UNAVAILABLE
+          - SERVICE_UNAVAILABLE
+        '504':
+          - GATEWAY_TIMEOUT
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Khóa ổn định cho cùng yêu cầu tạo; không tái dùng cho nội dung khác.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+            pattern: '\S'
+          example: manual-order-0001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShipmentRequest'
+            example:
+              orderId: 00000000-0000-4000-8000-000000000001
+      responses:
+        '201':
+          description: Shipment mới hoặc kết quả của yêu cầu idempotent đã xử lý.
+          headers:
+            Location:
+              description: Đường dẫn đọc shipment đã tạo.
+              schema:
+                type: string
+                format: uri-reference
+              example: /api/v1/shipments/00000000-0000-4000-8000-000000000040
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipmentEnvelope'
+              examples:
+                created:
+                  $ref: '#/components/examples/CreatedShipment'
+                pending:
+                  $ref: '#/components/examples/PendingShipment'
+        '400':
+          $ref: '#/components/responses/ShipmentBadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ManualOrderNotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '409':
+          $ref: '#/components/responses/ShipmentConflict'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/NoService'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/InvalidOrderSnapshot'
+        '503':
+          $ref: '#/components/responses/CommerceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+    get:
+      tags:
+        - Shipments
+      operationId: listShipments
+      summary: Đọc danh sách shipment có phân trang
+      description: >-
+        Yêu cầu SHIPPING.VIEW_SHIPMENT. ADMIN và SUPPORT_STAFF đọc mọi shipment; các actor khác chỉ đọc shipment
+        có buyerId bằng sub của JWT. Điều kiện chủ sở hữu và bộ lọc được áp dụng trước khi phân trang và
+        đếm tổng, nên tổng không tiết lộ shipment của người khác. Sắp xếp createdAt giảm dần, sau đó id.
+        Trang vượt cuối trả 200 với data=[] và tổng thực tế. Không có bộ lọc buyerId cho client.
+      security:
+        - bearerAuth: []
+      x-required-privileges:
+        - SHIPPING.VIEW_SHIPMENT
+      x-required-roles: []
+      x-ownership: ADMIN/SUPPORT_STAFF đọc tất cả; các actor khác chỉ đọc buyerId bằng sub của JWT.
+      x-error-codes:
+        '400':
+          - SHIPMENT_VALIDATION_FAILED
+          - SHIPMENT_INVALID_PARAMETER
+        '401':
+          - SHIPMENT_UNAUTHENTICATED
+          - UNAUTHENTICATED
+        '403':
+          - SHIPMENT_FORBIDDEN
+          - FORBIDDEN
+        '405':
+          - SHIPMENT_METHOD_NOT_ALLOWED
+        '406':
+          - SHIPMENT_NOT_ACCEPTABLE
+        '429':
+          - RATE_LIMITED
+        '500':
+          - SHIPMENT_INTERNAL_ERROR
+          - INTERNAL_ERROR
+        '503':
+          - SERVICE_UNAVAILABLE
+        '504':
+          - GATEWAY_TIMEOUT
+      parameters:
+        - name: page
+          in: query
+          description: Chỉ số trang bắt đầu từ 0.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          description: Số phần tử tối đa mỗi trang.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: orderId
+          in: query
+          description: Lọc theo UUID đơn; vẫn áp dụng quyền sở hữu.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          description: Lọc theo trạng thái shipment nội bộ.
+          schema:
+            $ref: '#/components/schemas/ShipmentStatus'
+      responses:
+        '200':
+          description: Shipment nhìn thấy được và thông tin phân trang.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipmentListResponse'
+              example:
+                code: 0
+                message: response success
+                data: []
+                page:
+                  number: 0
+                  size: 20
+                  totalElements: 0
+                  totalPages: 0
+        '400':
+          $ref: '#/components/responses/ShipmentBadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RoutingUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+  /api/v1/shipments/{id}:
+    get:
+      tags:
+        - Shipments
+      operationId: getShipment
+      summary: Đọc chi tiết shipment
+      description: >-
+        Yêu cầu SHIPPING.VIEW_SHIPMENT. ADMIN và SUPPORT_STAFF đọc mọi shipment; các actor khác chỉ đọc shipment
+        có buyerId bằng sub của JWT. Shipment không tồn tại hoặc thuộc buyer khác đều trả cùng 404
+        SHIPMENT_NOT_FOUND. Không gọi commerce để quyết định quyền sở hữu.
+      security:
+        - bearerAuth: []
+      x-required-privileges:
+        - SHIPPING.VIEW_SHIPMENT
+      x-required-roles: []
+      x-ownership: ADMIN/SUPPORT_STAFF đọc tất cả; các actor khác chỉ đọc buyerId bằng sub của JWT.
+      x-error-codes:
+        '400':
+          - SHIPMENT_INVALID_PARAMETER
+        '401':
+          - SHIPMENT_UNAUTHENTICATED
+          - UNAUTHENTICATED
+        '403':
+          - SHIPMENT_FORBIDDEN
+          - FORBIDDEN
+        '404':
+          - SHIPMENT_NOT_FOUND
+        '405':
+          - SHIPMENT_METHOD_NOT_ALLOWED
+        '406':
+          - SHIPMENT_NOT_ACCEPTABLE
+        '429':
+          - RATE_LIMITED
+        '500':
+          - SHIPMENT_INTERNAL_ERROR
+          - INTERNAL_ERROR
+        '503':
+          - SERVICE_UNAVAILABLE
+        '504':
+          - GATEWAY_TIMEOUT
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: UUID shipment, không phải UUID order.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Shipment nhìn thấy được.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipmentEnvelope'
+              examples:
+                created:
+                  $ref: '#/components/examples/CreatedShipment'
+                pending:
+                  $ref: '#/components/examples/PendingShipment'
+        '400':
+          $ref: '#/components/responses/ShipmentBadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ShipmentNotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RoutingUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
   /api/v1/carriers:
     get:
       tags:
@@ -547,12 +877,274 @@ paths:
         '504':
           $ref: '#/components/responses/GatewayTimeout'
 components:
+  examples:
+    CreatedShipment:
+      summary: Fake cấp tracking cho shipment của đơn đã thanh toán
+      value:
+        code: 0
+        message: response success
+        data:
+          id: 00000000-0000-4000-8000-000000000040
+          orderId: 00000000-0000-4000-8000-000000000001
+          warehouseId: 00000000-0000-4000-8000-000000000010
+          buyerId: 00000000-0000-4000-8000-000000000002
+          carrier: FAKE
+          serviceType: STANDARD
+          trackingCode: FAKE-00000000-0000-4000-8000-000000000050
+          status: CREATED
+          shippingFee: 15000
+          shippingInfo:
+            recipient:
+              name: Demo Recipient
+              phone: '0900000000'
+              address:
+                line1: 1 Demo Street
+                provinceCode: P01
+                districtCode: D01
+                wardCode: W01
+            items:
+              - skuId: 00000000-0000-4000-8000-000000000005
+                productName: Demo item
+                quantity: 1
+            parcel:
+              weightGrams: 1000
+              lengthCm: 20
+              widthCm: 15
+              heightCm: 10
+            pickupAddress:
+              line1: 2 Demo Street
+              provinceCode: P01
+              districtCode: D01
+              wardCode: W01
+          createdAt: '2026-11-11T10:00:00Z'
+          updatedAt: '2026-11-11T10:00:00Z'
+          version: 0
+    PendingShipment:
+      summary: Snapshot thiếu số đo/pickup hoặc carrier chưa cấp tracking
+      value:
+        code: 0
+        message: response success
+        data:
+          id: 00000000-0000-4000-8000-000000000040
+          orderId: 00000000-0000-4000-8000-000000000001
+          warehouseId: 00000000-0000-4000-8000-000000000010
+          buyerId: 00000000-0000-4000-8000-000000000002
+          carrier: FAKE
+          serviceType: STANDARD
+          trackingCode: null
+          status: PENDING_TRACKING
+          shippingFee: 15000
+          shippingInfo:
+            recipient:
+              name: Demo Recipient
+              phone: '0900000000'
+              address:
+                line1: 1 Demo Street
+                provinceCode: P01
+                districtCode: D01
+                wardCode: W01
+            items:
+              - skuId: 00000000-0000-4000-8000-000000000005
+                productName: Demo item
+                quantity: 1
+            parcel: null
+            pickupAddress: null
+          createdAt: '2026-11-11T10:00:00Z'
+          updatedAt: '2026-11-11T10:00:00Z'
+          version: 0
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
   responses:
+    ShipmentBadRequest:
+      description: Khóa idempotency, body, UUID/enum, carrier chưa đăng ký hoặc phân trang không hợp lệ.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum: [400]
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_IDEMPOTENCY_KEY_REQUIRED
+                      - SHIPMENT_VALIDATION_FAILED
+                      - SHIPMENT_INVALID_REQUEST_BODY
+                      - SHIPMENT_INVALID_PARAMETER
+          examples:
+            SHIPMENT_IDEMPOTENCY_KEY_REQUIRED:
+              summary: Thiếu khóa idempotency hoặc khóa chỉ chứa khoảng trắng
+              value:
+                type: urn:problem:domain-error
+                title: Bad Request
+                status: 400
+                detail: Cần có Idempotency-Key
+                instance: /api/v1/shipments
+                code: SHIPMENT_IDEMPOTENCY_KEY_REQUIRED
+            SHIPMENT_VALIDATION_FAILED:
+              summary: Thiếu orderId
+              value:
+                type: urn:problem:validation-error
+                title: Bad Request
+                status: 400
+                detail: Dữ liệu yêu cầu không hợp lệ
+                instance: /api/v1/shipments
+                code: SHIPMENT_VALIDATION_FAILED
+                errors:
+                  - field: orderId
+                    code: VALIDATION_NOT_NULL
+                    detail: must not be null
+            SHIPMENT_INVALID_REQUEST_BODY:
+              summary: Body không phải JSON hoặc UUID không hợp lệ
+              value:
+                type: urn:problem:invalid-request-body
+                title: Bad Request
+                status: 400
+                detail: Nội dung yêu cầu không hợp lệ
+                instance: /api/v1/shipments
+                code: SHIPMENT_INVALID_REQUEST_BODY
+            SHIPMENT_INVALID_PARAMETER:
+              summary: UUID/enum query không parse được hoặc Idempotency-Key dài quá 100 ký tự
+              value:
+                type: urn:problem:invalid-parameter
+                title: Bad Request
+                status: 400
+                detail: Tham số yêu cầu không hợp lệ
+                instance: /api/v1/shipments
+                code: SHIPMENT_INVALID_PARAMETER
+    ManualOrderNotFound:
+      description: Đơn không tồn tại tại commerce, hoặc kho/pickup cần chọn chưa được cấu hình.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum: [404]
+                  code:
+                    type: string
+                    enum: [SHIPMENT_ORDER_NOT_FOUND, SHIPMENT_WAREHOUSE_NOT_FOUND]
+          example:
+            type: urn:problem:domain-error
+            title: Not Found
+            status: 404
+            detail: Không tìm thấy đơn hàng
+            instance: /api/v1/shipments
+            code: SHIPMENT_ORDER_NOT_FOUND
+    InvalidOrderSnapshot:
+      description: Commerce trả snapshot thiếu/sai hoặc không khớp orderId; không ghi shipment.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum: [502]
+                  code:
+                    type: string
+                    enum: [SHIPMENT_INVALID_ORDER_SNAPSHOT]
+          example:
+            type: urn:problem:domain-error
+            title: Bad Gateway
+            status: 502
+            detail: Snapshot đơn hàng không hợp lệ
+            instance: /api/v1/shipments
+            code: SHIPMENT_INVALID_ORDER_SNAPSHOT
+    CommerceUnavailable:
+      description: Commerce timeout, circuit mở, lỗi kết nối hoặc lỗi upstream khác; gateway routing cũng có thể trả SERVICE_UNAVAILABLE.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum: [503]
+                  code:
+                    type: string
+                    enum: [SHIPMENT_COMMERCE_UNAVAILABLE, SERVICE_UNAVAILABLE]
+          example:
+            type: urn:problem:domain-error
+            title: Service Unavailable
+            status: 503
+            detail: Dịch vụ đơn hàng hiện không khả dụng
+            instance: /api/v1/shipments
+            code: SHIPMENT_COMMERCE_UNAVAILABLE
+    ShipmentConflict:
+      description: >-
+        Khóa idempotency đã dùng cho yêu cầu khác, shipment đã gắn key khác, lựa chọn khác với shipment
+        hiện có, hoặc commerce xác nhận đơn chưa PAID. Không tạo shipment bằng dữ liệu buyer/address
+        do client tự khai.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum: [409]
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_IDEMPOTENCY_CONFLICT
+                      - SHIPMENT_ORDER_NOT_PAID
+          examples:
+            SHIPMENT_IDEMPOTENCY_CONFLICT:
+              summary: Cùng khóa đã dùng cho nội dung khác
+              value:
+                type: urn:problem:domain-error
+                title: Conflict
+                status: 409
+                detail: Khóa hoặc yêu cầu tạo vận đơn đã được dùng với nội dung khác
+                instance: /api/v1/shipments
+                code: SHIPMENT_IDEMPOTENCY_CONFLICT
+            SHIPMENT_ORDER_NOT_PAID:
+              summary: Đơn chưa ở trạng thái PAID
+              value:
+                type: urn:problem:domain-error
+                title: Conflict
+                status: 409
+                detail: Đơn hàng chưa được thanh toán
+                instance: /api/v1/shipments
+                code: SHIPMENT_ORDER_NOT_PAID
+    ShipmentNotFound:
+      description: Shipment không tồn tại hoặc không thuộc buyer đang truy cập.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum: [404]
+                  code:
+                    type: string
+                    enum: [SHIPMENT_NOT_FOUND]
+          example:
+            type: urn:problem:domain-error
+            title: Not Found
+            status: 404
+            detail: Không tìm thấy tài nguyên được yêu cầu
+            instance: /api/v1/shipments/00000000-0000-4000-8000-000000000040
+            code: SHIPMENT_NOT_FOUND
     InvalidRequest:
       description: Dữ liệu, địa chỉ, mã địa giới hoặc cấu trúc JSON không hợp lệ. Mỗi field lỗi có field, code và detail.
       content:
@@ -684,7 +1276,7 @@ components:
                 instance: /api/v1/shipping/quotes
                 code: UNAUTHENTICATED
     Forbidden:
-      description: JWT thiếu SHIPPING.QUOTE; vai trò ADMIN không thay thế quyền này.
+      description: JWT thiếu quyền yêu cầu của operation; vai trò ADMIN không thay thế quyền này.
       content:
         application/problem+json:
           schema:
@@ -1186,6 +1778,189 @@ components:
                 instance: /api/v1/shipping/quotes
                 code: GATEWAY_TIMEOUT
   schemas:
+    CreateShipmentRequest:
+      type: object
+      required:
+        - orderId
+      properties:
+        orderId:
+          type: string
+          format: uuid
+          description: UUID seller order PAID tại commerce; không cần OrderPaid đã được giao tới shipment-service.
+        warehouseId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Chọn kho cho shipment mới. Bỏ trống dùng kho tin cậy trong snapshot hoặc kho mặc định đã cấu hình.
+            Đổi sang kho khác cần pickup tin cậy cấu hình cho kho đó; thiếu kho/pickup trả 404 SHIPMENT_WAREHOUSE_NOT_FOUND.
+            Nếu shipment đã tồn tại, giá trị gửi phải khớp kho đã lưu, nếu không trả 409 SHIPMENT_IDEMPOTENCY_CONFLICT.
+        carrier:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 40
+          pattern: '^\S+$'
+          description: >-
+            Chọn carrier đã đăng ký cho shipment mới; bỏ trống dùng lựa chọn từ snapshot hoặc cấu hình shipping.
+            Carrier chưa đăng ký trả 400 SHIPMENT_INVALID_PARAMETER. Nếu shipment đã tồn tại, giá trị gửi
+            phải bằng carrier đã lưu; khác lựa chọn trả 409 SHIPMENT_IDEMPOTENCY_CONFLICT.
+          example: FAKE
+        serviceType:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 40
+          pattern: '^\S+$'
+          description: >-
+            Chọn dịch vụ hợp lệ cho shipment mới; bỏ trống dùng lựa chọn tin cậy hoặc mặc định của adapter.
+            Dịch vụ không được hỗ trợ trả 422 SHIPMENT_NO_SERVICE. Nếu shipment đã tồn tại, giá trị gửi
+            phải khớp lựa chọn đã lưu; khác lựa chọn trả 409 SHIPMENT_IDEMPOTENCY_CONFLICT.
+          example: STANDARD
+    ShipmentStatus:
+      type: string
+      enum:
+        - CREATED
+        - PENDING_TRACKING
+        - PICKING
+        - PACKED
+        - READY_TO_SHIP
+        - SHIPPED
+        - IN_TRANSIT
+        - OUT_FOR_DELIVERY
+        - DELIVERED
+        - DELIVERY_FAILED
+        - RETURNING
+        - RETURNED
+        - CANCELLED
+    ShipmentResponse:
+      type: object
+      required:
+        - id
+        - orderId
+        - warehouseId
+        - buyerId
+        - carrier
+        - serviceType
+        - trackingCode
+        - status
+        - shippingFee
+        - shippingInfo
+        - createdAt
+        - updatedAt
+        - version
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+          format: uuid
+        warehouseId:
+          type: string
+          format: uuid
+        buyerId:
+          type: string
+          format: uuid
+        carrier:
+          type: string
+          minLength: 1
+          maxLength: 40
+        serviceType:
+          type: string
+          nullable: true
+          maxLength: 40
+        trackingCode:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 80
+          description: Null khi carrier chưa cấp mã; fake cấp mã ổn định theo shipment.id đã lưu.
+        status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        shippingFee:
+          type: number
+          minimum: 0
+          description: Phí VND đóng băng từ snapshot OrderPaid hoặc snapshot PAID của commerce; API serialize thành JSON number.
+        shippingInfo:
+          type: object
+          additionalProperties: true
+          description: >-
+            Snapshot recipient, items, parcel và pickupAddress từ OrderPaid hoặc snapshot PAID của commerce.
+            Đây là snapshot của đơn, độc lập với DTO quote #201; không tự đổi mã legacy thành mã GHN v3.
+            Parcel/pickupAddress có thể null và shipment khi đó chờ chuẩn bị ở PENDING_TRACKING.
+            Tracking retry không bổ sung các trường thiếu; #202 chưa có endpoint hoàn tất chuẩn bị.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+    ShipmentEnvelope:
+      type: object
+      required:
+        - code
+        - message
+        - data
+      additionalProperties: false
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          $ref: '#/components/schemas/ShipmentResponse'
+    ShipmentListResponse:
+      type: object
+      required:
+        - code
+        - message
+        - data
+        - page
+      additionalProperties: false
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipmentResponse'
+        page:
+          $ref: '#/components/schemas/ShipmentPageInfo'
+    ShipmentPageInfo:
+      type: object
+      required:
+        - number
+        - size
+        - totalElements
+        - totalPages
+      additionalProperties: false
+      properties:
+        number:
+          type: integer
+          minimum: 0
+        size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        totalElements:
+          type: integer
+          format: int64
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
     CarrierListResponse:
       type: object
       required:
@@ -1503,6 +2278,13 @@ components:
             - SHIPMENT_VALIDATION_FAILED
             - SHIPMENT_INVALID_REQUEST_BODY
             - SHIPMENT_INVALID_PARAMETER
+            - SHIPMENT_IDEMPOTENCY_KEY_REQUIRED
+            - SHIPMENT_IDEMPOTENCY_CONFLICT
+            - SHIPMENT_ORDER_NOT_FOUND
+            - SHIPMENT_ORDER_NOT_PAID
+            - SHIPMENT_INVALID_ORDER_SNAPSHOT
+            - SHIPMENT_COMMERCE_UNAVAILABLE
+            - SHIPMENT_NOT_FOUND
             - SHIPMENT_INVALID_ADDRESS
             - SHIPMENT_UNAUTHENTICATED
             - UNAUTHENTICATED

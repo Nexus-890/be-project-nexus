@@ -67,7 +67,7 @@ public class OutboxRelay {
             for (OutboxEntry entry : jdbc.query(CLAIM_SQL, OutboxRelay::mapEntry)) {
                 try {
                     EventEnvelope<?> envelope = jsonMapper.readValue(entry.payload(), envelopeType);
-                    kafka.send(entry.topic(), entry.aggregateId(), envelope)
+                    kafka.send(entry.topic(), publicationKey(entry, envelope), envelope)
                             .get(sendTimeoutMillis, TimeUnit.MILLISECONDS);
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
@@ -81,6 +81,11 @@ public class OutboxRelay {
                 jdbc.update(MARK_PUBLISHED_SQL, entry.id());
             }
         });
+    }
+
+    /** Override only when the domain contract uses a key distinct from the envelope aggregate. */
+    protected String publicationKey(OutboxEntry entry, EventEnvelope<?> envelope) {
+        return entry.aggregateId();
     }
 
     private static OutboxEntry mapEntry(ResultSet row, int rowNumber) throws SQLException {
