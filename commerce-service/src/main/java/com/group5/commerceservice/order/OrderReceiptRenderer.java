@@ -13,6 +13,15 @@ import java.util.Map;
 @Component
 public class OrderReceiptRenderer {
     public String render(Order order, OffsetDateTime completedAt) {
+        return render(order, completedAt, true);
+    }
+
+    /** Không đưa thông tin liên hệ người nhận vào event và email bất đồng bộ. */
+    public String renderForEmail(Order order, OffsetDateTime completedAt) {
+        return render(order, completedAt, false);
+    }
+
+    private String render(Order order, OffsetDateTime completedAt, boolean includeRecipient) {
         StringBuilder html = new StringBuilder("""
                 <!doctype html>
                 <html lang="en"><head><meta charset="UTF-8">
@@ -27,15 +36,7 @@ public class OrderReceiptRenderer {
                 .append("<p>Order ID: ").append(order.getId()).append("</p>")
                 .append("<p>Seller: ").append(order.getSellerId()).append("</p>")
                 .append("<p>Completed: ").append(text(completedAt.toInstant())).append("</p>");
-        Object address = order.getShippingInfo() == null ? null : order.getShippingInfo().get("shippingAddress");
-        if (address instanceof Map<?, ?> fields) {
-            html.append("<h2>Delivered to</h2><p>");
-            for (String key : new String[]{"recipientName", "phoneNumber", "addressLine", "ward", "district", "city", "countryCode"}) {
-                Object value = fields.get(key);
-                if (value != null) html.append(text(value)).append("<br>");
-            }
-            html.append("</p>");
-        }
+        if (includeRecipient) appendRecipient(html, order);
         html.append("<h2>Items</h2><table><thead><tr><th>Product</th><th>SKU</th><th>Quantity</th>")
                 .append("<th>Unit price</th><th>Amount</th></tr></thead><tbody>");
         order.getItems().forEach(item -> html.append("<tr><td>").append(text(item.getProductName()))
@@ -50,6 +51,26 @@ public class OrderReceiptRenderer {
         amount(html, "Total", order.getTotalAmount());
         return html.append("</dl><p>Currency: ").append(text(order.getOrderGroup().getCurrency()))
                 .append("</p></body></html>").toString();
+    }
+
+    private static void appendRecipient(StringBuilder html, Order order) {
+        Object address = order.getShippingInfo() == null ? null : order.getShippingInfo().get("shippingAddress");
+        Object recipient = order.getShippingInfo() == null ? null : order.getShippingInfo().get("recipient");
+        if (recipient instanceof Map<?, ?> fields && fields.get("address") instanceof Map<?, ?> codes) {
+            html.append("<h2>Delivered to</h2><p>").append(text(fields.get("name"))).append("<br>")
+                    .append(text(fields.get("phone"))).append("<br>");
+            for (String key : new String[]{"line1", "wardCode", "provinceCode"}) {
+                html.append(text(codes.get(key))).append("<br>");
+            }
+            html.append("</p>");
+        } else if (address instanceof Map<?, ?> fields) {
+            html.append("<h2>Delivered to</h2><p>");
+            for (String key : new String[]{"recipientName", "phoneNumber", "addressLine", "ward", "district", "city", "countryCode"}) {
+                Object value = fields.get(key);
+                if (value != null) html.append(text(value)).append("<br>");
+            }
+            html.append("</p>");
+        }
     }
 
     private static void amount(StringBuilder html, String label, BigDecimal value) {

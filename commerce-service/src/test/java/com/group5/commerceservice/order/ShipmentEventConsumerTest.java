@@ -2,8 +2,13 @@ package com.group5.commerceservice.order;
 
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.Topics;
+import brave.Tracing;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.brave.bridge.BraveCurrentTraceContext;
+import io.micrometer.tracing.brave.bridge.BraveTracer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.mockito.ArgumentCaptor;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -15,12 +20,19 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 class ShipmentEventConsumerTest {
     private final ShipmentStatusHandler handler = mock(ShipmentStatusHandler.class);
-    private final ShipmentEventConsumer consumer = new ShipmentEventConsumer(handler, JsonMapper.shared());
+    private final Tracing tracing = Tracing.newBuilder().build();
+    private final Tracer tracer = new BraveTracer(tracing.tracer(), new BraveCurrentTraceContext(tracing.currentTraceContext()));
+    private final ShipmentEventConsumer consumer = new ShipmentEventConsumer(handler, JsonMapper.shared(), tracer);
+
+    @AfterEach
+    void closeTracing() { tracing.close(); }
 
     @Test
     @SuppressWarnings("unchecked")
@@ -31,7 +43,13 @@ class ShipmentEventConsumerTest {
                 "shipmentVersion", 4, "status", "DELIVERED"));
         EventEnvelope<JsonNode> event = envelope("ShipmentDelivered", shipmentId, payload);
 
+        doAnswer(invocation -> {
+            assertThat(tracer.currentSpan()).isNotNull();
+            return null;
+        }).when(handler).handle(org.mockito.ArgumentMatchers.any());
+        assertThat(tracer.currentSpan()).isNull();
         consumer.receive(new ConsumerRecord<>(Topics.SHIPMENT, 0, 0, orderId.toString(), event));
+        assertThat(tracer.currentSpan()).isNull();
 
         ArgumentCaptor<EventEnvelope<ShipmentStatusChanged>> forwarded = ArgumentCaptor.forClass(EventEnvelope.class);
         verify(handler).handle(forwarded.capture());
@@ -41,6 +59,19 @@ class ShipmentEventConsumerTest {
         assertThat(forwarded.getValue().occurredAt()).isEqualTo(event.occurredAt());
         assertThat(forwarded.getValue().payload().orderId()).isEqualTo(orderId);
         assertThat(forwarded.getValue().payload().shipmentVersion()).isEqualTo(4);
+    }
+
+    @Test
+    void handlerFailureEscapesForKafkaRetryAndDoesNotLeakTheListenerSpan() {
+        UUID order = UUID.randomUUID();
+        UUID shipment = UUID.randomUUID();
+        var payload = JsonMapper.shared().valueToTree(Map.of("orderId", order, "shipmentId", shipment));
+        var failure = new IllegalStateException("outbox unavailable");
+        doThrow(failure).when(handler).handle(org.mockito.ArgumentMatchers.any());
+
+        assertThatThrownBy(() -> consumer.receive(new ConsumerRecord<>(Topics.SHIPMENT, 0, 0, order.toString(),
+                envelope("ShipmentDelivered", shipment, payload)))).isSameAs(failure);
+        assertThat(tracer.currentSpan()).isNull();
     }
 
     @Test

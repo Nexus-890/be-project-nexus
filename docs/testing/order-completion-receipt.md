@@ -5,7 +5,9 @@ Commerce consumes accepted shipment transitions from `nexus.shipment.events`:
 `SHIPPED -> DELIVERED -> COMPLETED`. The delivered/completed history rows,
 processed marker and one `OrderCompleted` outbox row commit together. The event
 includes the child order's HTML receipt for notification-service's #191 email
-delivery. No payment-group total is copied into each seller receipt.
+delivery, omitting the delivery recipient's name, phone and address. Those contact
+details remain in the owner's authenticated invoice response. No payment-group
+total is copied into each seller receipt.
 
 ## Local prerequisites
 
@@ -148,7 +150,9 @@ curl.exe -i -H "Authorization: Bearer $taskOtherToken" -H 'Accept: text/html' "h
 | Missing token / missing ORDER.VIEW | 401 / 403 Problem Details at Gateway; never reaches the service |
 
 Open `http://localhost:8025` (or the configured Mailpit UI port). The buyer
-receives an order-completed email with the actual HTML receipt. Product text
+receives an order-completed email with the HTML receipt's items and totals, without
+the "Delivered to" contact section. The owner-only invoice retains that section.
+Product text
 containing `<`, `>`, `&` or quotes must remain text, without executing markup.
 `GET /api/v1/notifications` identifies the buyer's `ORDER_COMPLETED` notification;
 `GET /api/v1/notifications/{id}/deliveries` shows its single EMAIL delivery and
@@ -166,6 +170,25 @@ check. Replaying the original completion envelope must not create a second
 notification or EMAIL delivery. SMTP itself retains #191's delivery guarantees.
 
 ## Automated evidence and limits
+
+Listener regression (11/11/2026): `ShipmentEventConsumerKafkaTest` publishes pickup,
+delivery and replays through an embedded Kafka broker with producer/listener
+observation disabled and PostgreSQL/Flyway/outbox enabled. The test opens no span,
+keeps the retry job delayed for one hour, and checks `COMPLETED`, three history
+rows, one traced `OrderCompleted` and replay idempotency after a partition barrier.
+`ShipmentCompletionTest` also calls the listener without a test-created span.
+`OrderReceiptRendererTest` covers canonical and legacy contact snapshots: event/email
+HTML excludes contact data while the owner's invoice retains escaped details.
+
+Run the focused regression suite from `commerce-service`:
+
+```powershell
+.\mvnw.cmd '-Duser.timezone=UTC' '-Dtest=ShipmentEventConsumerTest,ShipmentEventConsumerKafkaTest,ShipmentCompletionTest,OrderReceiptRendererTest,OrderReceiptHttpTest' test
+```
+
+Receipt HTML and transaction details still travel in `OrderCompleted`; removing
+HTML entirely needs an authenticated internal retrieval contract. This change does
+not remove contact data from previously persisted Kafka or audit records.
 
 Verified on 07/11/2026 with Java 21 and UTC test JVM:
 

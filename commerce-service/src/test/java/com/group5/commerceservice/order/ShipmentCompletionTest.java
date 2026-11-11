@@ -119,8 +119,11 @@ class ShipmentCompletionTest {
                 """, (rs, row) -> rs.getObject(1, OffsetDateTime.class).toInstant(), order.id());
         assertThat(Instant.parse(payload.get("completedAt").asString())).isEqualTo(storedCompletion);
         assertThat(payload.get("receiptHtml").asString()).contains(order.number(), "Snapshot phone", "SKU-RECEIPT");
+        assertThat(payload.get("receiptHtml").asString())
+                .doesNotContain("Receipt Buyer", "0900000204", "204 Private Street", "Delivered to");
         assertThat(receipts.invoice(new CurrentUser(order.buyerId(), Set.of("BUYER"), Set.of("ORDER.VIEW")), order.id()))
-                .isEqualTo(payload.get("receiptHtml").asString());
+                .contains("Receipt Buyer", "0900000204", "204 Private Street", order.number(), "300000.00");
+        assertThat(envelope.get("traceId").asString()).hasSize(32);
         assertThat(jdbc().queryForList("SELECT DISTINCT changed_by FROM order_status_history WHERE order_id = ?",
                 UUID.class, order.id())).containsExactly(SYSTEM);
         assertThat(jdbc().queryForObject("SELECT topic FROM outbox WHERE aggregate_id = ?", String.class,
@@ -311,14 +314,11 @@ class ShipmentCompletionTest {
     }
 
     private void send(EventEnvelope<ShipmentStatusChanged> event) {
-        Span span = tracer.nextSpan().name("shipment-listener-test").start();
-        try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
-            listener.receive(new ConsumerRecord<>(Topics.SHIPMENT, 0, 0, event.payload().orderId().toString(),
-                    new EventEnvelope<>(event.eventId(), event.eventType(), event.aggregateId(), event.occurredAt(),
-                            event.traceId(), JsonMapper.shared().valueToTree(event.payload()))));
-        } finally {
-            span.end();
-        }
+        assertThat(tracer.currentSpan()).isNull();
+        listener.receive(new ConsumerRecord<>(Topics.SHIPMENT, 0, 0, event.payload().orderId().toString(),
+                new EventEnvelope<>(event.eventId(), event.eventType(), event.aggregateId(), event.occurredAt(),
+                        event.traceId(), JsonMapper.shared().valueToTree(event.payload()))));
+        assertThat(tracer.currentSpan()).isNull();
     }
 
     private static EventEnvelope<ShipmentStatusChanged> event(Fixture order, String type) {
@@ -349,6 +349,11 @@ class ShipmentCompletionTest {
                 INSERT INTO order_items (order_id, product_id, sku_id, product_name, sku_code, quantity, unit_price, total_price)
                 VALUES (?, ?, ?, 'Snapshot phone', 'SKU-RECEIPT', 2, 150000.00, 300000.00)
                 """, id, UUID.randomUUID(), UUID.randomUUID());
+        jdbc().update("""
+                UPDATE orders SET shipping_info = ?::jsonb WHERE id = ?
+                """, JsonMapper.shared().writeValueAsString(Map.of("recipient", Map.of("name", "Receipt Buyer",
+                "phone", "0900000204", "address", Map.of("line1", "204 Private Street", "wardCode", "W204",
+                        "provinceCode", "P204")))), id);
         return new Fixture(id, group, buyer, seller, number, UUID.randomUUID(), reference);
     }
 

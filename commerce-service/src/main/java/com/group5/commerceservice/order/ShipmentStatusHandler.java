@@ -93,7 +93,7 @@ public class ShipmentStatusHandler {
         events.orderCompleted(new OrderCompleted(order.getId(), order.getOrderGroup().getId(), order.getUserId(),
                 order.getSellerId(), order.getOrderType(), order.getReferenceId(), order.getVersion(),
                 completion.getCreatedAt().toInstant().toString(), order.getOrderNumber(),
-                receipts.render(order, completion.getCreatedAt())));
+                receipts.renderForEmail(order, completion.getCreatedAt())));
         return true;
     }
 

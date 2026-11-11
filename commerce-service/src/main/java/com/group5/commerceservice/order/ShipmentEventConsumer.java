@@ -3,6 +3,8 @@ package com.group5.commerceservice.order;
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.EventKafka;
 import com.group5.common_events.Topics;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -17,6 +19,7 @@ import tools.jackson.databind.json.JsonMapper;
 public class ShipmentEventConsumer {
     private final ShipmentStatusHandler shipments;
     private final JsonMapper mapper;
+    private final Tracer tracer;
 
     @KafkaListener(topics = Topics.SHIPMENT, groupId = "commerce-shipment-events",
             containerFactory = EventKafka.LISTENER_CONTAINER_FACTORY)
@@ -31,7 +34,16 @@ public class ShipmentEventConsumer {
         if (payload.orderId() == null || !payload.orderId().toString().equals(record.key())) {
             throw new IllegalArgumentException("Shipment event key must be its orderId");
         }
-        shipments.handle(new EventEnvelope<>(event.eventId(), event.eventType(), event.aggregateId(),
-                event.occurredAt(), event.traceId(), payload));
+        // Kafka publish tay có thể không có observation; outbox vẫn cần trace đang hoạt động.
+        Span span = tracer.nextSpan().name("order-shipment-event").start();
+        try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
+            shipments.handle(new EventEnvelope<>(event.eventId(), event.eventType(), event.aggregateId(),
+                    event.occurredAt(), event.traceId(), payload));
+        } catch (RuntimeException failure) {
+            span.error(failure);
+            throw failure;
+        } finally {
+            span.end();
+        }
     }
 }
