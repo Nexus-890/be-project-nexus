@@ -96,6 +96,8 @@ public class RouteConfig {
 
                 .route("inventory-service", route -> route
                         .path("/api/v1/inventory/**", "/api/v1/warehouses/**")
+                        .and().not(settle -> settle.path("/api/v1/inventory/reservations/*/confirm",
+                                "/api/v1/inventory/reservations/*/release"))
                         .filters(filters -> filters.requestRateLimiter(config ->
                                 config.setRateLimiter(limiter)
                                         .setKeyResolver(resolver)
