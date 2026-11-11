@@ -12,6 +12,7 @@ import com.group5.inventoryservice.reservation.dto.request.ReserveRequest;
 import com.group5.inventoryservice.reservation.dto.response.ReservationResponse;
 import com.group5.inventoryservice.reservation.entity.InventoryReservation;
 import com.group5.inventoryservice.reservation.repository.ReservationRepository;
+import com.group5.inventoryservice.shared.UuidOrder;
 import com.group5.inventoryservice.shared.config.ReservationTimeout;
 import com.group5.inventoryservice.shared.exception.InventoryErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -144,7 +145,7 @@ public class ReservationService {
 
     private static SortedMap<UUID, Integer> quantitiesBySku(List<ReserveRequest.Item> items) {
         return items.stream().collect(Collectors.toMap(ReserveRequest.Item::skuId, ReserveRequest.Item::quantity,
-                Math::addExact, TreeMap::new));
+                Math::addExact, () -> new TreeMap<>(UuidOrder.DATABASE)));
     }
 
     private DomainException insufficientStock(UUID skuId, UUID warehouseId, int requested) {
