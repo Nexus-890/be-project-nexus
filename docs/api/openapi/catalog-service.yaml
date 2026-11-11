@@ -4606,14 +4606,14 @@ paths:
       summary: Read the current seller's product with SKUs and images
       description: >-
         Protected editor read for the JWT seller's own nondeleted product, including DRAFT and
-        INACTIVE. Requires SELLER and PRODUCT.LIST; another seller receives 403. This does not
+        INACTIVE. Requires SELLER and PRODUCT.LIST; another seller receives 404. This does not
         change visibility of the public ACTIVE-only GET /products/{id} endpoint.
       security:
         - bearerAuth: []
       x-required-privileges: [PRODUCT.LIST]
       x-gateway-privilege: PRODUCT.LIST
       x-required-roles: [SELLER]
-      x-ownership: JWT subject must equal product sellerId; deleted products return 404.
+      x-ownership: JWT subject must equal product sellerId; missing, deleted and other sellers' products return 404.
       x-error-codes:
         '400': [INVALID_PARAMETER]
         '401': [UNAUTHENTICATED, CATALOG_UNAUTHENTICATED]
@@ -4646,13 +4646,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
         '403':
-          description: Missing SELLER or PRODUCT.LIST, or the product belongs to another seller.
+          description: Missing SELLER role or PRODUCT.LIST privilege.
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
         '404':
-          description: Product does not exist or was deleted.
+          description: Product does not exist, was deleted, or belongs to another seller.
           content:
             application/problem+json:
               schema:

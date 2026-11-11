@@ -63,7 +63,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/users` | GET | USER.LIST | #76 — Admin user list and user by id                    |
 | `/api/v1/products` | POST | PRODUCT.CREATE | #83 — Product create, update and read                   |
 | `/api/v1/products/mine` | GET | PRODUCT.LIST | #99 — Product lists                                     |
-| `/api/v1/products/mine/{id}` | GET | PRODUCT.LIST | Back-office demo (issue TBD) — SELLER reads own nondeleted product, including DRAFT/INACTIVE; owner enforced downstream |
+| `/api/v1/products/mine/{id}` | GET | PRODUCT.LIST | Back-office demo (issue TBD) — SELLER reads own nondeleted product, including DRAFT/INACTIVE; another seller receives 404 downstream |
 | `/api/v1/products/{id}` | PUT | PRODUCT.UPDATE | #83 — Product create, update and read                   |
 | `/api/v1/products/{id}/status` | PATCH | PRODUCT.UPDATE | #84 — Product status workflow                           |
 | `/api/v1/products/{id}` | DELETE | PRODUCT.DELETE | #85 — Product soft delete                               |

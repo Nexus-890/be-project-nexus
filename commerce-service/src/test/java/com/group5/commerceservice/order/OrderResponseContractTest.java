@@ -53,7 +53,7 @@ class OrderResponseContractTest {
 
     @Test void orderOperationsWrapResultsAndPreserveCreationReplayAndListSemantics() throws Exception {
         var order = new OrderResponse(id, "NX-TEST", user.id(), user.id(), OrderType.STANDARD,
-                OrderStatus.PENDING, OffsetDateTime.now(), BigDecimal.TEN, List.of());
+                OrderStatus.PENDING, OffsetDateTime.now(), BigDecimal.TEN, List.of(), null, null);
         var group = new OrderGroupResponse(id, "PENDING", BigDecimal.TEN, "VND", OffsetDateTime.now(), List.of(order));
         when(service.create(eq(user), eq("key-1"), any())).thenReturn(
                 new OrderService.CreationResult(true, group), new OrderService.CreationResult(false, group));
@@ -87,7 +87,7 @@ class OrderResponseContractTest {
 
     @Test void orderReadsWrapTheOrderAndPutThePageBesideTheList() throws Exception {
         var order = new OrderResponse(id, "NX-TEST", user.id(), user.id(), OrderType.STANDARD,
-                OrderStatus.PENDING, OffsetDateTime.now(), BigDecimal.TEN, List.of());
+                OrderStatus.PENDING, OffsetDateTime.now(), BigDecimal.TEN, List.of(), null, null);
         when(service.getOrder(user, id)).thenReturn(order);
         mvc.perform(get("/api/v1/orders/{id}", id)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0)).andExpect(jsonPath("$.data.orderId").value(id.toString()))
@@ -112,7 +112,7 @@ class OrderResponseContractTest {
         OffsetDateTime to = OffsetDateTime.parse("2026-11-03T23:59:59+07:00");
         OffsetDateTime createdAt = OffsetDateTime.parse("2026-11-02T08:15:30Z");
         var order = new OrderResponse(id, "NX-MANAGE", buyerId, sellerId, OrderType.AUCTION, OrderStatus.PAID,
-                createdAt, new BigDecimal("150000.00"), List.of());
+                createdAt, new BigDecimal("150000.00"), List.of(), null, null);
         when(service.listManaged(user, buyerId, sellerId, OrderStatus.PAID, OrderType.AUCTION, from, to, 1, 2))
                 .thenReturn(new PageImpl<>(List.of(order), PageRequest.of(1, 2), 3));
 
@@ -225,7 +225,7 @@ class OrderResponseContractTest {
 
     @Test void cancellationWrapsTheGroupAndNamesItsFailures() throws Exception {
         var order = new OrderResponse(id, "NX-TEST", user.id(), user.id(), OrderType.STANDARD,
-                OrderStatus.CANCELED, OffsetDateTime.now(), BigDecimal.TEN, List.of());
+                OrderStatus.CANCELED, OffsetDateTime.now(), BigDecimal.TEN, List.of(), null, null);
         var group = new OrderGroupResponse(id, "CANCELED", BigDecimal.TEN, "VND", OffsetDateTime.now(), List.of(order));
         when(service.cancel(eq(user), eq(id), any())).thenReturn(group);
         mvc.perform(post("/api/v1/orders/{id}/cancel", id).contentType(MediaType.APPLICATION_JSON)

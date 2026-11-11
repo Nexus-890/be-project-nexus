@@ -24,12 +24,4 @@ public record OrderResponse(
     public OrderResponse {
         items = List.copyOf(items);
     }
-
-    /** Historical callers may not have a shipping snapshot. */
-    public OrderResponse(UUID orderId, String orderNumber, UUID userId, UUID sellerId,
-                         OrderType orderType, OrderStatus status, OffsetDateTime createdAt,
-                         BigDecimal totalAmount, List<OrderItemResponse> items) {
-        this(orderId, orderNumber, userId, sellerId, orderType, status, createdAt,
-                totalAmount, items, null, null);
-    }
 }

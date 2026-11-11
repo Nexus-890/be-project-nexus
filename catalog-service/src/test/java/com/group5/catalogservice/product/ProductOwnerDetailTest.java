@@ -51,12 +51,12 @@ class ProductOwnerDetailTest {
     }
 
     @Test
-    void anotherSellerCannotReadPrivateDraft() {
+    void anotherSellerCannotDistinguishAPrivateDraftFromAMissingProduct() {
         Product product = new Product();
         product.setSellerId(UUID.randomUUID());
         when(products.findByIdAndDeletedAtIsNull(product.getId())).thenReturn(Optional.of(product));
         assertThatThrownBy(() -> service.getMyProduct(product.getId(), seller))
-                .isInstanceOfSatisfying(DomainException.class, error -> assertThat(error.getCode()).isEqualTo(403));
+                .isInstanceOfSatisfying(DomainException.class, error -> assertThat(error.getCode()).isEqualTo(404));
         verify(products, never()).save(any());
     }
 

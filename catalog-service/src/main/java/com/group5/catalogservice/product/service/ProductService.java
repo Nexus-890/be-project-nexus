@@ -137,7 +137,7 @@ public class ProductService {
         Product product = productRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND));
         if (!product.getSellerId().equals(currentUser.id())) {
-            throw new DomainException(CatalogErrorCode.UNAUTHORIZED);
+            throw new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND);
         }
         // The public read remains ACTIVE-only; an owner's editor also needs drafts.
         return toDetailResponse(product);

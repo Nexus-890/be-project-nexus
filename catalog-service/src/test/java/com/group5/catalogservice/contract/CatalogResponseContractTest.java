@@ -162,6 +162,17 @@ class CatalogResponseContractTest {
     }
 
     @Test
+    void ownerDetailNotFoundDoesNotRevealWhetherAnotherSellerOwnsTheProduct() throws Exception {
+        when(products.getMyProduct(id, actor)).thenThrow(new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND));
+        mvc.perform(get("/api/v1/products/mine/{id}", id))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("CATALOG_PRODUCT_NOT_FOUND"))
+                .andExpect(jsonPath("$.instance").value("/api/v1/products/mine/" + id))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
     void validationReportsAllFailedFieldsAndDomainErrorsExposeStableCode() throws Exception {
         mvc.perform(post("/api/v1/categories").contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isBadRequest())
