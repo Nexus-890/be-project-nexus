@@ -14,6 +14,7 @@ import com.group5.commerceservice.checkout.dto.CheckoutPreviewResponse;
 import com.group5.commerceservice.checkout.dto.CheckoutPreviewResponse.Item;
 import com.group5.commerceservice.shared.config.CheckoutProperties;
 import com.group5.commerceservice.shared.exception.CommerceErrorCode;
+import com.group5.commerceservice.shared.pricing.PriceBreakdown;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
 import feign.FeignException;
@@ -41,8 +42,9 @@ public class CartPricingService {
     private final CheckoutProperties properties;
 
     public CartPricingResponse pricing(CurrentUser user, String promoCode) {
-        Calculation result = calculate(user, false);
-        return new CartPricingResponse(result.subtotal(), BigDecimal.ZERO, BigDecimal.ZERO, null, result.subtotal());
+        PriceBreakdown price = breakdown(calculate(user, false));
+        return new CartPricingResponse(price.subtotal(), price.taxAmount(), price.discountAmount(),
+                price.shippingFee(), price.total());
     }
 
     public CartValidationResponse validate(CurrentUser user) {
@@ -52,8 +54,9 @@ public class CartPricingService {
 
     public CheckoutPreviewResponse preview(CurrentUser user, String promoCode) {
         Calculation result = calculate(user, true);
-        return new CheckoutPreviewResponse(result.items(), result.subtotal(), null,
-                BigDecimal.ZERO, BigDecimal.ZERO, result.subtotal(), result.issues());
+        PriceBreakdown price = breakdown(result);
+        return new CheckoutPreviewResponse(result.items(), price.subtotal(), price.shippingFee(),
+                price.taxAmount(), price.discountAmount(), price.total(), result.issues());
     }
 
     public List<CartIssue> mergeIssues(CurrentUser user) {
@@ -151,6 +154,10 @@ public class CartPricingService {
         } catch (FeignException exception) {
             throw new DomainException(CommerceErrorCode.CATALOG_UNAVAILABLE);
         }
+    }
+
+    private static PriceBreakdown breakdown(Calculation result) {
+        return new PriceBreakdown(result.subtotal(), BigDecimal.ZERO, BigDecimal.ZERO, null);
     }
 
     private record Calculation(List<Item> items, BigDecimal subtotal, List<CartIssue> issues) { }
