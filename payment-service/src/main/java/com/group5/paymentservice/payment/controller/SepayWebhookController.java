@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.ObjectReader;
 import tools.jackson.databind.json.JsonMapper;
 
 /** Nhận webhook SePay, xác thực raw body và chuyển giao dịch khớp memo sang luồng xác nhận thanh toán. */
@@ -21,14 +23,16 @@ import tools.jackson.databind.json.JsonMapper;
 public class SepayWebhookController {
     private static final Logger log = LoggerFactory.getLogger(SepayWebhookController.class);
     private final WebhookSignatureVerifier verifier;
-    private final JsonMapper json;
+    private final ObjectReader webhookReader;
     private final PaymentMatcher matcher;
     private final PaymentConfirmationService confirmation;
 
     public SepayWebhookController(WebhookSignatureVerifier verifier, JsonMapper json, PaymentMatcher matcher,
                                   PaymentConfirmationService confirmation) {
         this.verifier = verifier;
-        this.json = json;
+        // Chỉ webhook từ chối ID dạng số thực, tránh cắt phần thập phân trước khi kiểm tra nghiệp vụ.
+        this.webhookReader = json.readerFor(SepayWebhookRequest.class)
+                .without(DeserializationFeature.ACCEPT_FLOAT_AS_INT);
         this.matcher = matcher;
         this.confirmation = confirmation;
     }
@@ -46,7 +50,7 @@ public class SepayWebhookController {
 
         SepayWebhookRequest request;
         try {
-            request = json.readValue(rawBody, SepayWebhookRequest.class);
+            request = webhookReader.readValue(rawBody);
         } catch (JacksonException error) {
             // Body đã xác thực nhưng sai cấu trúc JSON phải trả lỗi nghiệp vụ có mã PAYMENT_*.
             throw new DomainException(PaymentErrorCode.INVALID_WEBHOOK_REQUEST);

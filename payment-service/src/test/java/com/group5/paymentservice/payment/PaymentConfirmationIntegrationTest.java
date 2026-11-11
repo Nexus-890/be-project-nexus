@@ -263,6 +263,27 @@ class PaymentConfirmationIntegrationTest extends PaymentDatabaseTestSupport {
         assertThat(receipts(group)).isZero();
     }
 
+    /** ID thập phân không được ghi bằng chứng hoặc chiếm ID nguyên của một giao dịch thật. */
+    @Test
+    void signedFractionalReceiptIdIsRejectedWithoutFundingOrPoisoningTheIntegerIdentity() throws Exception {
+        var before = evidence(group);
+        String fractionalBody = "{\"id\":156987654.9,\"code\":\"" + group.memo()
+                + "\",\"transferType\":\"in\",\"transferAmount\":350000}";
+
+        MvcResult result = send(fractionalBody);
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(400);
+        assertThat(result.getResponse().getContentType()).startsWith("application/problem+json");
+        assertThat(json.readTree(result.getResponse().getContentAsString()).get("code").asString())
+                .isEqualTo("PAYMENT_INVALID_WEBHOOK_REQUEST");
+        assertUnfunded(group, "PENDING");
+        assertThat(receipts(group)).isZero();
+        assertThat(evidence(group)).isEqualTo(before);
+
+        assertAcknowledged(send(body(156987654L, "350000", group.memo())));
+        assertFunded(group, "156987654");
+    }
+
     /** Event hủy đơn có tiền đã trả đến trước được xử lý thành đúng một refund khi webhook cấp tiền. */
     @Test
     void aPaidCancellationArrivingBeforeTheWebhookGetsOneRefundInsideTheFundingTransaction() throws Exception {

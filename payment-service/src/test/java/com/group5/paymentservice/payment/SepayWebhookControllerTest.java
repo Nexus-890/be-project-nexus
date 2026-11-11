@@ -80,11 +80,12 @@ class SepayWebhookControllerTest {
     static final String PATH = "/api/v1/webhooks/sepay";
     @Autowired WebApplicationContext context;
     @Autowired PaymentSessionRepository sessions;
+    @Autowired PaymentConfirmationService confirmation;
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
-        reset(sessions);
+        reset(sessions, confirmation);
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
     }
@@ -173,6 +174,21 @@ class SepayWebhookControllerTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("PAYMENT_INVALID_WEBHOOK_REQUEST"));
         verifyNoInteractions(sessions);
+    }
+
+    /** ID thập phân đã ký hợp lệ phải bị từ chối trước khi tra memo hoặc xác nhận thanh toán. */
+    @ParameterizedTest
+    @ValueSource(strings = {"156987654.9", "156987654.0", "1.569876549e8"})
+    void signedFloatingPointReceiptIdReturns400BeforePaymentProcessing(String id) throws Exception {
+        byte[] body = bytes("{\"id\":" + id
+                + ",\"code\":\"NX20261105001\",\"transferType\":\"in\",\"transferAmount\":350000}");
+
+        mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body)
+                        .header("X-SePay-Signature", sign(body, NOW)).header("X-SePay-Timestamp", NOW.getEpochSecond()))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("PAYMENT_INVALID_WEBHOOK_REQUEST"));
+        verifyNoInteractions(sessions, confirmation);
     }
 
     @Test
