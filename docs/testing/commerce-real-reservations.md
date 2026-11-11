@@ -186,9 +186,9 @@ Ngày 11/11/2026:
 Chạy smoke sau khi package ba service, dùng Python có thư viện `cryptography` và
 JDK 21: `python docs/testing/commerce-reservation-smoke.py --java <java21> --output <logs>`.
 Script tạo container/JVM riêng và chỉ dọn tài nguyên của lần chạy đó; không dùng DB local hiện hữu.
-Khi hợp nhất #156, `OrderPaid.Address.districtCode` phải optional để đọc được cả
-snapshot hai cấp mới lẫn ba cấp lịch sử; schema event đã bỏ district khỏi required.
-Nhánh integration đã có kiểm thử tương thích này. Renderer receipt #204 cũng cần
+Sau khi tích hợp develop có #156, `OrderPaid.Address.districtCode` là optional,
+bỏ khỏi JSON khi null và giữ nguyên khi đọc snapshot ba cấp lịch sử; schema event
+đã bỏ district khỏi required. Renderer receipt #204 cũng cần
 đọc `recipient.address` ngoài snapshot `shippingAddress` lịch sử.
 
 ### Source MR cuối sau cập nhật develop da482b76
@@ -211,3 +211,24 @@ Lỗi kết nối từng gặp lúc dựng smoke được xác định ở HTTP 
 fixture đã dùng HTTP/1.1 và chờ PostgreSQL TCP sẵn sàng. Không thêm retry production
 hoặc đổi assertion để làm kết quả xanh. Không có bằng chứng GHN thật hoặc CI xanh
 trong các kết quả local này.
+
+### Regression địa chỉ checkout và payment confirmation
+
+Review !156/note264201: đã merge develop `02385a14` chứa confirmation #156.
+Test mới gọi OrderService checkout hai seller bằng địa chỉ tỉnh/phường thật từ
+request, rồi gọi PaymentEventConsumer với PostgreSQL/Flyway/outbox thật; chỉ mock
+Catalog/Inventory/Shipping và tracer. Trước fix, test tái hiện đúng lỗi
+`Order has an incomplete shipping snapshot`. Sau fix, group và hai order PAID,
+mỗi order có một history PAID và đúng một OrderPaid hợp schema, kể cả replay cùng
+eventId hoặc envelope mới cho cùng receipt; JSON không chứa district giả/null.
+Test snapshot ba cấp cũ vẫn giữ districtCode đã lưu.
+
+Ngày 11/11/2026: focused 46 tests PASS, 0 failure/error/skip (44 consumer unit và
+2 PostgreSQL regressions). Lệnh từ commerce-service:
+
+```powershell
+.\mvnw.cmd '-Duser.timezone=UTC' '-Dtest=CheckoutPaymentConfirmedTest#checkoutTwoLevelAddressPaysBothSellerOrdersAndPublishesOneOrderPaidPerOrderOnReplay+completeManifestPaysBothOrdersAndPublishesSchemaValidStoredShippingSnapshots,CheckoutPaymentConfirmedConsumerTest' test
+```
+
+Contract checker 83 operations PASS; diff whitespace PASS. Chỉ chạy focused tests
+cho bản sửa này theo yêu cầu, không coi là full verify hoặc remote CI mới.
