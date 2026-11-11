@@ -30,14 +30,18 @@ INSERT INTO orders(id,user_id,seller_id,order_number,order_type,status,subtotal,
 SELECT ('92000000-0000-4000-8000-'||lpad((700+n)::text,12,'0'))::uuid,
  '68000000-0000-4000-8000-000000000003','68000000-0000-4000-8000-000000000002',
  'NX-DEMO-SHOP-'||lpad(n::text,4,'0'),'STANDARD',status,199000,199000,
- '{"paymentMethod":"SEPAY","shippingAddress":{"recipientName":"Demo Buyer","phoneNumber":"0901234567","addressLine":"123 Vo Van Ngan","ward":"Linh Chieu","district":"Thu Duc","city":"Ho Chi Minh City","countryCode":"VN"}}',
+ '{"paymentMethod":"SEPAY","shippingAddress":{"recipientName":"Demo Buyer","phoneNumber":"0901234567","addressLine":"123 Vo Van Ngan","ward":"Linh Chieu","city":"Ho Chi Minh City","countryCode":"VN"}}',
  'buyer-shop-demo-order-'||n,('92000000-0000-4000-8000-'||lpad((600+n)::text,12,'0'))::uuid,
  now()+interval '24 hours',CASE WHEN group_status='PAID' THEN now()-n*interval '1 day' END,now()-n*interval '1 day'
 FROM demo_orders ON CONFLICT DO NOTHING;
--- Upgrade only this script's unchanged legacy demo address snapshot; retain user edits.
-UPDATE orders SET shipping_info='{"paymentMethod":"SEPAY","shippingAddress":{"recipientName":"Demo Buyer","phoneNumber":"0901234567","addressLine":"123 Vo Van Ngan","ward":"Linh Chieu","district":"Thu Duc","city":"Ho Chi Minh City","countryCode":"VN"}}'::jsonb
+-- Upgrade only unchanged address snapshots emitted by earlier versions of this seed.
+-- These stored demo receipts omit the obsolete district; live checkout keeps its own contract.
+UPDATE orders SET shipping_info='{"paymentMethod":"SEPAY","shippingAddress":{"recipientName":"Demo Buyer","phoneNumber":"0901234567","addressLine":"123 Vo Van Ngan","ward":"Linh Chieu","city":"Ho Chi Minh City","countryCode":"VN"}}'::jsonb
 WHERE idempotency_key LIKE 'buyer-shop-demo-order-%'
- AND shipping_info='{"fullName":"Demo Buyer","phone":"0901234567","addressLine":"123 Vo Van Ngan","provinceCode":"79","districtCode":"769","wardCode":"26815"}'::jsonb;
+ AND shipping_info IN (
+  '{"fullName":"Demo Buyer","phone":"0901234567","addressLine":"123 Vo Van Ngan","provinceCode":"79","districtCode":"769","wardCode":"26815"}'::jsonb,
+  '{"paymentMethod":"SEPAY","shippingAddress":{"recipientName":"Demo Buyer","phoneNumber":"0901234567","addressLine":"123 Vo Van Ngan","ward":"Linh Chieu","district":"Thu Duc","city":"Ho Chi Minh City","countryCode":"VN"}}'::jsonb
+ );
 INSERT INTO order_items(id,order_id,product_id,sku_id,product_name,sku_code,image_url,quantity,unit_price,total_price)
 SELECT ('92000000-0000-4000-8000-'||lpad((800+n)::text,12,'0'))::uuid,
  ('92000000-0000-4000-8000-'||lpad((700+n)::text,12,'0'))::uuid,

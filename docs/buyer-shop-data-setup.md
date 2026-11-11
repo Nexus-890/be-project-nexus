@@ -46,6 +46,12 @@ Seed nằm trong `infra/local-dev/buyer-shop/*.sql`, dùng namespace UUID `92000
 
 Các SQL dùng `ON CONFLICT DO NOTHING`, giữ giá/trạng thái sản phẩm đã chỉnh, không nạp lại tồn kho đã sử dụng và không thay đổi trạng thái order đã thao tác. Giỏ buyer chỉ được thêm dòng khi giỏ hiện đang rỗng. Các auction đã kết thúc/hủy/có bid không tự mở lại; do đó một DB dùng nhiều ngày có thể hiển thị trạng thái không có auction ACTIVE, nhưng API vẫn phải trả thành công.
 
+Snapshot địa chỉ của đơn demo không còn lưu `district`. Chạy lại seed chỉ nâng
+cấp đúng hai dạng snapshot mặc định từ các phiên bản seed cũ; địa chỉ đã được
+người dùng sửa được giữ nguyên. Đây là cleanup dữ liệu receipt mẫu, không thay
+contract checkout: Commerce hiện vẫn yêu cầu `shippingAddress.district` khi tạo
+đơn thật; chuyển checkout sang tỉnh/phường hai cấp thuộc tích hợp riêng.
+
 ## Ảnh sản phẩm
 
 Seed mới sử dụng các URL Supabase public đã có trong dataset catalog. DB đã provision ảnh owned giữ nguyên URL riêng của từng sản phẩm. Startup/seed không gửi yêu cầu upload và không cần Supabase service key trong FE. Chỉ workflow upload seller qua BE cần cấu hình quyền/key phù hợp.
