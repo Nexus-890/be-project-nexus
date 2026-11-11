@@ -35,6 +35,34 @@ are rebound without replacing `BidService` or restarting the application.
 
 ## Verification
 
+From `be-project-nexus/auction-service`, run the focused unit and configuration
+tests with Java 21, without starting Postman, PostgreSQL, Docker, Config Server
+or Keycloak:
+
+```powershell
+.\mvnw.cmd '-Dtest=AntiSnipingPolicyTest,BidServiceAntiSnipingTest,AuctionPropertiesTest' test
+```
+
+- `AntiSnipingPolicyTest`: default/custom settings, disabling/re-enabling the
+  policy, zero eligible updates, repository errors and Spring's transaction
+  contract. A mock JDBC connection verifies that the policy requires and joins
+  the enclosing transaction and that a failure selects rollback instead of commit.
+- `BidServiceAntiSnipingTest`: the hook runs after the bid is persisted and before
+  event/outbox creation; missing, seller, inactive, out-of-window and low bids
+  never invoke the policy. Bid persistence and policy failures stop later writes.
+- `AuctionPropertiesTest`: binds and validates the production configuration bean,
+  rejects non-positive window/cap settings, and refreshes the existing proxy used
+  by the same policy consumer without recreating the application context.
+
+These tests do not simulate SQL deadline arithmetic. The PostgreSQL tests below
+exercise the actual window, cap, original-deadline and rollback behavior.
+
+Verified on 11/11/2026: all 28 new unit/configuration cases passed (9 policy,
+11 bid-service, 8 configuration), with no failures, errors or skips. The attempted
+PostgreSQL rerun stopped before assertions because Testcontainers could not find
+a running Docker environment. The earlier integration results below remain
+historical evidence, rather than a successful rerun on this date.
+
 From `be-project-nexus/auction-service` with Java 21 and Docker available:
 
 ```powershell
