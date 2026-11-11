@@ -64,7 +64,7 @@ public class BidService {
             // PostgreSQL aborts the UNIQUE loser; read the winner only after full rollback.
             transaction.setReadOnly(true);
             return transaction.execute(status -> bids.findByIdempotencyKey(canonicalKey)
-                    .map(bid -> replay(auctionId, bidder, bid))
+                    .map(bid -> replay(auctionId, bidder, request.amount(), bid))
                     .orElseThrow(() -> violation));
         }
     }
@@ -72,14 +72,14 @@ public class BidService {
     private PlacementResult placeOrReplay(UUID auctionId, String key, PlaceBidRequest request, CurrentUser bidder) {
         Optional<Bid> previous = bids.findByIdempotencyKey(key);
         if (previous.isPresent()) {
-            return replay(auctionId, bidder, previous.get());
+            return replay(auctionId, bidder, request.amount(), previous.get());
         }
         BigDecimal amount = request.amount().setScale(2);
         if (auctions.acceptBid(auctionId, bidder.id(), amount) == 0) {
             // An equal-amount retry may have waited for the first bid's auction row lock.
             previous = bids.findByIdempotencyKey(key);
             if (previous.isPresent()) {
-                return replay(auctionId, bidder, previous.get());
+                return replay(auctionId, bidder, amount, previous.get());
             }
             Auction auction = auctions.findAvailableById(auctionId)
                     .orElseThrow(() -> new DomainException(AuctionErrorCode.AUCTION_NOT_FOUND));
@@ -111,8 +111,10 @@ public class BidService {
         return new PlacementResult(true, response(bid));
     }
 
-    private PlacementResult replay(UUID auctionId, CurrentUser bidder, Bid bid) {
-        if (!bid.getAuctionId().equals(auctionId) || !bid.getBidderId().equals(bidder.id())) {
+    private PlacementResult replay(UUID auctionId, CurrentUser bidder, BigDecimal amount, Bid bid) {
+        // Chỉ replay cùng yêu cầu; khác cách viết phần thập phân vẫn là cùng giá trị tiền.
+        if (!bid.getAuctionId().equals(auctionId) || !bid.getBidderId().equals(bidder.id())
+                || bid.getAmount().compareTo(amount) != 0) {
             throw new DomainException(AuctionErrorCode.AUCTION_IDEMPOTENCY_KEY_CONFLICT);
         }
         return new PlacementResult(false, response(bid));

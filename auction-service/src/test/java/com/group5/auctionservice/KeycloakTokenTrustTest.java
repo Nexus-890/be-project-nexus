@@ -50,6 +50,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -246,12 +247,37 @@ class KeycloakTokenTrustTest {
                 .andReturn().getResponse().getContentAsString();
         String replay = client.perform(post(AUCTIONS + "/" + auctionId + "/bids")
                         .contentType(MediaType.APPLICATION_JSON).header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", key).content("{\"amount\":1100000}"))
+                        .header("Idempotency-Key", key).content("{\"amount\":1050000.00}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(replay).isEqualTo(first);
         verify(auctions, times(1)).acceptBid(any(), any(), any());
         verify(bids, times(1)).saveAndFlush(any());
         verify(outbox, times(1)).write(any(), any(), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1100000", "1020000"})
+    void reusedBidKeyWithChangedAmountReturns409ProblemWithoutWrites(String amount) throws Exception {
+        UUID auctionId = UUID.randomUUID();
+        String key = UUID.randomUUID().toString();
+        Bid accepted = mock(Bid.class);
+        when(accepted.getAuctionId()).thenReturn(auctionId);
+        when(accepted.getBidderId()).thenReturn(UUID.fromString(SUBJECT));
+        when(accepted.getAmount()).thenReturn(new BigDecimal("1050000.00"));
+        when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+        when(bids.findByIdempotencyKey(key)).thenReturn(Optional.of(accepted));
+
+        client.perform(post(AUCTIONS + "/" + auctionId + "/bids")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + auctionToken("BUYER", List.of("AUCTION.BID")))
+                        .header("Idempotency-Key", key).content("{\"amount\":" + amount + "}"))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.code").value("AUCTION_IDEMPOTENCY_KEY_CONFLICT"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+        verifyNoInteractions(auctions, outbox);
+        verify(bids, never()).saveAndFlush(any());
     }
 
     @Test

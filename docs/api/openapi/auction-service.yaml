@@ -291,12 +291,14 @@ paths:
         A conditional update prevents concurrent bids from both winning the same price.
         The authenticated buyer may not bid on their own auction.
         Idempotency-Key is a required UUID. A new key returns 201. Reusing a key
-        for the same auction and authenticated bidder returns 200 with the
-        original bidId, accepted amount and leaderBidderId, even if a later valid
-        request supplies another amount or the auction state has since changed.
+        for the same auction, authenticated bidder and numeric amount returns 200
+        with the original bidId, accepted amount and leaderBidderId, even if the
+        auction state has since changed. Amounts such as 1050000 and 1050000.00
+        are equivalent. A different amount with the same key returns 409
+        AUCTION_IDEMPOTENCY_KEY_CONFLICT; use a new key for a different bid.
         A replay does not update the auction, insert a bid or publish another
         event. UUID letter case is normalized. The key is globally unique;
-        reusing it for another auction or bidder returns 409 without exposing
+        reusing it for another auction, bidder or amount returns 409 without exposing
         the original bid. Concurrent successful requests with one key create
         one bid, increment bid_count once and publish one BidPlaced event.
       x-catalogue-id: BID-01
@@ -334,7 +336,7 @@ paths:
       responses:
         '200':
           description: >
-            The key was already accepted for this auction and bidder. Returns
+            The key was already accepted for this auction, bidder and numeric amount. Returns
             the original response data and leaves the auction, bids and outbox unchanged.
           content:
             application/json:
@@ -456,7 +458,7 @@ paths:
         '409':
           description: >
             Auction is outside its bid window, is not ACTIVE, the bidder is the auction seller,
-            or the key was already accepted for another auction or bidder.
+            or the key was already accepted for another auction, bidder or amount.
           content:
             application/problem+json:
               schema:
@@ -474,7 +476,7 @@ paths:
                     type: urn:problem:domain-error
                     title: Conflict
                     status: 409
-                    detail: Idempotency-Key was already used for another auction or bidder
+                    detail: Idempotency-Key was already used for another auction, bidder or amount
                     instance: /api/v1/auctions/019a5509-abcd-7111-8111-111111111111/bids
                     code: AUCTION_IDEMPOTENCY_KEY_CONFLICT
                 notActive:

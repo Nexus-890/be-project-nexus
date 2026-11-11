@@ -84,7 +84,7 @@ class BidIdempotencyTest {
         BidService.PlacementResult first = place(fixture, key, MINIMUM);
         Snapshot accepted = snapshot(fixture.id());
 
-        BidService.PlacementResult replay = place(fixture, key, MINIMUM);
+        BidService.PlacementResult replay = place(fixture, key, new BigDecimal("1050000"));
 
         assertThat(first.created()).isTrue();
         assertThat(replay.created()).isFalse();
@@ -96,11 +96,32 @@ class BidIdempotencyTest {
         jdbc().update("UPDATE auctions SET status = 'ENDED' WHERE id = ?", fixture.id());
         Snapshot ended = snapshot(fixture.id());
 
-        // A UUID's letter case and a changed valid amount cannot turn a retry into a new bid.
-        BidService.PlacementResult afterEnd = place(fixture, key.toUpperCase(Locale.ROOT), HIGHER);
+        // Cùng key và amount vẫn replay sau khi phiên đã kết thúc hoặc giá đã thay đổi.
+        BidService.PlacementResult afterEnd = place(fixture, key.toUpperCase(Locale.ROOT), MINIMUM);
 
         assertThat(afterEnd.created()).isFalse();
         assertThat(afterEnd.response()).isEqualTo(first.response());
+        assertThat(snapshot(fixture.id())).isEqualTo(ended);
+    }
+
+    @Test
+    void changedAmountConflictsWithoutChangingTheAcceptedBidEvenAfterTheAuctionEnds() {
+        Fixture fixture = auction();
+        String key = key();
+        place(fixture, key, MINIMUM);
+        Snapshot accepted = snapshot(fixture.id());
+
+        for (BigDecimal amount : List.of(HIGHER, new BigDecimal("1020000.00"))) {
+            assertThatThrownBy(() -> place(fixture, key, amount))
+                    .isInstanceOf(DomainException.class)
+                    .extracting("errorCode").isEqualTo("AUCTION_IDEMPOTENCY_KEY_CONFLICT");
+            assertThat(snapshot(fixture.id())).isEqualTo(accepted);
+        }
+        jdbc().update("UPDATE auctions SET status = 'ENDED' WHERE id = ?", fixture.id());
+        Snapshot ended = snapshot(fixture.id());
+        assertThatThrownBy(() -> place(fixture, key, HIGHER))
+                .isInstanceOf(DomainException.class)
+                .extracting("errorCode").isEqualTo("AUCTION_IDEMPOTENCY_KEY_CONFLICT");
         assertThat(snapshot(fixture.id())).isEqualTo(ended);
     }
 
@@ -172,7 +193,7 @@ class BidIdempotencyTest {
     }
 
     @Test
-    void uniqueConstraintLoserRollsBackItsHigherPriceAndReplaysTheFirstBid() throws Exception {
+    void uniqueConstraintLoserRollsBackItsHigherPriceAndReturnsConflict() throws Exception {
         Fixture fixture = auction();
         String key = key();
         bothRequestsMissTheKey(key);
@@ -192,15 +213,49 @@ class BidIdempotencyTest {
             return updated;
         }).when(auctions).acceptBid(eq(fixture.id()), eq(fixture.bidder().id()), any());
 
-        List<BidService.PlacementResult> results = race(
-                () -> place(fixture, key, MINIMUM), () -> place(fixture, key, HIGHER));
+        List<Attempt> results = race(
+                () -> attempt(fixture, key, MINIMUM), () -> attempt(fixture, key, HIGHER));
 
         // Both UPDATEs succeeded; the higher one must therefore have lost on the UNIQUE insert.
         assertThat(successfulUpdates).hasValue(2);
-        assertThat(results.getFirst().created()).isTrue();
-        assertThat(results.getLast().created()).isFalse();
-        assertThat(results.getLast().response()).isEqualTo(results.getFirst().response());
+        assertThat(results.getFirst().failure()).isNull();
+        assertThat(results.getFirst().result().created()).isTrue();
+        assertThat(results.getLast().failure()).extracting("errorCode")
+                .isEqualTo("AUCTION_IDEMPOTENCY_KEY_CONFLICT");
         assertSingleBid(fixture, key, MINIMUM);
+    }
+
+    @Test
+    void lowerAmountConflictsAfterWaitingForTheWinningConditionalUpdate() throws Exception {
+        Fixture fixture = auction();
+        String key = key();
+        bothRequestsMissTheKey(key);
+        CountDownLatch higherUpdated = new CountDownLatch(1);
+        AtomicInteger successfulUpdates = new AtomicInteger();
+        var repository = mockingDetails(auctions).getMockCreationSettings().getDefaultAnswer();
+        doAnswer(invocation -> {
+            BigDecimal amount = invocation.getArgument(2);
+            if (amount.compareTo(MINIMUM) == 0) {
+                assertThat(higherUpdated.await(15, TimeUnit.SECONDS)).isTrue();
+            }
+            int updated = (int) repository.answer(invocation);
+            successfulUpdates.addAndGet(updated);
+            if (amount.compareTo(HIGHER) == 0) {
+                higherUpdated.countDown();
+            }
+            return updated;
+        }).when(auctions).acceptBid(eq(fixture.id()), eq(fixture.bidder().id()), any());
+
+        List<Attempt> results = race(
+                () -> attempt(fixture, key, HIGHER), () -> attempt(fixture, key, MINIMUM));
+
+        // UPDATE thấp hơn không ghi; nhánh đọc lại key phải báo conflict thay vì replay hoặc BID_TOO_LOW.
+        assertThat(successfulUpdates).hasValue(1);
+        assertThat(results.getFirst().failure()).isNull();
+        assertThat(results.getFirst().result().created()).isTrue();
+        assertThat(results.getLast().failure()).extracting("errorCode")
+                .isEqualTo("AUCTION_IDEMPOTENCY_KEY_CONFLICT");
+        assertSingleBid(fixture, key, HIGHER);
     }
 
     @Test
@@ -250,8 +305,12 @@ class BidIdempotencyTest {
     }
 
     private Attempt attempt(Fixture fixture, String key) {
+        return attempt(fixture, key, MINIMUM);
+    }
+
+    private Attempt attempt(Fixture fixture, String key, BigDecimal amount) {
         try {
-            return new Attempt(fixture, place(fixture, key, MINIMUM), null);
+            return new Attempt(fixture, place(fixture, key, amount), null);
         } catch (DomainException failure) {
             return new Attempt(fixture, null, failure);
         }
@@ -287,7 +346,7 @@ class BidIdempotencyTest {
                 INSERT INTO auctions (id, product_id, sku_id, seller_id, title, starting_price,
                     bid_increment, current_price, start_at, end_at, original_end_at, status)
                 VALUES (?, ?, ?, ?, 'Idempotency test auction', 1000000.00, 50000.00, 1000000.00,
-                    '2026-11-06T00:00:00Z', '2026-11-07T00:00:00Z', '2026-11-07T00:00:00Z', 'ACTIVE')
+                    now()-interval '1 hour', now()+interval '1 hour', now()+interval '1 hour', 'ACTIVE')
                 """, id, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
         return new Fixture(id, buyer());
     }
