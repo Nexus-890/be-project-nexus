@@ -101,9 +101,8 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/webhooks/sepay` | POST | Public | #155 — payment-service; provider authentication remains downstream |
 | `/api/v1/webhooks/carriers/ghn` | POST | Public | #203 / #245 — shipment-service; owner-confirmed GHN callback |
 | `/api/v1/webhooks/carriers/ghtk` | POST | Public | #203 / #245 — shipment-service; owner-confirmed GHTK callback |
-| `/api/v1/shipping/provinces` | GET | Public | #201 — shipment-service address list |
-| `/api/v1/shipping/districts` | GET | Public | #201 — shipment-service address list; provinceCode query required downstream |
-| `/api/v1/shipping/wards` | GET | Public | #201 — shipment-service address list; districtCode query required downstream |
+| `/api/v1/shipping/provinces` | GET | Public | #201 — danh mục GHN v3 hai cấp; chỉ trả tỉnh/thành phố đang hoạt động; shipment-service cũng cho phép truy cập không JWT |
+| `/api/v1/shipping/wards` | GET | Public | #201 — bắt buộc provinceCode v3; chỉ trả phường/xã đang hoạt động thuộc đúng tỉnh/thành phố |
 | `/api/v1/payments` | GET | ORDER.REFUND | #207 — payment-service; service enforces actor and order visibility |
 | `/api/v1/refunds` | POST | ORDER.REFUND | #247 — payment-service; funded amount and idempotency enforced downstream |
 | `/api/v1/refunds` | GET | ORDER.REFUND | #247 — payment-service; order visibility enforced downstream |
@@ -125,6 +124,8 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/auctions/{id}/schedule` | POST | AUCTION.UPDATE | #144 — Owner with SELLER role publishes a CREATED auction |
 | `/api/v1/auctions` | GET | Public | #143 — PUBLIC, non-deleted auctions; status defaults to ACTIVE, endAt ascending |
 | `/api/v1/auctions/{id}` | GET | Public | #143 — PUBLIC, non-deleted auction; hidden and missing rows return 404 |
+| `/api/v1/inventory` | GET | Public | #132 — inventory-service; `skuIds` query, at most 100; returns `skuId` and `available` only |
+| `/api/v1/inventory/{id}` | GET | Public | #132 — inventory-service; `{id}` is the SKU id; a UUID only, so `/inventory/reservations` and other literal paths stay protected |
 | `/api/v1/event-logs` | GET | EVENT_LOG.VIEW | #192 — Event log consumer and audit log |
 | `/api/v1/event-logs/{id}` | GET | EVENT_LOG.VIEW_DETAIL | #192 — Event log consumer and audit log |
 | `/api/v1/audit-logs` | GET | AUDIT_LOG.VIEW | #192 — Event log consumer and audit log |
@@ -147,6 +148,16 @@ above: any valid token passes the gateway and the owning service checks the role
 |---|---|---|---|---|
 | POST | `/api/v1/inventory/intake` | token only | Service requires ADMIN | #130 — Inventory balance and stock intake |
 | POST | `/api/v1/inventory/reservations` | token only | Service requires BUYER; commerce-service forwards the buyer token | #134 — Reserve stock with a conditional update |
+| POST | `/api/v1/inventory/reservations/{id}/confirm` | not routed | Service requires ADMIN; the OrderPaid consumer calls the service method in-process | #136 — Confirm and release a reservation |
+| POST | `/api/v1/inventory/reservations/{id}/release` | not routed | Service requires ADMIN; the OrderCancelled consumer calls the service method in-process | #136 — Confirm and release a reservation |
+| GET | `/api/v1/inventory/reservations` | token only | Service requires ADMIN or SUPPORT_STAFF | #200 — Inventory support reads and stock adjustment |
+| GET | `/api/v1/inventory/balances` | token only | Service requires ADMIN, or SELLER with `skuId` of a SKU whose product catalog-service shows with the caller as `sellerId` | #200 — Inventory support reads and stock adjustment |
+| POST | `/api/v1/inventory/adjustments` | token only | Service requires ADMIN; writes one ADJUSTMENT ledger row with the reason | #200 — Inventory support reads and stock adjustment |
+| GET | `/api/v1/inventory/movements` | token only | Service requires ADMIN or SUPPORT_STAFF | #200 — Inventory support reads and stock adjustment |
+
+`not routed` means the inventory route leaves the path out: with a valid token the
+gateway answers 404 and nothing reaches inventory-service, without a token it answers
+401 like any other unknown path.
 
 ## Order management and sales (#190)
 
@@ -553,6 +564,38 @@ nonempty-body criterion. Implementation MRs still need to register the gateway
 privilege and enforce the full downstream policy before deployment; these drafts
 and Prism cannot demonstrate runtime authorization.
 
+## Sprint 3 contract handoff (#139)
+
+The following rules describe the Sprint 3 contract boundary, including paths
+whose owners have not implemented them yet. They do not register runtime routes.
+The active policy table/config above remains the source for enabled endpoints.
+
+| Method | Path / family | Bearer policy | Downstream rule | Owning issue / status |
+| --- | --- | --- | --- | --- |
+| GET | `/api/v1/auctions/{id}/state` | Public | One-second data cache; fresh serverTime; masked leader; public visibility | #168, [draft response](auction-service.yaml) |
+| POST | `/api/v1/auctions/{id}/bids` | AUCTION.BID | BUYER, not own auction; caller-scoped Idempotency-Key | #146/#147, draft until delivered |
+| POST | `/api/v1/orders/{id}/shipping-confirmation` | Authenticated; privilege decision belongs to #172 | BUYER and winner/order owner; PENDING; linked hold, address and pricing checks; repeated identical confirmation writes no second manifest | #172, proposed policy; owner must register on delivery |
+| POST | `/api/v1/webhooks/**` | Public callback contract family; no bearer required | Provider authentication is mandatory in each receiving service; this row does not enable a wildcard matcher | #139 design scope; concrete routes below |
+| POST | `/api/v1/webhooks/sepay` | Public, enabled | Verify signature/timestamp over raw bytes before parsing; native ACK; no payment-state change in #155 | #155, [delivered contract](openapi/payment-service.yaml) |
+| POST | `/api/v1/webhooks/carriers/ghn`, `/api/v1/webhooks/carriers/ghtk` | Public, enabled | Carrier-specific validation at shipment-service | #203/#245 |
+
+**Target contract versus enabled paths:** the #139 Sprint 3 contract declares
+`POST /api/v1/webhooks/**` public without bearer authentication. Each callback
+still requires its provider's authentication at its owning service. The current
+#245/#155 runtime registers the supported POST paths individually; it does not
+yet enable the wildcard. When an implementation adopts the family matcher, it
+must update gateway and receiving-service policies with their security tests,
+and preserve routing to the callback's owner. A public policy does not create a
+route or a handler. This contract revision documents the requested public family;
+it does not activate a runtime authorization change.
+
+The state endpoint must support two-second polling under #168's gateway test;
+neither this table nor an OpenAPI example proves rate-limit/latency acceptance.
+The shipping-confirmation policy is a proposal for #172 approval, not an
+implemented permission claim. The six event publishers/consumers and transaction
+handoff are in [events.md](events.md#sprint-3-handoff-139). Their Kafka consumers
+are not public HTTP endpoints.
+
 ## API shapes draft (#124) — inventory and auction
 
 These **26 method/path contracts** are drafts (`0.1.0-draft`) for the
@@ -638,6 +681,8 @@ A path with several roles in `x-required-roles` accepts any one of them.
   `inventory_movement_type` values plus `INTAKE` and `COMMIT`, which V6 adds (#131).
   #200 writes `ADJUSTMENT`. The schema document still names an `ADJUST` value that no
   issue writes.
+  As delivered, the `type` filter and `movementType` use only the five values the
+  service writes: `INTAKE`, `RESERVE`, `RELEASE`, `COMMIT` and `ADJUSTMENT`.
 - **Money:** a JSON number, per ADR-008. It differs from the #88 decimal strings.
 - **Error codes:** the `AUCTION_*` and `INVENTORY_*` names under
   `x-business-error-codes` are proposals, except `AUCTION_BID_TOO_LOW` and

@@ -1,5 +1,6 @@
 package com.group5.inventoryservice;
 
+import com.group5.common_outbox.IdempotentConsumer;
 import com.group5.common_security.CurrentUser;
 import com.group5.inventoryservice.inventory.InventoryBalanceRepository;
 import com.group5.inventoryservice.inventory.InventoryMovementRepository;
@@ -66,6 +67,7 @@ class KeycloakTokenTrustTest {
     @MockitoBean private InventoryMovementRepository movements;
     @MockitoBean private WarehouseRepository warehouses;
     @MockitoBean private ReservationRepository reservations;
+    @MockitoBean private IdempotentConsumer idempotentConsumer;
     private MockMvc client;
 
     @DynamicPropertySource

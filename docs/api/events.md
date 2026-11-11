@@ -2,6 +2,56 @@
 
 Updated 2026-10-28 against branch `fsa_ANNT_25/docs/186-event-catalogue`, baseline `fc0a982`, incorporating the MR !82 review. This is the proposed R1 event contract for backend review; a schema does not claim that its publisher/consumer is implemented or that both lanes have approved it.
 
+## Sprint 3 handoff (#139)
+
+The six contracts below are the #139 handoff for [#171](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/171), [#172](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/172) and their downstream owners. This section was checked against SRS 3.5.3 and the current issue requirements on 2026-11-10. It retains the existing schemas; contract review is separate from implementing or running the flow.
+
+| Event / payload | Publishing issue | Business consuming issue | Topic |
+| --- | --- | --- | --- |
+| [AuctionWon](#auctionwon) | #171 | #172: create the auction order | `nexus.auction.events` |
+| [AuctionFailed](#auctionfailed) | #171 | #209: release the auction hold | `nexus.auction.events` |
+| [OrderCreated](#ordercreated) | #118, #172 | #107: notify; #173: settle AUCTION only; #216: product flag | `nexus.commerce.events` |
+| [OrderPaid](#orderpaid) | #156 | #160: order reservations; #202: shipment | `nexus.commerce.events` |
+| [OrderCancelled](#ordercancelled) | #159, #189 | #161: release; #107: notify; #157/#247: payment/refund; #208: auction deadline only | `nexus.commerce.events` |
+| [InventoryReservationExpired](#inventoryreservationexpired) | #175 | No additional business handler assigned; #192 consumes for the event log | `nexus.inventory.events` |
+
+#192 independently logs every event in this table; it does not replace a business consumer. The linked sections contain the complete named issue mappings, schemas, examples, aggregate IDs and Kafka keys.
+
+```mermaid
+sequenceDiagram
+    participant A as auction-service
+    participant K as Kafka via outbox relay
+    participant C as commerce-service
+    participant P as payment-service
+    A->>K: #171 AuctionWon
+    K->>C: #172 consume with dedupe
+    Note over C: Commit PENDING singleton group/order/item + OrderCreated + processed marker
+    C->>K: OrderCreated (AUCTION, referenceId=auctionId)
+    K->>A: #173 consume
+    Note over A: Commit WON to SETTLED, orderId, settlement time + AuctionSettled + marker
+    Note over C: Winner confirms address; resolve linked hold/warehouse and shipping fee
+    C->>K: CheckoutPaymentRequested after confirmation
+    K->>P: #121 create immutable session/instruction
+```
+
+The two databases commit separately. Each domain write, processed marker and its outbox rows share that service's transaction; Kafka delivery is at least once. #172 also guards the auction reference so a new eventId cannot create a second order for the same auction. On failure it rolls back the marker and effects for retry. #173 ignores STANDARD orders and follows its own WON-state guard. SETTLED confirms that the order exists; it does not mean the winner has paid.
+
+For AUCTION, do not reserve stock again and do not publish CheckoutPaymentRequested during order creation. The initial group total is finalPrice; #172's owner-only shipping confirmation stores the address/linked warehouse, fixes shipping fee and total, and writes the payment manifest atomically. Its repeat with the same address returns the stored result without another manifest. The payment deadline remains paymentDueAt from AuctionWon.
+
+The draft state endpoint is [GET /api/v1/auctions/{id}/state](auction-service.yaml); [the delivered SePay webhook](openapi/payment-service.yaml) embeds the [captured body](sepay-webhook-sample.json). [Gateway permissions](gateway-permissions.md#sprint-3-contract-handoff-139) distinguishes public webhook contracts from currently enabled paths.
+
+From `be-project-nexus`, run `node docs/api/check-contract.mjs` to compare delivered routes with controllers, and lint `docs/api/auction-service.yaml` and `docs/api/openapi/payment-service.yaml` with Redocly. Separately review the six linked payload schemas/examples and their publisher/consumer mappings against the owning issues, and compare the captured SePay fields with its OpenAPI schema and DTO. The route checker and OpenAPI lint do not validate the event schemas or prove live Kafka, banking, staging latency or cross-service delivery. Both the auction and settlement developers must approve !150 before #139's final acceptance criterion is checked; no approval is inferred from existing catalogue content.
+
+### Acceptance evidence for #139
+
+| Criterion | Evidence / remaining gate |
+| --- | --- |
+| #172 can build its order line from AuctionWon | Required fields and persistence mapping in [AuctionWon](#auctionwon); locally generated IDs and nullable sku_code are explicit |
+| All six events have schema and named publisher/consumer | The six-event handoff table links to each payload section containing its schema, example and named publisher/consumer issues |
+| OrderCancelled publishers are #159 and #189 | The Publisher entry in [OrderCancelled](#ordercancelled) explicitly names both issues |
+| Every captured SePay field is in the webhook schema | Compare the twelve fields in [the captured body](sepay-webhook-sample.json) with `SepayWebhookRequest` and the request example in [payment OpenAPI](openapi/payment-service.yaml), and with [the service DTO](../../payment-service/src/main/java/com/group5/paymentservice/payment/dto/request/SepayWebhookRequest.java) |
+| Both AuctionWon developers approve the MR | Pending actual auction/settlement approvals on !150; schema validation does not satisfy this gate or the joint-authoring subtask |
+
 ## Scope and source precedence
 
 The original #103 catalogue contained 64 SRS names: 13 R1 contracts and 51 R2 entries. The current #186 table, including its 2026-10-28 decision, promotes **30 of those R2 entries**, adds **CheckoutPaymentConfirmed and PaymentUnreconciled**, and requires schemas/examples and publisher/consumer mappings for that **32-event R1 expansion set**. Its overview still says 30; the current table contains 32 names after the payment additions. PaymentConfirmed is no longer in that R1 expansion set.
@@ -57,7 +107,7 @@ Complete CategoryCreated envelope example, illustrating the wire shape rather th
 }
 ```
 
-The upstream #102 tests cover field validation, factory identity/time/current trace, JSON round-trip to JsonNode, UTC Instant serialization, disabled type headers and missing-trace deserialization errors. This documentation revision runs the Markdown/schema validator below, not the Java suite or Kafka integration tests. The CatalogTestEvent demo is not one of the SRS events.
+The upstream #102 tests cover field validation, factory identity/time/current trace, JSON round-trip to JsonNode, UTC Instant serialization, disabled type headers and missing-trace deserialization errors. The historical #186 document-validation results are recorded below; they are not a runnable validator supplied by #139 or a new run of the Java suite or Kafka integration tests. The CatalogTestEvent demo is not one of the SRS events.
 
 Complete group manifest envelope example for a hand-published contract test (synthetic IDs/data):
 
@@ -848,7 +898,7 @@ Publish only the categoryId of the deleted record after successful deletion. A c
 }
 ```
 
-#118 creates STANDARD orders under one group with one order per seller; #172 creates an AUCTION singleton group. STANDARD requires referenceId=null; AUCTION requires referenceId=auctionId. Commit group/order/items, OrderCreated per child and the complete CheckoutPaymentRequested manifest together. #107 notifies by buyerId/orderNumber; #173 settles only AUCTION; #216 sets has_order for every productIds entry. Payment must not create a session/QR from the first individual OrderCreated. Replayed checkout keys produce no new events. The array comes from the immutable item snapshot, not a later product lookup.
+#118 creates STANDARD orders under one group with one order per seller; #172 creates an AUCTION singleton group. STANDARD requires referenceId=null; AUCTION requires referenceId=auctionId. For STANDARD checkout, commit group/order/items, OrderCreated per child and the complete CheckoutPaymentRequested manifest together. For AUCTION, commit group/order/items and OrderCreated first; publish CheckoutPaymentRequested only after the winner confirms shipping information and the final total under #172. #107 notifies by buyerId/orderNumber; #173 settles only AUCTION; #216 sets has_order for every productIds entry. Payment must not create a session/QR from an individual OrderCreated. Replayed checkout keys produce no new events. The array comes from the immutable item snapshot, not a later product lookup.
 
 The STANDARD checkout publisher uses the existing `OrderEventPublisher` and transactional `OutboxWriter`, after the inventory reservation calls and persisted checkout writes. A rejected reservation, price conflict or rolled-back checkout produces no creation event. The Kafka relay publishes only committed outbox rows; checkout does not send directly to Kafka.
 
@@ -2404,7 +2454,28 @@ The STANDARD checkout publisher uses the existing `OrderEventPublisher` and tran
 }
 ```
 
-#170 selects the highest bid; the earlier bid wins a tie. paymentDueAt is endAt plus the configured auction.payment-deadline-hours. #171 builds the payload from the auction snapshot and commits WON/outbox together; repeated runs publish nothing. Do not call Feign during settlement to fill missing fields. quantity=1 is proposed because the auction has one SKU and no quantity column. imageUrl is required and non-null under #139/#171, while the database permits null: agree an image source/validation policy before implementation. #172 creates the order without reserving stock. #173 settles after OrderCreated, not after payment.
+#170 selects the highest valid bid; the earlier bid wins a tie. paymentDueAt is the effective endAt plus the configured auction.payment-deadline-hours, not consumer receive time plus a standard checkout timeout. #171 builds the payload from the auction snapshot and commits WON/outbox together; repeated runs publish nothing. Do not call auction or catalog from commerce to complete an order line.
+
+**AuctionWon to #172 persistence mapping**
+
+| Event input | Auction source / rule | Commerce destination / rule |
+| --- | --- | --- |
+| `auctionId` | auctions.id | orders.reference_id with order_type=AUCTION; canonical duplicate guard |
+| `winnerId` | auctions.winner_id after #170 | orders.user_id and order_groups.buyer_id |
+| `sellerId` | auctions.seller_id | orders.seller_id |
+| `productId`, `skuId` | Immutable auction product/SKU references | order_items.product_id and sku_id |
+| `title` | auctions.title snapshot | order_items.product_name; no later catalog lookup |
+| `imageUrl` | auctions.image_url snapshot; valid non-null URI before #171 publishes | order_items.image_url; preserve the snapshot |
+| `quantity` | Exactly 1 for the held auction unit | order_items.quantity=1; no new stock reservation |
+| `finalPrice` | auctions.final_price, decimal string with two fractional digits | Parse BigDecimal; order_items.unit_price; total_price=unit_price*quantity; initial orders.subtotal/total_amount and order_groups.total_amount |
+| `currency` | VND | order_groups.currency |
+| `endAt`, `paymentDueAt` | Effective auction end and its configured deadline | orders.payment_due_at and order_groups.due_at use paymentDueAt unchanged; endAt supplies deadline context |
+
+Commerce generates order/group/item IDs, an AUC-prefixed order number, initial PENDING state and its own idempotency key/history locally; these are not missing auction fields. Nullable order_items.sku_code can remain null: skuId is the SKU identity. AuctionWon carries no recipient/address, warehouseId or shipping quote. #172 obtains the linked hold's warehouse under #209 and calculates shipping on the later confirmation step, without a call back into auction-service. It does not invent address data or start a payment session before that step.
+
+**Image and quantity decision proposed for both owners' approval:** retain quantity=1 and a required non-null imageUrl. #141 snapshots a real product image before the auction becomes bid-enabled; #171 reads that local snapshot alone. A legacy/missing image is an unmet publisher prerequisite: do not emit an incomplete AuctionWon, fabricate a URL or call another service during settlement; roll back the attempted WON/outbox transaction and repair the source for retry. Current create code does not populate this snapshot and the database permits null, so this is a handoff requirement for #141/#171, not a claim that the guard already runs. Existing messages missing required snapshots need a coordinated backfill/replay policy. Both owners must confirm this policy in !150; #139 does not silently relax the schema.
+
+#172 commits the order and OrderCreated without a payment manifest or a new reservation. #173 settles after OrderCreated, not after payment.
 
 ### AuctionFailed
 
@@ -5969,7 +6040,7 @@ The file is ready for contract review, with these remaining decisions explicitly
 | #202 / #203 / #241 | Approve trusted OrderPaid shippingInfo/warehouse and status mappings, preparation of missing parcel/pickup details, and ShipmentCreated's PENDING_TRACKING creation case. Historical messages need coordinated backfill/replay; never fake carrier measurements/locality codes. |
 | #189 / #203 / #250 | Specify paid-child cancellation request/ACK payloads in the owning follow-up before handover coordination is enabled. They are distinct from whole-group prepayment cancellation. |
 | #209 / #197 / #216 | Agree admission/no-stock 409 versus async AuctionCreated reservation behavior, and cancellation product-flag reconciliation. #216 names AuctionCreated/AuctionEnded, not a new AuctionCancelled subscriber. |
-| #171 / #172 | Retain the #103 image-source/quantity review and implement singleton auction group/manifest, without a second stock reservation. |
+| #141 / #171 / #172 | Review the #139 order-line mapping and proposed image/quantity policy; implement the singleton group without another stock reservation. Defer the payment manifest until shipping confirmation. Record both sides' actual !150 approvals. |
 
 The #186 table's consumers are all named here, including explicit filtering where #204 consumes a topic but only two shipment types move order state. New logging subscriptions in #192 replace the old six publisher-only classifications; they do not invent unrelated business handlers.
 

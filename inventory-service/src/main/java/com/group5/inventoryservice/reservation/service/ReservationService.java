@@ -12,7 +12,8 @@ import com.group5.inventoryservice.reservation.dto.request.ReserveRequest;
 import com.group5.inventoryservice.reservation.dto.response.ReservationResponse;
 import com.group5.inventoryservice.reservation.entity.InventoryReservation;
 import com.group5.inventoryservice.reservation.repository.ReservationRepository;
-import com.group5.inventoryservice.shared.config.InventoryProperties;
+import com.group5.inventoryservice.shared.UuidOrder;
+import com.group5.inventoryservice.shared.config.ReservationTimeout;
 import com.group5.inventoryservice.shared.exception.InventoryErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -37,12 +38,13 @@ import java.util.stream.Collectors;
 public class ReservationService {
 
     private static final String ORDER_ITEM_UNIQUE_INDEX = "uq_reservation_order_item";
+    private static final UUID SYSTEM_ACTOR = new UUID(0, 0);
 
     private final InventoryBalanceRepository balances;
     private final InventoryMovementRepository movements;
     private final ReservationRepository reservations;
     private final WarehouseResolver warehouses;
-    private final InventoryProperties properties;
+    private final ReservationTimeout reservationTimeout;
 
     @Transactional
     public ReservationResponse reserve(ReserveRequest request, CurrentUser currentUser) {
@@ -64,7 +66,7 @@ public class ReservationService {
         }
 
         OffsetDateTime createdAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
-        OffsetDateTime expiresAt = createdAt.plusMinutes(properties.reservationTimeoutMinutes());
+        OffsetDateTime expiresAt = reservationTimeout.expiresAt(createdAt);
         List<InventoryReservation> created = save(items.stream()
                 .map(item -> InventoryReservation.held(item.orderId(), item.skuId(), warehouseId, item.quantity(),
                         createdAt, expiresAt))
@@ -74,6 +76,62 @@ public class ReservationService {
 
         return new ReservationResponse(created.stream().map(InventoryReservation::getId).toList(), warehouseId,
                 expiresAt);
+    }
+
+    @Transactional
+    public void confirm(UUID reservationId, CurrentUser currentUser) {
+        confirmAs(reservationId, currentUser.id());
+    }
+
+    @Transactional
+    public int confirmOrder(UUID orderId) {
+        List<InventoryReservation> held = reservations.findByOrderIdOrderBySkuIdAscIdAsc(orderId);
+        held.forEach(reservation -> confirmAs(reservation.getId(), SYSTEM_ACTOR));
+        return held.size();
+    }
+
+    private void confirmAs(UUID reservationId, UUID actor) {
+        if (reservations.confirmHeld(reservationId, actor) == 0) {
+            requireAlready(reservationId, Set.of(ReservationStatus.CONFIRMED));
+            return;
+        }
+        InventoryReservation reservation = find(reservationId);
+        requireMoved(balances.commitReserved(reservation.getSkuId(), reservation.getWarehouseId(),
+                reservation.getQuantity(), actor), reservation);
+        movements.record(reservation.getSkuId(), reservation.getWarehouseId(), MovementType.COMMIT,
+                reservation.getQuantity(), reservation.getId(), actor);
+    }
+
+    @Transactional
+    public void release(UUID reservationId, CurrentUser currentUser) {
+        UUID actor = currentUser.id();
+        if (reservations.releaseHeld(reservationId, actor) == 0) {
+            requireAlready(reservationId, Set.of(ReservationStatus.RELEASED, ReservationStatus.EXPIRED));
+            return;
+        }
+        InventoryReservation reservation = find(reservationId);
+        requireMoved(balances.releaseReserved(reservation.getSkuId(), reservation.getWarehouseId(),
+                reservation.getQuantity(), actor), reservation);
+        movements.record(reservation.getSkuId(), reservation.getWarehouseId(), MovementType.RELEASE,
+                reservation.getQuantity(), reservation.getId(), actor);
+    }
+
+    private void requireAlready(UUID reservationId, Set<ReservationStatus> done) {
+        if (!done.contains(find(reservationId).getStatus())) {
+            throw new DomainException(InventoryErrorCode.ILLEGAL_TRANSITION);
+        }
+    }
+
+    private InventoryReservation find(UUID reservationId) {
+        return reservations.findById(reservationId)
+                .orElseThrow(() -> new DomainException(InventoryErrorCode.RESERVATION_NOT_FOUND));
+    }
+
+    private static void requireMoved(int changedRows, InventoryReservation reservation) {
+        if (changedRows == 0) {
+            throw new IllegalStateException("No balance row holds the reserved quantity of reservation "
+                    + reservation.getId());
+        }
     }
 
     private static void rejectDuplicateItems(List<ReserveRequest.Item> items) {
@@ -87,7 +145,7 @@ public class ReservationService {
 
     private static SortedMap<UUID, Integer> quantitiesBySku(List<ReserveRequest.Item> items) {
         return items.stream().collect(Collectors.toMap(ReserveRequest.Item::skuId, ReserveRequest.Item::quantity,
-                Math::addExact, TreeMap::new));
+                Math::addExact, () -> new TreeMap<>(UuidOrder.DATABASE)));
     }
 
     private DomainException insufficientStock(UUID skuId, UUID warehouseId, int requested) {
