@@ -108,6 +108,8 @@ class CatalogResponseContractTest {
         when(products.changeStatusProduct(eq(id), any(), eq(actor))).thenReturn(product);
         when(products.getById(id)).thenReturn(new ProductDetailResponse(id, "Shirt", "shirt", ProductStatus.ACTIVE,
                 id, sellerId, "Description", false, List.of(), List.of()));
+        when(products.getMyProduct(id, actor)).thenReturn(new ProductDetailResponse(id, "Shirt", "shirt", ProductStatus.DRAFT,
+                id, sellerId, "Draft description", true, List.of(), List.of()));
         var page = new PageImpl<>(List.of(product), PageRequest.of(1, 2), 5);
         when(products.getProductsByCategory(null, 1, 2)).thenReturn(page);
         when(products.getMyProducts(actor, 1, 2)).thenReturn(page);
@@ -116,6 +118,14 @@ class CatalogResponseContractTest {
         assertObject(post("/api/v1/products").contentType(MediaType.APPLICATION_JSON).content(request), 201);
         assertObject(put("/api/v1/products/{id}", id).contentType(MediaType.APPLICATION_JSON).content(request), 200);
         assertObject(get("/api/v1/products/{id}", id), 200);
+        mvc.perform(get("/api/v1/products/mine/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(id.toString()))
+                .andExpect(jsonPath("$.data.status").value("DRAFT"))
+                .andExpect(jsonPath("$.data.description").value("Draft description"))
+                .andExpect(jsonPath("$.data.auctionEnable").value(true))
+                .andExpect(jsonPath("$.data.skus").isArray())
+                .andExpect(jsonPath("$.data.images").isArray());
         assertObject(patch("/api/v1/products/{id}/status", id).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"status\":\"ACTIVE\"}"), 200);
 

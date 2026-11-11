@@ -129,6 +129,21 @@ public class ProductService {
     }
 
     @Transactional(readOnly = true)
+    public ProductDetailResponse getMyProduct(UUID id, CurrentUser currentUser) {
+        requirePrivilege(currentUser, "PRODUCT.LIST");
+        if (!currentUser.hasRole("SELLER")) {
+            throw new DomainException(CatalogErrorCode.UNAUTHORIZED);
+        }
+        Product product = productRepository.findByIdAndDeletedAtIsNull(id)
+                .orElseThrow(() -> new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND));
+        if (!product.getSellerId().equals(currentUser.id())) {
+            throw new DomainException(CatalogErrorCode.UNAUTHORIZED);
+        }
+        // The public read remains ACTIVE-only; an owner's editor also needs drafts.
+        return toDetailResponse(product);
+    }
+
+    @Transactional(readOnly = true)
     public Page<ProductResponse> getProductsByCategory(UUID categoryId, int page, int size) {
 
         validatePagination(page, size);

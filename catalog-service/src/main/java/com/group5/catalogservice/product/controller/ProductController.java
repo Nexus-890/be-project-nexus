@@ -74,6 +74,12 @@ public class ProductController {
 
         return pageResponse(productService.getMyProducts(currentUser, page, size));
     }
+
+    @GetMapping("/mine/{id}")
+    @PreAuthorize("hasRole('SELLER') and hasAuthority('PRODUCT.LIST')")
+    public ApiResponse<ProductDetailResponse> getMyProduct(@PathVariable UUID id, CurrentUser currentUser) {
+        return ApiResponse.of(productService.getMyProduct(id, currentUser));
+    }
     @PreAuthorize(
             "hasAnyRole('SELLER', 'ADMIN') and hasAuthority('PRODUCT.UPDATE')"
     )

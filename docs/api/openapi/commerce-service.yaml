@@ -7518,6 +7518,14 @@ components:
           type: "string"
           format: "uuid"
           description: "Buyer who placed the order."
+        recipientName:
+          type: "string"
+          nullable: true
+          description: "Recipient name from the order shippingAddress snapshot; unavailable for historical orders without a valid name. This is not a current profile lookup."
+        phoneNumber:
+          type: "string"
+          nullable: true
+          description: "Recipient phone from the order shippingAddress snapshot; unavailable for historical orders without a valid phone."
         sellerId:
           type: "string"
           format: "uuid"

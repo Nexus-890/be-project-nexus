@@ -4599,6 +4599,64 @@ paths:
                     detail: "The service did not answer in time"
                     instance: "/api/v1/products/mine"
                     code: "GATEWAY_TIMEOUT"
+  /api/v1/products/mine/{id}:
+    get:
+      tags: [Products]
+      operationId: getOwnProduct
+      summary: Read the current seller's product with SKUs and images
+      description: >-
+        Protected editor read for the JWT seller's own nondeleted product, including DRAFT and
+        INACTIVE. Requires SELLER and PRODUCT.LIST; another seller receives 403. This does not
+        change visibility of the public ACTIVE-only GET /products/{id} endpoint.
+      security:
+        - bearerAuth: []
+      x-required-privileges: [PRODUCT.LIST]
+      x-gateway-privilege: PRODUCT.LIST
+      x-required-roles: [SELLER]
+      x-ownership: JWT subject must equal product sellerId; deleted products return 404.
+      x-error-codes:
+        '400': [INVALID_PARAMETER]
+        '401': [UNAUTHENTICATED, CATALOG_UNAUTHENTICATED]
+        '403': [FORBIDDEN, CATALOG_UNAUTHORIZED]
+        '404': [CATALOG_PRODUCT_NOT_FOUND]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Own product detail, with numeric SKU prices and image public URLs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetProductResponse'
+        '400':
+          description: Invalid UUID parameter.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing or invalid authentication.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Missing SELLER or PRODUCT.LIST, or the product belongs to another seller.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Product does not exist or was deleted.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/products/{id}/status:
     patch:
       tags:

@@ -142,7 +142,7 @@ class OrderResponseContractTest {
         UUID buyerId = UUID.randomUUID();
         OffsetDateTime createdAt = OffsetDateTime.parse("2026-11-02T08:15:30Z");
         var order = new OrderResponse(id, "NX-SALES", buyerId, user.id(), OrderType.STANDARD, OrderStatus.PENDING,
-                createdAt, new BigDecimal("150000.00"), List.of());
+                createdAt, new BigDecimal("150000.00"), List.of(), "Snapshot Buyer", "0901234567");
         when(service.listSales(user, OrderStatus.PENDING, from, to, 0, 5))
                 .thenReturn(new PageImpl<>(List.of(order), PageRequest.of(0, 5), 1));
 
@@ -154,6 +154,8 @@ class OrderResponseContractTest {
                 .andExpect(jsonPath("$.data[0].userId").value(buyerId.toString()))
                 .andExpect(jsonPath("$.data[0].orderType").value("STANDARD"))
                 .andExpect(jsonPath("$.data[0].createdAt").value(createdAt.toString()))
+                .andExpect(jsonPath("$.data[0].recipientName").value("Snapshot Buyer"))
+                .andExpect(jsonPath("$.data[0].phoneNumber").value("0901234567"))
                 .andExpect(jsonPath("$.page.number").value(0)).andExpect(jsonPath("$.page.size").value(5))
                 .andExpect(jsonPath("$.page.totalElements").value(1)).andExpect(jsonPath("$.page.totalPages").value(1));
 

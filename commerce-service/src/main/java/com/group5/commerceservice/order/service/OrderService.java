@@ -585,7 +585,17 @@ public class OrderService {
                 .map(this::toItemResponse)
                 .toList();
         return new OrderResponse(order.getId(), order.getOrderNumber(), order.getUserId(), order.getSellerId(),
-                order.getOrderType(), order.getStatus(), order.getCreatedAt(), order.getTotalAmount(), items);
+                order.getOrderType(), order.getStatus(), order.getCreatedAt(), order.getTotalAmount(), items,
+                shippingSnapshotText(order, "recipientName"), shippingSnapshotText(order, "phoneNumber"));
+    }
+
+    // Read the immutable order snapshot, never current user-profile data. Old orders
+    // can predate the address shape; malformed/missing values remain unavailable.
+    private String shippingSnapshotText(Order order, String field) {
+        Map<String, Object> shipping = order.getShippingInfo();
+        if (shipping == null || !(shipping.get("shippingAddress") instanceof Map<?, ?> address)) return null;
+        Object value = address.get(field);
+        return value instanceof String text && !text.isBlank() ? text.trim() : null;
     }
 
     private OrderStatusHistoryResponse toHistoryResponse(OrderStatusHistory entry) {

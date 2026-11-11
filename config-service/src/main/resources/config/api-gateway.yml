@@ -115,6 +115,9 @@ nexus:
       - method: GET
         path: /api/v1/products/mine
         privilege: PRODUCT.LIST
+      - method: GET
+        path: /api/v1/products/mine/{id}
+        privilege: PRODUCT.LIST
       - method: PUT
         path: /api/v1/products/{id}
         privilege: PRODUCT.UPDATE

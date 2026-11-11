@@ -85,6 +85,31 @@ class OrderReadTest {
         assertThat(order.items()).extracting(OrderItemResponse::totalPrice)
                 .containsExactlyInAnyOrder(new BigDecimal("300000.00"), new BigDecimal("178000.00"));
         assertThat(order.totalAmount()).isEqualByComparingTo("478000.00");
+        assertThat(order.recipientName()).isEqualTo("Buyer");
+        assertThat(order.phoneNumber()).isEqualTo("0900000000");
+    }
+
+    @Test
+    void shippingContactComesOnlyFromTheStoredSnapshotAndOlderOrdersRemainReadable() {
+        CurrentUser buyer = buyer();
+        UUID orderId = insertOrder(buyer.id(), OrderStatus.PAID, 1);
+        assertThat(orderService.getOrder(buyer, orderId).recipientName()).isNull();
+        assertThat(orderService.getOrder(buyer, orderId).phoneNumber()).isNull();
+
+        jdbc().update("UPDATE orders SET shipping_info=CAST(? AS jsonb) WHERE id=?", """
+                {"shippingAddress":{"recipientName":"  Original recipient  ","phoneNumber":" 0901111222 "}}
+                """, orderId);
+        OrderResponse response = orderService.listOwn(buyer, null, 0, 10).getContent().getFirst();
+        assertThat(response.recipientName()).isEqualTo("Original recipient");
+        assertThat(response.phoneNumber()).isEqualTo("0901111222");
+
+        for (String malformed : List.of("{}", "{\"shippingAddress\":\"legacy value\"}",
+                "{\"shippingAddress\":{\"recipientName\":42,\"phoneNumber\":\" \"}}")) {
+            jdbc().update("UPDATE orders SET shipping_info=CAST(? AS jsonb) WHERE id=?", malformed, orderId);
+            OrderResponse historical = orderService.getOrder(buyer, orderId);
+            assertThat(historical.recipientName()).isNull();
+            assertThat(historical.phoneNumber()).isNull();
+        }
     }
 
     @Test
