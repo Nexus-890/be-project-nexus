@@ -14,6 +14,8 @@ import jakarta.servlet.Filter;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -38,6 +40,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -83,6 +86,8 @@ class BidPlacementIntegrationTest {
     @Autowired private WebApplicationContext context;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private OutboxWriter outbox;
+    @Autowired private AuctionRepository auctions;
+    @Autowired private PlatformTransactionManager transactions;
     private MockMvc client;
 
     @BeforeEach
@@ -159,6 +164,51 @@ class BidPlacementIntegrationTest {
                 .andExpect(jsonPath("$.code").value("AUCTION_NOT_ACTIVE"));
 
         assertThat(snapshot(auction.id())).isEqualTo(before);
+    }
+
+    /** Chặn bid ngoài giờ kể cả khi scheduler chưa kịp đổi trạng thái ACTIVE. */
+    @ParameterizedTest
+    @CsvSource({"false, 1050000", "false, 1", "true, 1050000", "true, 1"})
+    void activeAuctionOutsideItsTimeWindowReturns409WithoutWrites(boolean beforeStart, String amount) throws Exception {
+        Fixture auction = auction("ACTIVE");
+        if (beforeStart) {
+            jdbc.update("UPDATE auctions SET start_at=now()+interval '1 hour', end_at=now()+interval '2 hours', "
+                    + "original_end_at=now()+interval '2 hours' WHERE id=?", auction.id());
+        } else {
+            jdbc.update("UPDATE auctions SET start_at=now()-interval '2 hours', end_at=now()-interval '1 second', "
+                    + "original_end_at=now()-interval '1 second' WHERE id=?", auction.id());
+        }
+        Snapshot before = snapshot(auction.id());
+
+        client.perform(request(auction.id(), UUID.randomUUID(), amount))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("AUCTION_NOT_ACTIVE"));
+
+        assertThat(snapshot(auction.id())).isEqualTo(before);
+    }
+
+    /** Dùng cùng transaction DB để kiểm tra chính xác: nhận tại start_at, từ chối tại end_at. */
+    @ParameterizedTest
+    @CsvSource({"true, 1", "false, 0"})
+    void conditionalUpdateHonorsInclusiveStartAndExclusiveEnd(boolean atStart, int expectedUpdates) {
+        Fixture auction = auction("ACTIVE");
+        new TransactionTemplate(transactions).executeWithoutResult(transaction -> {
+            if (atStart) {
+                jdbc.update("UPDATE auctions SET start_at=now(), end_at=now()+interval '1 hour', "
+                        + "original_end_at=now()+interval '1 hour' WHERE id=?", auction.id());
+            } else {
+                jdbc.update("UPDATE auctions SET start_at=now()-interval '1 hour', end_at=now(), "
+                        + "original_end_at=now() WHERE id=?", auction.id());
+            }
+            Snapshot before = snapshot(auction.id());
+
+            assertThat(auctions.acceptBid(auction.id(), UUID.randomUUID(), MINIMUM)).isEqualTo(expectedUpdates);
+
+            if (!atStart) assertThat(snapshot(auction.id())).isEqualTo(before);
+            // Chỉ kiểm tra UPDATE; rollback để không để lại auction tăng giá mà chưa có bid/outbox.
+            transaction.setRollbackOnly();
+        });
     }
 
     @Test
@@ -238,7 +288,7 @@ class BidPlacementIntegrationTest {
                 INSERT INTO auctions (id, product_id, sku_id, seller_id, title, starting_price,
                     bid_increment, current_price, start_at, end_at, original_end_at, status)
                 VALUES (?, ?, ?, ?, 'Bid placement integration fixture', 1000000.00, 50000.00, 1000000.00,
-                    '2026-11-08T00:00:00Z', '2026-11-09T00:00:00Z', '2026-11-09T00:00:00Z', CAST(? AS auction_status))
+                    now()-interval '1 hour', now()+interval '1 hour', now()+interval '1 hour', CAST(? AS auction_status))
                 """, id, UUID.randomUUID(), UUID.randomUUID(), seller, status);
         return new Fixture(id, seller);
     }

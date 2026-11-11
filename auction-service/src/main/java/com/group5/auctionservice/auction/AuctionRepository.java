@@ -24,12 +24,17 @@ public interface AuctionRepository extends JpaRepository<Auction, UUID> {
                 bid_count = bid_count + 1, version = version + 1,
                 updated_at = now(), updated_by = :bidderId
             WHERE id = :id AND status = 'ACTIVE' AND deleted_at IS NULL
+                AND end_at > now() AND start_at <= now()
                 AND seller_id <> :bidderId AND current_price + bid_increment <= :amount
             """, nativeQuery = true)
     int acceptBid(UUID id, UUID bidderId, BigDecimal amount);
 
     @Query(value = "SELECT * FROM auctions WHERE id = :id AND deleted_at IS NULL", nativeQuery = true)
     Optional<Auction> findAvailableById(UUID id);
+
+    // Dùng cùng mốc thời gian transaction với UPDATE khi xác định lý do từ chối bid.
+    @Query(value = "SELECT now()", nativeQuery = true)
+    Instant currentTransactionTime();
 
     Optional<Auction> findByIdAndVisibilityAndDeletedAtIsNull(UUID id, Auction.Visibility visibility);
 

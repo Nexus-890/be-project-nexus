@@ -89,6 +89,11 @@ public class BidService {
             if (auction.getStatus() != AuctionStatus.ACTIVE) {
                 throw new DomainException(AuctionErrorCode.AUCTION_NOT_ACTIVE);
             }
+            // Scheduler có thể chưa đổi trạng thái; kiểm tra cửa sổ bid theo thời gian của DB.
+            Instant now = auctions.currentTransactionTime();
+            if (auction.getStartAt().isAfter(now) || !auction.getEndAt().isAfter(now)) {
+                throw new DomainException(AuctionErrorCode.AUCTION_NOT_ACTIVE);
+            }
             BigDecimal minimum = auction.getCurrentPrice().add(auction.getBidIncrement());
             throw new DomainException(AuctionErrorCode.AUCTION_BID_TOO_LOW,
                     "Bid amount must be at least " + minimum.toPlainString(), Map.of("minimum", minimum));

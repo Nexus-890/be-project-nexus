@@ -286,8 +286,9 @@ paths:
       operationId: placeBid
       summary: Place a bid as a buyer
       description: >
-        Places a bid on an ACTIVE auction. The auction price is advanced by a
-        conditional update, so concurrent bids cannot both win the same price.
+        Places a bid on an ACTIVE auction from startAt (inclusive) to endAt
+        (exclusive). Outside that window, bids are refused even if the status is still ACTIVE.
+        A conditional update prevents concurrent bids from both winning the same price.
         The authenticated buyer may not bid on their own auction.
         Idempotency-Key is a required UUID. A new key returns 201. Reusing a key
         for the same auction and authenticated bidder returns 200 with the
@@ -454,8 +455,8 @@ paths:
                 code: AUCTION_NOT_FOUND
         '409':
           description: >
-            Auction is not active, the bidder is the auction seller, or the key
-            was already accepted for another auction or bidder.
+            Auction is outside its bid window, is not ACTIVE, the bidder is the auction seller,
+            or the key was already accepted for another auction or bidder.
           content:
             application/problem+json:
               schema:
