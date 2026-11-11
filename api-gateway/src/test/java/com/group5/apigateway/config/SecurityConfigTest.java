@@ -619,6 +619,27 @@ class SecurityConfigTest {
     }
 
     @Test
+    void stockReadsArePublicButOtherInventoryPathsStillNeedAToken() {
+        client.get().uri("/api/v1/inventory/" + ID).exchange().expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("inventory-service");
+        client.get().uri("/api/v1/inventory?skuIds=" + ID + "," + ID).exchange().expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("inventory-service");
+        assertThat(DOMAIN_LOG).containsExactly(
+                "inventory-service GET /api/v1/inventory/" + ID,
+                "inventory-service GET /api/v1/inventory");
+        assertThat(FORWARDED_TOKENS).isEmpty();
+
+        SERVICE_LOG.clear();
+        for (String path : List.of("/api/v1/inventory/reservations", "/api/v1/inventory/balances",
+                "/api/v1/inventory/movements", "/api/v1/inventory/not-a-uuid", "/api/v1/inventory/" + ID + "/extra")) {
+            client.get().uri(path).exchange().expectStatus().isUnauthorized();
+        }
+        client.post().uri("/api/v1/inventory/" + ID).exchange().expectStatus().isUnauthorized();
+        client.post().uri("/api/v1/inventory").exchange().expectStatus().isUnauthorized();
+        assertThat(SERVICE_LOG).isEmpty();
+    }
+
+    @Test
     void webhookAndAddressExceptionsDoNotLeakToOtherPathsOrMethods() {
         for (String path : List.of("/api/v1/webhooks/unrelated", "/api/v1/webhooks/sepay/extra",
                 "/api/v1/webhooks/carriers/unknown", "/api/v1/webhooks/carriers/ghn/extra",

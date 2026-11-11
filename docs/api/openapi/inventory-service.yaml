@@ -18,6 +18,148 @@ tags:
   - name: Reservations
     description: Hold stock for the orders of one order group
 paths:
+  /api/v1/inventory/{skuId}:
+    get:
+      tags: [Stock]
+      operationId: getAvailability
+      summary: Read how much of one SKU is available
+      description: >-
+        Public, no token needed. Reads the default warehouse
+        (nexus.inventory.default-warehouse-code). Returns skuId and available only, never
+        total or reserved. A SKU with no balance row returns available 0, not 404.
+      security: []
+      x-catalogue-id: INV-02
+      parameters:
+        - name: skuId
+          in: path
+          required: true
+          description: SKU id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Available quantity of the SKU
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  skuId: 0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a81
+                  available: 97
+        '400':
+          description: skuId is not a UUID
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:invalid-parameter
+                title: Bad Request
+                status: 400
+                detail: A request parameter is invalid
+                instance: /api/v1/inventory/not-a-uuid
+                code: INVALID_PARAMETER
+        '500':
+          description: The configured default warehouse does not exist
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Internal Server Error
+                status: 500
+                detail: The configured default warehouse does not exist
+                instance: /api/v1/inventory/0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a81
+                code: INVENTORY_DEFAULT_WAREHOUSE_NOT_FOUND
+  /api/v1/inventory:
+    get:
+      tags: [Stock]
+      operationId: listAvailability
+      summary: Read how much of several SKUs is available
+      description: >-
+        Public, no token needed. Used by the cart page to read every line at once. All ids
+        are read from the default warehouse in one query. The result keeps the request
+        order, a repeated id appears once, and an id with no balance row reads as
+        available 0. At most 100 ids per request.
+      security: []
+      x-catalogue-id: INV-03
+      parameters:
+        - name: skuIds
+          in: query
+          required: true
+          description: Comma-separated SKU ids, 1 to 100
+          style: form
+          explode: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items:
+              type: string
+              format: uuid
+      responses:
+        '200':
+          description: One entry per distinct requested SKU, in request order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockListApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  - skuId: 0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a81
+                    available: 97
+                  - skuId: 0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a82
+                    available: 0
+                page:
+                  number: 0
+                  size: 2
+                  totalElements: 2
+                  totalPages: 1
+        '400':
+          description: >-
+            skuIds is missing or not a list of UUIDs (INVALID_PARAMETER), empty
+            (VALIDATION_FAILED), or holds more than 100 ids (INVENTORY_TOO_MANY_SKUS)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                INVALID_PARAMETER:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
+                    status: 400
+                    detail: A request parameter is invalid
+                    instance: /api/v1/inventory
+                    code: INVALID_PARAMETER
+                INVENTORY_TOO_MANY_SKUS:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: At most 100 SKU ids can be read at once
+                    instance: /api/v1/inventory
+                    code: INVENTORY_TOO_MANY_SKUS
+        '500':
+          description: The configured default warehouse does not exist
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Internal Server Error
+                status: 500
+                detail: The configured default warehouse does not exist
+                instance: /api/v1/inventory
+                code: INVENTORY_DEFAULT_WAREHOUSE_NOT_FOUND
   /api/v1/inventory/intake:
     post:
       tags: [Stock]
@@ -619,3 +761,65 @@ components:
           type: string
         detail:
           type: string
+    StockApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          default: response success
+          example: response success
+        data:
+          $ref: '#/components/schemas/Stock'
+    StockListApiResponse:
+      type: object
+      required: [code, message, data, page]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          default: response success
+          example: response success
+        data:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/Stock'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+    Stock:
+      type: object
+      additionalProperties: false
+      required: [skuId, available]
+      properties:
+        skuId:
+          type: string
+          format: uuid
+        available:
+          type: integer
+          format: int32
+          minimum: 0
+          description: 0 when the SKU has no balance row in the default warehouse
+    PageInfo:
+      type: object
+      required: [number, size, totalElements, totalPages]
+      properties:
+        number:
+          type: integer
+          minimum: 0
+        size:
+          type: integer
+          minimum: 1
+        totalElements:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0

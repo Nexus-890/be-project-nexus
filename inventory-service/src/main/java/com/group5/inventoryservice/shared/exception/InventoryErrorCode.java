@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 
 public enum InventoryErrorCode implements ErrorCode {
     WAREHOUSE_NOT_FOUND(HttpStatus.NOT_FOUND, "Warehouse not found"),
+    TOO_MANY_SKUS(HttpStatus.BAD_REQUEST, "At most 100 SKU ids can be read at once"),
     DEFAULT_WAREHOUSE_NOT_FOUND(HttpStatus.INTERNAL_SERVER_ERROR,
             "The configured default warehouse does not exist"),
     INSUFFICIENT_STOCK(HttpStatus.CONFLICT, "Not enough stock; nothing was reserved"),
