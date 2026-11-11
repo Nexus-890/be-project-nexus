@@ -75,8 +75,11 @@ public class CarrierExecutor {
         if (!(error instanceof DomainException domain)) {
             return false;
         }
-        ShipmentErrorCode code = "CATALOG".equals(carrier)
-                ? ShipmentErrorCode.CATALOG_UNAVAILABLE : ShipmentErrorCode.CARRIER_UNAVAILABLE;
+        ShipmentErrorCode code = switch (carrier) {
+            case "CATALOG" -> ShipmentErrorCode.CATALOG_UNAVAILABLE;
+            case "COMMERCE" -> ShipmentErrorCode.COMMERCE_UNAVAILABLE;
+            default -> ShipmentErrorCode.CARRIER_UNAVAILABLE;
+        };
         return domain.getErrorCode().equals(code.code());
     }
 }

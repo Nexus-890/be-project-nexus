@@ -23,7 +23,6 @@ import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.UUID;
 
-/** Persistence foundation only; lifecycle writers belong to #202/#203. */
 @Getter
 @Entity
 @Table(name = "shipments")
@@ -77,6 +76,9 @@ public class Shipment extends AuditedEntity {
     @Column(name = "idempotency_key", length = 100, unique = true)
     private String idempotencyKey;
 
+    @Column(name = "idempotency_fingerprint", length = 64)
+    private String idempotencyFingerprint;
+
     @Version
     @Column(name = "version", nullable = false)
     private long version;
@@ -95,4 +97,39 @@ public class Shipment extends AuditedEntity {
 
     @Column(name = "handed_over_at")
     private OffsetDateTime handedOverAt;
+
+    public static Shipment create(UUID id, UUID orderId, UUID buyerId, UUID warehouseId,
+                                  String carrier, String serviceType, BigDecimal shippingFee,
+                                  Map<String, Object> shippingInfo, String key) {
+        Shipment shipment = new Shipment();
+        shipment.id = id;
+        shipment.orderId = orderId;
+        shipment.buyerId = buyerId;
+        shipment.warehouseId = warehouseId;
+        shipment.carrier = carrier;
+        shipment.serviceType = serviceType;
+        shipment.shippingFee = shippingFee;
+        shipment.shippingInfo = shippingInfo;
+        shipment.idempotencyKey = key;
+        shipment.shipmentStatus = ShipmentStatus.PENDING_TRACKING;
+        return shipment;
+    }
+
+    public void trackingAssigned(String code) {
+        trackingCode = code;
+        shipmentStatus = ShipmentStatus.CREATED;
+        nextTrackingRetryAt = null;
+    }
+
+    public void trackingPending(OffsetDateTime nextAttempt) {
+        shipmentStatus = ShipmentStatus.PENDING_TRACKING;
+        nextTrackingRetryAt = nextAttempt;
+    }
+
+    public void countTrackingRetry() { trackingRetryCount++; }
+
+    public void claimManualRequest(String key, String fingerprint) {
+        idempotencyKey = key;
+        idempotencyFingerprint = fingerprint;
+    }
 }

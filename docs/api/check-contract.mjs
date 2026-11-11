@@ -23,6 +23,7 @@ const services = {
     'src/main/java/com/group5/commerceservice/cart/controller/CartController.java',
     'src/main/java/com/group5/commerceservice/checkout/controller/CheckoutController.java',
     'src/main/java/com/group5/commerceservice/order/controller/OrderController.java',
+    'src/main/java/com/group5/commerceservice/order/controller/OrderShippingSnapshotController.java',
   ],
   'notification-service': [
     'src/main/java/com/group5/notificationservice/notification/NotificationController.java',
@@ -47,6 +48,7 @@ const services = {
   'shipment-service': [
     'src/main/java/com/group5/shipmentservice/shipping/controller/CarrierController.java',
     'src/main/java/com/group5/shipmentservice/shipping/controller/ShippingController.java',
+    'src/main/java/com/group5/shipmentservice/shipping/controller/ShipmentController.java',
   ],
 };
 const normalize = (route) => route.replace(/\{[^}]+\}/g, '{}');
