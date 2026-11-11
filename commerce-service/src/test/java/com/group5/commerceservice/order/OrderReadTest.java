@@ -13,6 +13,7 @@ import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.service.InventoryClient;
 import com.group5.commerceservice.order.service.OrderService;
 import com.group5.commerceservice.order.service.PricingService;
+import com.group5.commerceservice.order.service.OrderShippingService;
 import com.group5.commerceservice.order.service.OrderStateMachine;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_core.model.ApiResponse;
@@ -69,6 +70,17 @@ class OrderReadTest {
     @Autowired private CatalogClient catalogClient;
     @Autowired private InventoryClient inventoryClient;
     @Autowired private DataSource dataSource;
+
+    @Autowired private OrderShippingService shipping;
+
+    @org.junit.jupiter.api.BeforeEach
+    void restoreShippingFixture() {
+        // Context dùng chung với test #138: mỗi test đọc đơn tự khôi phục fixture phí bằng 0.
+        Mockito.reset(shipping);
+        when(shipping.quote(any(), any())).thenReturn(new OrderShippingService.Quote(BigDecimal.ZERO,
+                new OrderShippingService.Parcel(1200, 30, 20, 15), "FAKE", "STANDARD",
+                java.time.OffsetDateTime.parse("2031-02-04T04:05:06Z")));
+    }
 
     @Test
     void theOwnerGetsEveryItemWithItsSnapshotPrice() {
@@ -210,10 +222,11 @@ class OrderReadTest {
             when(catalogClient.getProductById(productId)).thenReturn(ApiResponse.of(new CatalogClient.ProductResponse(
                     productId, sellerId, "Product " + price, "ACTIVE", List.of())));
         }
-        when(inventoryClient.reserve(any(), any(), anyInt())).thenReturn(true);
+        when(inventoryClient.reserve(any(), any())).thenReturn(new InventoryClient.Reservation(
+                List.of(UUID.randomUUID()), UUID.randomUUID(), java.time.OffsetDateTime.parse("2031-02-03T04:05:06.123456Z")));
 
         CreateOrderRequest request = new CreateOrderRequest(new CreateOrderRequest.ShippingAddress(
-                "Buyer", "0900000000", "1 Main Street", "Ward 1", "District 1", "Ho Chi Minh", "VN"), "SEPAY");
+                "Buyer", "0900000000", "1 Main Street", "1003646", "1000001", "VN"), "SEPAY");
         return orderService.create(buyer, UUID.randomUUID().toString(), request)
                 .response().orders().getFirst().orderId();
     }
@@ -243,6 +256,15 @@ class OrderReadTest {
     @EnableJpaAuditing(auditorAwareRef = "auditor")
     @Import({OrderService.class, OrderStateMachine.class, PricingService.class})
     static class JpaConfig {
+        // Fixture báo giá tách riêng khỏi transport Shipping; các test này kiểm nghiệp vụ Order hiện hữu.
+        @Bean
+        OrderShippingService shipping() {
+            OrderShippingService shipping = Mockito.mock(OrderShippingService.class);
+            Mockito.when(shipping.quote(Mockito.any(), Mockito.any())).thenReturn(new OrderShippingService.Quote(
+                    BigDecimal.ZERO, new OrderShippingService.Parcel(1200, 30, 20, 15), "FAKE", "STANDARD",
+                    java.time.OffsetDateTime.parse("2031-02-04T04:05:06Z")));
+            return shipping;
+        }
         @Bean
         DataSource dataSource() {
             DataSource source = new DriverManagerDataSource(POSTGRES.getJdbcUrl() + "&currentSchema=commerce_reads",

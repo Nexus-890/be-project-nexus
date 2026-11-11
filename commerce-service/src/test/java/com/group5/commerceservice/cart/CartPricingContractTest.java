@@ -30,7 +30,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class CartPricingContractTest {
     private static final String BODY = """
             {"shippingAddress":{"recipientName":"Buyer","phoneNumber":"0901234567",
-            "addressLine":"123 Street","ward":"Ward","district":"District","city":"HCM",
+            "addressLine":"123 Street","wardCode":"1003646","provinceCode":"1000001",
             "countryCode":"VN"},"paymentMethod":"SEPAY","promoCode":"D01"}
             """;
     private final CartPricingService service = mock(CartPricingService.class);
@@ -71,20 +71,22 @@ class CartPricingContractTest {
     @Test void previewAcceptsShippingPaymentAndIgnoredPromoCodeAndReturnsItems() throws Exception {
         var item = new CheckoutPreviewResponse.Item(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                 2, new BigDecimal("150000"), new BigDecimal("300000"));
-        when(service.preview(any(), eq("D01"))).thenReturn(new CheckoutPreviewResponse(List.of(item),
-                item.lineTotal(), null, BigDecimal.ZERO, BigDecimal.ZERO, item.lineTotal(), List.of()));
+        when(service.previewCheckout(any(), argThat(request -> "D01".equals(request.promoCode()))))
+                .thenReturn(new CheckoutPreviewResponse(List.of(item),
+                        item.lineTotal(), new BigDecimal("30000"), BigDecimal.ZERO, BigDecimal.ZERO,
+                        item.lineTotal().add(new BigDecimal("30000")), List.of()));
         mvc.perform(post("/api/v1/checkout/preview").contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.message").value("response success"))
                 .andExpect(jsonPath("$.data.items[0].quantity").value(2))
                 .andExpect(jsonPath("$.data.items[0].unitPrice").value(150000))
-                .andExpect(jsonPath("$.data.total").value(300000))
+                .andExpect(jsonPath("$.data.total").value(330000))
                 .andExpect(jsonPath("$.data.issues").isEmpty())
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("\"shippingFee\":null")))
+                .andExpect(jsonPath("$.data.shippingFee").value(30000))
                 .andExpect(jsonPath("$.page").doesNotExist());
     }
 
     @Test void emptyCartPreviewReturns400CommerceProblemDetails() throws Exception {
-        when(service.preview(any(), any())).thenThrow(new DomainException(CommerceErrorCode.CART_EMPTY));
+        when(service.previewCheckout(any(), any())).thenThrow(new DomainException(CommerceErrorCode.CART_EMPTY));
         mvc.perform(post("/api/v1/checkout/preview").contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))

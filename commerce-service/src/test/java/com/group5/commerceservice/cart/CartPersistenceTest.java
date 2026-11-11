@@ -338,7 +338,8 @@ class CartPersistenceTest {
 
         @Bean
         CartPricingService pricing(CartRepository carts, CartItemRepository items, CatalogClient catalog) {
-            return new CartPricingService(carts, items, catalog, new CheckoutProperties());
+            return new CartPricingService(carts, items, catalog, new CheckoutProperties(),
+                    mock(com.group5.commerceservice.order.service.PricingService.class));
         }
 
         @Bean

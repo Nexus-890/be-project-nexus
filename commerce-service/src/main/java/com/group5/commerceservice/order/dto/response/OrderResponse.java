@@ -19,7 +19,12 @@ public record OrderResponse(
         BigDecimal totalAmount,
         List<OrderItemResponse> items,
         String recipientName,
-        String phoneNumber) {
+        String phoneNumber,
+        UUID orderGroupId,
+        BigDecimal subtotal,
+        BigDecimal shippingFee,
+        BigDecimal discountAmount,
+        BigDecimal taxAmount) {
 
     public OrderResponse {
         items = List.copyOf(items);

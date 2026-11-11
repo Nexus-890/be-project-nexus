@@ -8164,6 +8164,39 @@ components:
         status:
           type: "string"
           description: "Current persisted SKU status string, initially ACTIVE. This issue does not restrict the existing string column to a new enum."
+        shippingParcel:
+          $ref: "#/components/schemas/ShippingParcel"
+    ShippingParcel:
+      type: "object"
+      nullable: true
+      description: "Seller supplied shipping-ready package for one SKU unit, measured in grams and centimetres. Null means the seller has not supplied verified measurements; checkout rejects missing measurements rather than inventing them."
+      required:
+        - "weightGrams"
+        - "lengthCm"
+        - "widthCm"
+        - "heightCm"
+      properties:
+        weightGrams:
+          type: "integer"
+          minimum: 1
+          maximum: 50000
+        lengthCm:
+          type: "integer"
+          minimum: 1
+          maximum: 200
+        widthCm:
+          type: "integer"
+          minimum: 1
+          maximum: 200
+        heightCm:
+          type: "integer"
+          minimum: 1
+          maximum: 200
+      example:
+        weightGrams: 1200
+        lengthCm: 30
+        widthCm: 20
+        heightCm: 15
     WriteSku:
       type: "object"
       description: "The SKU code is not part of the request. A `skuCode` sent in the body is ignored."
@@ -8190,6 +8223,10 @@ components:
           maximum: 100000000000000000
           exclusiveMaximum: true
           description: "Greater than zero; at most 17 integer and 2 fractional decimal digits. Stored BigDecimal numeric(19,2)."
+        shippingParcel:
+          allOf:
+            - $ref: "#/components/schemas/ShippingParcel"
+          description: "Optional verified package measurements for one SKU unit. Omitted or null on update preserves the existing measurements for older clients. A supplied object must contain all four valid measurements."
     CreateCategoryResponse:
       type: "object"
       required:

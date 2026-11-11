@@ -1245,7 +1245,6 @@ The STANDARD checkout publisher uses the existing `OrderEventPublisher` and tran
               "required": [
                 "line1",
                 "wardCode",
-                "districtCode",
                 "provinceCode"
               ],
               "additionalProperties": true
@@ -1355,7 +1354,6 @@ The STANDARD checkout publisher uses the existing `OrderEventPublisher` and tran
               "required": [
                 "line1",
                 "wardCode",
-                "districtCode",
                 "provinceCode"
               ],
               "additionalProperties": true
@@ -1451,7 +1449,6 @@ The STANDARD checkout publisher uses the existing `OrderEventPublisher` and tran
       "address": {
         "line1": "1 Demo Street",
         "wardCode": "W01",
-        "districtCode": "D01",
         "provinceCode": "P01"
       }
     },
@@ -5917,6 +5914,8 @@ The publisher reads `dueAt` and each `paymentDueAt` from the refreshed persisted
 ```
 
 #113/#250 require group CANCELED, every still-PENDING child CANCELED/history, this group event and individual OrderCancelled events in one commerce transaction. #189 owns manual cancellation; #159 owns expiry and must adopt the group boundary. Payment serializes cancellation with webhook funding under session/instruction locks; missing manifest/session is durable retry, not a processed no-op. If funding already won, keep PAID/receipt evidence and create at most the one refund per cancelled funded instruction. No cancellation ACK wait, unpaid-child fence or replacement QR is introduced. Group cancellation does not replace the paid child shipment-handover coordination described in #250.
+
+Checkout #138 uses GHN v3 provinceCode/wardCode. districtCode is optional for historical messages; new orders do not invent a district. Parcel is assembled from seller-owned Catalog shippingParcel measurements and retained in the order snapshot.
 
 ## Deferred R2 payload reference
 

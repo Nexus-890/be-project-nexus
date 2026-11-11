@@ -40,6 +40,12 @@ public class OrderController {
         return ResponseEntity.status(result.created() ? 201 : 200).body(ApiResponse.of(result.response()));
     }
 
+    @GetMapping("/api/v1/orders/groups/{id}")
+    @PreAuthorize("hasAuthority('ORDER.VIEW')")
+    public ApiResponse<OrderGroupResponse> getGroup(CurrentUser user, @PathVariable UUID id) {
+        return ApiResponse.of(orderService.getGroup(user, id));
+    }
+
     @GetMapping("/api/v1/orders/{id}")
     @PreAuthorize("hasAuthority('ORDER.VIEW')")
     public ApiResponse<OrderResponse> getOrder(CurrentUser user, @PathVariable UUID id) {

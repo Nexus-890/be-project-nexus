@@ -1,5 +1,10 @@
 package com.group5.commerceservice.order;
 
+import com.group5.commerceservice.cart.dto.CatalogClient;
+import com.group5.commerceservice.cart.dto.CatalogSkuResponse;
+import com.group5.commerceservice.cart.entity.Cart;
+import com.group5.commerceservice.cart.repository.CartRepository;
+import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
 import com.group5.commerceservice.order.entity.Order;
 import com.group5.commerceservice.order.event.CheckoutPaymentConfirmed;
 import com.group5.commerceservice.order.event.CheckoutPaymentConfirmed.Instruction;
@@ -8,6 +13,10 @@ import com.group5.commerceservice.order.event.OrderPaid;
 import com.group5.commerceservice.order.event.PaymentEventConsumer;
 import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.service.OrderStateMachine;
+import com.group5.commerceservice.order.service.InventoryClient;
+import com.group5.commerceservice.order.service.OrderService;
+import com.group5.commerceservice.order.service.OrderShippingService;
+import com.group5.commerceservice.order.service.PricingService;
 import com.group5.commerceservice.order.service.RefundStatusHandler;
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.EventEnvelopeFactory;
@@ -15,6 +24,8 @@ import com.group5.common_events.Topics;
 import com.group5.common_outbox.IdempotentConsumer;
 import com.group5.common_outbox.OutboxWriter;
 import com.group5.common_security.CurrentUserAuditor;
+import com.group5.common_security.CurrentUser;
+import com.group5.common_core.model.ApiResponse;
 import com.networknt.schema.InputFormat;
 import com.networknt.schema.Schema;
 import com.networknt.schema.SchemaRegistry;
@@ -52,14 +63,18 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import javax.sql.DataSource;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -89,8 +104,112 @@ class CheckoutPaymentConfirmedTest {
     @Autowired private OrderEventPublisher publisher;
     @Autowired private DataSource source;
     @Autowired private Tracer tracer;
+    @Autowired private OrderService orderService;
+    @Autowired private CatalogClient catalog;
+    @Autowired private InventoryClient inventory;
+    @Autowired private OrderShippingService shipping;
 
-    @BeforeEach void resetPublisher() { reset(publisher); }
+    @BeforeEach void resetPublisher() { reset(publisher, catalog, inventory, shipping); }
+
+    /** Snapshot hai cấp do checkout thật tạo phải thanh toán được và không nhân đôi event khi replay receipt. */
+    @Test
+    void checkoutTwoLevelAddressPaysBothSellerOrdersAndPublishesOneOrderPaidPerOrderOnReplay() {
+        Fixture fixture = checkoutWithTwoLevelAddress();
+        assertThat(groupStatus(fixture)).isEqualTo("PENDING");
+        assertThat(states(fixture)).containsExactly("PENDING", "PENDING");
+        long createdHistory = historyCount(fixture);
+        assertThat(createdHistory).isEqualTo(2);
+        assertThat(paidEvents(fixture)).isEmpty();
+        for (UUID order : fixture.orders()) {
+            var address = JSON.readTree(jdbc().queryForObject(
+                    "SELECT shipping_info::text FROM orders WHERE id = ?", String.class, order))
+                    .path("recipient").path("address");
+            assertThat(address.path("provinceCode").asString()).isEqualTo("1000001");
+            assertThat(address.path("wardCode").asString()).isEqualTo("1003646");
+            assertThat(address.has("districtCode")).isFalse();
+        }
+
+        String paidAt = Instant.now().truncatedTo(ChronoUnit.MICROS).toString();
+        var instructions = fixture.orders().stream().map(order -> new Instruction(UUID.randomUUID(), order,
+                jdbc().queryForObject("SELECT total_amount FROM orders WHERE id = ?", BigDecimal.class, order)
+                        .toPlainString())).toList();
+        var payment = envelope(new CheckoutPaymentConfirmed(UUID.randomUUID(), fixture.group(), UUID.randomUUID(),
+                fixture.buyer(), "VND", "350000.00", paidAt, 1L, instructions));
+        send(payment);
+        // Cả replay cùng eventId và envelope mới của cùng receipt đều không ghi lại PAID/history/outbox.
+        send(payment);
+        var replay = envelope(payment.payload());
+        send(replay);
+
+        assertThat(groupStatus(fixture)).isEqualTo("PAID");
+        assertThat(states(fixture)).containsExactly("PAID", "PAID");
+        assertThat(jdbc().queryForObject("SELECT paid_at FROM order_groups WHERE id = ?", OffsetDateTime.class,
+                fixture.group()).toInstant()).isEqualTo(Instant.parse(paidAt));
+        assertThat(jdbc().queryForObject("SELECT payment_session_id FROM order_groups WHERE id = ?", UUID.class,
+                fixture.group())).isEqualTo(payment.payload().sessionId());
+        assertThat(jdbc().queryForObject("SELECT payment_transaction_id FROM order_groups WHERE id = ?", UUID.class,
+                fixture.group())).isEqualTo(payment.payload().transactionId());
+        assertThat(historyCount(fixture)).isEqualTo(createdHistory + 2);
+        assertThat(paidEvents(fixture)).hasSize(2);
+        assertThat(processed(payment.eventId())).isEqualTo(1);
+        assertThat(processed(replay.eventId())).isEqualTo(1);
+        for (UUID order : fixture.orders()) {
+            assertThat(jdbc().queryForObject("SELECT count(*) FROM order_status_history WHERE order_id = ? "
+                    + "AND previous_status = 'PENDING' AND new_status = 'PAID'", Long.class, order)).isEqualTo(1);
+            assertThat(jdbc().queryForObject("SELECT paid_at FROM orders WHERE id = ?", OffsetDateTime.class, order)
+                    .toInstant()).isEqualTo(Instant.parse(paidAt));
+            var events = paidEvents(fixture).stream()
+                    .filter(event -> event.path("aggregateId").asString().equals(order.toString())).toList();
+            assertThat(events).hasSize(1);
+            var payload = events.getFirst().path("payload");
+            assertThat(ORDER_PAID.validate(payload.toString(), InputFormat.JSON)).isEmpty();
+            assertThat(payload.path("warehouseId").asString()).isEqualTo(fixture.warehouse().toString());
+            assertThat(payload.path("orderGroupId").asString()).isEqualTo(fixture.group().toString());
+            var address = payload.path("shippingInfo").path("recipient").path("address");
+            assertThat(address.path("provinceCode").asString()).isEqualTo("1000001");
+            assertThat(address.path("wardCode").asString()).isEqualTo("1003646");
+            assertThat(address.has("districtCode")).isFalse();
+        }
+    }
+
+    /** Chỉ mock các biên Catalog/Inventory/Shipping; OrderService, snapshot, lịch sử và outbox dùng code thật. */
+    private Fixture checkoutWithTwoLevelAddress() {
+        var buyer = new CurrentUser(UUID.randomUUID(), Set.of("BUYER"), Set.of("CHECKOUT.START", "ORDER.CREATE"));
+        UUID warehouse = UUID.randomUUID();
+        UUID cart = jdbc().queryForObject("INSERT INTO carts(user_id) VALUES (?) RETURNING id", UUID.class, buyer.id());
+        var skus = new ArrayList<UUID>();
+        for (int index = 0; index < 2; index++) {
+            UUID product = UUID.randomUUID(), skuId = UUID.randomUUID();
+            jdbc().update("INSERT INTO cart_items(cart_id, product_id, sku_id, quantity, price) VALUES (?, ?, ?, 1, 150000)",
+                    cart, product, skuId);
+            var sku = new CatalogSkuResponse();
+            sku.setId(skuId);
+            sku.setProductId(product);
+            sku.setSkuCode("SKU-" + skuId.toString().substring(0, 8));
+            sku.setPrice(new BigDecimal("150000.00"));
+            sku.setStatus("ACTIVE");
+            sku.setShippingParcel(new CatalogSkuResponse.ShippingParcel(1000, 20, 15, 10));
+            when(catalog.getSkuById(skuId)).thenReturn(ApiResponse.of(sku));
+            when(catalog.getProductById(product)).thenReturn(ApiResponse.of(new CatalogClient.ProductResponse(
+                    product, UUID.randomUUID(), "Stored product " + index, "ACTIVE", List.of())));
+            skus.add(skuId);
+        }
+        OffsetDateTime expiry = OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(30).truncatedTo(ChronoUnit.MICROS);
+        when(inventory.reserve(any(), any())).thenAnswer(call -> new InventoryClient.Reservation(
+                ((List<?>) call.getArgument(1)).stream().map(ignored -> UUID.randomUUID()).toList(), warehouse, expiry));
+        when(shipping.quote(any(), any())).thenReturn(new OrderShippingService.Quote(new BigDecimal("25000.00"),
+                new OrderShippingService.Parcel(1000, 20, 15, 10), "GHN", "STANDARD", expiry.plusDays(2)));
+        var request = new CreateOrderRequest(new CreateOrderRequest.ShippingAddress(
+                "Stored recipient", "0900000138", "138 Main Street", "1003646", "1000001", "VN"), "SEPAY");
+        Span span = tracer.nextSpan().name("checkout-two-level-address-test").start();
+        try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
+            var group = orderService.create(buyer, UUID.randomUUID().toString(), request).response();
+            assertThat(group.orders()).hasSize(2);
+            assertThat(group.totalAmount()).isEqualByComparingTo("350000.00");
+            return new Fixture(group.orderGroupId(), buyer.id(), warehouse,
+                    group.orders().stream().map(order -> order.orderId()).toList(), skus);
+        } finally { span.end(); }
+    }
 
     /** Nhóm hai đơn được thanh toán đầy đủ; từng OrderPaid đúng schema và khớp snapshot đã lưu. */
     @Test
@@ -438,14 +557,18 @@ class CheckoutPaymentConfirmedTest {
 
     @Configuration(proxyBeanMethods = false)
     @EnableTransactionManagement
-    @EnableJpaRepositories(basePackageClasses = OrderRepository.class)
+    @EnableJpaRepositories(basePackageClasses = {OrderRepository.class, CartRepository.class})
     @EnableJpaAuditing(auditorAwareRef = "auditor")
-    @Import({OrderStateMachine.class, CheckoutPaymentConfirmedConsumer.class, PaymentEventConsumer.class, RefundStatusHandler.class})
-    /** Khởi tạo Flyway/JPA/audit thật trên PostgreSQL; chỉ giả lập tracer và điểm gây lỗi publisher. */
+    @Import({OrderStateMachine.class, CheckoutPaymentConfirmedConsumer.class, PaymentEventConsumer.class,
+            RefundStatusHandler.class, OrderService.class, PricingService.class})
+    /** Flyway/JPA/outbox thật trên PostgreSQL; mock tracer và các biên Catalog/Inventory/Shipping, spy publisher để gây lỗi. */
     static class JpaConfig {
         @Bean AuditorAware<UUID> auditor() { return new CurrentUserAuditor(); }
         @Bean JsonMapper jsonMapper() { return JSON; }
         @Bean Validator validator() { return Validation.buildDefaultValidatorFactory().getValidator(); }
+        @Bean CatalogClient catalogClient() { return Mockito.mock(CatalogClient.class); }
+        @Bean InventoryClient inventoryClient() { return Mockito.mock(InventoryClient.class); }
+        @Bean OrderShippingService orderShippingService() { return Mockito.mock(OrderShippingService.class); }
         @Bean Tracer tracer() {
             Tracer tracer = Mockito.mock(Tracer.class);
             ThreadLocal<Span> current = new ThreadLocal<>();
@@ -480,7 +603,7 @@ class CheckoutPaymentConfirmedTest {
         @Bean LocalContainerEntityManagerFactoryBean entityManagerFactory(DataSource source) {
             var factory = new LocalContainerEntityManagerFactoryBean();
             factory.setDataSource(source);
-            factory.setPackagesToScan(Order.class.getPackageName());
+            factory.setPackagesToScan(Order.class.getPackageName(), Cart.class.getPackageName());
             factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
             factory.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto", "validate"));
             return factory;
