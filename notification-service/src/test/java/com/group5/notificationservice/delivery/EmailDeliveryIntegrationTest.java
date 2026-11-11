@@ -61,7 +61,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
         "spring.jpa.open-in-view=false",
         "nexus.notification.group-id=notification-email-delivery-test", "nexus.outbox.relay.enabled=false",
         "nexus.security.jwt.issuer=user-service", "nexus.security.jwt.audience=nexus-services",
-        "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/jwks", "management.tracing.enabled=false",
+        "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/jwks", "management.tracing.export.enabled=false",
         "nexus.notification.email-enabled=true",
         "nexus.notification.delivery.retry-limit=3",
         "nexus.notification.delivery.base-delay=0ms", "nexus.notification.delivery.max-delay=0ms",
