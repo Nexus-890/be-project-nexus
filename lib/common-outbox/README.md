@@ -69,9 +69,17 @@ Persisted contract:
 
 `aggregate_type` and `event_version` remain database metadata: the current
 `EventEnvelope` wire contract has no corresponding fields. Kafka records use the
-stored topic, `aggregate_id` as key, and the original envelope as JSON value with
+stored topic, the envelope aggregate as the default key, and the original envelope as JSON value with
 no nested/double-encoded envelope. Retry preserves the original event ID, time,
 trace and business payload; it does not call `EventEnvelopeFactory` again.
+
+A service whose event contract partitions by a different identity can provide
+one `OutboxEventKeyResolver` bean. The relay passes the persisted envelope with
+its payload deserialized as `JsonNode`; the resolver returns a nonblank Kafka
+key without modifying that envelope. Missing/invalid required key data leaves
+the row unpublished and stops the batch for retry, just like a failed send.
+The existing five-argument relay constructor keeps the default aggregate key.
+Domain-specific event selection belongs in the service's resolver, not this library.
 
 ## Relay and failure semantics
 
