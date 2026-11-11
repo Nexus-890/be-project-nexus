@@ -40,16 +40,16 @@ For AUCTION, do not reserve stock again and do not publish CheckoutPaymentReques
 
 The draft state endpoint is [GET /api/v1/auctions/{id}/state](auction-service.yaml); [the delivered SePay webhook](openapi/payment-service.yaml) embeds the [captured body](sepay-webhook-sample.json). [Gateway permissions](gateway-permissions.md#sprint-3-contract-handoff-139) distinguishes public webhook contracts from currently enabled paths.
 
-Run `python docs/api/check-sprint3-contracts.py` from `be-project-nexus` with PyYAML and jsonschema installed, plus `node docs/api/check-contract.mjs` and OpenAPI lint. These checks prove document/schema consistency, not live Kafka, banking, staging latency or cross-service delivery. Both the auction and settlement developers must approve !150 before #139's final acceptance criterion is checked; no approval is inferred from existing catalogue content.
+From `be-project-nexus`, run `node docs/api/check-contract.mjs` to compare delivered routes with controllers, and lint `docs/api/auction-service.yaml` and `docs/api/openapi/payment-service.yaml` with Redocly. Separately review the six linked payload schemas/examples and their publisher/consumer mappings against the owning issues, and compare the captured SePay fields with its OpenAPI schema and DTO. The route checker and OpenAPI lint do not validate the event schemas or prove live Kafka, banking, staging latency or cross-service delivery. Both the auction and settlement developers must approve !150 before #139's final acceptance criterion is checked; no approval is inferred from existing catalogue content.
 
 ### Acceptance evidence for #139
 
 | Criterion | Evidence / remaining gate |
 | --- | --- |
 | #172 can build its order line from AuctionWon | Required fields and persistence mapping in [AuctionWon](#auctionwon); locally generated IDs and nullable sku_code are explicit |
-| All six events have schema and named publisher/consumer | Linked six-event handoff table above and machine-checked section metadata |
-| OrderCancelled publishers are #159 and #189 | [OrderCancelled](#ordercancelled), checked by the validator |
-| Every captured SePay field is in the webhook schema | OpenAPI example equals sepay-webhook-sample.json; all twelve fields checked against schema and DTO |
+| All six events have schema and named publisher/consumer | The six-event handoff table links to each payload section containing its schema, example and named publisher/consumer issues |
+| OrderCancelled publishers are #159 and #189 | The Publisher entry in [OrderCancelled](#ordercancelled) explicitly names both issues |
+| Every captured SePay field is in the webhook schema | Compare the twelve fields in [the captured body](sepay-webhook-sample.json) with `SepayWebhookRequest` and the request example in [payment OpenAPI](openapi/payment-service.yaml), and with [the service DTO](../../payment-service/src/main/java/com/group5/paymentservice/payment/dto/request/SepayWebhookRequest.java) |
 | Both AuctionWon developers approve the MR | Pending actual auction/settlement approvals on !150; schema validation does not satisfy this gate or the joint-authoring subtask |
 
 ## Scope and source precedence
@@ -107,7 +107,7 @@ Complete CategoryCreated envelope example, illustrating the wire shape rather th
 }
 ```
 
-The upstream #102 tests cover field validation, factory identity/time/current trace, JSON round-trip to JsonNode, UTC Instant serialization, disabled type headers and missing-trace deserialization errors. This documentation revision runs the Markdown/schema validator below, not the Java suite or Kafka integration tests. The CatalogTestEvent demo is not one of the SRS events.
+The upstream #102 tests cover field validation, factory identity/time/current trace, JSON round-trip to JsonNode, UTC Instant serialization, disabled type headers and missing-trace deserialization errors. The historical #186 document-validation results are recorded below; they are not a runnable validator supplied by #139 or a new run of the Java suite or Kafka integration tests. The CatalogTestEvent demo is not one of the SRS events.
 
 Complete group manifest envelope example for a hand-published contract test (synthetic IDs/data):
 
