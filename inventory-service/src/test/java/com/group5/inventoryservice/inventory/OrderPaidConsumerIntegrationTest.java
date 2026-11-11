@@ -168,18 +168,61 @@ class OrderPaidConsumerIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM processed_events", Integer.class)).isZero();
     }
 
+    @Test
+    void anOrderPaidWithoutOrderIdConfirmsNoReservationAndIsNotMarkedProcessed() {
+        UUID first = heldStock(sku("10"), 10, 2);
+        UUID second = heldStock(sku("20"), 5, 1);
+        UUID unattachedFirst = hold(null, first, 2);
+        UUID unattachedSecond = hold(null, second, 1);
+        Map<String, Object> firstBefore = balance(first);
+        Map<String, Object> secondBefore = balance(second);
+        UUID eventId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> consumer.receive(event(eventId, UUID.randomUUID().toString(), null, "STANDARD")))
+                .isInstanceOf(InvalidOrderEventException.class);
+
+        assertThat(status(unattachedFirst)).isEqualTo("HELD");
+        assertThat(status(unattachedSecond)).isEqualTo("HELD");
+        assertThat(balance(first)).isEqualTo(firstBefore);
+        assertThat(balance(second)).isEqualTo(secondBefore);
+        assertThat(movementCount()).isZero();
+        assertThat(processed(eventId)).isZero();
+    }
+
+    @Test
+    void anOrderPaidWhoseAggregateIdIsAnotherOrderConfirmsNothingAndIsNotMarkedProcessed() {
+        UUID order = UUID.randomUUID();
+        UUID sku = heldStock(sku("10"), 10, 2);
+        UUID reservation = hold(order, sku, 2);
+        UUID eventId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> consumer.receive(event(eventId, UUID.randomUUID().toString(), order, "STANDARD")))
+                .isInstanceOf(InvalidOrderEventException.class);
+
+        assertThat(status(reservation)).isEqualTo("HELD");
+        assertBalance(sku, 10, 8, 2, 0);
+        assertThat(movementCount()).isZero();
+        assertThat(processed(eventId)).isZero();
+    }
+
     private ConsumerRecord<String, EventEnvelope<JsonNode>> orderPaid(UUID eventId, UUID order, String orderType) {
+        return event(eventId, order.toString(), order, orderType);
+    }
+
+    private ConsumerRecord<String, EventEnvelope<JsonNode>> event(UUID eventId, String aggregateId, UUID order,
+                                                                  String orderType) {
         String auction = "AUCTION".equals(orderType) ? "\"" + UUID.randomUUID() + "\"" : "null";
+        String orderId = order == null ? "" : "\"orderId\":\"" + order + "\",";
         JsonNode payload = JSON.readTree("""
-                {"orderId":"%s","buyerId":"%s","orderNumber":"NX-TEST-0001","orderType":"%s",
+                {%s"buyerId":"%s","orderNumber":"NX-TEST-0001","orderType":"%s",
                  "referenceId":%s,"paidAt":"2026-11-11T03:00:00Z","orderGroupId":"%s","sellerId":"%s",
                  "orderVersion":1,"paidAmount":"300000.00","currency":"VND","warehouseId":"%s",
                  "shippingFee":"0.00","shippingInfo":{"items":[]}}
-                """.formatted(order, UUID.randomUUID(), orderType, auction, UUID.randomUUID(), UUID.randomUUID(),
+                """.formatted(orderId, UUID.randomUUID(), orderType, auction, UUID.randomUUID(), UUID.randomUUID(),
                         warehouse));
-        EventEnvelope<JsonNode> envelope = new EventEnvelope<>(eventId, "OrderPaid", order.toString(),
+        EventEnvelope<JsonNode> envelope = new EventEnvelope<>(eventId, "OrderPaid", aggregateId,
                 Instant.now(), "trace-order-paid", payload);
-        return new ConsumerRecord<>(Topics.COMMERCE, 0, 0, order.toString(), envelope);
+        return new ConsumerRecord<>(Topics.COMMERCE, 0, 0, aggregateId, envelope);
     }
 
     private static UUID sku(String prefix) {

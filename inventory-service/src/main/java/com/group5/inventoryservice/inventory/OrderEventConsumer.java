@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -29,7 +30,7 @@ public class OrderEventConsumer {
     public void receive(ConsumerRecord<String, EventEnvelope<JsonNode>> record) {
         EventEnvelope<JsonNode> event = record.value();
         if ("OrderPaid".equals(event.eventType())) {
-            idempotent.handle(ORDER_PAID_CONSUMER, typed(event, OrderPaid.class), this::orderPaid);
+            idempotent.handle(ORDER_PAID_CONSUMER, orderPaidOf(event), this::orderPaid);
         }
     }
 
@@ -45,8 +46,21 @@ public class OrderEventConsumer {
                 event.eventId(), paid.orderId(), paid.orderType(), confirmed);
     }
 
-    private <T> EventEnvelope<T> typed(EventEnvelope<JsonNode> event, Class<T> payloadType) {
+    private EventEnvelope<OrderPaid> orderPaidOf(EventEnvelope<JsonNode> event) {
+        OrderPaid paid;
+        try {
+            paid = mapper.convertValue(event.payload(), OrderPaid.class);
+        } catch (IllegalArgumentException | JacksonException error) {
+            throw new InvalidOrderEventException("Invalid OrderPaid payload in event " + event.eventId(), error);
+        }
+        if (paid == null) {
+            throw new InvalidOrderEventException("OrderPaid event " + event.eventId() + " has no payload");
+        }
+        if (!paid.orderId().toString().equals(event.aggregateId())) {
+            throw new InvalidOrderEventException("OrderPaid event " + event.eventId() + " has aggregateId "
+                    + event.aggregateId() + " but orderId " + paid.orderId());
+        }
         return new EventEnvelope<>(event.eventId(), event.eventType(), event.aggregateId(), event.occurredAt(),
-                event.traceId(), mapper.convertValue(event.payload(), payloadType));
+                event.traceId(), paid);
     }
 }
