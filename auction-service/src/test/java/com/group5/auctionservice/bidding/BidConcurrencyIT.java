@@ -220,8 +220,9 @@ class BidConcurrencyIT extends PostgresIntegrationTest {
             UUID bidder = UUID.randomUUID();
             String token = token(bidder);
             for (int bid = 0; bid < REQUESTS / BIDDERS; bid++) {
-                // Duplicate and mixed levels: at least 40 requests must lose, whatever the schedule.
-                BigDecimal amount = START.add(INCREMENT.multiply(BigDecimal.valueOf((bidderIndex + bid * 3) % 10 + 1)));
+                // 50 mức giá riêng, cách nhau một bước giá; thứ tự đến vẫn do các request cạnh tranh.
+                int level = bidderIndex * (REQUESTS / BIDDERS) + bid + 1;
+                BigDecimal amount = START.add(INCREMENT.multiply(BigDecimal.valueOf(level)));
                 attempts.add(new Attempt(bidder, token, UUID.randomUUID(), amount));
             }
         }
