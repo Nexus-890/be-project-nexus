@@ -55,7 +55,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
         "spring.cloud.config.enabled=false", "spring.cloud.config.import-check.enabled=false",
         "spring.cloud.discovery.enabled=false", "eureka.client.enabled=false",
         "spring.cloud.compatibility-verifier.enabled=false",
-        "spring.kafka.bootstrap-servers=127.0.0.1:1", "spring.kafka.admin.auto-create=false",
+        "spring.kafka.listener.auto-startup=false", "spring.kafka.bootstrap-servers=127.0.0.1:1", "spring.kafka.admin.auto-create=false",
         "spring.jpa.hibernate.ddl-auto=validate", "spring.jpa.open-in-view=false",
         "nexus.inventory.default-warehouse-code=WH_MGMT",
         "nexus.security.jwt.issuer=user-service", "nexus.security.jwt.audience=nexus-services",

@@ -123,6 +123,7 @@ Services talk through events by default: outbox, Kafka, `IdempotentConsumer`. A 
 | commerce → catalog | `GET /api/v1/skus/{id}` (`CatalogClient`) | The price and status shown in the cart and charged at order time must be the current ones; a copy fed by events can lag behind a price change | #110, #115 |
 | commerce → inventory | `POST /api/v1/inventory/reservations` | The buyer waits for the answer: an order without stock must fail at once with 409 | #113, #138 |
 | commerce → shipment | `POST /api/v1/shipping/quotes` | The checkout preview shows the shipping fee before the buyer confirms | #188, #201 |
+| shipment → catalog | `GET /api/v1/skus/{id}` (`CatalogClient`, OpenFeign) | Báo giá cần giá SKU hiện tại để tính giá trị hàng và xét ngưỡng miễn phí vận chuyển; không nhận giá từ browser | #201 |
 | auction → rating | `GET /internal/v1/eligibility/{userId}` | A bid or an auction from an ineligible user must be refused before it is written | #214 |
 | user → Keycloak | Admin API: create user, set password, assign role, unlock | Registration returns 201 only once the account exists | #211, #238 |
 | gateway and services → Keycloak | `GET /realms/nexus/protocol/openid-connect/certs` | Public keys to validate tokens, cached by the resource server | #237 |

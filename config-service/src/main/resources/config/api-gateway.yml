@@ -90,13 +90,15 @@ nexus:
       - method: GET
         path: /api/v1/shipping/provinces
       - method: GET
-        path: /api/v1/shipping/districts
-      - method: GET
         path: /api/v1/shipping/wards
       - method: GET
         path: /api/v1/auctions
       - method: GET
         path: /api/v1/auctions/{id}
+      - method: GET
+        path: /api/v1/inventory
+      - method: GET
+        path: /api/v1/inventory/{id}
     protected-endpoints:
       - method: GET
         path: /api/v1/users/me

@@ -2,13 +2,10 @@ package com.group5.inventoryservice.inventory;
 
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
+import com.group5.inventoryservice.inventory.dto.AdjustmentRequest;
 import com.group5.inventoryservice.inventory.dto.BalanceResponse;
 import com.group5.inventoryservice.inventory.dto.IntakeRequest;
-import com.group5.inventoryservice.shared.config.InventoryProperties;
 import com.group5.inventoryservice.shared.exception.InventoryErrorCode;
-import com.group5.inventoryservice.warehouse.entity.Warehouse;
-import com.group5.inventoryservice.warehouse.enums.WarehouseStatus;
-import com.group5.inventoryservice.warehouse.repository.WarehouseRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,20 +16,18 @@ public class InventoryService {
 
     private final InventoryBalanceRepository balances;
     private final InventoryMovementRepository movements;
-    private final WarehouseRepository warehouses;
-    private final InventoryProperties properties;
+    private final WarehouseResolver warehouses;
 
     public InventoryService(InventoryBalanceRepository balances, InventoryMovementRepository movements,
-                            WarehouseRepository warehouses, InventoryProperties properties) {
+                            WarehouseResolver warehouses) {
         this.balances = balances;
         this.movements = movements;
         this.warehouses = warehouses;
-        this.properties = properties;
     }
 
     @Transactional
     public BalanceResponse intake(IntakeRequest request, CurrentUser currentUser) {
-        UUID warehouseId = resolveWarehouse(request.warehouseId());
+        UUID warehouseId = warehouses.resolveForIntake(request.warehouseId());
         balances.intake(request.skuId(), warehouseId, request.quantity(), currentUser.id());
         // ĐỌC LẠI DÒNG SAU KHI UPSERT ĐỂ TRẢ VỀ SỐ MỚI NHẤT (clearAutomatically ĐÃ XÓA CACHE CŨ)
         InventoryBalance balance = balances.findBySkuIdAndWarehouseId(request.skuId(), warehouseId).orElseThrow();
@@ -42,20 +37,18 @@ public class InventoryService {
         return BalanceResponse.from(balance);
     }
 
-    private UUID resolveWarehouse(UUID warehouseId) {
-        Warehouse warehouse;
-        if (warehouseId != null) {
-            warehouse = warehouses.findByIdForIntake(warehouseId)
-                    .orElseThrow(() -> new DomainException(InventoryErrorCode.WAREHOUSE_NOT_FOUND));
-        } else {
-            // Kho mặc định lấy theo code trong config, không hardcode UUID.
-            warehouse = warehouses.findByCodeForIntake(properties.defaultWarehouseCode())
-                    .orElseThrow(() -> new DomainException(InventoryErrorCode.DEFAULT_WAREHOUSE_NOT_FOUND));
+    @Transactional
+    public BalanceResponse adjust(AdjustmentRequest request, CurrentUser currentUser) {
+        UUID warehouseId = warehouses.resolve(request.warehouseId());
+        int delta = request.quantityDelta();
+        if (balances.adjust(request.skuId(), warehouseId, delta, currentUser.id()) == 0) {
+            throw balances.findBySkuIdAndWarehouseId(request.skuId(), warehouseId).isPresent()
+                    ? new DomainException(InventoryErrorCode.NEGATIVE_QUANTITY)
+                    : new DomainException(InventoryErrorCode.BALANCE_NOT_FOUND);
         }
-
-        if (warehouse.getStatus() != WarehouseStatus.ACTIVE) {
-            throw new DomainException(InventoryErrorCode.WAREHOUSE_UNAVAILABLE);
-        }
-        return warehouse.getId();
+        InventoryBalance balance = balances.findBySkuIdAndWarehouseId(request.skuId(), warehouseId).orElseThrow();
+        movements.recordAdjustment(request.skuId(), warehouseId, delta, balance.getId(), request.reason().strip(),
+                currentUser.id());
+        return BalanceResponse.from(balance);
     }
 }

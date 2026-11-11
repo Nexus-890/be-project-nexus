@@ -18,9 +18,16 @@ springdoc:
     enabled: true
 nexus:
   security:
+    public-endpoints:
+      - method: GET
+        path: /api/v1/inventory
+      - method: GET
+        path: "/api/v1/inventory/{skuId:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}"
     jwt:
       issuer: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
       audience: nexus-services
       jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:18080/realms/nexus/protocol/openid-connect/certs}
   inventory:
     default-warehouse-code: WH_001
+    allow-oversell: ${ALLOW_OVERSELL:false}
+    reservation-timeout-minutes: ${INVENTORY_RESERVATION_TIMEOUT_MINUTES:30}

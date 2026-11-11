@@ -39,9 +39,14 @@ const services = {
   'inventory-service': [
     'src/main/java/com/group5/inventoryservice/inventory/InventoryController.java',
     'src/main/java/com/group5/inventoryservice/warehouse/controller/WarehouseController.java',
+    'src/main/java/com/group5/inventoryservice/reservation/controller/ReservationController.java',
   ],
   'auction-service': [
     'src/main/java/com/group5/auctionservice/auction/AuctionController.java',
+  ],
+  'shipment-service': [
+    'src/main/java/com/group5/shipmentservice/shipping/controller/CarrierController.java',
+    'src/main/java/com/group5/shipmentservice/shipping/controller/ShippingController.java',
   ],
 };
 const normalize = (route) => route.replace(/\{[^}]+\}/g, '{}');

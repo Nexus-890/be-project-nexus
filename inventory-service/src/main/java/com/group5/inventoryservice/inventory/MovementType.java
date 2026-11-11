@@ -4,5 +4,6 @@ public enum MovementType {
     INTAKE,
     RESERVE,
     RELEASE,
-    COMMIT
+    COMMIT,
+    ADJUSTMENT
 }

@@ -1,0 +1,1545 @@
+openapi: 3.0.3
+info:
+  title: Nexus vận chuyển
+  version: 2.1.0
+  description: >-
+    Issue #201: danh sách nhà vận chuyển, địa giới GHN v3 hai cấp sau sáp nhập và báo giá bằng preview. Bản
+    2.1 bổ sung insuranceValue tùy chọn, độc lập với subtotal của catalog; bỏ trống hoặc null tương đương 0.
+    Contract từ 2.0 thay đổi không tương thích với draft ba cấp: bỏ operation districts; wards nhận
+    provinceCode. Địa chỉ quote dùng line1 theo bản đối chiếu, cùng provinceCode, wardCode và các trường
+    recipientName, recipientPhone đang bắt buộc trong code. serviceType public dùng STANDARD cho kiện dưới
+    20.000g và HEAVY từ 20.000g. Các trường bổ sung recipient/parcel còn cần chốt với contract checkout; xem
+    shipping-contract-review-201.md. Mọi phản hồi JSON thành công có code, message, data và page theo ADR-008.
+    Lỗi do shipment-service phát ra có mã SHIPMENT_*; lỗi do gateway phát ra trước khi tới dịch vụ giữ mã
+    chung của gateway.
+servers:
+  - url: http://localhost:8080
+    description: Cổng API của hệ thống
+  - url: http://localhost:8088
+    description: Dịch vụ vận chuyển, dùng để kiểm tra trực tiếp
+tags:
+  - name: Carriers
+    description: Nhà vận chuyển đã cấu hình
+  - name: Shipping addresses
+    description: Địa giới GHN v3 theo mô hình hai cấp
+  - name: Shipping quotes
+    description: Báo giá và thời gian giao hàng dự kiến
+paths:
+  /api/v1/carriers:
+    get:
+      tags:
+        - Carriers
+      operationId: getCarriers
+      summary: Lấy danh sách nhà vận chuyển
+      description: >-
+        Yêu cầu JWT hợp lệ và quyền SHIPPING.QUOTE; ADMIN không tự bỏ qua quyền này. Đọc metadata và trạng
+        thái circuit breaker của các adapter đã đăng ký, không gọi thử nhà vận chuyển hoặc đọc/ghi cơ sở dữ
+        liệu. isDefault xác định adapter mặc định trong registry. available phản ánh trạng thái breaker hiện
+        tại: false khi OPEN/FORCED_OPEN, true khi CLOSED/HALF_OPEN hoặc chưa có breaker. HALF_OPEN cho phép
+        một lượt thử theo chính sách breaker; available không giữ chỗ và không bảo đảm GHN đang hoạt động. GHN
+        được bật bằng SHIPPING_CARRIER=GHN, FAKE chỉ bật tường minh cho local/test; NONE trả danh sách rỗng.
+        Không tự chuyển sang FAKE khi GHN lỗi. Trả toàn bộ danh sách trong một trang logic.
+      security:
+        - bearerAuth: []
+      x-required-privileges:
+        - SHIPPING.QUOTE
+      x-required-roles: []
+      x-ownership: Không giới hạn theo chủ sở hữu.
+      x-error-codes:
+        '401':
+          - SHIPMENT_UNAUTHENTICATED
+          - UNAUTHENTICATED
+        '403':
+          - SHIPMENT_FORBIDDEN
+          - FORBIDDEN
+        '405':
+          - SHIPMENT_METHOD_NOT_ALLOWED
+        '406':
+          - SHIPMENT_NOT_ACCEPTABLE
+        '429':
+          - RATE_LIMITED
+        '500':
+          - SHIPMENT_INTERNAL_ERROR
+          - INTERNAL_ERROR
+        '503':
+          - SERVICE_UNAVAILABLE
+        '504':
+          - GATEWAY_TIMEOUT
+      responses:
+        '200':
+          description: Danh sách kết quả và thông tin một trang logic.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CarrierListResponse'
+              examples:
+                ghn:
+                  summary: GHN là carrier mặc định, breaker cho phép thử gọi
+                  value:
+                    code: 0
+                    message: response success
+                    data:
+                      - code: GHN
+                        name: Giao Hàng Nhanh
+                        isDefault: true
+                        available: true
+                    page:
+                      number: 0
+                      size: 1
+                      totalElements: 1
+                      totalPages: 1
+                fake:
+                  summary: Bật giả lập tường minh
+                  value:
+                    code: 0
+                    message: response success
+                    data:
+                      - code: FAKE
+                        name: Nhà vận chuyển giả lập
+                        isDefault: true
+                        available: true
+                    page:
+                      number: 0
+                      size: 1
+                      totalElements: 1
+                      totalPages: 1
+                openBreaker:
+                  summary: GHN vẫn là mặc định nhưng breaker đang mở
+                  value:
+                    code: 0
+                    message: response success
+                    data:
+                      - code: GHN
+                        name: Giao Hàng Nhanh
+                        isDefault: true
+                        available: false
+                    page:
+                      number: 0
+                      size: 1
+                      totalElements: 1
+                      totalPages: 1
+                empty:
+                  summary: Chưa cấu hình nhà vận chuyển
+                  value:
+                    code: 0
+                    message: response success
+                    data: []
+                    page:
+                      number: 0
+                      size: 1
+                      totalElements: 0
+                      totalPages: 0
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RoutingUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+  /api/v1/shipping/provinces:
+    get:
+      tags:
+        - Shipping addresses
+      operationId: getShippingProvinces
+      summary: Lấy tỉnh/thành phố theo danh mục mới
+      description: >-
+        Đọc /shiip/public-api/v3/master-data/province/all; parent_id=1 xác định tỉnh/thành phố thuộc Việt Nam.
+        Không yêu cầu JWT tại gateway hoặc shipment-service; token được gửi kèm nhưng không hợp lệ vẫn bị từ
+        chối. Dữ liệu đọc qua CarrierAdapter theo danh mục GHN v3 hai cấp sau sáp nhập: tỉnh/thành phố →
+        phường/xã. Chỉ trả bản ghi status=1 và đúng parent_id. Code là _id của danh mục v3 được biểu diễn bằng
+        chuỗi số nguyên dương chuẩn, tối đa 9 chữ số; không có số 0 ở đầu. Chế độ FAKE dùng fixture riêng. Trả
+        toàn bộ danh sách trong một trang logic; không có tham số phân trang. Thông tin xác thực nhà vận
+        chuyển chỉ được dùng ở backend.
+        Danh mục hợp lệ được cache trong shipment-service theo GHN_MASTER_DATA_CACHE_TTL_MS, mặc định
+        300000ms. Chỉ cache kết quả đã validate/lọc active; hết TTL tải lại, lỗi không được cache và không
+        dùng lại bản đã hết hạn.
+      security: []
+      x-required-privileges: []
+      x-error-codes:
+        '401':
+          - SHIPMENT_UNAUTHENTICATED
+          - UNAUTHENTICATED
+        '405':
+          - SHIPMENT_METHOD_NOT_ALLOWED
+        '406':
+          - SHIPMENT_NOT_ACCEPTABLE
+        '429':
+          - RATE_LIMITED
+        '500':
+          - SHIPMENT_INTERNAL_ERROR
+          - INTERNAL_ERROR
+        '502':
+          - SHIPMENT_INVALID_CARRIER_RESPONSE
+        '503':
+          - SHIPMENT_CARRIER_UNAVAILABLE
+          - SHIPMENT_CIRCUIT_OPEN
+          - SHIPMENT_CARRIER_CONFIGURATION_ERROR
+          - SERVICE_UNAVAILABLE
+        '504':
+          - GATEWAY_TIMEOUT
+      responses:
+        '200':
+          description: Danh sách kết quả và thông tin một trang logic.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalityListResponse'
+              examples:
+                populated:
+                  summary: Ví dụ mã địa giới
+                  value:
+                    code: 0
+                    message: response success
+                    data:
+                      - code: '1000001'
+                        name: Hồ Chí Minh
+                    page:
+                      number: 0
+                      size: 1
+                      totalElements: 1
+                      totalPages: 1
+                empty:
+                  summary: Danh sách không có phần tử
+                  value:
+                    code: 0
+                    message: response success
+                    data: []
+                    page:
+                      number: 0
+                      size: 1
+                      totalElements: 0
+                      totalPages: 0
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/CarrierBadUpstream'
+        '503':
+          $ref: '#/components/responses/CarrierUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+  /api/v1/shipping/wards:
+    get:
+      tags:
+        - Shipping addresses
+      operationId: getShippingWards
+      summary: Lấy phường/xã thuộc một tỉnh/thành phố
+      description: >-
+        Đọc /shiip/public-api/v3/master-data/ward/all-by-province-id; chỉ trả phường/xã có parent_id trùng
+        provinceCode. Tên chuẩn của địa giới được dùng nguyên văn khi báo giá. Không yêu cầu JWT tại gateway
+        hoặc shipment-service; token được gửi kèm nhưng không hợp lệ vẫn bị từ chối. Dữ liệu đọc qua
+        CarrierAdapter theo danh mục GHN v3 hai cấp sau sáp nhập: tỉnh/thành phố → phường/xã. Chỉ trả bản ghi
+        status=1 và đúng parent_id. Code là _id của danh mục v3 được biểu diễn bằng chuỗi số nguyên dương
+        chuẩn, tối đa 9 chữ số; không có số 0 ở đầu. Chế độ FAKE dùng fixture riêng. Trả toàn bộ danh sách
+        trong một trang logic; không có tham số phân trang. Thông tin xác thực nhà vận chuyển chỉ được dùng ở
+        backend.
+        Danh mục hợp lệ được cache theo provinceCode trong GHN_MASTER_DATA_CACHE_TTL_MS, mặc định300000ms.
+        Hết TTL tải lại; lỗi không cache và không fallback sang danh sách đã hết hạn.
+      security: []
+      parameters:
+        - name: provinceCode
+          in: query
+          required: true
+          description: Mã _id tỉnh/thành phố từ danh mục GHN v3; không dùng mã tỉnh của hệ ba cấp.
+          schema:
+            type: string
+            pattern: ^[1-9][0-9]{0,8}$
+            minLength: 1
+            maxLength: 9
+          example: '1000001'
+      x-required-privileges: []
+      x-error-codes:
+        '400':
+          - SHIPMENT_INVALID_PARAMETER
+          - SHIPMENT_VALIDATION_FAILED
+          - SHIPMENT_INVALID_ADDRESS
+        '401':
+          - SHIPMENT_UNAUTHENTICATED
+          - UNAUTHENTICATED
+        '405':
+          - SHIPMENT_METHOD_NOT_ALLOWED
+        '406':
+          - SHIPMENT_NOT_ACCEPTABLE
+        '429':
+          - RATE_LIMITED
+        '500':
+          - SHIPMENT_INTERNAL_ERROR
+          - INTERNAL_ERROR
+        '502':
+          - SHIPMENT_INVALID_CARRIER_RESPONSE
+        '503':
+          - SHIPMENT_CARRIER_UNAVAILABLE
+          - SHIPMENT_CIRCUIT_OPEN
+          - SHIPMENT_CARRIER_CONFIGURATION_ERROR
+          - SERVICE_UNAVAILABLE
+        '504':
+          - GATEWAY_TIMEOUT
+      responses:
+        '200':
+          description: Danh sách kết quả và thông tin một trang logic.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalityListResponse'
+              examples:
+                populated:
+                  summary: Ví dụ mã địa giới
+                  value:
+                    code: 0
+                    message: response success
+                    data:
+                      - code: '1003646'
+                        name: Phường Vũng Tàu
+                    page:
+                      number: 0
+                      size: 1
+                      totalElements: 1
+                      totalPages: 1
+                empty:
+                  summary: Danh sách không có phần tử
+                  value:
+                    code: 0
+                    message: response success
+                    data: []
+                    page:
+                      number: 0
+                      size: 1
+                      totalElements: 0
+                      totalPages: 0
+        '400':
+          description: >-
+            Thiếu, rỗng, sai định dạng hoặc không tồn tại provinceCode. GHN trả data=null cho province_id
+            không hợp lệ cũng được đổi thành lỗi địa giới 400.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                missingParent:
+                  summary: Thiếu provinceCode
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
+                    status: 400
+                    detail: Tham số yêu cầu không hợp lệ
+                    instance: /api/v1/shipping/wards
+                    code: SHIPMENT_INVALID_PARAMETER
+                    errors:
+                      - field: provinceCode
+                        code: INVALID_PARAMETER
+                        detail: A valid value is required
+                invalidParent:
+                  summary: Mã tỉnh/thành phố không hợp lệ
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Mã địa giới không tồn tại hoặc không đúng quan hệ cha con
+                    instance: /api/v1/shipping/wards
+                    code: SHIPMENT_INVALID_ADDRESS
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/CarrierBadUpstream'
+        '503':
+          $ref: '#/components/responses/CarrierUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+  /api/v1/shipping/quotes:
+    post:
+      tags:
+        - Shipping quotes
+      operationId: getShippingQuotes
+      summary: Báo giá vận chuyển và ngày giao hàng dự kiến
+      description: >-
+        Yêu cầu JWT hợp lệ và quyền SHIPPING.QUOTE; ADMIN không tự bỏ qua quyền. Địa chỉ nhận và pickup dùng
+        mã _id GHN v3 hai cấp, được kiểm tra tỉnh → phường đang hoạt động. Tên chuẩn được resolve từ danh mục
+        v3 rồi gửi POST /shiip/public-api/v2/shipping-order/preview với is_new_to_address=true và
+        is_new_from_address=true; endpoint preview hiện do GHN công bố tại path v2 nhưng hỗ trợ mô hình địa
+        chỉ mới. Người nhận phải có tên, số điện thoại và địa chỉ thật; pickup phải có địa chỉ cụ thể đã xác
+        minh. Preview chỉ chạy thử, không tạo vận đơn: order_code phải rỗng; fee lấy từ total_fee, ETA từ
+        expected_delivery_time. GHN_PAYMENT_TYPE_ID cấu hình bên trả phí, mặc định 1 là shop trả trong luồng
+        trả trước SEPAY; GHN_REQUIRED_NOTE cấu hình chính sách kiểm hàng, mặc định KHONGCHOXEMHANG. cod_amount
+        gửi bằng 0 vì luồng hiện tại không thu hộ. Tên và số điện thoại người gửi không gửi riêng sẽ theo hồ
+        sơ ShopId được GHN công bố. Items cung cấp số lượng đơn vị và số SKU để tóm tắt nội dung; parcel là
+        một kiện đã đóng gói. Khi GHN cần items theo kiện, quantity=1 là số kiện, không phải số đơn vị SKU.
+        InsuranceValue là giá trị khai bảo hiểm tùy chọn: VND nguyên từ 0 đến 5.000.000, bỏ trống hoặc null
+        gửi 0; không tự lấy subtotal, không cắt ngưỡng hoặc làm tròn. WarehouseId ánh xạ tới pickup được cấu
+        hình; bỏ trống dùng defaultWarehouseId cho WH_001. Subtotal miễn phí lấy toàn bộ giá SKU hiện tại nhân
+        số lượng từ catalog, độc lập insuranceValue. Subtotal lớn hơn hoặc bằng FREE_SHIPPING_THRESHOLD cho
+        fee=0 sau khi có preview và ETA hợp lệ. SHIPPING_API_TIMEOUT_MS là ngân sách toàn bộ thao tác gồm
+        lookup và retries. SHIPPING_RETRY_LIMIT là số retry tối đa sau lần đầu, chỉ dành cho lỗi tạm thời.
+        Mỗi HTTP attempt GHN dùng min(GHN_HTTP_TIMEOUT_MS, deadline còn lại), mặc định GHN_HTTP_TIMEOUT_MS
+        là1500ms; không chia deadline tổng theo số retries và không bảo đảm mọi retry đều được chạy.
+        Danh mục province/wards hợp lệ có cache TTL mặc định5phút; phí preview, ETA và giá catalog không cache.
+        Breaker theo carrier từ chối nhanh bằng 503 khi mở. Không tạo order, reservation hoặc dữ liệu shipment
+        và không fallback sang FAKE.
+      security:
+        - bearerAuth: []
+      x-required-privileges:
+        - SHIPPING.QUOTE
+      x-required-roles: []
+      x-ownership: Báo giá chỉ đọc; SKU và giá được xác minh qua catalog.
+      x-error-codes:
+        '400':
+          - SHIPMENT_INVALID_REQUEST
+          - SHIPMENT_VALIDATION_FAILED
+          - SHIPMENT_INVALID_REQUEST_BODY
+          - SHIPMENT_INVALID_PARAMETER
+          - SHIPMENT_INVALID_ADDRESS
+        '401':
+          - SHIPMENT_UNAUTHENTICATED
+          - UNAUTHENTICATED
+        '403':
+          - SHIPMENT_FORBIDDEN
+          - FORBIDDEN
+        '404':
+          - SHIPMENT_WAREHOUSE_NOT_FOUND
+          - SHIPMENT_SKU_NOT_FOUND
+        '405':
+          - SHIPMENT_METHOD_NOT_ALLOWED
+        '406':
+          - SHIPMENT_NOT_ACCEPTABLE
+        '415':
+          - SHIPMENT_UNSUPPORTED_MEDIA_TYPE
+        '422':
+          - SHIPMENT_NO_SERVICE
+        '429':
+          - RATE_LIMITED
+        '500':
+          - SHIPMENT_INTERNAL_ERROR
+          - INTERNAL_ERROR
+        '502':
+          - SHIPMENT_INVALID_CARRIER_RESPONSE
+          - SHIPMENT_INVALID_CATALOG_RESPONSE
+        '503':
+          - SHIPMENT_CARRIER_UNAVAILABLE
+          - SHIPMENT_CIRCUIT_OPEN
+          - SHIPMENT_CARRIER_CONFIGURATION_ERROR
+          - SHIPMENT_CATALOG_UNAVAILABLE
+          - SERVICE_UNAVAILABLE
+        '504':
+          - GATEWAY_TIMEOUT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShippingQuoteRequest'
+            example:
+              toAddress:
+                provinceCode: '1000001'
+                wardCode: '1003646'
+                line1: Địa chỉ giao hàng đã xác minh
+                recipientName: Nguyễn Văn A
+                recipientPhone: '0901234567'
+              items:
+                - skuId: 11111111-1111-4111-8111-111111111111
+                  quantity: 1
+              parcel:
+                weightGrams: 1200
+                lengthCm: 30
+                widthCm: 20
+                heightCm: 15
+              warehouseId: 22222222-2222-4222-8222-222222222222
+              insuranceValue: 200000
+      responses:
+        '200':
+          description: Danh sách kết quả và thông tin một trang logic.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingQuoteListResponse'
+              examples:
+                standard:
+                  summary: Báo giá GHN cho kiện dưới 20.000g
+                  value:
+                    code: 0
+                    message: response success
+                    data:
+                      - carrier: GHN
+                        serviceType: STANDARD
+                        fee: 35000
+                        estimatedDeliveryAt: '2026-11-13T16:59:59Z'
+                    page:
+                      number: 0
+                      size: 1
+                      totalElements: 1
+                      totalPages: 1
+                heavy:
+                  summary: Báo giá GHN cho kiện từ 20.000g
+                  value:
+                    code: 0
+                    message: response success
+                    data:
+                      - carrier: GHN
+                        serviceType: HEAVY
+                        fee: 90000
+                        estimatedDeliveryAt: '2026-11-13T16:59:59Z'
+                    page:
+                      number: 0
+                      size: 1
+                      totalElements: 1
+                      totalPages: 1
+                freeShipping:
+                  summary: Giá trị hàng đạt ngưỡng miễn phí vận chuyển
+                  value:
+                    code: 0
+                    message: response success
+                    data:
+                      - carrier: GHN
+                        serviceType: STANDARD
+                        fee: 0
+                        estimatedDeliveryAt: '2026-11-13T16:59:59Z'
+                    page:
+                      number: 0
+                      size: 1
+                      totalElements: 1
+                      totalPages: 1
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/NoService'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/BadUpstream'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    InvalidRequest:
+      description: Dữ liệu, địa chỉ, mã địa giới hoặc cấu trúc JSON không hợp lệ. Mỗi field lỗi có field, code và detail.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 400
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_INVALID_REQUEST
+                      - SHIPMENT_VALIDATION_FAILED
+                      - SHIPMENT_INVALID_REQUEST_BODY
+                      - SHIPMENT_INVALID_PARAMETER
+                      - SHIPMENT_INVALID_ADDRESS
+          examples:
+            SHIPMENT_INVALID_REQUEST:
+              summary: Dữ liệu báo giá không hợp lệ
+              value:
+                type: urn:problem:domain-error
+                title: Bad Request
+                status: 400
+                detail: Dữ liệu báo giá không hợp lệ
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_INVALID_REQUEST
+            SHIPMENT_VALIDATION_FAILED:
+              summary: Dữ liệu yêu cầu không hợp lệ
+              value:
+                type: urn:problem:validation-error
+                title: Bad Request
+                status: 400
+                detail: Dữ liệu yêu cầu không hợp lệ
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_VALIDATION_FAILED
+                errors:
+                  - field: parcel.weightGrams
+                    code: VALIDATION_MIN
+                    detail: must be greater than or equal to 1
+            SHIPMENT_INVALID_REQUEST_BODY:
+              summary: Nội dung yêu cầu không hợp lệ
+              value:
+                type: urn:problem:invalid-request-body
+                title: Bad Request
+                status: 400
+                detail: Nội dung yêu cầu không hợp lệ
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_INVALID_REQUEST_BODY
+            SHIPMENT_INVALID_PARAMETER:
+              summary: Tham số yêu cầu không hợp lệ
+              value:
+                type: urn:problem:invalid-parameter
+                title: Bad Request
+                status: 400
+                detail: Tham số yêu cầu không hợp lệ
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_INVALID_PARAMETER
+            SHIPMENT_INVALID_ADDRESS:
+              summary: Mã địa giới không tồn tại hoặc không đúng quan hệ cha con
+              value:
+                type: urn:problem:domain-error
+                title: Bad Request
+                status: 400
+                detail: Mã địa giới không tồn tại hoặc không đúng quan hệ cha con
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_INVALID_ADDRESS
+            insuranceValueAboveLimit:
+              summary: Giá trị khai bảo hiểm vượt giới hạn được từ chối, không tự cắt ngưỡng
+              value:
+                type: urn:problem:validation-error
+                title: Bad Request
+                status: 400
+                detail: Dữ liệu yêu cầu không hợp lệ
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_VALIDATION_FAILED
+                errors:
+                  - field: insuranceValue
+                    code: VALIDATION_DECIMAL_MAX
+                    detail: must be less than or equal to 5000000
+    Unauthenticated:
+      description: >-
+        Thiếu JWT hoặc JWT không hợp lệ; public endpoint chỉ trả 401 khi có token không hợp lệ được gửi kèm.
+        Dịch vụ dùng SHIPMENT_UNAUTHENTICATED; gateway có thể trả UNAUTHENTICATED.
+      headers:
+        WWW-Authenticate:
+          description: Yêu cầu Bearer token hợp lệ.
+          schema:
+            type: string
+            enum:
+              - Bearer
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 401
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_UNAUTHENTICATED
+                      - UNAUTHENTICATED
+          examples:
+            SHIPMENT_UNAUTHENTICATED:
+              summary: Cần có token truy cập hợp lệ
+              value:
+                type: urn:problem:unauthorized
+                title: Unauthorized
+                status: 401
+                detail: Cần có token truy cập hợp lệ
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_UNAUTHENTICATED
+            UNAUTHENTICATED:
+              summary: A valid bearer token is required
+              value:
+                type: https://nexus/errors/unauthorized
+                title: Unauthorized
+                status: 401
+                detail: A valid bearer token is required
+                instance: /api/v1/shipping/quotes
+                code: UNAUTHENTICATED
+    Forbidden:
+      description: JWT thiếu SHIPPING.QUOTE; vai trò ADMIN không thay thế quyền này.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 403
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_FORBIDDEN
+                      - FORBIDDEN
+          examples:
+            SHIPMENT_FORBIDDEN:
+              summary: Bạn không có quyền thực hiện thao tác này
+              value:
+                type: urn:problem:forbidden
+                title: Forbidden
+                status: 403
+                detail: Bạn không có quyền thực hiện thao tác này
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_FORBIDDEN
+            FORBIDDEN:
+              summary: The required privilege is missing
+              value:
+                type: https://nexus/errors/forbidden
+                title: Forbidden
+                status: 403
+                detail: The required privilege is missing
+                instance: /api/v1/shipping/quotes
+                code: FORBIDDEN
+    NotFound:
+      description: WarehouseId không có trong cấu hình lấy hàng, hoặc SKU không tồn tại.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 404
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_WAREHOUSE_NOT_FOUND
+                      - SHIPMENT_SKU_NOT_FOUND
+          examples:
+            SHIPMENT_WAREHOUSE_NOT_FOUND:
+              summary: Kho chưa được cấu hình địa chỉ lấy hàng
+              value:
+                type: urn:problem:domain-error
+                title: Not Found
+                status: 404
+                detail: Kho chưa được cấu hình địa chỉ lấy hàng
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_WAREHOUSE_NOT_FOUND
+            SHIPMENT_SKU_NOT_FOUND:
+              summary: Không tìm thấy SKU đang bán
+              value:
+                type: urn:problem:domain-error
+                title: Not Found
+                status: 404
+                detail: Không tìm thấy SKU đang bán
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_SKU_NOT_FOUND
+    MethodNotAllowed:
+      description: Phương thức HTTP không được hỗ trợ tại đường dẫn này.
+      headers:
+        Allow:
+          description: Các phương thức được hỗ trợ.
+          schema:
+            type: string
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 405
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_METHOD_NOT_ALLOWED
+          examples:
+            SHIPMENT_METHOD_NOT_ALLOWED:
+              summary: Phương thức HTTP không được hỗ trợ
+              value:
+                type: urn:problem:method-not-allowed
+                title: Method Not Allowed
+                status: 405
+                detail: Phương thức HTTP không được hỗ trợ
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_METHOD_NOT_ALLOWED
+    NotAcceptable:
+      description: Không thể trả nội dung theo định dạng Accept được yêu cầu.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 406
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_NOT_ACCEPTABLE
+          examples:
+            SHIPMENT_NOT_ACCEPTABLE:
+              summary: Định dạng phản hồi không được hỗ trợ
+              value:
+                type: urn:problem:not-acceptable
+                title: Not Acceptable
+                status: 406
+                detail: Định dạng phản hồi không được hỗ trợ
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_NOT_ACCEPTABLE
+    UnsupportedMediaType:
+      description: Nội dung POST không dùng định dạng JSON được hỗ trợ.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 415
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_UNSUPPORTED_MEDIA_TYPE
+          examples:
+            SHIPMENT_UNSUPPORTED_MEDIA_TYPE:
+              summary: Định dạng nội dung yêu cầu không được hỗ trợ
+              value:
+                type: urn:problem:domain-error
+                title: Unsupported Media Type
+                status: 415
+                detail: Định dạng nội dung yêu cầu không được hỗ trợ
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_UNSUPPORTED_MEDIA_TYPE
+    NoService:
+      description: Nhà vận chuyển không cung cấp dịch vụ phù hợp cho tuyến hoặc kiện hàng.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 422
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_NO_SERVICE
+          examples:
+            SHIPMENT_NO_SERVICE:
+              summary: Không có dịch vụ vận chuyển phù hợp với tuyến này
+              value:
+                type: urn:problem:domain-error
+                title: Unprocessable Entity
+                status: 422
+                detail: Không có dịch vụ vận chuyển phù hợp với tuyến này
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_NO_SERVICE
+    RateLimited:
+      description: Gateway giới hạn số yêu cầu; giữ Retry-After khi có.
+      headers:
+        Retry-After:
+          description: Thời gian chờ khi gateway cung cấp.
+          schema:
+            type: string
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 429
+                  code:
+                    type: string
+                    enum:
+                      - RATE_LIMITED
+          examples:
+            RATE_LIMITED:
+              summary: Too many requests from this IP; retry after the indicated delay
+              value:
+                type: https://nexus/errors/too-many-requests
+                title: Too Many Requests
+                status: 429
+                detail: Too many requests from this IP; retry after the indicated delay
+                instance: /api/v1/shipping/quotes
+                code: RATE_LIMITED
+    InternalError:
+      description: Lỗi xử lý bất ngờ; không trả stack trace hoặc thông tin bí mật.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 500
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_INTERNAL_ERROR
+                      - INTERNAL_ERROR
+          examples:
+            SHIPMENT_INTERNAL_ERROR:
+              summary: Đã xảy ra lỗi xử lý tại dịch vụ vận chuyển
+              value:
+                type: urn:problem:internal-server-error
+                title: Internal Server Error
+                status: 500
+                detail: Đã xảy ra lỗi xử lý tại dịch vụ vận chuyển
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_INTERNAL_ERROR
+            INTERNAL_ERROR:
+              summary: Internal Server Error
+              value:
+                type: https://nexus/errors/internal-server-error
+                title: Internal Server Error
+                status: 500
+                detail: Internal Server Error
+                instance: /api/v1/shipping/quotes
+                code: INTERNAL_ERROR
+    BadUpstream:
+      description: Carrier hoặc catalog trả dữ liệu không hợp lệ, thiếu fee/ETA hoặc sai envelope.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 502
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_INVALID_CARRIER_RESPONSE
+                      - SHIPMENT_INVALID_CATALOG_RESPONSE
+          examples:
+            SHIPMENT_INVALID_CARRIER_RESPONSE:
+              summary: Dữ liệu phản hồi của nhà vận chuyển không hợp lệ
+              value:
+                type: urn:problem:domain-error
+                title: Bad Gateway
+                status: 502
+                detail: Dữ liệu phản hồi của nhà vận chuyển không hợp lệ
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_INVALID_CARRIER_RESPONSE
+            SHIPMENT_INVALID_CATALOG_RESPONSE:
+              summary: Dữ liệu giá sản phẩm không hợp lệ
+              value:
+                type: urn:problem:domain-error
+                title: Bad Gateway
+                status: 502
+                detail: Dữ liệu giá sản phẩm không hợp lệ
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_INVALID_CATALOG_RESPONSE
+    CarrierBadUpstream:
+      description: Nhà vận chuyển trả danh sách địa giới không hợp lệ hoặc sai envelope.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 502
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_INVALID_CARRIER_RESPONSE
+          examples:
+            SHIPMENT_INVALID_CARRIER_RESPONSE:
+              summary: Dữ liệu phản hồi của nhà vận chuyển không hợp lệ
+              value:
+                type: urn:problem:domain-error
+                title: Bad Gateway
+                status: 502
+                detail: Dữ liệu phản hồi của nhà vận chuyển không hợp lệ
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_INVALID_CARRIER_RESPONSE
+    RoutingUnavailable:
+      description: Gateway chưa tìm thấy hoặc không kết nối được shipment-service.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 503
+                  code:
+                    type: string
+                    enum:
+                      - SERVICE_UNAVAILABLE
+          examples:
+            SERVICE_UNAVAILABLE:
+              summary: The service behind this path is not available
+              value:
+                type: https://nexus/errors/service-unavailable
+                title: Service Unavailable
+                status: 503
+                detail: The service behind this path is not available
+                instance: /api/v1/shipping/quotes
+                code: SERVICE_UNAVAILABLE
+    CarrierUnavailable:
+      description: >-
+        Nhà vận chuyển không khả dụng, hết deadline, breaker mở hoặc cấu hình carrier thiếu/sai. Gateway có
+        thể trả SERVICE_UNAVAILABLE trước khi tới dịch vụ.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 503
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_CARRIER_UNAVAILABLE
+                      - SHIPMENT_CIRCUIT_OPEN
+                      - SHIPMENT_CARRIER_CONFIGURATION_ERROR
+                      - SERVICE_UNAVAILABLE
+          examples:
+            SHIPMENT_CARRIER_UNAVAILABLE:
+              summary: Nhà vận chuyển không phản hồi trong thời gian cho phép
+              value:
+                type: urn:problem:domain-error
+                title: Service Unavailable
+                status: 503
+                detail: Nhà vận chuyển không phản hồi trong thời gian cho phép
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_CARRIER_UNAVAILABLE
+            SHIPMENT_CIRCUIT_OPEN:
+              summary: Kết nối nhà vận chuyển đang tạm ngắt sau nhiều lần lỗi
+              value:
+                type: urn:problem:domain-error
+                title: Service Unavailable
+                status: 503
+                detail: Kết nối nhà vận chuyển đang tạm ngắt sau nhiều lần lỗi
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_CIRCUIT_OPEN
+            SHIPMENT_CARRIER_CONFIGURATION_ERROR:
+              summary: Cấu hình nhà vận chuyển chưa đầy đủ hoặc không hợp lệ
+              value:
+                type: urn:problem:domain-error
+                title: Service Unavailable
+                status: 503
+                detail: Cấu hình nhà vận chuyển chưa đầy đủ hoặc không hợp lệ
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_CARRIER_CONFIGURATION_ERROR
+            SERVICE_UNAVAILABLE:
+              summary: The service behind this path is not available
+              value:
+                type: https://nexus/errors/service-unavailable
+                title: Service Unavailable
+                status: 503
+                detail: The service behind this path is not available
+                instance: /api/v1/shipping/quotes
+                code: SERVICE_UNAVAILABLE
+    Unavailable:
+      description: >-
+        Nhà vận chuyển/catalog không khả dụng, hết deadline, breaker mở hoặc cấu hình carrier thiếu/sai.
+        Gateway có thể trả SERVICE_UNAVAILABLE trước khi tới dịch vụ.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 503
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_CARRIER_UNAVAILABLE
+                      - SHIPMENT_CIRCUIT_OPEN
+                      - SHIPMENT_CARRIER_CONFIGURATION_ERROR
+                      - SHIPMENT_CATALOG_UNAVAILABLE
+                      - SERVICE_UNAVAILABLE
+          examples:
+            SHIPMENT_CARRIER_UNAVAILABLE:
+              summary: Nhà vận chuyển không phản hồi trong thời gian cho phép
+              value:
+                type: urn:problem:domain-error
+                title: Service Unavailable
+                status: 503
+                detail: Nhà vận chuyển không phản hồi trong thời gian cho phép
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_CARRIER_UNAVAILABLE
+            SHIPMENT_CIRCUIT_OPEN:
+              summary: Kết nối nhà vận chuyển đang tạm ngắt sau nhiều lần lỗi
+              value:
+                type: urn:problem:domain-error
+                title: Service Unavailable
+                status: 503
+                detail: Kết nối nhà vận chuyển đang tạm ngắt sau nhiều lần lỗi
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_CIRCUIT_OPEN
+            SHIPMENT_CARRIER_CONFIGURATION_ERROR:
+              summary: Cấu hình nhà vận chuyển chưa đầy đủ hoặc không hợp lệ
+              value:
+                type: urn:problem:domain-error
+                title: Service Unavailable
+                status: 503
+                detail: Cấu hình nhà vận chuyển chưa đầy đủ hoặc không hợp lệ
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_CARRIER_CONFIGURATION_ERROR
+            SHIPMENT_CATALOG_UNAVAILABLE:
+              summary: Dịch vụ sản phẩm hiện không khả dụng
+              value:
+                type: urn:problem:domain-error
+                title: Service Unavailable
+                status: 503
+                detail: Dịch vụ sản phẩm hiện không khả dụng
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_CATALOG_UNAVAILABLE
+            SERVICE_UNAVAILABLE:
+              summary: The service behind this path is not available
+              value:
+                type: https://nexus/errors/service-unavailable
+                title: Service Unavailable
+                status: 503
+                detail: The service behind this path is not available
+                instance: /api/v1/shipping/quotes
+                code: SERVICE_UNAVAILABLE
+    GatewayTimeout:
+      description: Gateway không nhận được phản hồi từ dịch vụ trong thời gian cho phép.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 504
+                  code:
+                    type: string
+                    enum:
+                      - GATEWAY_TIMEOUT
+          examples:
+            GATEWAY_TIMEOUT:
+              summary: The service behind this path did not answer in time
+              value:
+                type: https://nexus/errors/gateway-timeout
+                title: Gateway Timeout
+                status: 504
+                detail: The service behind this path did not answer in time
+                instance: /api/v1/shipping/quotes
+                code: GATEWAY_TIMEOUT
+  schemas:
+    CarrierListResponse:
+      type: object
+      required:
+        - code
+        - message
+        - data
+        - page
+      additionalProperties: false
+      properties:
+        code:
+          type: integer
+          enum:
+            - 0
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CarrierResponse'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+    LocalityListResponse:
+      type: object
+      required:
+        - code
+        - message
+        - data
+        - page
+      additionalProperties: false
+      properties:
+        code:
+          type: integer
+          enum:
+            - 0
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LocalityResponse'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+    ShippingQuoteListResponse:
+      type: object
+      required:
+        - code
+        - message
+        - data
+        - page
+      additionalProperties: false
+      properties:
+        code:
+          type: integer
+          enum:
+            - 0
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShippingQuoteResponse'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+    CarrierResponse:
+      type: object
+      required:
+        - code
+        - name
+        - isDefault
+        - available
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          enum:
+            - GHN
+            - FAKE
+        name:
+          type: string
+          minLength: 1
+        isDefault:
+          type: boolean
+          description: Adapter mặc định do registry chọn.
+        available:
+          type: boolean
+          description: >-
+            Trạng thái đủ điều kiện thử gọi theo circuit breaker; false khi OPEN/FORCED_OPEN. Không thực hiện
+            probe mạng và không bảo đảm sức khỏe GHN tại thời điểm đọc.
+    LocalityResponse:
+      type: object
+      required:
+        - code
+        - name
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          pattern: ^[1-9][0-9]{0,8}$
+          minLength: 1
+          maxLength: 9
+          description: >-
+            Mã _id của danh mục GHN v3 hai cấp, biểu diễn bằng chuỗi số nguyên dương chuẩn; không dùng
+            ProvinceID/WardCode của hệ cũ.
+          example: '1003646'
+        name:
+          type: string
+          minLength: 1
+    ShippingServiceType:
+      type: string
+      enum:
+        - STANDARD
+        - HEAVY
+      description: >-
+        STANDARD cho kiện dưới 20.000 gram, ánh xạ GHN service_type_id=2. HEAVY cho kiện từ 20.000 gram, ánh
+        xạ GHN service_type_id=5. Fake dùng cùng ngưỡng. ID số của GHN chỉ dùng nội bộ adapter.
+      example: STANDARD
+    ShippingQuoteResponse:
+      type: object
+      required:
+        - carrier
+        - serviceType
+        - fee
+        - estimatedDeliveryAt
+      additionalProperties: false
+      properties:
+        carrier:
+          type: string
+          enum:
+            - GHN
+            - FAKE
+        serviceType:
+          $ref: '#/components/schemas/ShippingServiceType'
+        fee:
+          type: number
+          minimum: 0
+          description: Phí khách phải trả sau khi áp dụng FREE_SHIPPING_THRESHOLD, đơn vị VND.
+          example: 35000
+        estimatedDeliveryAt:
+          type: string
+          format: date-time
+          description: Thời điểm dự kiến giao hàng có múi giờ, từ expected_delivery_time của preview hợp lệ.
+          example: '2026-11-13T16:59:59Z'
+    ShippingQuoteRequest:
+      type: object
+      required:
+        - toAddress
+        - items
+        - parcel
+      properties:
+        toAddress:
+          $ref: '#/components/schemas/ShippingAddressRequest'
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/ShippingItemRequest'
+        parcel:
+          $ref: '#/components/schemas/ParcelRequest'
+        warehouseId:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID kho có mapping lấy hàng đã cấu hình; bỏ trống hoặc null dùng kho mặc định.
+        insuranceValue:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 5000000
+          multipleOf: 1
+          default: 0
+          description: >-
+            Giá trị khai bảo hiểm, đơn vị VND nguyên; bỏ trống hoặc null gửi 0. Không tự dùng subtotal, không
+            tự cắt ngưỡng hoặc làm tròn. Giá trị âm, có phần lẻ hoặc vượt 5.000.000 trả 400
+            SHIPMENT_VALIDATION_FAILED.
+          example: 200000
+    ShippingAddressRequest:
+      type: object
+      required:
+        - provinceCode
+        - wardCode
+        - line1
+        - recipientName
+        - recipientPhone
+      properties:
+        provinceCode:
+          type: string
+          pattern: ^[1-9][0-9]{0,8}$
+          minLength: 1
+          maxLength: 9
+          description: Mã _id tỉnh/thành phố trong danh mục GHN v3.
+        wardCode:
+          type: string
+          pattern: ^[1-9][0-9]{0,8}$
+          minLength: 1
+          maxLength: 9
+          description: Mã _id phường/xã đang hoạt động, thuộc provinceCode trong danh mục GHN v3.
+        line1:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Dòng địa chỉ giao hàng; dùng tên line1 trong public request.
+        recipientName:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        recipientPhone:
+          type: string
+          pattern: ^(0[0-9]{9}|\+84[0-9]{9})$
+          description: Số điện thoại người nhận thật; số nội địa bắt đầu bằng 0 hoặc dạng +84.
+          example: '0901234567'
+    ShippingItemRequest:
+      type: object
+      required:
+        - skuId
+        - quantity
+      properties:
+        skuId:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 999
+    ParcelRequest:
+      type: object
+      required:
+        - weightGrams
+        - lengthCm
+        - widthCm
+        - heightCm
+      properties:
+        weightGrams:
+          type: integer
+          minimum: 1
+          maximum: 50000
+          description: Khối lượng kiện đã đóng gói, đơn vị gram.
+        lengthCm:
+          type: integer
+          minimum: 1
+          maximum: 200
+          description: Chiều dài kiện, đơn vị cm.
+        widthCm:
+          type: integer
+          minimum: 1
+          maximum: 200
+          description: Chiều rộng kiện, đơn vị cm.
+        heightCm:
+          type: integer
+          minimum: 1
+          maximum: 200
+          description: Chiều cao kiện, đơn vị cm.
+    PageInfo:
+      type: object
+      required:
+        - number
+        - size
+        - totalElements
+        - totalPages
+      additionalProperties: false
+      properties:
+        number:
+          type: integer
+          enum:
+            - 0
+        size:
+          type: integer
+          minimum: 1
+          description: max(1, số phần tử).
+        totalElements:
+          type: integer
+          format: int64
+          minimum: 0
+        totalPages:
+          type: integer
+          enum:
+            - 0
+            - 1
+          description: Bằng 0 khi danh sách rỗng, ngược lại bằng 1.
+    Problem:
+      type: object
+      required:
+        - type
+        - title
+        - status
+        - detail
+        - instance
+        - code
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+          minLength: 1
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+        code:
+          type: string
+          enum:
+            - SHIPMENT_INVALID_REQUEST
+            - SHIPMENT_VALIDATION_FAILED
+            - SHIPMENT_INVALID_REQUEST_BODY
+            - SHIPMENT_INVALID_PARAMETER
+            - SHIPMENT_INVALID_ADDRESS
+            - SHIPMENT_UNAUTHENTICATED
+            - UNAUTHENTICATED
+            - SHIPMENT_FORBIDDEN
+            - FORBIDDEN
+            - SHIPMENT_WAREHOUSE_NOT_FOUND
+            - SHIPMENT_SKU_NOT_FOUND
+            - SHIPMENT_METHOD_NOT_ALLOWED
+            - SHIPMENT_NOT_ACCEPTABLE
+            - SHIPMENT_UNSUPPORTED_MEDIA_TYPE
+            - SHIPMENT_NO_SERVICE
+            - RATE_LIMITED
+            - SHIPMENT_INTERNAL_ERROR
+            - INTERNAL_ERROR
+            - SHIPMENT_INVALID_CARRIER_RESPONSE
+            - SHIPMENT_INVALID_CATALOG_RESPONSE
+            - SHIPMENT_CARRIER_UNAVAILABLE
+            - SHIPMENT_CIRCUIT_OPEN
+            - SHIPMENT_CARRIER_CONFIGURATION_ERROR
+            - SHIPMENT_CATALOG_UNAVAILABLE
+            - SERVICE_UNAVAILABLE
+            - GATEWAY_TIMEOUT
+        traceId:
+          type: string
+          description: Chỉ xuất hiện khi yêu cầu có trace đang hoạt động.
+        errors:
+          type: array
+          items:
+            type: object
+            required:
+              - field
+              - code
+              - detail
+            properties:
+              field:
+                type: string
+              code:
+                type: string
+              detail:
+                type: string
