@@ -210,7 +210,10 @@ in payment-service's `nexus.security.public-endpoints`. The service verifies
 parsing JSON or looking up the memo. Invalid signatures return service Problem
 Details with `PAYMENT_UNAUTHENTICATED` (401), including requests without a bearer
 token. Accepted callbacks return native `{"success":true}` (200), including
-unmatched memos; this stage only matches a session and performs no settlement.
+unmatched memos and duplicate deliveries. Matched incoming receipts are processed
+by #156: exact payable-session funding and its CheckoutPaymentConfirmed outbox
+row commit atomically; mismatched or unpayable receipts are UNRECONCILED. Commerce
+processes the group confirmation asynchronously, without inventory writes here.
 The [delivered payment contract](openapi/payment-service.yaml) documents the
 request, acknowledgement and errors; the [test guide](../testing/sepay-webhook.md)
 covers local and captured-delivery verification. The earlier #245 fixture tests
