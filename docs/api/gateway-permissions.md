@@ -124,6 +124,8 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/auctions/{id}/schedule` | POST | AUCTION.UPDATE | #144 — Owner with SELLER role publishes a CREATED auction |
 | `/api/v1/auctions` | GET | Public | #143 — PUBLIC, non-deleted auctions; status defaults to ACTIVE, endAt ascending |
 | `/api/v1/auctions/{id}` | GET | Public | #143 — PUBLIC, non-deleted auction; hidden and missing rows return 404 |
+| `/api/v1/inventory` | GET | Public | #132 — inventory-service; `skuIds` query, at most 100; returns `skuId` and `available` only |
+| `/api/v1/inventory/{id}` | GET | Public | #132 — inventory-service; `{id}` is the SKU id; a UUID only, so `/inventory/reservations` and other literal paths stay protected |
 | `/api/v1/event-logs` | GET | EVENT_LOG.VIEW | #192 — Event log consumer and audit log |
 | `/api/v1/event-logs/{id}` | GET | EVENT_LOG.VIEW_DETAIL | #192 — Event log consumer and audit log |
 | `/api/v1/audit-logs` | GET | AUDIT_LOG.VIEW | #192 — Event log consumer and audit log |
@@ -146,6 +148,12 @@ above: any valid token passes the gateway and the owning service checks the role
 |---|---|---|---|---|
 | POST | `/api/v1/inventory/intake` | token only | Service requires ADMIN | #130 — Inventory balance and stock intake |
 | POST | `/api/v1/inventory/reservations` | token only | Service requires BUYER; commerce-service forwards the buyer token | #134 — Reserve stock with a conditional update |
+| POST | `/api/v1/inventory/reservations/{id}/confirm` | not routed | Service requires ADMIN; the OrderPaid consumer calls the service method in-process | #136 — Confirm and release a reservation |
+| POST | `/api/v1/inventory/reservations/{id}/release` | not routed | Service requires ADMIN; the OrderCancelled consumer calls the service method in-process | #136 — Confirm and release a reservation |
+
+`not routed` means the inventory route leaves the path out: with a valid token the
+gateway answers 404 and nothing reaches inventory-service, without a token it answers
+401 like any other unknown path.
 
 ## Order management and sales (#190)
 
