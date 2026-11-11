@@ -27,7 +27,7 @@ public class InventoryService {
 
     @Transactional
     public BalanceResponse intake(IntakeRequest request, CurrentUser currentUser) {
-        UUID warehouseId = warehouses.resolve(request.warehouseId());
+        UUID warehouseId = warehouses.resolveForIntake(request.warehouseId());
         balances.intake(request.skuId(), warehouseId, request.quantity(), currentUser.id());
         // ĐỌC LẠI DÒNG SAU KHI UPSERT ĐỂ TRẢ VỀ SỐ MỚI NHẤT (clearAutomatically ĐÃ XÓA CACHE CŨ)
         InventoryBalance balance = balances.findBySkuIdAndWarehouseId(request.skuId(), warehouseId).orElseThrow();

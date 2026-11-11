@@ -28,6 +28,7 @@ import com.group5.commerceservice.order.repository.OrderGroupRepository;
 import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.repository.OrderStatusHistoryRepository;
 import com.group5.commerceservice.shared.exception.CommerceErrorCode;
+import com.group5.commerceservice.shared.pricing.PriceBreakdown;
 import com.group5.common_core.constant.CommonErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
@@ -251,7 +252,8 @@ public class OrderService {
             BigDecimal subtotal = order.getItems().stream().map(OrderItem::getTotalPrice)
                     .reduce(new BigDecimal("0.00"), BigDecimal::add);
             order.setSubtotal(money(subtotal));
-            order.setTotalAmount(order.getSubtotal());
+            order.setTotalAmount(money(new PriceBreakdown(order.getSubtotal(), order.getDiscountAmount(),
+                    order.getTaxAmount(), order.getShippingFee()).total()));
             group.getOrders().add(order);
         }
         group.setTotalAmount(money(group.getOrders().stream().map(Order::getTotalAmount)

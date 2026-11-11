@@ -4,8 +4,9 @@ info:
   version: 1.0.0
   description: >-
     Issue #130 stock intake, #134 stock reservation, #136 confirming and releasing a
-    reservation and #200 support reads and adjustments. Every 2xx body is an ApiResponse with code, message and data; every error
-    is Problem Details. Quantities are stored per SKU and warehouse in inventory_balances,
+    reservation, #199 warehouse management (WH-01 to WH-04) and #200 support reads
+    and adjustments. Every 2xx body is an ApiResponse with code, message and data;
+    every error is Problem Details. Quantities are stored per SKU and warehouse in inventory_balances,
     where total equals available plus reserved plus unavailable.
 servers:
   - url: http://localhost:8080
@@ -19,6 +20,8 @@ tags:
     description: Hold and list stock reservations
   - name: Ledger
     description: Every quantity change, one row each
+  - name: Warehouses
+    description: Warehouse records
 paths:
   /api/v1/inventory/{skuId}:
     get:
@@ -171,6 +174,10 @@ paths:
         Raises total and available by the quantity in one statement and creates the
         balance row on the first intake of a SKU in that warehouse. When warehouseId is
         left out, the warehouse is the one whose code is nexus.inventory.default-warehouse-code.
+        Only ACTIVE warehouses accept intake: INACTIVE or MAINTENANCE returns 409 for
+        both an explicit warehouseId and the configured default, without changing
+        balances or writing a movement. The status check and writes share a transaction
+        and coordinate with warehouse updates.
         The gateway only requires a valid token; the service requires the ADMIN role.
       security:
         - bearerAuth: []
@@ -251,6 +258,19 @@ paths:
                 detail: Warehouse not found
                 instance: /api/v1/inventory/intake
                 code: INVENTORY_WAREHOUSE_NOT_FOUND
+        '409':
+          description: The selected or configured default warehouse is INACTIVE or MAINTENANCE. Code INVENTORY_WAREHOUSE_UNAVAILABLE.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Conflict
+                status: 409
+                detail: Warehouse is not active for stock intake
+                instance: /api/v1/inventory/intake
+                code: INVENTORY_WAREHOUSE_UNAVAILABLE
         '500':
           description: The configured default warehouse code matches no warehouse
           content:
@@ -1112,12 +1132,540 @@ paths:
                 detail: The reservation is not HELD
                 instance: /api/v1/inventory/reservations/0195f0a3-3333-7333-8333-333333333333/release
                 code: INVENTORY_ILLEGAL_TRANSITION
+  /api/v1/warehouses:
+    post:
+      tags: [Warehouses]
+      operationId: createWarehouse
+      summary: Create a warehouse
+      description: >-
+        Creates an ACTIVE warehouse. Code and name must not be blank; their length
+        limits apply to the supplied strings before surrounding ASCII whitespace
+        is trimmed for storage. Code uniqueness is case-sensitive and enforced by
+        the database, including simultaneous creates. Address is optional and may
+        be null. The initial status is always ACTIVE and is not a request field.
+        The gateway requires a valid token; the service requires the ADMIN role.
+      x-service: inventory-service
+      x-catalogue-id: WH-01
+      x-owning-issue: '#199'
+      x-actor-roles: [ADMIN]
+      x-gateway-privilege: token only
+      x-required-roles: [ADMIN]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWarehouseRequest'
+            example:
+              code: WH_HCM_02
+              name: Ho Chi Minh warehouse
+              address: 1 Nguyen Hue, District 1, Ho Chi Minh City
+      responses:
+        '201':
+          description: Warehouse created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WarehouseApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  id: 0195f0a1-0000-7000-8000-000000000002
+                  code: WH_HCM_02
+                  name: Ho Chi Minh warehouse
+                  address: 1 Nguyen Hue, District 1, Ho Chi Minh City
+                  status: ACTIVE
+        '400':
+          description: >-
+            Codes VALIDATION_FAILED (missing, blank or overlong code/name),
+            INVALID_REQUEST_BODY (missing or malformed JSON body).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                VALIDATION_FAILED:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/warehouses
+                    code: VALIDATION_FAILED
+                    errors:
+                      - field: code
+                        code: VALIDATION_NOT_BLANK
+                        detail: must not be blank
+                      - field: name
+                        code: VALIDATION_NOT_BLANK
+                        detail: must not be blank
+                INVALID_REQUEST_BODY:
+                  value:
+                    type: urn:problem:invalid-request-body
+                    title: Bad Request
+                    status: 400
+                    detail: The request body is invalid or malformed
+                    instance: /api/v1/warehouses
+                    code: INVALID_REQUEST_BODY
+        '401':
+          description: Missing or invalid bearer token. Code UNAUTHENTICATED.
+          headers:
+            WWW-Authenticate:
+              description: Bearer authentication challenge
+              schema:
+                type: string
+                example: Bearer
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:unauthorized
+                title: Unauthorized
+                status: 401
+                detail: A valid access token is required to access this resource
+                instance: /api/v1/warehouses
+                code: UNAUTHENTICATED
+        '403':
+          description: The caller does not have the ADMIN role. Code FORBIDDEN.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:forbidden
+                title: Forbidden
+                status: 403
+                detail: You do not have permission to access this resource
+                instance: /api/v1/warehouses
+                code: FORBIDDEN
+        '405':
+          description: Unsupported method. Code METHOD_NOT_ALLOWED.
+          headers:
+            Allow:
+              description: Supported HTTP methods for this resource
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:method-not-allowed
+                title: Method Not Allowed
+                status: 405
+                detail: The HTTP method is not supported for this endpoint
+                instance: /api/v1/warehouses
+                code: METHOD_NOT_ALLOWED
+        '406':
+          description: Unsupported Accept header. Code NOT_ACCEPTABLE.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:not-acceptable
+                title: Not Acceptable
+                status: 406
+                detail: The requested response format is not supported
+                instance: /api/v1/warehouses
+                code: NOT_ACCEPTABLE
+        '409':
+          description: The warehouse code already exists. Code INVENTORY_DUPLICATE_WAREHOUSE_CODE.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Conflict
+                status: 409
+                detail: Warehouse code already exists
+                instance: /api/v1/warehouses
+                code: INVENTORY_DUPLICATE_WAREHOUSE_CODE
+        '415':
+          description: Unsupported Content-Type header. Code UNSUPPORTED_MEDIA_TYPE.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:unsupported-media-type
+                title: Unsupported Media Type
+                status: 415
+                detail: The request content type is not supported
+                instance: /api/v1/warehouses
+                code: UNSUPPORTED_MEDIA_TYPE
+        '500':
+          description: Unexpected service failure. Code INTERNAL_ERROR.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:internal-server-error
+                title: Internal Server Error
+                status: 500
+                detail: An unexpected error occurred
+                instance: /api/v1/warehouses
+                code: INTERNAL_ERROR
+    get:
+      tags: [Warehouses]
+      operationId: listWarehouses
+      summary: List warehouses
+      description: >-
+        Returns all matching warehouses sorted by code in ascending database order.
+        The optional status filter accepts ACTIVE, INACTIVE or MAINTENANCE.
+        There are no page or size request parameters. The result forms one logical
+        page: number is 0, size is max(1, result count), totalElements is the result
+        count and totalPages is 1 for a nonempty result or 0 for an empty result.
+        The gateway requires a valid token; the service requires ADMIN or SUPPORT_STAFF.
+      x-service: inventory-service
+      x-catalogue-id: WH-02
+      x-owning-issue: '#199'
+      x-actor-roles: [ADMIN, SUPPORT_STAFF]
+      x-gateway-privilege: token only
+      x-required-roles: [ADMIN, SUPPORT_STAFF]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Filter by warehouse status; omit or leave empty to include all statuses
+          schema:
+            type: string
+            enum: [ACTIVE, INACTIVE, MAINTENANCE]
+      responses:
+        '200':
+          description: Warehouses matching the optional filter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WarehouseListApiResponse'
+              examples:
+                warehouses:
+                  value:
+                    code: 0
+                    message: response success
+                    data:
+                      - id: 0195f0a1-0000-7000-8000-000000000002
+                        code: WH_HCM_02
+                        name: Ho Chi Minh warehouse
+                        address: 1 Nguyen Hue, District 1, Ho Chi Minh City
+                        status: ACTIVE
+                    page:
+                      number: 0
+                      size: 1
+                      totalElements: 1
+                      totalPages: 1
+                empty:
+                  value:
+                    code: 0
+                    message: response success
+                    data: []
+                    page:
+                      number: 0
+                      size: 1
+                      totalElements: 0
+                      totalPages: 0
+        '400':
+          description: An unknown status value was supplied. Code INVALID_PARAMETER.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:invalid-parameter
+                title: Bad Request
+                status: 400
+                detail: A request parameter is invalid
+                instance: /api/v1/warehouses
+                code: INVALID_PARAMETER
+                errors:
+                  - field: status
+                    code: INVALID_PARAMETER
+                    detail: A valid value is required
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/warehouses/{id}:
+    parameters:
+      - $ref: '#/components/parameters/WarehouseId'
+    get:
+      tags: [Warehouses]
+      operationId: getWarehouse
+      summary: Read a warehouse
+      description: >-
+        Returns a warehouse in any status. The gateway requires a valid token;
+        the service requires ADMIN or SUPPORT_STAFF.
+      x-service: inventory-service
+      x-catalogue-id: WH-03
+      x-owning-issue: '#199'
+      x-actor-roles: [ADMIN, SUPPORT_STAFF]
+      x-gateway-privilege: token only
+      x-required-roles: [ADMIN, SUPPORT_STAFF]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/WarehouseRead'
+        '400':
+          $ref: '#/components/responses/InvalidWarehouseId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/WarehouseNotFound'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [Warehouses]
+      operationId: updateWarehouse
+      summary: Update a warehouse
+      description: >-
+        Replaces the warehouse name, address and status. Name and status are required;
+        name must not be blank or exceed 150 characters before surrounding ASCII
+        whitespace is trimmed. Omitted or null address clears the address. Code and id
+        are immutable and are not request fields. An INACTIVE or MAINTENANCE warehouse
+        rejects subsequent intake with INVENTORY_WAREHOUSE_UNAVAILABLE; setting ACTIVE
+        allows intake again. The update and intake coordinate on the same warehouse
+        row so status changes do not race with stock writes.
+        The gateway requires a valid token; the service requires the ADMIN role.
+      x-service: inventory-service
+      x-catalogue-id: WH-04
+      x-owning-issue: '#199'
+      x-actor-roles: [ADMIN]
+      x-gateway-privilege: token only
+      x-required-roles: [ADMIN]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWarehouseRequest'
+            example:
+              name: Ho Chi Minh warehouse
+              address: 1 Nguyen Hue, District 1, Ho Chi Minh City
+              status: MAINTENANCE
+      responses:
+        '200':
+          description: Warehouse after the update
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WarehouseApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  id: 0195f0a1-0000-7000-8000-000000000002
+                  code: WH_HCM_02
+                  name: Ho Chi Minh warehouse
+                  address: 1 Nguyen Hue, District 1, Ho Chi Minh City
+                  status: MAINTENANCE
+        '400':
+          description: >-
+            Codes VALIDATION_FAILED (missing, blank or overlong name, or missing status),
+            INVALID_REQUEST_BODY (missing or malformed JSON, including an unknown status),
+            INVALID_PARAMETER (id is not a UUID).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                VALIDATION_FAILED:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/warehouses/0195f0a1-0000-7000-8000-000000000002
+                    code: VALIDATION_FAILED
+                    errors:
+                      - field: name
+                        code: VALIDATION_NOT_BLANK
+                        detail: must not be blank
+                      - field: status
+                        code: VALIDATION_NOT_NULL
+                        detail: must not be null
+                INVALID_REQUEST_BODY:
+                  value:
+                    type: urn:problem:invalid-request-body
+                    title: Bad Request
+                    status: 400
+                    detail: The request body is invalid or malformed
+                    instance: /api/v1/warehouses/0195f0a1-0000-7000-8000-000000000002
+                    code: INVALID_REQUEST_BODY
+                INVALID_PARAMETER:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
+                    status: 400
+                    detail: A request parameter is invalid
+                    instance: /api/v1/warehouses/not-a-uuid
+                    code: INVALID_PARAMETER
+                    errors:
+                      - field: id
+                        code: INVALID_PARAMETER
+                        detail: A valid value is required
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/WarehouseNotFound'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+  parameters:
+    WarehouseId:
+      name: id
+      in: path
+      required: true
+      description: Warehouse identifier
+      schema:
+        type: string
+        format: uuid
+  responses:
+    WarehouseRead:
+      description: Warehouse details
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/WarehouseApiResponse'
+          example:
+            code: 0
+            message: response success
+            data:
+              id: 0195f0a1-0000-7000-8000-000000000002
+              code: WH_HCM_02
+              name: Ho Chi Minh warehouse
+              address: 1 Nguyen Hue, District 1, Ho Chi Minh City
+              status: ACTIVE
+    InvalidWarehouseId:
+      description: id is not a UUID. Code INVALID_PARAMETER.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: urn:problem:invalid-parameter
+            title: Bad Request
+            status: 400
+            detail: A request parameter is invalid
+            instance: /api/v1/warehouses/not-a-uuid
+            code: INVALID_PARAMETER
+            errors:
+              - field: id
+                code: INVALID_PARAMETER
+                detail: A valid value is required
+    Unauthenticated:
+      description: Missing or invalid bearer token. Code UNAUTHENTICATED.
+      headers:
+        WWW-Authenticate:
+          description: Bearer authentication challenge
+          schema:
+            type: string
+            example: Bearer
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: urn:problem:unauthorized
+            title: Unauthorized
+            status: 401
+            detail: A valid access token is required to access this resource
+            instance: /api/v1/warehouses
+            code: UNAUTHENTICATED
+    Forbidden:
+      description: The caller does not have a role allowed by this operation. Code FORBIDDEN.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: urn:problem:forbidden
+            title: Forbidden
+            status: 403
+            detail: You do not have permission to access this resource
+            instance: /api/v1/warehouses
+            code: FORBIDDEN
+    WarehouseNotFound:
+      description: The warehouse does not exist. Code INVENTORY_WAREHOUSE_NOT_FOUND.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: urn:problem:domain-error
+            title: Not Found
+            status: 404
+            detail: Warehouse not found
+            instance: /api/v1/warehouses/0195f0a1-0000-7000-8000-000000000002
+            code: INVENTORY_WAREHOUSE_NOT_FOUND
+    NotAcceptable:
+      description: Unsupported Accept header. Code NOT_ACCEPTABLE.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: urn:problem:not-acceptable
+            title: Not Acceptable
+            status: 406
+            detail: The requested response format is not supported
+            instance: /api/v1/warehouses
+            code: NOT_ACCEPTABLE
+    UnsupportedMediaType:
+      description: Unsupported Content-Type header. Code UNSUPPORTED_MEDIA_TYPE.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: urn:problem:unsupported-media-type
+            title: Unsupported Media Type
+            status: 415
+            detail: The request content type is not supported
+            instance: /api/v1/warehouses
+            code: UNSUPPORTED_MEDIA_TYPE
+    InternalError:
+      description: Unexpected service failure. Code INTERNAL_ERROR.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: urn:problem:internal-server-error
+            title: Internal Server Error
+            status: 500
+            detail: An unexpected error occurred
+            instance: /api/v1/warehouses
+            code: INTERNAL_ERROR
   schemas:
     IntakeRequest:
       type: object
@@ -1279,7 +1827,7 @@ components:
               minimum: 1
     Problem:
       type: object
-      required: [type, title, status, detail]
+      required: [type, title, status, detail, instance, code]
       properties:
         type:
           type: string
@@ -1373,7 +1921,6 @@ components:
         totalPages:
           type: integer
           minimum: 0
-
     BalancePageApiResponse:
       type: object
       required: [code, message, data, page]
@@ -1494,3 +2041,120 @@ components:
             $ref: '#/components/schemas/Movement'
         page:
           $ref: '#/components/schemas/PageInfo'
+    CreateWarehouseRequest:
+      type: object
+      required: [code, name]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 40
+          pattern: '\S'
+          description: Nonblank, case-sensitive unique code; surrounding ASCII whitespace is trimmed before storage
+          example: WH_HCM_02
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+          pattern: '\S'
+          description: Nonblank name; surrounding ASCII whitespace is trimmed before storage
+          example: Ho Chi Minh warehouse
+        address:
+          type: string
+          nullable: true
+          description: Optional warehouse address
+          example: 1 Nguyen Hue, District 1, Ho Chi Minh City
+    WarehouseApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          default: response success
+          example: response success
+        data:
+          $ref: '#/components/schemas/Warehouse'
+    UpdateWarehouseRequest:
+      type: object
+      required: [name, status]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+          pattern: '\S'
+          description: Nonblank name; surrounding ASCII whitespace is trimmed before storage
+        address:
+          type: string
+          nullable: true
+          description: Omit or set null to clear the warehouse address
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, MAINTENANCE]
+    WarehouseListApiResponse:
+      type: object
+      required: [code, message, data, page]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          default: response success
+          example: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warehouse'
+        page:
+          $ref: '#/components/schemas/WarehousePageInfo'
+    Warehouse:
+      type: object
+      required: [id, code, name, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          minLength: 1
+          maxLength: 40
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        address:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, MAINTENANCE]
+          description: Newly created warehouses are always ACTIVE
+    WarehousePageInfo:
+      type: object
+      required: [number, size, totalElements, totalPages]
+      properties:
+        number:
+          type: integer
+          minimum: 0
+          maximum: 0
+          description: Complete warehouse lists always use page number 0
+        size:
+          type: integer
+          minimum: 1
+          description: max(1, result count)
+        totalElements:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Number of warehouses matching the optional filter
+        totalPages:
+          type: integer
+          minimum: 0
+          maximum: 1
+          description: 0 for an empty result or 1 otherwise

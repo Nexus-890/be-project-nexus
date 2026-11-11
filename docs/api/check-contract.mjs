@@ -38,6 +38,7 @@ const services = {
   ],
   'inventory-service': [
     'src/main/java/com/group5/inventoryservice/inventory/InventoryController.java',
+    'src/main/java/com/group5/inventoryservice/warehouse/controller/WarehouseController.java',
     'src/main/java/com/group5/inventoryservice/reservation/controller/ReservationController.java',
   ],
   'auction-service': [
