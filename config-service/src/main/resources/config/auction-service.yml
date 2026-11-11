@@ -18,6 +18,10 @@ springdoc:
     enabled: true
 
 nexus:
+  auction:
+    anti-sniping-enabled: ${NEXUS_AUCTION_ANTI_SNIPING_ENABLED:true}
+    anti-sniping-extension-minutes: ${NEXUS_AUCTION_ANTI_SNIPING_EXTENSION_MINUTES:5}
+    anti-sniping-max-extension-minutes: ${NEXUS_AUCTION_ANTI_SNIPING_MAX_EXTENSION_MINUTES:30}
   security:
     public-endpoints:
       - method: GET

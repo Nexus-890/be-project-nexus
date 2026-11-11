@@ -290,6 +290,11 @@ paths:
         (exclusive). Outside that window, bids are refused even if the status is still ACTIVE.
         A conditional update prevents concurrent bids from both winning the same price.
         The authenticated buyer may not bid on their own auction.
+        Anti-sniping is enabled by default: an accepted bid with at most five minutes
+        remaining adds five minutes to endAt, capped at originalEndAt plus the configured
+        maximum extension (30 minutes by default). The bid, extension and BidPlaced outbox
+        event commit together; refused bids leave the deadline unchanged. Read the auction
+        again to obtain its effective endAt and extensionCount.
       x-catalogue-id: BID-01
       x-required-roles: [BUYER]
       x-required-privileges: [AUCTION.BID]

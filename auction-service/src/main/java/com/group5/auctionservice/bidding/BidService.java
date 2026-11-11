@@ -31,6 +31,7 @@ public class BidService {
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
     private final Clock clock;
+    private final AntiSnipingPolicy antiSnipingPolicy;
 
     @Transactional
     public BidResponse place(UUID auctionId, PlaceBidRequest request, CurrentUser bidder) {
@@ -57,8 +58,8 @@ public class BidService {
         Bid bid = bids.saveAndFlush(new Bid(auctionId, bidder.id(), amount,
                 Instant.now(clock).truncatedTo(ChronoUnit.MICROS)));
 
-        // #149 anti-sniping hook: extend end_at here for this accepted bid, before publishing.
-        // This transaction still holds the auction row lock; original_end_at must remain unchanged.
+        // Cùng transaction và row lock với bid; lỗi sau đây rollback cả deadline lẫn bid.
+        antiSnipingPolicy.extendAcceptedBid(auctionId, bidder.id());
 
         BidPlaced payload = new BidPlaced(auctionId, bid.getId(), bidder.id(), amount.toPlainString(),
                 "VND", bid.getPlacedAt());

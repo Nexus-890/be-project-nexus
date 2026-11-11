@@ -53,17 +53,17 @@ public class AuctionService {
         if (duration.isZero() || duration.isNegative()) {
             throw new DomainException(AuctionErrorCode.AUCTION_INVALID_TIME_WINDOW);
         }
-        if (duration.compareTo(Duration.ofMinutes(properties.minDurationMinutes())) < 0) {
+        if (duration.compareTo(Duration.ofMinutes(properties.getMinDurationMinutes())) < 0) {
             throw new DomainException(AuctionErrorCode.AUCTION_DURATION_TOO_SHORT,
-                    "Auction duration must be at least %d minutes".formatted(properties.minDurationMinutes()));
+                    "Auction duration must be at least %d minutes".formatted(properties.getMinDurationMinutes()));
         }
-        if (duration.compareTo(Duration.ofHours(properties.maxDurationHours())) > 0) {
+        if (duration.compareTo(Duration.ofHours(properties.getMaxDurationHours())) > 0) {
             throw new DomainException(AuctionErrorCode.AUCTION_DURATION_TOO_LONG,
-                    "Auction duration must be at most %d hours".formatted(properties.maxDurationHours()));
+                    "Auction duration must be at most %d hours".formatted(properties.getMaxDurationHours()));
         }
 
         BigDecimal increment = request.bidIncrement() == null
-                ? properties.defaultBidIncrement()
+                ? properties.getDefaultBidIncrement()
                 : request.bidIncrement();
         Auction auction = new Auction(request.productId(), request.skuId(), seller.id(), request.title(),
                 request.startingPrice(), increment, request.startAt(), request.endAt());
