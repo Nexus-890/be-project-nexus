@@ -90,8 +90,6 @@ nexus:
       - method: GET
         path: /api/v1/shipping/provinces
       - method: GET
-        path: /api/v1/shipping/districts
-      - method: GET
         path: /api/v1/shipping/wards
       - method: GET
         path: /api/v1/auctions

@@ -1,6 +1,7 @@
-package com.group5.shipmentservice.shipping;
+package com.group5.shipmentservice.shipping.entity;
 
 import com.group5.shipmentservice.shared.persistence.AuditedEntity;
+import com.group5.shipmentservice.shipping.enums.ShipmentStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

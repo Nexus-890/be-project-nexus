@@ -43,7 +43,6 @@ class GatewayPermissionsTest {
             new Row("/api/v1/webhooks/carriers/ghn", "POST", "Public"),
             new Row("/api/v1/webhooks/carriers/ghtk", "POST", "Public"),
             new Row("/api/v1/shipping/provinces", "GET", "Public"),
-            new Row("/api/v1/shipping/districts", "GET", "Public"),
             new Row("/api/v1/shipping/wards", "GET", "Public"));
 
     @Test

@@ -598,8 +598,7 @@ class SecurityConfigTest {
     @Test
     void publicAddressListsAndSepayCallbackReachTheirOwnService() {
         for (String path : List.of("/api/v1/shipping/provinces",
-                "/api/v1/shipping/districts?provinceCode=202",
-                "/api/v1/shipping/wards?districtCode=1442")) {
+                "/api/v1/shipping/wards?provinceCode=1000001")) {
             client.get().uri(path).exchange().expectStatus().isOk()
                     .expectBody(String.class).isEqualTo("shipment-service");
         }
@@ -611,7 +610,6 @@ class SecurityConfigTest {
         }
         assertThat(DOMAIN_LOG).containsExactly(
                 "shipment-service GET /api/v1/shipping/provinces",
-                "shipment-service GET /api/v1/shipping/districts",
                 "shipment-service GET /api/v1/shipping/wards",
                 "payment-service POST /api/v1/webhooks/sepay",
                 "shipment-service POST /api/v1/webhooks/carriers/ghn",
@@ -644,7 +642,7 @@ class SecurityConfigTest {
         for (String path : List.of("/api/v1/webhooks/unrelated", "/api/v1/webhooks/sepay/extra",
                 "/api/v1/webhooks/carriers/unknown", "/api/v1/webhooks/carriers/ghn/extra",
                 "/api/v1/webhooks/carriers/GHN", "/api/v1/webhooks/carriers/ghtk/extra",
-                "/api/v1/shipping/quotes", "/api/v1/shipping/provinces/extra")) {
+                "/api/v1/shipping/quotes", "/api/v1/shipping/provinces/extra", "/api/v1/shipping/districts")) {
             client.post().uri(path).exchange().expectStatus().isUnauthorized();
             client.get().uri(path).exchange().expectStatus().isUnauthorized();
         }
