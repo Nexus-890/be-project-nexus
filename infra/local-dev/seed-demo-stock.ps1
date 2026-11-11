@@ -59,7 +59,8 @@ AND sku_code IN (
 );
 COMMIT;
 '@
-$skuIds = @(ConvertFrom-Json -InputObject $skuJson | ForEach-Object { ([guid]$_).ToString() })
+# Enumerate the parsed array in both Windows PowerShell 5.1 and PowerShell 7.
+$skuIds = @((ConvertFrom-Json -InputObject $skuJson) | ForEach-Object { ([guid]$_).ToString() })
 if ($skuIds.Count -ne 10 -or @($skuIds | Select-Object -Unique).Count -ne 10) {
     throw 'Expected all ten distinct V4 demo SKU UUIDs; no inventory data changed. Run catalog migrations first.'
 }
