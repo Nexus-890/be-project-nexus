@@ -52,7 +52,7 @@ accepted receipt do not duplicate histories/events. CANCELED/EXPIRED groups and
 cancelled children are never resurrected. Payment retains financial evidence
 and owns compensation.
 
-Commerce migration `V10__order_group_payment_identity.sql` adds nullable
+Commerce migration `V12__order_group_payment_identity.sql` adds nullable
 `payment_session_id` and `payment_transaction_id` to its own `order_groups` table.
 They are logical UUID references to accepted payment evidence, with no cross-DB
 foreign key or payment_db read. The first accepted confirmation binds them in
