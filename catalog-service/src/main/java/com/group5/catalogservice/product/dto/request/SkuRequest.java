@@ -1,5 +1,7 @@
 package com.group5.catalogservice.product.dto.request;
 
+import com.group5.catalogservice.product.dto.ShippingParcel;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -26,4 +28,7 @@ public class SkuRequest {
     @Digits(integer = 17, fraction = 2,
             message = "Price must have at most 17 integer digits and 2 decimal places")
     private BigDecimal price;
+
+    @Valid
+    private ShippingParcel shippingParcel;
 }

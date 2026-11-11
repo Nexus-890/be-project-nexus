@@ -135,7 +135,7 @@ class CatalogResponseContractTest {
 
     @Test
     void skuRoutesUseDataEnvelopeForObjectsAndLists() throws Exception {
-        SkuResponse sku = new SkuResponse(id, id, "SHIRT-M", "Black", "M", BigDecimal.TEN, SkuStatus.ACTIVE);
+        SkuResponse sku = new SkuResponse(id, id, "SHIRT-M", "Black", "M", BigDecimal.TEN, SkuStatus.ACTIVE, null);
         when(skus.create(eq(id), any(), eq(actor))).thenReturn(sku);
         when(skus.update(eq(id), any(), eq(actor))).thenReturn(sku);
         when(skus.getById(id)).thenReturn(sku);
@@ -149,6 +149,23 @@ class CatalogResponseContractTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].id").value(id.toString()))
                 .andExpect(jsonPath("$.page.number").value(0))
                 .andExpect(jsonPath("$.page.totalElements").value(1));
+    }
+
+    @Test
+    void skuPackageValidationRejectsMissingAndInvalidNestedMeasurements() throws Exception {
+        String request = """
+                {"skuCode":"SHIRT-M","color":"Black","size":"M","price":10,
+                 "shippingParcel":{"weightGrams":0,"lengthCm":201,"widthCm":20}}
+                """;
+        for (MockHttpServletRequestBuilder operation : List.of(
+                post("/api/v1/products/{id}/skus", id), put("/api/v1/skus/{id}", id))) {
+            mvc.perform(operation.contentType(MediaType.APPLICATION_JSON).content(request))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(jsonPath("$.errors[*].field", hasItems("shippingParcel.weightGrams",
+                            "shippingParcel.lengthCm", "shippingParcel.heightCm")));
+        }
+        verifyNoInteractions(skus);
     }
 
     @Test

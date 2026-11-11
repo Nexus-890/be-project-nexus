@@ -54,6 +54,18 @@ public class Skus extends AuditedEntity {
     @Column(name = "price", nullable = false, precision = 19, scale = 2)
     private BigDecimal price;
 
+    @Column(name = "shipping_weight_grams")
+    private Integer shippingWeightGrams;
+
+    @Column(name = "shipping_length_cm")
+    private Integer shippingLengthCm;
+
+    @Column(name = "shipping_width_cm")
+    private Integer shippingWidthCm;
+
+    @Column(name = "shipping_height_cm")
+    private Integer shippingHeightCm;
+
     @Size(max = 3)
     @NotNull
     @ColumnDefault("'VND'")

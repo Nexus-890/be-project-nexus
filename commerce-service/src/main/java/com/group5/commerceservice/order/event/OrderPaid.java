@@ -31,10 +31,10 @@ public record OrderPaid(
     public record Recipient(@NotBlank @Size(max = 150) String name,
                             @NotBlank @Size(max = 20) String phone, @NotNull @Valid Address address) { }
 
-    /** Giữ cả mã phường, quận và tỉnh để dịch vụ vận chuyển không phải suy đoán từ địa chỉ chữ. */
+    /** Địa chỉ hai cấp giữ mã phường/tỉnh; mã quận chỉ giữ khi đọc snapshot ba cấp lịch sử. */
     public record Address(@NotBlank @Size(max = 500) String line1,
                           @NotBlank @Size(max = 40) String wardCode,
-                          @NotBlank @Size(max = 40) String districtCode,
+                          @JsonInclude(JsonInclude.Include.NON_NULL) @Size(max = 40) String districtCode,
                           @NotBlank @Size(max = 40) String provinceCode) { }
 
     /** Dòng hàng lấy từ order_items, không thay bằng tên hoặc số lượng mới từ Catalog. */

@@ -4,6 +4,7 @@ import com.group5.commerceservice.cart.dto.CatalogClient;
 import com.group5.commerceservice.cart.dto.CatalogSkuResponse;
 import com.group5.commerceservice.cart.entity.CartItem;
 import com.group5.commerceservice.shared.exception.CommerceErrorCode;
+import com.group5.commerceservice.order.dto.request.CreateOrderRequest.ShippingAddress;
 import com.group5.common_core.exception.DomainException;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,12 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class PricingService {
     private final CatalogClient catalogClient;
+    private final OrderShippingService shipping;
+
+    /** Preview và tạo đơn dùng chung một nguồn phí, không nhận giá vận chuyển do client gửi lên. */
+    public OrderShippingService.Quote shippingQuote(ShippingAddress address, List<OrderShippingService.Line> lines) {
+        return shipping.quote(address, lines);
+    }
 
     @Value("${nexus.checkout.price-revalidation:true}")
     private boolean priceRevalidation = true;

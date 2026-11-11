@@ -1,5 +1,7 @@
 package com.group5.catalogservice.product.service;
 
+import com.group5.catalogservice.product.dto.ShippingParcel;
+
 import com.group5.catalogservice.product.dto.request.ChangeStatusRequest;
 import com.group5.catalogservice.product.dto.request.ProductRequest;
 import com.group5.catalogservice.product.dto.response.ImageResponse;
@@ -259,7 +261,10 @@ public class ProductService {
                         sku.getColor(),
                         sku.getSize(),
                         sku.getPrice(),
-                        sku.getStatus()
+                        sku.getStatus(),
+                        sku.getShippingWeightGrams() == null ? null : new ShippingParcel(
+                                sku.getShippingWeightGrams(), sku.getShippingLengthCm(),
+                                sku.getShippingWidthCm(), sku.getShippingHeightCm())
                 ))
                 .toList();
 

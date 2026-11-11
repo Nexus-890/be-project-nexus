@@ -28,6 +28,13 @@ public enum CommerceErrorCode implements ErrorCode {
     PRICE_CHANGED(HttpStatus.CONFLICT, "An item price has changed; review the new price before retrying checkout"),
     PROMOTION_NOT_SUPPORTED(HttpStatus.CONFLICT, "Remove the promotion code before placing this order"),
     ITEM_UNAVAILABLE(HttpStatus.CONFLICT, "An item is unavailable"),
+    INSUFFICIENT_STOCK(HttpStatus.CONFLICT, "There is insufficient stock for a cart item"),
+    INVENTORY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Inventory is unavailable; retry checkout later"),
+    SHIPPING_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Shipping quotes are unavailable; retry checkout later"),
+    SHIPPING_METADATA_REQUIRED(HttpStatus.CONFLICT, "The seller must supply shipping measurements for this SKU"),
+    INVALID_PARCEL(HttpStatus.CONFLICT, "The combined seller parcel exceeds shipping limits"),
+    INVALID_SHIPPING_ADDRESS(HttpStatus.BAD_REQUEST, "The shipping address is invalid"),
+    SHIPPING_NOT_AVAILABLE(HttpStatus.UNPROCESSABLE_ENTITY, "No shipping service is available for this order"),
     INVALID_ORDER_AMOUNT(HttpStatus.CONFLICT, "An item price or order total cannot be represented as numeric(19,2)"),
     ORDER_NOT_CANCELLABLE(HttpStatus.CONFLICT, "The order can no longer be cancelled"),
     RESERVED_CANCEL_REASON(HttpStatus.BAD_REQUEST, "This cancellation reason is reserved for payment expiry");

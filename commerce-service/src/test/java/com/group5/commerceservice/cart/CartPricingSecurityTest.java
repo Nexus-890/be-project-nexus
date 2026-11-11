@@ -45,8 +45,9 @@ class CartPricingSecurityTest {
 
     @Test void checkoutStartAloneAllowsPreviewWithoutOrderCreate() {
         CurrentUser user = authenticate("CHECKOUT.START");
-        checkout.preview(user, new CheckoutPreviewRequest(null, "SEPAY", "D01"));
-        verify(pricing).preview(user, "D01");
+        var request = new CheckoutPreviewRequest(null, "SEPAY", "D01");
+        checkout.preview(user, request);
+        verify(pricing).previewCheckout(user, request);
     }
 
     @Test void adminHasNoImplicitPrivilegeBypass() {
