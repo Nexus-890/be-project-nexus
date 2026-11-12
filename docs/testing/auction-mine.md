@@ -63,8 +63,7 @@ branch, with separate sellerA/sellerB and buyerA/buyerB tokens. Use a demo datab
    bids/mine as A returns two rows, X leading=false, Y leading=true, latest personal
    amount/placedAt. size=1 yields two distinct pages with totalElements=2/totalPages=2.
 3. Place another actual bid by A above B on X; refresh mine and check leading changes.
-   This step requires actual #146 bid-writing code in the runtime. #198 implements reads
-   against the existing schema and does not include #146 production code.
+   The current branch includes actual #146/#147 through develop. Send a fresh Idempotency-Key for each new bid; replaying the same key/amount must not create another bid.
 4. Without token expect401. Wrong role or missing endpoint privilege expects403.
    page=-1/size=0/size=101/malformed status expects400 Problem Details.
 
@@ -79,7 +78,7 @@ WHERE bidder_id=:bidder_id ORDER BY placed_at DESC,id DESC;
 SELECT id,current_price,leader_bidder_id,winner_id,status FROM auctions WHERE id=:auction_id;
 ```
 
-## Verification on 2026-11-12
+## Initial verification on 2026-11-12 (before develop advanced)
 
 - Java21.0.9, PostgreSQL18.6 native isolated cluster; all fixture databases were disposable.
 - Full Maven verify: auction-service **152**, api-gateway **81**, config-service **7**;
@@ -94,3 +93,21 @@ SELECT id,current_price,leader_bidder_id,winner_id,status FROM auctions WHERE id
 - Only merge conflicts combining repository methods, security-test mocks and contract
   controller registrations were reconciled. Bid business logic was unchanged; the temporary
   composition is not included in this MR. No settlement worker or live Kafka relay was run.
+
+## Final verification after develop update
+
+Develop advanced during this task and merged #146/#147/#148/#204. The #198 branch now
+includes develop `3e7e5dce81094c91a4a5dd42892a965da47e2fbd`. No #197 implementation was imported.
+
+- Full auction-service verify passed **182 Surefire + 10 Failsafe tests**, with no
+  failures/errors/skips. The 20 mine tests now include actual bid placement and idempotency
+  replay from current develop: three accepted bids/replays, opponent overtakes, buyer
+  retakes the lead, one personal result and exactly four bid/BidPlaced rows.
+- The 10 BidConcurrencyIT repetitions (50 HTTP requests each) passed unchanged business
+  assertions on PostgreSQL18.6. Bid placement/idempotency/concurrency tests use the same
+  optional native-PG18 fixture as the mine tests, with UTC; Docker remains the default.
+- Gateway **82** and config-service **7** tests passed. Contract checker **88** operations
+  and auction delivered OpenAPI lint passed. No live Postman/Kafka relay or settlement
+  execution is claimed. Stored winner semantics use database fixtures.
+- Earlier 152/81 results and the separate two-test #146 composition above are historical
+  checkpoints, superseded by the final run on the updated develop base.

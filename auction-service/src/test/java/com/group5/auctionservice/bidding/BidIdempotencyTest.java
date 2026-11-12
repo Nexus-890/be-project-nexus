@@ -28,7 +28,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
-import org.testcontainers.postgresql.PostgreSQLContainer;
+import com.group5.auctionservice.TestPostgres;
 import tools.jackson.databind.json.JsonMapper;
 
 import javax.sql.DataSource;
@@ -63,7 +63,7 @@ import static org.mockito.Mockito.when;
 
 @SpringJUnitConfig(BidIdempotencyTest.JpaConfig.class)
 class BidIdempotencyTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final TestPostgres POSTGRES = new TestPostgres();
     private static final BigDecimal MINIMUM = new BigDecimal("1050000.00");
     private static final BigDecimal HIGHER = new BigDecimal("1100000.00");
 

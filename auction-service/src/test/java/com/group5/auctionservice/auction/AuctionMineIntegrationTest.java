@@ -23,6 +23,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup;
 
@@ -64,7 +65,7 @@ class AuctionMineIntegrationTest {
         when(decoder.decode("rival")).thenReturn(token("rival", RIVAL, "BUYER", "AUCTION.VIEW_BID_HISTORY"));
         when(decoder.decode("missing")).thenReturn(token("missing", SELLER, "SELLER"));
         when(decoder.decode("wrong-role")).thenReturn(token("wrong-role", BUYER, "SUPPORT", "AUCTION.LIST", "AUCTION.VIEW_BID_HISTORY"));
-        jdbc.update("DELETE FROM bids"); jdbc.update("DELETE FROM auctions");
+        jdbc.update("DELETE FROM outbox"); jdbc.update("DELETE FROM bids"); jdbc.update("DELETE FROM auctions");
     }
     @Test
     void sellerSeesOwnCreatedCancelledRestrictedButPublicListHidesThem() throws Exception {
@@ -180,6 +181,37 @@ class AuctionMineIntegrationTest {
                     .andExpect(status().isBadRequest()).andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
         }
     }
+    @Test
+    void actualBidAndIdempotencyFlowKeepsOneRowAndChangesLeading() throws Exception {
+        auction(1, SELLER, "ACTIVE", "PUBLIC");
+        when(decoder.decode("buyer")).thenReturn(token("buyer", BUYER, "BUYER", "AUCTION.BID", "AUCTION.VIEW_BID_HISTORY"));
+        when(decoder.decode("rival")).thenReturn(token("rival", RIVAL, "BUYER", "AUCTION.BID", "AUCTION.VIEW_BID_HISTORY"));
+        for (int amount : List.of(110, 120, 130)) {
+            String token = amount == 130 ? "rival" : "buyer";
+            String key = UUID.randomUUID().toString();
+            http.perform(post("/api/v1/auctions/" + id(1) + "/bids").header("Authorization", "Bearer " + token)
+                            .header("Idempotency-Key", key).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":" + amount + "}"))
+                    .andExpect(status().isCreated());
+            http.perform(post("/api/v1/auctions/" + id(1) + "/bids").header("Authorization", "Bearer " + token)
+                            .header("Idempotency-Key", key).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":" + amount + "}"))
+                    .andExpect(status().isOk());
+        }
+        http.perform(get("/api/v1/bids/mine?size=1").header("Authorization", "Bearer buyer"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$.data[0].amount").value(120)).andExpect(jsonPath("$.data[0].leading").value(false));
+        http.perform(post("/api/v1/auctions/" + id(1) + "/bids").header("Authorization", "Bearer buyer")
+                        .header("Idempotency-Key", UUID.randomUUID().toString()).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":140}"))
+                .andExpect(status().isCreated());
+        http.perform(get("/api/v1/bids/mine?size=1").header("Authorization", "Bearer buyer"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$.data[0].amount").value(140)).andExpect(jsonPath("$.data[0].leading").value(true));
+        http.perform(get("/api/v1/bids/mine").header("Authorization", "Bearer rival"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].amount").value(130))
+                .andExpect(jsonPath("$.data[0].leading").value(false));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bids", Integer.class)).isEqualTo(4);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox WHERE event_type='BidPlaced'", Integer.class)).isEqualTo(4);
+    }
+
     @Test
     void invalidStatusIsBindingErrorNotUuidRouteAndReadsDoNotWriteEvents() throws Exception {
         http.perform(get("/api/v1/auctions/mine?status=INVALID").header("Authorization", "Bearer seller"))
