@@ -165,7 +165,7 @@ public class OrderService {
                         !Objects.equals(entry.getValue(), order.getShippingInfo().get(entry.getKey()))))) {
             throw new DomainException(CommerceErrorCode.IDEMPOTENCY_CONFLICT);
         }
-        return new CreationResult(false, toResponse(group));
+        return new CreationResult(false, toResponse(group, user));
     }
 
     private boolean isIdempotencyKeyViolation(DataIntegrityViolationException violation) {
@@ -297,7 +297,7 @@ public class OrderService {
 
         log.info("Cart after checkout: id={}, status={}", cart.getId(), cart.getStatus());
         log.info("Order group created: groupId={}, buyerId={}, orders={}", group.getId(), user.id(), sellers.size());
-        return new CheckoutResult(new CreationResult(true, toResponse(savedGroup)), null);
+        return new CheckoutResult(new CreationResult(true, toResponse(savedGroup, user)), null);
     }
 
     private void publishCreation(OrderGroup group) {
@@ -319,7 +319,7 @@ public class OrderService {
             throw new DomainException(CommerceErrorCode.FORBIDDEN);
         }
         stateMachine.move(orderId, request.status(), user.id(), request.reason());
-        return orderRepository.findById(orderId).map(this::toOrderResponse)
+        return orderRepository.findById(orderId).map(order -> toOrderResponse(order, user))
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
     }
 
@@ -379,7 +379,7 @@ public class OrderService {
         OrderGroup group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
         publishCancellation(group, cancelled, current, user.id(), reason, cancelledAt.toInstant().toString());
-        return toResponse(group);
+        return toResponse(group, user);
     }
 
     private void returnToCart(UUID buyerId, List<UUID> orderIds, UUID actor) {
@@ -450,7 +450,7 @@ public class OrderService {
         if (!group.getBuyerId().equals(user.id()) && !user.hasRole("ADMIN")) {
             throw new DomainException(CommerceErrorCode.FORBIDDEN);
         }
-        return toResponse(group);
+        return toResponse(group, user);
     }
 
     @Transactional(readOnly = true)
@@ -463,7 +463,7 @@ public class OrderService {
         if (!order.getUserId().equals(user.id()) && !user.hasRole("ADMIN")) {
             throw new DomainException(CommerceErrorCode.FORBIDDEN);
         }
-        return toOrderResponse(order);
+        return toOrderResponse(order, user);
     }
 
     @Transactional(readOnly = true)
@@ -478,21 +478,21 @@ public class OrderService {
         Page<Order> orders = status == null
                 ? orderRepository.findByUserIdOrderByCreatedAtDescOrderNumberDesc(user.id(), pageable)
                 : orderRepository.findByUserIdAndStatusOrderByCreatedAtDescOrderNumberDesc(user.id(), status, pageable);
-        return orders.map(this::toOrderResponse);
+        return orders.map(order -> toOrderResponse(order, user));
     }
 
     @Transactional(readOnly = true)
     public Page<OrderResponse> listManaged(CurrentUser user, UUID userId, UUID sellerId, OrderStatus status,
                                           OrderType orderType, OffsetDateTime from, OffsetDateTime to, int page, int size) {
         requireOrderListAccess(user, "ADMIN", "SUPPORT_STAFF");
-        return findOrders(userId, sellerId, status, orderType, from, to, page, size);
+        return findOrders(user, userId, sellerId, status, orderType, from, to, page, size);
     }
 
     @Transactional(readOnly = true)
     public Page<OrderResponse> listSales(CurrentUser user, OrderStatus status, OffsetDateTime from,
                                         OffsetDateTime to, int page, int size) {
         requireOrderListAccess(user, "SELLER");
-        return findOrders(null, user.id(), status, null, from, to, page, size);
+        return findOrders(user, null, user.id(), status, null, from, to, page, size);
     }
 
     private void requireOrderListAccess(CurrentUser user, String... roles) {
@@ -504,7 +504,7 @@ public class OrderService {
         }
     }
 
-    private Page<OrderResponse> findOrders(UUID userId, UUID sellerId, OrderStatus status, OrderType orderType,
+    private Page<OrderResponse> findOrders(CurrentUser user, UUID userId, UUID sellerId, OrderStatus status, OrderType orderType,
                                            OffsetDateTime from, OffsetDateTime to, int page, int size) {
         if (page < 0 || size < 1 || size > 100) {
             throw new DomainException(CommerceErrorCode.INVALID_ORDER_FILTER,
@@ -524,7 +524,7 @@ public class OrderService {
             return criteria.and(predicates.toArray(Predicate[]::new));
         };
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "orderNumber"));
-        return orderRepository.findAll(filter, pageable).map(this::toOrderResponse);
+        return orderRepository.findAll(filter, pageable).map(order -> toOrderResponse(order, user));
     }
 
     private ProductResponse readProduct(UUID id) {
@@ -604,20 +604,20 @@ public class OrderService {
 
         return groupRepository.findByBuyerIdOrderByCreatedAtDesc(user.id())
                 .stream()
-                .map(this::toResponse)
+                .map(group -> toResponse(group, user))
                 .toList();
     }
 
-    private OrderGroupResponse toResponse(OrderGroup group) {
+    private OrderGroupResponse toResponse(OrderGroup group, CurrentUser user) {
         List<OrderResponse> orders = group.getOrders().stream()
                 .sorted(Comparator.comparing(Order::getOrderNumber))
-                .map(this::toOrderResponse)
+                .map(order -> toOrderResponse(order, user))
                 .toList();
         return new OrderGroupResponse(group.getId(), group.getStatus(), group.getTotalAmount(),
                 group.getCurrency(), group.getDueAt(), orders);
     }
 
-    private OrderResponse toOrderResponse(Order order) {
+    private OrderResponse toOrderResponse(Order order, CurrentUser user) {
         List<OrderItemResponse> items = order.getItems().stream()
                 .sorted(Comparator.comparing(OrderItem::getId))
                 .map(this::toItemResponse)
@@ -626,7 +626,15 @@ public class OrderService {
                 order.getOrderType(), order.getStatus(), order.getCreatedAt(), order.getTotalAmount(), items,
                 shippingSnapshotText(order, "name", "recipientName"), shippingSnapshotText(order, "phone", "phoneNumber"),
                 order.getOrderGroup().getId(), order.getSubtotal(), order.getShippingFee(),
-                order.getDiscountAmount(), order.getTaxAmount());
+                order.getDiscountAmount(), order.getTaxAmount(), canCancel(order, user));
+    }
+
+    // This is a snapshot for the UI; cancel() rechecks the locked state and may still return 409.
+    private boolean canCancel(Order order, CurrentUser user) {
+        return user.hasPrivilege("ORDER.CANCEL")
+                && (order.getUserId().equals(user.id()) || user.hasRole("ADMIN") || user.hasRole("SUPPORT_STAFF"))
+                && (order.getStatus() == OrderStatus.PAID
+                    || (order.getStatus() == OrderStatus.PENDING && "PENDING".equals(order.getOrderGroup().getStatus())));
     }
 
     // Read the immutable order snapshot, never current user-profile data. Old orders

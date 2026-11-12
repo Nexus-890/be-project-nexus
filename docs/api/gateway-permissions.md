@@ -96,6 +96,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/orders/sales` | GET | ORDER.LIST | #190 — Seller orders; service additionally requires SELLER and JWT seller ownership |
 | `/api/v1/orders/groups/{id}` | GET | ORDER.VIEW | #138 — The complete order group; service requires its buyer owner or ADMIN |
 | `/api/v1/orders/{id}` | GET | ORDER.VIEW | #117 — Order read endpoints; the owner or ADMIN |
+| `/api/v1/orders/{id}/invoice` | GET | ORDER.VIEW | #204 — Completed-order HTML receipt; the buyer owner only |
 | `/api/v1/orders/{id}/cancel` | POST | ORDER.CANCEL | #189 — Order cancellation; the buyer, ADMIN or SUPPORT_STAFF |
 | `/api/v1/carts/me/pricing` | GET | CART.VIEW | CRT-05 — Read-only cart pricing |
 | `/api/v1/carts/me/validate` | POST | CART.VIEW | CRT-06 — Read-only cart validation |
@@ -111,10 +112,10 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/refunds/{id}/complete` | POST | ORDER.REFUND | #247 — payment-service; manual transfer confirmation enforced downstream |
 | `/api/v1/shipping/quotes` | POST | SHIPPING.QUOTE | #201 — shipment-service |
 | `/api/v1/carriers` | GET | SHIPPING.QUOTE | #201 — shipment-service; SHP-11 |
-| `/api/v1/shipments` | POST | SHIPPING.CREATE_SHIPMENT | #202 — shipment-service; manual creation |
+| `/api/v1/shipments` | POST | SHIPPING.CREATE_SHIPMENT | #202 — shipment-service; manual creation additionally requires ADMIN or SUPPORT_STAFF downstream |
 | `/api/v1/shipments` | GET | SHIPPING.VIEW_SHIPMENT | #202 — shipment-service; own-order visibility enforced downstream |
 | `/api/v1/shipments/{id}` | GET | SHIPPING.VIEW_SHIPMENT | #202 — shipment-service; own-order visibility enforced downstream |
-| `/api/v1/shipments/{id}/tracking` | GET | SHIPPING.VIEW_SHIPMENT | #203 — shipment-service; own-order visibility enforced downstream |
+| `/api/v1/shipments/{id}/tracking` | GET | SHIPPING.VIEW_SHIPMENT | #206 / #203 — shipment-service; persisted tracking/history read delivered for the buyer order page; own-order visibility enforced downstream |
 | `/api/v1/shipments/{id}/status` | PATCH | SHIPPING.UPDATE_STATUS | #203 — shipment-service |
 | `/api/v1/shipments/{id}/override` | POST | SHIPPING.MANUAL_OVERRIDE | #203 — shipment-service; reason required downstream |
 | `/api/v1/ratings` | POST | REPUTATION.RATE | #212 — rating-service; completed-order eligibility checked downstream |
@@ -123,7 +124,11 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/reputations/{userId}/adjustments` | POST | USER.REPUTATION.ADJUST | #213 — rating-service; reason and score bounds checked downstream |
 | `/api/v1/reputations/{userId}/history` | GET | USER.REPUTATION.VIEW | #213 — rating-service |
 | `/api/v1/auctions` | POST | AUCTION.CREATE | #140 — Create as SELLER; `sellerId` comes from the JWT subject |
+| `/api/v1/auctions/{id}/bids` | POST | AUCTION.BID | #146/#147 — Place a bid as BUYER; the bidder cannot be the auction seller. Required UUID `Idempotency-Key`; replay requires the original bidder, auction and numeric amount; a different amount returns 409 |
 | `/api/v1/auctions/{id}/schedule` | POST | AUCTION.UPDATE | #144 — Owner with SELLER role publishes a CREATED auction |
+| `/api/v1/auctions/{id}` | PUT | AUCTION.UPDATE | #197 — SELLER/ADMIN owner, CREATED/SCHEDULED before startAt |
+| `/api/v1/auctions/{id}/cancel` | POST | AUCTION.CANCEL | #197 — SELLER owner with no valid bids |
+| `/api/v1/auctions/{id}/admin-cancel` | POST | AUCTION.ADMIN_CANCEL | #197 — ADMIN; CREATED/SCHEDULED/ACTIVE/ENDED/WON only |
 | `/api/v1/auctions` | GET | Public | #143 — PUBLIC, non-deleted auctions; status defaults to ACTIVE, endAt ascending |
 | `/api/v1/auctions/{id}` | GET | Public | #143 — PUBLIC, non-deleted auction; hidden and missing rows return 404 |
 | `/api/v1/inventory` | GET | Public | #132 — inventory-service; `skuIds` query, at most 100; returns `skuId` and `available` only |
@@ -403,6 +408,7 @@ These older drafts add no public method/path pairs to the active table above.
 | POST | `/api/v1/orders` | BUYER | ORDER.CREATE | CHECKOUT.START AND ORDER.CREATE | Own cart; caller-scoped idempotency key | #113, #114, #115 |
 | GET | `/api/v1/orders` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.LIST | ORDER.LIST | Own orders only, including for ADMIN; not a global admin list | #117 |
 | GET | `/api/v1/orders/{id}` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #117 |
+| GET | `/api/v1/orders/{id}/invoice` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Buyer owner only, including for ADMIN; HTML for COMPLETED, other status returns 409 | #204 |
 | GET | `/api/v1/orders/groups/{id}` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Group buyer owner or ADMIN; includes every seller order; another buyer returns 403 | #138 |
 | GET | `/api/v1/orders/{id}/history` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #116 |
 | PATCH | `/api/v1/orders/{id}/status` | ADMIN | token only | none (role-only) | Service requires ADMIN; moves follow the order transition table, other moves return 409; audit actor and reason | #116 |
@@ -650,7 +656,7 @@ A path with several roles in `x-required-roles` accepts any one of them.
 | POST | `/api/v1/auctions/{id}/cancel` | ADMIN, SELLER | AUCTION.CANCEL | AUCTION.CANCEL | Owner of the auction; only while it has no valid bid | #197 |
 | POST | `/api/v1/auctions/{id}/admin-cancel` | ADMIN | AUCTION.ADMIN_CANCEL | AUCTION.ADMIN_CANCEL | Any auction not yet settled or cancelled; audit actor and reason | #197 |
 | GET | `/api/v1/auctions/mine` | SELLER | AUCTION.LIST | AUCTION.LIST | Own auctions only | #198 |
-| POST | `/api/v1/auctions/{id}/bids` | BUYER | AUCTION.BID | AUCTION.BID | Not the auction's seller; caller-scoped idempotency key | #146, #147 |
+| POST | `/api/v1/auctions/{id}/bids` | BUYER | AUCTION.BID | AUCTION.BID | Not the auction's seller; globally unique UUID key replays only for the original bidder, auction and numeric amount; a different amount returns 409 | #146, #147 |
 | GET | `/api/v1/auctions/{id}/bids` | public | public | none (public) |  | #169 |
 | GET | `/api/v1/bids/mine` | BUYER | AUCTION.VIEW_BID_HISTORY | AUCTION.VIEW_BID_HISTORY | Own bids only | #198 |
 

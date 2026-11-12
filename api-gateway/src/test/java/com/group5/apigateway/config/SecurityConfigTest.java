@@ -304,6 +304,28 @@ class SecurityConfigTest {
     }
 
     @Test
+    void invoiceRequiresOrderViewAndForwardsBearerForServiceOwnershipChecks() {
+        String path = "/api/v1/orders/" + ID + "/invoice";
+        client.get().uri(path).exchange().expectStatus().isUnauthorized()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        String listOnly = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("privileges", List.of("ORDER.LIST")));
+        client.get().uri(path).header(HttpHeaders.AUTHORIZATION, listOnly)
+                .exchange().expectStatus().isForbidden()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody().jsonPath("$.code").isEqualTo("FORBIDDEN");
+        assertThat(SERVICE_LOG).isEmpty();
+
+        String view = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("privileges", List.of("ORDER.VIEW")));
+        client.get().uri(path).header(HttpHeaders.AUTHORIZATION, view)
+                .exchange().expectStatus().isOk().expectBody(String.class).isEqualTo("downstream");
+        assertThat(SERVICE_LOG).containsExactly("GET " + path);
+        assertThat(FORWARDED_TOKENS).containsExactly(view);
+    }
+
+    @Test
     void orderGroupRequiresOrderViewAndForwardsBearerForServiceOwnershipChecks() {
         String path = "/api/v1/orders/groups/" + ID;
         client.get().uri(path).exchange().expectStatus().isUnauthorized()
@@ -526,6 +548,27 @@ class SecurityConfigTest {
                         c -> c.claim("privileges", List.of("AUCTION.UPDATE"))))
                 .exchange().expectStatus().isOk();
         assertThat(SERVICE_LOG).containsExactly("POST " + path);
+    }
+
+    @Test
+    void auctionConfigurationAndCancellationRequireTheirExactPrivileges() {
+        var paths = Map.of(
+                "/api/v1/auctions/" + ID, "AUCTION.UPDATE",
+                "/api/v1/auctions/" + ID + "/cancel", "AUCTION.CANCEL",
+                "/api/v1/auctions/" + ID + "/admin-cancel", "AUCTION.ADMIN_CANCEL");
+        paths.forEach((path, privilege) -> {
+            HttpMethod method = privilege.equals("AUCTION.UPDATE") ? HttpMethod.PUT : HttpMethod.POST;
+            int before = SERVICE_LOG.size();
+            client.method(method).uri(path).exchange().expectStatus().isUnauthorized();
+            client.method(method).uri(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                    c -> c.claim("privileges", List.of("AUCTION.CREATE"))))
+                    .exchange().expectStatus().isForbidden();
+            assertThat(SERVICE_LOG).hasSize(before);
+            client.method(method).uri(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                    c -> c.claim("privileges", List.of(privilege))))
+                    .exchange().expectStatus().isOk();
+            assertThat(SERVICE_LOG).hasSize(before + 1).contains(method + " " + path);
+        });
     }
 
     @Test

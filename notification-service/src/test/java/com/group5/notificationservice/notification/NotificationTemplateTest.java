@@ -26,8 +26,9 @@ class NotificationTemplateTest {
     }
 
     @Test
-    void onlyOrderCreatedHasATemplate() {
+    void orderCreatedAndCompletedHaveTemplates() {
         assertThat(NotificationTemplate.forEventType("OrderCreated")).contains(NotificationTemplate.ORDER_CREATED);
+        assertThat(NotificationTemplate.forEventType("OrderCompleted")).contains(NotificationTemplate.ORDER_COMPLETED);
         assertThat(NotificationTemplate.forEventType("CategoryCreated")).isEmpty();
         assertThat(NotificationTemplate.forEventType("OrderPaid")).isEmpty();
     }
@@ -38,5 +39,30 @@ class NotificationTemplateTest {
                 JsonMapper.shared().readTree("{\"orderNumber\":\"NX-1\"}")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("buyerId");
+    }
+
+    @Test
+    void orderCompletedKeepsTheReceiptSeparateFromTheInAppSummary() {
+        String html = "<!doctype html><html><body><h1>Receipt NX-204</h1><p>Caf&eacute; &amp; tea</p></body></html>";
+        Notification notification = NotificationTemplate.ORDER_COMPLETED.render(JsonMapper.shared().valueToTree(
+                java.util.Map.of("orderId", "00000000-0000-4000-8000-000000000001",
+                        "buyerId", "00000000-0000-4000-8000-000000000002",
+                        "orderNumber", "NX-204", "receiptHtml", html)));
+
+        assertThat(notification.getUserId()).isEqualTo(UUID.fromString("00000000-0000-4000-8000-000000000002"));
+        assertThat(notification.getType()).isEqualTo("ORDER_COMPLETED");
+        assertThat(notification.getTitle()).isEqualTo("Order receipt");
+        assertThat(notification.getContent()).isEqualTo("Your order NX-204 is complete. Your receipt is ready.");
+        assertThat(notification.getEmailHtml()).isEqualTo(html);
+    }
+
+    @Test
+    void completionWithoutAReceiptIsRejectedBeforeCreatingANotification() {
+        assertThatThrownBy(() -> NotificationTemplate.ORDER_COMPLETED.render(JsonMapper.shared().readTree("""
+                {"orderId":"00000000-0000-4000-8000-000000000001",
+                 "buyerId":"00000000-0000-4000-8000-000000000002","orderNumber":"NX-204"}
+                """)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("receiptHtml");
     }
 }
