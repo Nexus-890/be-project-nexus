@@ -156,7 +156,8 @@ class CatalogClientIntegrationTest {
     @EnableAutoConfiguration(exclude = {
             DataSourceAutoConfiguration.class, DataJpaRepositoriesAutoConfiguration.class,
             HibernateJpaAutoConfiguration.class, FlywayAutoConfiguration.class
-    })
+    }, excludeName = {"com.group5.common_outbox.autoconfigure.IdempotentConsumerAutoConfiguration",
+            "com.group5.common_outbox.autoconfigure.OutboxAutoConfiguration"})
     @EnableFeignClients(clients = CatalogClient.class)
     static class TestApplication {
     }
@@ -238,7 +239,8 @@ class CatalogDiscoveryClientIntegrationTest {
     @EnableAutoConfiguration(exclude = {
             DataSourceAutoConfiguration.class, DataJpaRepositoriesAutoConfiguration.class,
             HibernateJpaAutoConfiguration.class, FlywayAutoConfiguration.class
-    })
+    }, excludeName = {"com.group5.common_outbox.autoconfigure.IdempotentConsumerAutoConfiguration",
+            "com.group5.common_outbox.autoconfigure.OutboxAutoConfiguration"})
     @EnableFeignClients(clients = CatalogClient.class)
     static class TestApplication {
         @Bean

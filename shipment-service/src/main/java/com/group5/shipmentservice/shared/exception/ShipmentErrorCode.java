@@ -4,6 +4,12 @@ import com.group5.common_core.constant.ErrorCode;
 import org.springframework.http.HttpStatus;
 
 public enum ShipmentErrorCode implements ErrorCode {
+    IDEMPOTENCY_KEY_REQUIRED(HttpStatus.BAD_REQUEST, "Cần có Idempotency-Key"),
+    IDEMPOTENCY_CONFLICT(HttpStatus.CONFLICT, "Khóa hoặc yêu cầu tạo vận đơn đã được dùng với nội dung khác"),
+    ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy đơn hàng để tạo vận đơn"),
+    ORDER_NOT_PAID(HttpStatus.CONFLICT, "Đơn hàng chưa thanh toán hoặc không còn ở trạng thái PAID"),
+    INVALID_ORDER_SNAPSHOT(HttpStatus.BAD_GATEWAY, "Snapshot vận chuyển của đơn hàng không hợp lệ"),
+    COMMERCE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Dịch vụ đơn hàng hiện không khả dụng"),
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "Dữ liệu báo giá không hợp lệ"),
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "Dữ liệu yêu cầu không hợp lệ"),
     INVALID_REQUEST_BODY(HttpStatus.BAD_REQUEST, "Nội dung yêu cầu không hợp lệ"),

@@ -4,22 +4,24 @@ import com.group5.common_core.constant.ErrorCode;
 import org.springframework.http.HttpStatus;
 
 public enum AuctionErrorCode implements ErrorCode {
+    AUCTION_START_IN_PAST(HttpStatus.BAD_REQUEST, "startAt must not be in the past (5 seconds of clock skew allowed)"),
+    AUCTION_INVALID_TIME_WINDOW(HttpStatus.BAD_REQUEST, "endAt must be after startAt"),
+    AUCTION_DURATION_TOO_SHORT(HttpStatus.BAD_REQUEST, "Auction duration is below the configured minimum"),
+    AUCTION_DURATION_TOO_LONG(HttpStatus.BAD_REQUEST, "Auction duration exceeds the configured maximum"),
     AUCTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Auction not found"),
     AUCTION_FORBIDDEN(HttpStatus.FORBIDDEN, "This actor cannot perform the auction action"),
     AUCTION_ILLEGAL_TRANSITION(HttpStatus.CONFLICT, "The auction cannot move to this status from its current status"),
     AUCTION_NOT_EDITABLE(HttpStatus.CONFLICT, "Only an auction that has not started can be configured"),
     AUCTION_HAS_BIDS(HttpStatus.CONFLICT, "The auction has valid bids"),
-    AUCTION_START_IN_PAST("startAt must not be in the past (5 seconds of clock skew allowed)"),
-    AUCTION_INVALID_TIME_WINDOW("endAt must be after startAt"),
-    AUCTION_DURATION_TOO_SHORT("Auction duration is below the configured minimum"),
-    AUCTION_DURATION_TOO_LONG("Auction duration exceeds the configured maximum");
+    AUCTION_BID_TOO_LOW(HttpStatus.BAD_REQUEST, "Bid amount is below the minimum accepted bid"),
+    AUCTION_IDEMPOTENCY_KEY_REQUIRED(HttpStatus.BAD_REQUEST, "Idempotency-Key is required"),
+    AUCTION_INVALID_IDEMPOTENCY_KEY(HttpStatus.BAD_REQUEST, "Idempotency-Key must be a UUID"),
+    AUCTION_IDEMPOTENCY_KEY_CONFLICT(HttpStatus.CONFLICT, "Idempotency-Key was already used for another auction, bidder or amount"),
+    AUCTION_NOT_ACTIVE(HttpStatus.CONFLICT, "Auction is not ACTIVE"),
+    AUCTION_SELLER_CANNOT_BID(HttpStatus.CONFLICT, "The seller cannot bid on their own auction");
 
-    private final String message;
     private final HttpStatus status;
-
-    AuctionErrorCode(String message) {
-        this(HttpStatus.BAD_REQUEST, message);
-    }
+    private final String message;
 
     AuctionErrorCode(HttpStatus status, String message) {
         this.status = status;

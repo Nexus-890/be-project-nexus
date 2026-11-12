@@ -33,13 +33,17 @@ public class EmailSender {
     }
 
     public String send(String to, String subject, String text) {
+        return send(to, subject, text, false);
+    }
+
+    public String send(String to, String subject, String text, boolean html) {
         MimeMessage message = mailSender.createMimeMessage();
         try {
             MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
             helper.setFrom(properties.getFrom());
             helper.setTo(to);
             helper.setSubject(subject);
-            helper.setText(text);
+            helper.setText(text, html);
             mailSender.send(message);
             String messageId = message.getMessageID();
             return messageId == null ? null : messageId.substring(0, Math.min(messageId.length(), MAX_MESSAGE_ID));

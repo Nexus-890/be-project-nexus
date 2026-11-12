@@ -124,6 +124,7 @@ Services talk through events by default: outbox, Kafka, `IdempotentConsumer`. A 
 | commerce → inventory | `POST /api/v1/inventory/reservations` | The buyer waits for the answer: an order without stock must fail at once with 409 | #113, #138 |
 | commerce → shipment | `POST /api/v1/shipping/quotes` | The checkout preview shows the shipping fee before the buyer confirms | #188, #201 |
 | shipment → catalog | `GET /api/v1/skus/{id}` (`CatalogClient`, OpenFeign) | Báo giá cần giá SKU hiện tại để tính giá trị hàng và xét ngưỡng miễn phí vận chuyển; không nhận giá từ browser | #201 |
+| shipment → commerce | `GET /internal/v1/orders/{id}/shipping-snapshot` (OpenFeign) | Manual shipment creation must verify the order is currently PAID and read its persisted buyer, items, fee and recipient before creating a shipment; the request contains only orderId and optional dispatch selections | #202 |
 | auction → rating | `GET /internal/v1/eligibility/{userId}` | A bid or an auction from an ineligible user must be refused before it is written | #214 |
 | user → Keycloak | Admin API: create user, set password, assign role, unlock | Registration returns 201 only once the account exists | #211, #238 |
 | gateway and services → Keycloak | `GET /realms/nexus/protocol/openid-connect/certs` | Public keys to validate tokens, cached by the resource server | #237 |
@@ -131,6 +132,18 @@ Services talk through events by default: outbox, Kafka, `IdempotentConsumer`. A 
 | Sepay → payment | `POST /api/v1/webhooks/sepay` | External provider, inbound | #155 |
 
 Every internal synchronous call has a timeout and a circuit breaker, and fails closed with a clear 503 instead of hanging (#138, #214).
+
+The #202 manual-create read is direct to commerce-service, never a read of
+`commerce_db` by shipment-service and never routed through the public gateway.
+It forwards the authenticated caller's bearer token; commerce independently
+requires `SHIPPING.CREATE_SHIPMENT` and `ADMIN` or `SUPPORT_STAFF`. The call has
+a bounded timeout and circuit breaker. Unknown orders, non-PAID orders and
+invalid stored snapshots fail closed before local shipment writes. A valid
+HTTP replay may use its existing shipment without re-reading commerce.
+The two databases remain independent: the snapshot is commerce's state at the
+time of the read, not a cross-service transaction or cancellation guarantee.
+`OrderPaid` remains the asynchronous creation path; manual POST racing that
+consumer uses the same order lock and `shipments.order_id` uniqueness.
 
 ---
 

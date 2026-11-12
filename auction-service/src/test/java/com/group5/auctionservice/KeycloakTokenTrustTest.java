@@ -1,6 +1,9 @@
 package com.group5.auctionservice;
 
 import com.group5.auctionservice.auction.AuctionRepository;
+import com.group5.auctionservice.bidding.Bid;
+import com.group5.auctionservice.bidding.BidRepository;
+import com.group5.common_outbox.OutboxWriter;
 import com.group5.common_security.CurrentUser;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -28,17 +31,28 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.WebApplicationContext;
+
+import java.math.BigDecimal;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -74,8 +88,10 @@ class KeycloakTokenTrustTest {
     private static final HttpServer JWKS = jwks();
     @Autowired private WebApplicationContext context;
     @MockitoBean private AuctionRepository auctions;
-    @MockitoBean private com.group5.common_outbox.OutboxWriter outbox;
+    @MockitoBean private BidRepository bids;
+    @MockitoBean private OutboxWriter outbox;
     @MockitoBean private Clock clock;
+    @MockitoBean private PlatformTransactionManager transactionManager;
     private MockMvc client;
 
     @DynamicPropertySource
@@ -176,6 +192,104 @@ class KeycloakTokenTrustTest {
                     .andExpect(jsonPath("$.code").value("FORBIDDEN"));
         }
         verifyNoInteractions(auctions);
+    }
+
+    @Test
+    void missingBidKeyReturnsAuctionProblemWithoutDatabaseAccess() throws Exception {
+        client.perform(post(AUCTIONS + "/" + UUID.randomUUID() + "/bids")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + auctionToken("BUYER", List.of("AUCTION.BID")))
+                        .content("{\"amount\":1050000}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("AUCTION_IDEMPOTENCY_KEY_REQUIRED"));
+        verifyNoInteractions(auctions, bids, outbox);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"' ', AUCTION_IDEMPOTENCY_KEY_REQUIRED", "not-a-uuid, AUCTION_INVALID_IDEMPOTENCY_KEY",
+            "1-1-1-1-1, AUCTION_INVALID_IDEMPOTENCY_KEY"})
+    void invalidBidKeyReturnsAuctionProblemWithoutDatabaseAccess(String key, String code) throws Exception {
+        client.perform(post(AUCTIONS + "/" + UUID.randomUUID() + "/bids")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + auctionToken("BUYER", List.of("AUCTION.BID")))
+                        .header("Idempotency-Key", key).content("{\"amount\":1050000}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value(code));
+        verifyNoInteractions(auctions, bids, outbox);
+    }
+
+    @Test
+    void firstBidReturns201AndReplayReturns200WithIdenticalEnvelope() throws Exception {
+        UUID auctionId = UUID.randomUUID();
+        UUID bidId = UUID.randomUUID();
+        String key = UUID.randomUUID().toString();
+        Bid accepted = mock(Bid.class);
+        when(accepted.getId()).thenReturn(bidId);
+        when(accepted.getAuctionId()).thenReturn(auctionId);
+        when(accepted.getBidderId()).thenReturn(UUID.fromString(SUBJECT));
+        when(accepted.getAmount()).thenReturn(new BigDecimal("1050000.00"));
+        when(accepted.getPlacedAt()).thenReturn(Instant.parse("2026-11-05T10:00:00Z"));
+        when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+        when(bids.findByIdempotencyKey(key)).thenReturn(Optional.empty(), Optional.of(accepted));
+        when(auctions.acceptBid(auctionId, UUID.fromString(SUBJECT), new BigDecimal("1050000.00"))).thenReturn(1);
+        when(bids.saveAndFlush(any())).thenReturn(accepted);
+        String token = auctionToken("BUYER", List.of("AUCTION.BID"));
+
+        String first = client.perform(post(AUCTIONS + "/" + auctionId + "/bids")
+                        .contentType(MediaType.APPLICATION_JSON).header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", key).content("{\"amount\":1050000}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.message").value("response success"))
+                .andExpect(jsonPath("$.data.bidId").value(bidId.toString()))
+                .andReturn().getResponse().getContentAsString();
+        String replay = client.perform(post(AUCTIONS + "/" + auctionId + "/bids")
+                        .contentType(MediaType.APPLICATION_JSON).header("Authorization", "Bearer " + token)
+                        .header("Idempotency-Key", key).content("{\"amount\":1050000.00}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(replay).isEqualTo(first);
+        verify(auctions, times(1)).acceptBid(any(), any(), any());
+        verify(bids, times(1)).saveAndFlush(any());
+        verify(outbox, times(1)).write(any(), any(), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1100000", "1020000"})
+    void reusedBidKeyWithChangedAmountReturns409ProblemWithoutWrites(String amount) throws Exception {
+        UUID auctionId = UUID.randomUUID();
+        String key = UUID.randomUUID().toString();
+        Bid accepted = mock(Bid.class);
+        when(accepted.getAuctionId()).thenReturn(auctionId);
+        when(accepted.getBidderId()).thenReturn(UUID.fromString(SUBJECT));
+        when(accepted.getAmount()).thenReturn(new BigDecimal("1050000.00"));
+        when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+        when(bids.findByIdempotencyKey(key)).thenReturn(Optional.of(accepted));
+
+        client.perform(post(AUCTIONS + "/" + auctionId + "/bids")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + auctionToken("BUYER", List.of("AUCTION.BID")))
+                        .header("Idempotency-Key", key).content("{\"amount\":" + amount + "}"))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.code").value("AUCTION_IDEMPOTENCY_KEY_CONFLICT"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+        verifyNoInteractions(auctions, outbox);
+        verify(bids, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void bidRequiresBothBuyerRoleAndPrivilege() throws Exception {
+        for (String token : List.of(auctionToken("SELLER", List.of("AUCTION.BID")),
+                auctionToken("ADMIN", List.of("AUCTION.BID")), auctionToken("BUYER", List.of()))) {
+            client.perform(post(AUCTIONS + "/" + UUID.randomUUID() + "/bids")
+                            .contentType(MediaType.APPLICATION_JSON).header("Authorization", "Bearer " + token)
+                            .header("Idempotency-Key", UUID.randomUUID()).content("{\"amount\":1050000}"))
+                    .andExpect(status().isForbidden());
+        }
+        verifyNoInteractions(auctions, bids, outbox);
     }
 
     @ParameterizedTest
