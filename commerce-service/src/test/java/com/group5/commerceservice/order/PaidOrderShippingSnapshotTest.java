@@ -59,6 +59,7 @@ class PaidOrderShippingSnapshotTest {
 
         assertThat(snapshot.orderId()).isEqualTo(orderId);
         assertThat(snapshot.buyerId()).isEqualTo(jdbc().queryForObject("SELECT user_id FROM orders WHERE id=?", UUID.class, orderId));
+        assertThat(snapshot.sellerId()).isEqualTo(jdbc().queryForObject("SELECT seller_id FROM orders WHERE id=?", UUID.class, orderId));
         assertThat(snapshot.orderVersion()).isEqualTo(4);
         assertThat(snapshot.status()).isEqualTo("PAID");
         assertThat(snapshot.paidAt()).isEqualTo(PAID_AT);

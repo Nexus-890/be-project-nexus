@@ -21,6 +21,11 @@ springdoc:
 nexus:
   shipping:
     order-paid-consumer-enabled: ${SHIPPING_ORDER_PAID_CONSUMER_ENABLED:true}
+    order-cancelled-consumer-enabled: ${SHIPPING_ORDER_CANCELLED_CONSUMER_ENABLED:true}
+    status-poll-enabled: ${SHIPPING_STATUS_POLL_ENABLED:true}
+    status-poll-interval-ms: ${SHIPPING_STATUS_POLL_INTERVAL_MS:60000}
+    status-poll-job-ms: ${SHIPPING_STATUS_POLL_JOB_MS:5000}
+    status-poll-initial-delay-ms: ${SHIPPING_STATUS_POLL_INITIAL_DELAY_MS:60000}
     tracking-retry-backoff-ms: ${SHIPPING_TRACKING_RETRY_BACKOFF_MS:30000}
     tracking-retry-poll-ms: ${SHIPPING_TRACKING_RETRY_POLL_MS:5000}
     carrier: ${SHIPPING_CARRIER:NONE}
@@ -44,8 +49,11 @@ nexus:
       required-note: ${GHN_REQUIRED_NOTE:KHONGCHOXEMHANG}
       http-timeout-ms: ${GHN_HTTP_TIMEOUT_MS:1500}
       master-data-cache-ttl-ms: ${GHN_MASTER_DATA_CACHE_TTL_MS:300000}
+      webhook-secret: ${GHN_WEBHOOK_SECRET:}
   security:
     public-endpoints:
+      - method: POST
+        path: /api/v1/webhooks/carriers/*
       - method: GET
         path: /api/v1/shipping/provinces
       - method: GET

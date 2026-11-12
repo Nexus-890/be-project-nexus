@@ -12,7 +12,7 @@ public class ShipmentOutboxConfiguration {
     @Bean
     public OutboxEventKeyResolver shipmentOutboxEventKeyResolver() {
         return event -> {
-            if (!"ShipmentCreated".equals(event.eventType())) return event.aggregateId();
+            if (!event.eventType().startsWith("Shipment")) return event.aggregateId();
             JsonNode orderId = event.payload().path("orderId");
             if (!orderId.isString()) {
                 throw new IllegalArgumentException("Shipment event requires an orderId publication key");

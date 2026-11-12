@@ -174,20 +174,20 @@ class ShipmentCompletionTest {
     }
 
     @Test
-    void deliveryBeforePickupIsDurablyParkedAndARecreatedJobCompletesItWithoutKafkaResending() {
+    void deliveryWithoutPickupCompletesTheOrderAndLatePickupIsANoOp() {
         Fixture order = order(OrderStatus.PAID, OrderType.STANDARD);
         var delivery = event(order, "ShipmentDelivered");
         send(delivery);
         send(delivery);
-        assertThat(status(order)).isEqualTo("PAID");
-        assertThat(history(order)).isEmpty();
+        assertThat(status(order)).isEqualTo("COMPLETED");
+        assertThat(history(order)).hasSize(3);
         assertThat(processed(delivery.eventId())).isEqualTo(1);
-        assertThat(pendingCount()).isEqualTo(1);
+        assertThat(pendingCount()).isZero();
         assertThat(retries.runOnce()).isZero();
         send(event(order, "ShipmentPickedUp"));
         assertThat(tracer.currentSpan()).isNull();
         ShipmentRetryJob restarted = new ShipmentRetryJob(pending, handler, transactions, tracer);
-        assertThat(restarted.runOnce()).isEqualTo(1);
+        assertThat(restarted.runOnce()).isZero();
         assertThat(status(order)).isEqualTo("COMPLETED");
         assertThat(outboxCount(order)).isEqualTo(1);
         assertThat(pendingCount()).isZero();
@@ -236,18 +236,18 @@ class ShipmentCompletionTest {
 
     @Test
     void aFailedPendingCompletionKeepsItsInboxRowAndRollsBackHistoryAndOutbox() {
-        Fixture order = order(OrderStatus.PAID, OrderType.STANDARD);
+        Fixture order = order(OrderStatus.PENDING, OrderType.STANDARD);
         var delivery = event(order, "ShipmentDelivered");
         send(delivery);
-        send(event(order, "ShipmentPickedUp"));
+        jdbc().update("UPDATE orders SET status='PAID' WHERE id=?", order.id());
         doAnswer(invocation -> {
             invocation.callRealMethod();
             throw new IllegalStateException("Failure after pending completion outbox insert");
         }).when(publisher).orderCompleted(any(OrderCompleted.class));
 
         assertThat(retries.runOnce()).isZero();
-        assertThat(status(order)).isEqualTo("SHIPPED");
-        assertThat(history(order)).containsExactly("PAID -> SHIPPED");
+        assertThat(status(order)).isEqualTo("PAID");
+        assertThat(history(order)).isEmpty();
         assertThat(outboxCount(order)).isZero();
         assertThat(pendingCount()).isEqualTo(1);
         reset(publisher);
@@ -259,19 +259,19 @@ class ShipmentCompletionTest {
 
     @Test
     void moreThanOneHundredWaitingEventsDoNotStarveAReadyCompletion() {
-        Fixture waiting = order(OrderStatus.PAID, OrderType.STANDARD);
+        Fixture waiting = order(OrderStatus.PENDING, OrderType.STANDARD);
         jdbc().update("""
                 INSERT INTO pending_order_shipment_events (event_id, envelope)
                 SELECT id, jsonb_set(?::jsonb, '{eventId}', to_jsonb(id::text))
                 FROM (SELECT uuidv7() AS id FROM generate_series(1,101)) waiting
                 """, JsonMapper.shared().writeValueAsString(event(waiting, "ShipmentDelivered")));
-        Fixture ready = order(OrderStatus.PAID, OrderType.STANDARD);
+        Fixture ready = order(OrderStatus.PENDING, OrderType.STANDARD);
         send(event(ready, "ShipmentDelivered"));
-        send(event(ready, "ShipmentPickedUp"));
+        jdbc().update("UPDATE orders SET status='PAID' WHERE id=?", ready.id());
 
         assertThat(retries.runOnce()).isEqualTo(1);
         assertThat(status(ready)).isEqualTo("COMPLETED");
-        assertThat(status(waiting)).isEqualTo("PAID");
+        assertThat(status(waiting)).isEqualTo("PENDING");
         assertThat(pendingCount()).isEqualTo(101);
     }
 
@@ -313,6 +313,22 @@ class ShipmentCompletionTest {
         assertThat(processed(invalid.eventId())).isZero();
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"ShipmentInTransit", "ShipmentFailed", "ShipmentReturned", "ShipmentStatusUpdated"})
+    void carrierProgressWithoutPickupMovesPaidOrderToShippedExactlyOnce(String type) {
+        Fixture order = order(OrderStatus.PAID, OrderType.STANDARD);
+        var progress = event(order, type);
+        send(progress);
+        send(progress);
+        assertThat(status(order)).isEqualTo("SHIPPED");
+        assertThat(history(order)).containsExactly("PAID -> SHIPPED");
+        send(event(order, "ShipmentPickedUp"));
+        send(event(order, "ShipmentDelivered"));
+        assertThat(status(order)).isEqualTo("COMPLETED");
+        assertThat(history(order)).hasSize(3);
+        assertThat(outboxCount(order)).isEqualTo(1);
+    }
+
     private void send(EventEnvelope<ShipmentStatusChanged> event) {
         assertThat(tracer.currentSpan()).isNull();
         listener.receive(new ConsumerRecord<>(Topics.SHIPMENT, 0, 0, event.payload().orderId().toString(),
@@ -323,8 +339,15 @@ class ShipmentCompletionTest {
 
     private static EventEnvelope<ShipmentStatusChanged> event(Fixture order, String type) {
         boolean delivered = "ShipmentDelivered".equals(type);
+        String status = switch (type) {
+            case "ShipmentInTransit" -> "IN_TRANSIT";
+            case "ShipmentFailed" -> "DELIVERY_FAILED";
+            case "ShipmentReturned" -> "RETURNED";
+            case "ShipmentStatusUpdated" -> "OUT_FOR_DELIVERY";
+            default -> delivered ? "DELIVERED" : "SHIPPED";
+        };
         var payload = new ShipmentStatusChanged(order.shipmentId(), order.id(), order.buyerId(), UUID.randomUUID(),
-                "GHN", "GHN-204", delivered ? "DELIVERED" : "SHIPPED", UUID.randomUUID(), delivered ? 2L : 1L,
+                "GHN", "GHN-204", status, UUID.randomUUID(), delivered ? 2L : 1L,
                 "CARRIER_WEBHOOK", "GHN:" + UUID.randomUUID(), SYSTEM, "2026-11-07T12:00:00Z", null);
         return new EventEnvelope<>(UUID.randomUUID(), type, payload.shipmentId().toString(), Instant.now(),
                 "204shipment", payload);

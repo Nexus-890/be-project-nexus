@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Nexus vận chuyển
-  version: 2.4.0
+  version: 2.5.0
   description: >-
     Issue #201: danh sách nhà vận chuyển, địa giới GHN v3 hai cấp sau sáp nhập và báo giá bằng preview. Bản
     2.1 bổ sung insuranceValue tùy chọn, độc lập với subtotal của catalog; bỏ trống hoặc null tương đương 0.
@@ -17,6 +17,10 @@ info:
     tích hợp riêng. Snapshot thiếu dữ liệu chuẩn bị hoặc carrier chưa khả dụng giữ PENDING_TRACKING.
     Tracking retry không bổ sung dữ liệu chuẩn bị còn thiếu; #202 chưa có endpoint hoàn tất chuẩn bị.
     Bản 2.4 bổ sung đọc tracking và lịch sử trạng thái đã lưu cho buyer trên trang đơn hàng.
+    Bản 2.4 bổ sung #203: carrier callback có xác thực và chống trùng, tracking poller, lịch sử phân trang,
+    cập nhật trạng thái và override có lý do, cùng xử lý OrderCancelled trước khi carrier lấy hàng.
+    Callback thành công dùng phản hồi giao thức riêng; lỗi vẫn là Problem Details.
+
 servers:
   - url: http://localhost:8080
     description: Cổng API của hệ thống
@@ -50,6 +54,8 @@ paths:
         pickup phải có nguồn tin cậy; không dùng pickup cũ cho kho khác. Bỏ trống dùng lựa chọn tin cậy của
         đơn hoặc cấu hình shipping. Khi shipment đã tồn tại, các giá trị nếu gửi phải khớp lựa chọn đã lưu;
         không đổi carrier/service/kho sau khi có request identity. Khác lựa chọn trả 409 SHIPMENT_IDEMPOTENCY_CONFLICT.
+        OrderCancelled đến trước shipment được lưu thành tombstone bền vững; yêu cầu tạo thủ công sau đó
+        trả 409 SHIPMENT_ORDER_NOT_PAID và OrderPaid giao muộn không tạo/book shipment cho đơn đã hủy.
         Mỗi order chỉ có một shipment. Cùng Idempotency-Key và cùng yêu cầu trả lại shipment đã tạo;
         tái dùng khóa cho yêu cầu khác hoặc lựa chọn xung đột với shipment hiện có trả 409. Key đầu tiên
         được lưu trên shipment cùng fingerprint nội dung request; một key khác cho shipment đã gắn key
@@ -191,7 +197,7 @@ paths:
       x-required-privileges:
         - SHIPPING.VIEW_SHIPMENT
       x-required-roles: []
-      x-ownership: ADMIN/SUPPORT_STAFF đọc tất cả; các actor khác chỉ đọc buyerId bằng sub của JWT.
+      x-ownership: ADMIN/SUPPORT_STAFF đọc tất cả; buyerId bằng sub hoặc SELLER có sellerId bằng sub.
       x-error-codes:
         '400':
           - SHIPMENT_VALIDATION_FAILED
@@ -291,7 +297,7 @@ paths:
       x-required-privileges:
         - SHIPPING.VIEW_SHIPMENT
       x-required-roles: []
-      x-ownership: ADMIN/SUPPORT_STAFF đọc tất cả; các actor khác chỉ đọc buyerId bằng sub của JWT.
+      x-ownership: ADMIN/SUPPORT_STAFF đọc tất cả; buyerId bằng sub hoặc SELLER có sellerId bằng sub.
       x-error-codes:
         '400':
           - SHIPMENT_INVALID_PARAMETER
@@ -375,7 +381,7 @@ paths:
       x-required-privileges:
         - SHIPPING.VIEW_SHIPMENT
       x-required-roles: []
-      x-ownership: ADMIN/SUPPORT_STAFF đọc tất cả; các actor khác chỉ đọc buyerId bằng sub của JWT.
+      x-ownership: ADMIN/SUPPORT_STAFF đọc tất cả; buyerId bằng sub hoặc SELLER có sellerId bằng sub.
       x-error-codes:
         '400':
           - SHIPMENT_INVALID_PARAMETER
@@ -974,6 +980,466 @@ paths:
           $ref: '#/components/responses/Unavailable'
         '504':
           $ref: '#/components/responses/GatewayTimeout'
+  /api/v1/shipments/{id}/history:
+    get:
+      tags:
+        - Shipments
+      operationId: getShipmentHistory
+      summary: Đọc lịch sử trạng thái shipment
+      description: >-
+        Yêu cầu SHIPPING.VIEW_SHIPMENT. ADMIN/SUPPORT_STAFF đọc mọi shipment; actor khác chỉ đọc shipment
+        có buyerId bằng sub, hoặc role SELLER với sellerId tin cậy bằng sub. Không có quyền sở hữu trả 404 SHIPMENT_NOT_FOUND.
+        Đọc history đã lưu, không gọi carrier theo mỗi request. Sắp xếp changedAt giảm dần, sau đó id giảm
+        dần. Trang vượt cuối trả 200, data=[] và tổng thực tế.
+      security:
+        - bearerAuth: []
+      x-required-privileges:
+        - SHIPPING.VIEW_SHIPMENT
+      x-required-roles: []
+      x-ownership: ADMIN/SUPPORT_STAFF đọc tất cả; buyerId bằng sub hoặc SELLER có sellerId bằng sub.
+      x-error-codes:
+        '400':
+          - SHIPMENT_INVALID_PARAMETER
+        '401':
+          - SHIPMENT_UNAUTHENTICATED
+          - UNAUTHENTICATED
+        '403':
+          - SHIPMENT_FORBIDDEN
+          - FORBIDDEN
+        '404':
+          - SHIPMENT_NOT_FOUND
+        '405':
+          - SHIPMENT_METHOD_NOT_ALLOWED
+        '406':
+          - SHIPMENT_NOT_ACCEPTABLE
+        '429':
+          - RATE_LIMITED
+        '500':
+          - SHIPMENT_INTERNAL_ERROR
+          - INTERNAL_ERROR
+        '503':
+          - SERVICE_UNAVAILABLE
+        '504':
+          - GATEWAY_TIMEOUT
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: UUID của shipment.
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          description: Chỉ số trang bắt đầu từ 0.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          description: Số dòng lịch sử tối đa mỗi trang.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Lịch sử đã lưu và thông tin phân trang.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipmentTrackingListResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  - id: 00000000-0000-4000-8000-000000000041
+                    status: IN_TRANSIT
+                    description: Carrier xác nhận đang vận chuyển
+                    source: CARRIER_WEBHOOK
+                    carrierEventId: GHN:GHN-12345:switch_status:2026-11-11T10:00:00Z
+                    changedBy: 00000000-0000-0000-0000-000000000000
+                    changedAt: '2026-11-11T10:00:00Z'
+                page:
+                  number: 0
+                  size: 20
+                  totalElements: 1
+                  totalPages: 1
+        '400':
+          $ref: '#/components/responses/ShipmentBadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ShipmentNotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RoutingUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+  /api/v1/shipments/{id}/status:
+    patch:
+      tags:
+        - Shipments
+      operationId: updateShipmentStatus
+      summary: Cập nhật trạng thái shipment
+      description: >-
+        Yêu cầu privilege tương ứng và một trong hai vai trò ADMIN hoặc SUPPORT_STAFF. Mọi nguồn cập nhật
+        dùng chung quy tắc chuyển trạng thái và khóa shipment. Cho phép bỏ qua bước khi tiến về phía trước;
+        DELIVERY_FAILED có thể trở lại OUT_FOR_DELIVERY để giao lại. DELIVERED, CANCELLED và RETURNED là
+        trạng thái kết thúc; kể cả override cũng không cho DELIVERED -> IN_TRANSIT. Cùng trạng thái là
+        no-op, trả 200 và không thêm history/event. Mỗi thay đổi được chấp nhận ghi status/version, đúng
+        một history và một Shipment* outbox trong cùng transaction; event phát lên nexus.shipment.events.
+        actor lấy từ JWT, source=MANUAL; reason được chuẩn hóa để audit. reason tùy chọn. Khi đích là
+        CANCELLED trước pickup, hủy booking qua CarrierAdapter trước khi chốt trạng thái; carrier từ chối
+        hoặc lỗi thì không ghi local cancellation. Khi chưa có trackingCode, thao tác thủ công chỉ được giữ
+        nguyên trạng thái hoặc chuyển CANCELLED. Mọi thay đổi thủ công khác trả 409
+        SHIPMENT_INVALID_TRANSITION để giữ nguyên luồng retry booking PENDING_TRACKING.
+      security:
+        - bearerAuth: []
+      x-required-privileges:
+        - SHIPPING.UPDATE_STATUS
+      x-required-roles:
+        - ADMIN
+        - SUPPORT_STAFF
+      x-ownership: ADMIN hoặc SUPPORT_STAFF có privilege tương ứng được thao tác trên shipment; vai trò là ANY-of.
+      x-error-codes:
+        '400':
+          - SHIPMENT_VALIDATION_FAILED
+          - SHIPMENT_INVALID_REQUEST_BODY
+          - SHIPMENT_INVALID_PARAMETER
+        '401':
+          - SHIPMENT_UNAUTHENTICATED
+          - UNAUTHENTICATED
+        '403':
+          - SHIPMENT_FORBIDDEN
+          - FORBIDDEN
+        '404':
+          - SHIPMENT_NOT_FOUND
+        '405':
+          - SHIPMENT_METHOD_NOT_ALLOWED
+        '406':
+          - SHIPMENT_NOT_ACCEPTABLE
+        '409':
+          - SHIPMENT_INVALID_TRANSITION
+          - SHIPMENT_CARRIER_CANCELLATION_REJECTED
+        '415':
+          - SHIPMENT_UNSUPPORTED_MEDIA_TYPE
+        '429':
+          - RATE_LIMITED
+        '500':
+          - SHIPMENT_INTERNAL_ERROR
+          - INTERNAL_ERROR
+        '502':
+          - SHIPMENT_INVALID_CARRIER_RESPONSE
+        '503':
+          - SHIPMENT_CARRIER_UNAVAILABLE
+          - SHIPMENT_CIRCUIT_OPEN
+          - SHIPMENT_CARRIER_CONFIGURATION_ERROR
+          - SERVICE_UNAVAILABLE
+        '504':
+          - GATEWAY_TIMEOUT
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: UUID của shipment.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateShipmentStatusRequest'
+            example:
+              status: IN_TRANSIT
+              reason: Đã đối chiếu carrier
+      responses:
+        '200':
+          description: Shipment sau thay đổi hoặc kết quả no-op.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipmentEnvelope'
+              examples:
+                shipment:
+                  $ref: '#/components/examples/CreatedShipment'
+        '400':
+          $ref: '#/components/responses/ShipmentBadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ShipmentNotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '409':
+          $ref: '#/components/responses/ShipmentMutationConflict'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/CarrierBadUpstream'
+        '503':
+          $ref: '#/components/responses/CarrierUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+  /api/v1/shipments/{id}/override:
+    post:
+      tags:
+        - Shipments
+      operationId: overrideShipmentStatus
+      summary: Điều chỉnh trạng thái shipment có lý do
+      description: >-
+        Yêu cầu privilege tương ứng và một trong hai vai trò ADMIN hoặc SUPPORT_STAFF. Mọi nguồn cập nhật
+        dùng chung quy tắc chuyển trạng thái và khóa shipment. Cho phép bỏ qua bước khi tiến về phía trước;
+        DELIVERY_FAILED có thể trở lại OUT_FOR_DELIVERY để giao lại. DELIVERED, CANCELLED và RETURNED là
+        trạng thái kết thúc; kể cả override cũng không cho DELIVERED -> IN_TRANSIT. Cùng trạng thái là
+        no-op, trả 200 và không thêm history/event. Mỗi thay đổi được chấp nhận ghi status/version, đúng
+        một history và một Shipment* outbox trong cùng transaction; event phát lên nexus.shipment.events.
+        actor lấy từ JWT, source=MANUAL; reason được chuẩn hóa để audit. Override bắt buộc reason có nội
+        dung; đây là điều chỉnh có audit, vẫn tuân thủ quy tắc chuyển trạng thái. Khi đích là CANCELLED
+        trước pickup, hủy booking qua CarrierAdapter trước khi chốt trạng thái; carrier từ chối hoặc lỗi
+        thì không ghi local cancellation. Khi chưa có trackingCode, thao tác thủ công chỉ được giữ nguyên
+        trạng thái hoặc chuyển CANCELLED. Mọi thay đổi thủ công khác trả 409 SHIPMENT_INVALID_TRANSITION để
+        giữ nguyên luồng retry booking PENDING_TRACKING.
+      security:
+        - bearerAuth: []
+      x-required-privileges:
+        - SHIPPING.MANUAL_OVERRIDE
+      x-required-roles:
+        - ADMIN
+        - SUPPORT_STAFF
+      x-ownership: ADMIN hoặc SUPPORT_STAFF có privilege tương ứng được thao tác trên shipment; vai trò là ANY-of.
+      x-error-codes:
+        '400':
+          - SHIPMENT_VALIDATION_FAILED
+          - SHIPMENT_INVALID_REQUEST_BODY
+          - SHIPMENT_INVALID_PARAMETER
+        '401':
+          - SHIPMENT_UNAUTHENTICATED
+          - UNAUTHENTICATED
+        '403':
+          - SHIPMENT_FORBIDDEN
+          - FORBIDDEN
+        '404':
+          - SHIPMENT_NOT_FOUND
+        '405':
+          - SHIPMENT_METHOD_NOT_ALLOWED
+        '406':
+          - SHIPMENT_NOT_ACCEPTABLE
+        '409':
+          - SHIPMENT_INVALID_TRANSITION
+          - SHIPMENT_CARRIER_CANCELLATION_REJECTED
+        '415':
+          - SHIPMENT_UNSUPPORTED_MEDIA_TYPE
+        '429':
+          - RATE_LIMITED
+        '500':
+          - SHIPMENT_INTERNAL_ERROR
+          - INTERNAL_ERROR
+        '502':
+          - SHIPMENT_INVALID_CARRIER_RESPONSE
+        '503':
+          - SHIPMENT_CARRIER_UNAVAILABLE
+          - SHIPMENT_CIRCUIT_OPEN
+          - SHIPMENT_CARRIER_CONFIGURATION_ERROR
+          - SERVICE_UNAVAILABLE
+        '504':
+          - GATEWAY_TIMEOUT
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: UUID của shipment.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OverrideShipmentStatusRequest'
+            example:
+              status: IN_TRANSIT
+              reason: Support xác nhận kiện hàng đang vận chuyển
+      responses:
+        '200':
+          description: Shipment sau thay đổi hoặc kết quả no-op.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipmentEnvelope'
+              examples:
+                shipment:
+                  $ref: '#/components/examples/CreatedShipment'
+        '400':
+          $ref: '#/components/responses/ShipmentBadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ShipmentNotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '409':
+          $ref: '#/components/responses/ShipmentMutationConflict'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/CarrierBadUpstream'
+        '503':
+          $ref: '#/components/responses/CarrierUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+  /api/v1/webhooks/carriers/{carrier}:
+    post:
+      tags:
+        - Carriers
+      operationId: receiveCarrierWebhook
+      summary: Nhận callback trạng thái carrier
+      description: >-
+        Endpoint giao thức carrier được đánh dấu @ProtocolResponse; HTTP 200 giữ body xác nhận riêng, không
+        bọc ApiResponse. GHN hỗ trợ cấu hình custom header ở portal; cấu hình X-Carrier-Signature bằng
+        callback secret của adapter. Giá trị được so sánh constant-time trước khi parse payload và trước
+        mọi ghi dữ liệu. Đây là token xác thực callback qua header, không phải khẳng định GHN tạo HMAC cho
+        body. Thiếu/sai token hoặc chưa cấu hình secret trả 401 Problem Details và không đổi dữ liệu. Mỗi
+        webhook trùng được chấp nhận 200, không lặp history/event; sự kiện cũ không được đảo ngược trạng
+        thái. GHN OrderCode xác định shipment theo carrier/trackingCode; danh tính callback được tạo ổn
+        định bằng hash của OrderCode, Type, Status và Time. Cùng status là no-op. Mỗi thay đổi hợp lệ ghi
+        đúng một history và một Shipment* outbox. GHN dùng GHN_WEBHOOK_SECRET. Fake dùng
+        FAKE_WEBHOOK_SECRET, cùng dạng callback nhưng không cần ShopID và Status là enum nội bộ. Status nằm
+        trong danh tính để hai trạng thái khác nhau cùng timestamp vẫn được phân biệt; thay đổi Reason hoặc
+        định dạng JSON không tạo danh tính mới.
+      security:
+        - carrierCallbackSignature: []
+      x-required-privileges: []
+      x-required-roles: []
+      x-ownership: Xác thực bằng secret callback theo carrier; không dùng JWT buyer để xác nhận callback.
+      x-error-codes:
+        '400':
+          - SHIPMENT_UNSUPPORTED_CARRIER
+          - SHIPMENT_INVALID_WEBHOOK
+          - SHIPMENT_INVALID_REQUEST_BODY
+          - SHIPMENT_INVALID_PARAMETER
+        '401':
+          - SHIPMENT_INVALID_SIGNATURE
+        '404':
+          - SHIPMENT_NOT_FOUND
+        '405':
+          - SHIPMENT_METHOD_NOT_ALLOWED
+        '406':
+          - SHIPMENT_NOT_ACCEPTABLE
+        '409':
+          - SHIPMENT_INVALID_TRANSITION
+        '415':
+          - SHIPMENT_UNSUPPORTED_MEDIA_TYPE
+        '422':
+          - SHIPMENT_INVALID_CARRIER_STATUS
+        '429':
+          - RATE_LIMITED
+        '500':
+          - SHIPMENT_INTERNAL_ERROR
+          - INTERNAL_ERROR
+        '503':
+          - SERVICE_UNAVAILABLE
+        '504':
+          - GATEWAY_TIMEOUT
+      parameters:
+        - name: carrier
+          in: path
+          required: true
+          description: Namespace carrier; GHN nhận callback OrderCode/Status/Type/Time.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
+          example: ghn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              anyOf:
+                - $ref: '#/components/schemas/GhnStatusWebhook'
+                - $ref: '#/components/schemas/FakeStatusWebhook'
+            examples:
+              ghn:
+                summary: Callback GHN có ShopID khớp cấu hình
+                value:
+                  ShopID: 123456
+                  OrderCode: GHN-12345
+                  Type: switch_status
+                  Status: transporting
+                  Time: '2026-11-11T10:00:00Z'
+                  Reason: ''
+              fake:
+                summary: Callback fake dùng secret riêng và enum nội bộ
+                value:
+                  OrderCode: FAKE-0001
+                  Type: switch_status
+                  Status: IN_TRANSIT
+                  Time: '2026-11-11T10:00:00Z'
+      responses:
+        '200':
+          description: Callback đã xử lý, cùng trạng thái hoặc bản giao lại đã được nhận trước đó.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CarrierWebhookAcknowledgement'
+              example:
+                code: 200
+                message: Success
+        '400':
+          $ref: '#/components/responses/CarrierWebhookBadRequest'
+        '401':
+          $ref: '#/components/responses/InvalidCarrierSignature'
+        '404':
+          $ref: '#/components/responses/ShipmentNotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '409':
+          $ref: '#/components/responses/InvalidShipmentTransition'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/InvalidCarrierStatus'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RoutingUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
 components:
   examples:
     CreatedShipment:
@@ -1051,11 +1517,191 @@ components:
           updatedAt: '2026-11-11T10:00:00Z'
           version: 0
   securitySchemes:
+    carrierCallbackSignature:
+      type: apiKey
+      in: header
+      name: X-Carrier-Signature
+      description: >-
+        Callback secret cấu hình qua custom header của carrier. So sánh constant-time, fail closed khi thiếu
+        secret; không phải HMAC body do GHN phát hành.
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
   responses:
+    ShipmentMutationConflict:
+      description: Chuyển trạng thái không hợp lệ hoặc carrier từ chối hủy booking trước pickup.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 409
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_INVALID_TRANSITION
+                      - SHIPMENT_CARRIER_CANCELLATION_REJECTED
+          examples:
+            SHIPMENT_INVALID_TRANSITION:
+              value:
+                type: urn:problem:domain-error
+                title: Conflict
+                status: 409
+                detail: Không thể chuyển DELIVERED về IN_TRANSIT
+                instance: /api/v1/shipments/00000000-0000-4000-8000-000000000040/status
+                code: SHIPMENT_INVALID_TRANSITION
+            SHIPMENT_CARRIER_CANCELLATION_REJECTED:
+              value:
+                type: urn:problem:domain-error
+                title: Conflict
+                status: 409
+                detail: Carrier từ chối hủy vận đơn
+                instance: /api/v1/shipments/00000000-0000-4000-8000-000000000040/status
+                code: SHIPMENT_CARRIER_CANCELLATION_REJECTED
+    InvalidShipmentTransition:
+      description: Trạng thái đích xung đột quy tắc chuyển trạng thái hiện tại.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 409
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_INVALID_TRANSITION
+          examples:
+            SHIPMENT_INVALID_TRANSITION:
+              summary: Không thể chuyển DELIVERED về IN_TRANSIT
+              value:
+                type: urn:problem:domain-error
+                title: Conflict
+                status: 409
+                detail: Không thể chuyển DELIVERED về IN_TRANSIT
+                instance: /api/v1/shipments/00000000-0000-4000-8000-000000000040/status
+                code: SHIPMENT_INVALID_TRANSITION
+    InvalidCarrierSignature:
+      description: Callback token thiếu, sai hoặc adapter chưa cấu hình secret; không ghi dữ liệu.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 401
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_INVALID_SIGNATURE
+          examples:
+            SHIPMENT_INVALID_SIGNATURE:
+              summary: Chữ ký callback carrier không hợp lệ
+              value:
+                type: urn:problem:domain-error
+                title: Unauthorized
+                status: 401
+                detail: Chữ ký callback carrier không hợp lệ
+                instance: /api/v1/webhooks/carriers/ghn
+                code: SHIPMENT_INVALID_SIGNATURE
+    InvalidCarrierStatus:
+      description: Trạng thái carrier chưa có trong bảng ánh xạ nội bộ.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 422
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_INVALID_CARRIER_STATUS
+          examples:
+            SHIPMENT_INVALID_CARRIER_STATUS:
+              summary: Trạng thái carrier không được hỗ trợ
+              value:
+                type: urn:problem:domain-error
+                title: Unprocessable Entity
+                status: 422
+                detail: Trạng thái carrier không được hỗ trợ
+                instance: /api/v1/webhooks/carriers/ghn
+                code: SHIPMENT_INVALID_CARRIER_STATUS
+    CarrierWebhookBadRequest:
+      description: Carrier chưa đăng ký hoặc nội dung callback không hợp lệ.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  status:
+                    type: integer
+                    enum:
+                      - 400
+                  code:
+                    type: string
+                    enum:
+                      - SHIPMENT_UNSUPPORTED_CARRIER
+                      - SHIPMENT_INVALID_WEBHOOK
+                      - SHIPMENT_INVALID_REQUEST_BODY
+                      - SHIPMENT_INVALID_PARAMETER
+          examples:
+            SHIPMENT_UNSUPPORTED_CARRIER:
+              summary: Carrier không được hỗ trợ
+              value:
+                type: urn:problem:domain-error
+                title: Bad Request
+                status: 400
+                detail: Carrier không được hỗ trợ
+                instance: /api/v1/webhooks/carriers/ghn
+                code: SHIPMENT_UNSUPPORTED_CARRIER
+            SHIPMENT_INVALID_WEBHOOK:
+              summary: ShopID, Type, Time hoặc nội dung callback không hợp lệ
+              value:
+                type: urn:problem:domain-error
+                title: Bad Request
+                status: 400
+                detail: ShopID, Type, Time hoặc nội dung callback không hợp lệ
+                instance: /api/v1/webhooks/carriers/ghn
+                code: SHIPMENT_INVALID_WEBHOOK
+            SHIPMENT_INVALID_REQUEST_BODY:
+              summary: Nội dung callback không hợp lệ
+              value:
+                type: urn:problem:domain-error
+                title: Bad Request
+                status: 400
+                detail: Nội dung callback không hợp lệ
+                instance: /api/v1/webhooks/carriers/ghn
+                code: SHIPMENT_INVALID_REQUEST_BODY
+            SHIPMENT_INVALID_PARAMETER:
+              summary: Tham số callback không hợp lệ
+              value:
+                type: urn:problem:domain-error
+                title: Bad Request
+                status: 400
+                detail: Tham số callback không hợp lệ
+                instance: /api/v1/webhooks/carriers/ghn
+                code: SHIPMENT_INVALID_PARAMETER
     ShipmentBadRequest:
       description: Khóa idempotency, body, UUID/enum, carrier chưa đăng ký hoặc phân trang không hợp lệ.
       content:
@@ -1876,6 +2522,189 @@ components:
                 instance: /api/v1/shipping/quotes
                 code: GATEWAY_TIMEOUT
   schemas:
+    FakeStatusWebhook:
+      type: object
+      required:
+        - OrderCode
+        - Type
+        - Status
+        - Time
+      additionalProperties: true
+      properties:
+        OrderCode:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: ^[A-Za-z0-9_-]+$
+        Type:
+          type: string
+          enum:
+            - create
+            - switch_status
+            - update_weight
+            - update_cod
+            - update_fee
+            - update_payment_type
+            - cod
+            - update_partial_return
+          description: Loại callback GHN.
+        Status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        Time:
+          type: string
+          format: date-time
+        Reason:
+          type: string
+          nullable: true
+        Description:
+          type: string
+          nullable: true
+    UpdateShipmentStatusRequest:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        reason:
+          type: string
+          nullable: true
+          maxLength: 255
+          description: Lý do được chuẩn hóa và lưu cùng lịch sử.
+    OverrideShipmentStatusRequest:
+      type: object
+      required:
+        - status
+        - reason
+      properties:
+        status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: \S
+          description: Lý do bắt buộc; chuỗi chỉ có khoảng trắng không hợp lệ.
+    ShipmentTrackingEntryResponse:
+      type: object
+      required:
+        - id
+        - status
+        - description
+        - source
+        - carrierEventId
+        - changedBy
+        - changedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        description:
+          type: string
+          nullable: true
+          maxLength: 255
+        source:
+          type: string
+          enum:
+            - SYSTEM
+            - CARRIER_WEBHOOK
+            - POLLER
+            - MANUAL
+        carrierEventId:
+          type: string
+          nullable: true
+          maxLength: 160
+        changedBy:
+          type: string
+          format: uuid
+          nullable: true
+        changedAt:
+          type: string
+          format: date-time
+    ShipmentTrackingListResponse:
+      type: object
+      required:
+        - code
+        - message
+        - data
+        - page
+      additionalProperties: false
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipmentTrackingEntryResponse'
+        page:
+          $ref: '#/components/schemas/ShipmentPageInfo'
+    GhnStatusWebhook:
+      type: object
+      required:
+        - ShopID
+        - OrderCode
+        - Type
+        - Status
+        - Time
+      additionalProperties: true
+      properties:
+        ShopID:
+          type: integer
+          minimum: 1
+          description: Shop GHN gửi callback; phải khớp shopId đã cấu hình trong adapter.
+        OrderCode:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: ^[A-Za-z0-9_-]+$
+        Type:
+          type: string
+          enum:
+            - create
+            - switch_status
+            - update_weight
+            - update_cod
+            - update_fee
+            - update_payment_type
+            - cod
+            - update_partial_return
+          description: Loại callback GHN.
+        Status:
+          type: string
+          minLength: 1
+          description: Trạng thái GHN được ánh xạ sang đúng một ShipmentStatus nội bộ.
+        Time:
+          type: string
+          format: date-time
+        Reason:
+          type: string
+          nullable: true
+          description: Lý do carrier nếu có; được chuẩn hóa trước khi lưu.
+        Description:
+          type: string
+          nullable: true
+          description: Mô tả carrier nếu không có Reason; được chuẩn hóa trước khi lưu.
+    CarrierWebhookAcknowledgement:
+      type: object
+      required:
+        - code
+        - message
+      additionalProperties: false
+      properties:
+        code:
+          type: integer
+          enum:
+            - 200
+        message:
+          type: string
+          enum:
+            - Success
     CreateShipmentRequest:
       type: object
       required:
@@ -2442,6 +3271,12 @@ components:
         code:
           type: string
           enum:
+            - SHIPMENT_INVALID_SIGNATURE
+            - SHIPMENT_INVALID_TRANSITION
+            - SHIPMENT_UNSUPPORTED_CARRIER
+            - SHIPMENT_INVALID_WEBHOOK
+            - SHIPMENT_CARRIER_CANCELLATION_REJECTED
+            - SHIPMENT_INVALID_CARRIER_STATUS
             - SHIPMENT_INVALID_REQUEST
             - SHIPMENT_VALIDATION_FAILED
             - SHIPMENT_INVALID_REQUEST_BODY

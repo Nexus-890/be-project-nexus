@@ -1,5 +1,7 @@
 package com.group5.shipmentservice.shipping;
 
+import com.group5.shipmentservice.shipping.service.ShipmentStatusService;
+
 import com.group5.shipmentservice.shipping.event.OrderPaidShipmentConsumer;
 import com.group5.shipmentservice.shipping.event.payload.OrderPaidSnapshot;
 
@@ -86,6 +88,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
         "spring.cloud.compatibility-verifier.enabled=false", "spring.jpa.hibernate.ddl-auto=validate",
         "nexus.security.enabled=false", "nexus.shipping.carrier=NONE", "nexus.shipping.breaker-failure-threshold=100",
         "nexus.shipping.order-paid-consumer-enabled=false", "nexus.outbox.relay.enabled=false",
+        "nexus.shipping.order-cancelled-consumer-enabled=false", "nexus.shipping.status-poll-enabled=false",
         "nexus.shipping.default-warehouse-id=00000000-0000-4000-8000-000000000099",
         "nexus.shipping.default-pickup.province-code=1000001",
         "nexus.shipping.default-pickup.ward-code=1003646",
@@ -108,6 +111,7 @@ class ShipmentCreationIntegrationTest {
     @Autowired OrderPaidShipmentConsumer consumer;
     @Autowired ShipmentCreationService creation;
     @Autowired ShipmentReadService reads;
+    @Autowired ShipmentStatusService statuses;
     @Autowired TestCarrier carrier;
     @Autowired CarrierExecutor carrierExecutor;
     @Autowired IdempotentConsumer idempotency;
@@ -118,7 +122,7 @@ class ShipmentCreationIntegrationTest {
 
     @BeforeEach
     void resetDatabase() {
-        jdbc.execute("TRUNCATE shipment_history, shipments, outbox, processed_events");
+        jdbc.execute("TRUNCATE carrier_webhook_receipts, cancelled_shipment_orders, shipment_history, shipments, outbox, processed_events");
         carrier.requests.clear();
         carrier.down.set(false);
         reset(outbox, shipments, paidOrders, envelopes);
@@ -469,13 +473,51 @@ class ShipmentCreationIntegrationTest {
     }
 
     @Test
-    void serviceSchemaUsesOnlyTheFourExistingBusinessAndDeliveryTables() {
+    void serviceSchemaUsesOnlyServiceOwnedBusinessAndDeliveryTables() {
         assertThat(jdbc.queryForList("""
                 SELECT tablename FROM pg_tables
                 WHERE schemaname='public' AND tablename <> 'flyway_schema_history'
                 ORDER BY tablename
                 """, String.class))
-                .containsExactly("outbox", "processed_events", "shipment_history", "shipments");
+                .containsExactly("cancelled_shipment_orders", "carrier_webhook_receipts", "outbox", "processed_events", "shipment_history", "shipments");
+    }
+
+    @Test
+    void cancellationBeforeDelayedOrderPaidPreventsShipmentHistoryEventAndCarrierBooking() {
+        UUID orderId = UUID.randomUUID();
+        UUID cancellationId = UUID.randomUUID();
+        var paid = event(orderId, true);
+        statuses.cancelOrder(orderId, "Buyer requested cancellation", cancellationId, paid.traceId());
+
+        receive(paid);
+        receive(paid);
+
+        assertThat(count("cancelled_shipment_orders")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT event_id FROM cancelled_shipment_orders WHERE order_id=?", UUID.class, orderId))
+                .isEqualTo(cancellationId);
+        assertThat(count("shipments")).isZero();
+        assertThat(count("shipment_history")).isZero();
+        assertThat(count("outbox")).isZero();
+        assertThat(count("processed_events")).isEqualTo(1);
+        assertThat(carrier.requests).isEmpty();
+    }
+
+    @Test
+    void manualCreationCannotResurrectOrderCancelledBeforeShipmentExisted() {
+        UUID orderId = UUID.randomUUID();
+        statuses.cancelOrder(orderId, "Buyer requested cancellation", UUID.randomUUID(),
+                "4bf92f3577b34da6a3ce929d0e0e4736");
+
+        assertManualFailure("cancelled-before-creation", new CreateShipmentRequest(orderId, null, null, null),
+                "SHIPMENT_ORDER_NOT_PAID");
+
+        assertThat(count("cancelled_shipment_orders")).isEqualTo(1);
+        assertThat(count("shipments")).isZero();
+        assertThat(count("shipment_history")).isZero();
+        assertThat(count("outbox")).isZero();
+        assertThat(count("processed_events")).isZero();
+        assertThat(carrier.requests).isEmpty();
+        verifyNoInteractions(paidOrders);
     }
 
     @Test
@@ -488,6 +530,7 @@ class ShipmentCreationIntegrationTest {
 
         assertThat(shipment.getOrderId()).isEqualTo(snapshot.orderId());
         assertThat(shipment.getBuyerId()).isEqualTo(snapshot.buyerId());
+        assertThat(shipment.getSellerId()).isEqualTo(snapshot.sellerId());
         assertThat(shipment.getShippingFee()).isEqualByComparingTo(snapshot.shippingFee());
         assertThat(shipment.getTrackingCode()).isEqualTo("FAKE-" + shipment.getId());
         assertThat(shipment.getIdempotencyKey()).isEqualTo("new-manual");
@@ -532,7 +575,7 @@ class ShipmentCreationIntegrationTest {
                 original.occurredAt(), original.traceId(), (JsonNode) payload);
         OrderPaidSnapshot expected = OrderPaidSnapshot.parse(paidEvent.payload(), mapper);
         var upstream = new PaidOrderShippingResponse(expected.orderId(), expected.buyerId(), expected.orderVersion(),
-                "PAID", OffsetDateTime.parse("2026-11-11T00:00:00Z"), expected.warehouseId(), fee, expected.shippingInfo());
+                "PAID", OffsetDateTime.parse("2026-11-11T00:00:00Z"), expected.warehouseId(), fee, expected.shippingInfo(), expected.sellerId());
         byte[] body = mapper.writeValueAsBytes(ApiResponse.of(upstream));
         var request = Request.create(Request.HttpMethod.GET, "http://commerce-fixture/shipping-snapshot",
                 Map.of(), null, StandardCharsets.UTF_8, null);
@@ -544,7 +587,7 @@ class ShipmentCreationIntegrationTest {
             decoded = (ApiResponse<PaidOrderShippingResponse>) new CommerceResponseDecoder(mapper).decode(response, returnType);
         }
         var decodedSnapshot = new OrderPaidSnapshot(decoded.data().orderId(), decoded.data().buyerId(),
-                decoded.data().warehouseId(), decoded.data().shippingFee(), decoded.data().shippingInfo(), decoded.data().orderVersion());
+                decoded.data().warehouseId(), decoded.data().shippingFee(), decoded.data().shippingInfo(), decoded.data().orderVersion(), decoded.data().sellerId());
         when(paidOrders.load(expected.orderId())).thenReturn(decodedSnapshot);
 
         var shipment = creation.createManually("exact-shipping-fee",
@@ -677,7 +720,7 @@ class ShipmentCreationIntegrationTest {
         Map<String, Object> info = new LinkedHashMap<>(original.shippingInfo());
         info.put("recipient", Map.of("name", "Buyer", "phone", "0900000000", "address", Map.of("line1", "Legacy street")));
         OrderPaidSnapshot snapshot = new OrderPaidSnapshot(original.orderId(), original.buyerId(), original.warehouseId(),
-                original.shippingFee(), info, original.orderVersion());
+                original.shippingFee(), info, original.orderVersion(), original.sellerId());
         when(paidOrders.load(snapshot.orderId())).thenReturn(snapshot);
 
         var shipment = creation.createManually("legacy-preparation", new CreateShipmentRequest(snapshot.orderId(), null, null, null));

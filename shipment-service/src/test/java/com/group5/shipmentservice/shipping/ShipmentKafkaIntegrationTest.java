@@ -51,6 +51,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.kafka.listener.ack-mode=record", "spring.kafka.listener.missing-topics-fatal=true",
         "spring.kafka.admin.auto-create=false", "spring.kafka.producer.acks=all",
         "nexus.shipping.carrier=FAKE", "nexus.shipping.order-paid-consumer-enabled=true",
+        "nexus.shipping.status-poll-enabled=false",
         "nexus.outbox.relay.enabled=true", "nexus.outbox.relay.initial-delay=100", "nexus.outbox.relay.fixed-delay=100",
         "nexus.shipping.tracking-retry-poll-ms=3600000", "management.tracing.export.zipkin.enabled=false"
 })

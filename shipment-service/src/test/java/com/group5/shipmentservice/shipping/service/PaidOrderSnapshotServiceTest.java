@@ -152,7 +152,7 @@ class PaidOrderSnapshotServiceTest {
         PaidOrderShippingResponse good = valid();
         when(commerce.getPaidOrder(eq(ORDER), any(), any())).thenReturn(ApiResponse.of(new PaidOrderShippingResponse(
                 good.orderId(), good.buyerId(), good.orderVersion(), state, good.paidAt(), good.warehouseId(),
-                good.shippingFee(), good.shippingInfo())));
+                good.shippingFee(), good.shippingInfo(), good.sellerId())));
         assertCode(() -> service.load(ORDER), "SHIPMENT_ORDER_NOT_PAID");
     }
 
@@ -260,7 +260,8 @@ class PaidOrderSnapshotServiceTest {
 
     private static PaidOrderShippingResponse copy(UUID orderId, UUID buyerId, long version,
             OffsetDateTime paidAt, BigDecimal fee, Map<String, Object> info) {
-        return new PaidOrderShippingResponse(orderId, buyerId, version, "PAID", paidAt, WAREHOUSE, fee, info);
+        return new PaidOrderShippingResponse(orderId, buyerId, version, "PAID", paidAt, WAREHOUSE, fee, info,
+                UUID.fromString("99999999-9999-4999-8999-999999999999"));
     }
 
     private static void authenticate(String value) {

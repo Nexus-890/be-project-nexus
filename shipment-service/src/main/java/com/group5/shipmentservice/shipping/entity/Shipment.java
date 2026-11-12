@@ -69,6 +69,9 @@ public class Shipment extends AuditedEntity {
     @Column(name = "buyer_id", nullable = false)
     private UUID buyerId;
 
+    @Column(name = "seller_id")
+    private UUID sellerId;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "shipping_info", nullable = false, columnDefinition = "jsonb")
     private Map<String, Object> shippingInfo;
@@ -97,6 +100,15 @@ public class Shipment extends AuditedEntity {
 
     @Column(name = "handed_over_at")
     private OffsetDateTime handedOverAt;
+
+    @Column(name = "last_carrier_update_at", updatable = false)
+    private OffsetDateTime lastCarrierUpdateAt;
+
+    @Column(name = "next_status_poll_at")
+    private OffsetDateTime nextStatusPollAt;
+
+    @Column(name = "status_poll_failures", nullable = false)
+    private int statusPollFailures;
 
     public static Shipment create(UUID id, UUID orderId, UUID buyerId, UUID warehouseId,
                                   String carrier, String serviceType, BigDecimal shippingFee,
@@ -128,8 +140,28 @@ public class Shipment extends AuditedEntity {
 
     public void countTrackingRetry() { trackingRetryCount++; }
 
+    public void changeStatus(ShipmentStatus status, OffsetDateTime changedAt, OffsetDateTime observedAt,
+                             boolean pickedUp) {
+        shipmentStatus = status;
+        if (pickedUp && handedOverAt == null) handedOverAt = changedAt;
+        if (observedAt != null) lastCarrierUpdateAt = observedAt;
+        if (status == ShipmentStatus.CANCELLED) nextTrackingRetryAt = null;
+    }
+
+    public void scheduleStatusPoll(OffsetDateTime nextAttempt, boolean failed) {
+        nextStatusPollAt = nextAttempt;
+        statusPollFailures = failed ? Math.min(statusPollFailures + 1, 10) : 0;
+    }
+
     public void claimManualRequest(String key, String fingerprint) {
         idempotencyKey = key;
         idempotencyFingerprint = fingerprint;
+    }
+
+    public void assignSeller(UUID trustedSellerId) {
+        if (trustedSellerId == null || (sellerId != null && !sellerId.equals(trustedSellerId))) {
+            throw new IllegalArgumentException("Conflicting or missing shipment seller");
+        }
+        sellerId = trustedSellerId;
     }
 }

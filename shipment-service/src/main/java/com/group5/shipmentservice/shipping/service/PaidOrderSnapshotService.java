@@ -68,6 +68,7 @@ public class PaidOrderSnapshotService {
         }
         try {
             if (response == null || !orderId.equals(response.orderId()) || response.buyerId() == null
+                    || response.sellerId() == null
                     || response.orderVersion() < 0 || response.paidAt() == null
                     || response.shippingFee() == null || response.shippingFee().signum() < 0
                     || response.shippingFee().setScale(2, RoundingMode.UNNECESSARY).precision() > 19) invalid();
@@ -88,7 +89,7 @@ public class PaidOrderSnapshotService {
                         || item.path("quantity").asInt() <= 0) invalid();
             }
             return new OrderPaidSnapshot(response.orderId(), response.buyerId(), response.warehouseId(),
-                    response.shippingFee(), response.shippingInfo(), response.orderVersion());
+                    response.shippingFee(), response.shippingInfo(), response.orderVersion(), response.sellerId());
         } catch (DomainException error) {
             throw error;
         } catch (RuntimeException error) {

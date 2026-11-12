@@ -9,7 +9,7 @@ import java.util.UUID;
 
 
 public record OrderPaidSnapshot(UUID orderId, UUID buyerId, UUID warehouseId,
-                               BigDecimal shippingFee, Map<String, Object> shippingInfo, long orderVersion) {
+                               BigDecimal shippingFee, Map<String, Object> shippingInfo, long orderVersion, UUID sellerId) {
     @SuppressWarnings("unchecked")
     public static OrderPaidSnapshot parse(JsonNode payload, JsonMapper mapper) {
         UUID orderId = uuid(payload, "orderId");
@@ -58,7 +58,7 @@ public record OrderPaidSnapshot(UUID orderId, UUID buyerId, UUID warehouseId,
             if (!parcel.path("weightGrams").isIntegralNumber() || !parcel.path("weightGrams").canConvertToInt()) invalid();
         }
         return new OrderPaidSnapshot(orderId, buyerId, warehouseId, fee,
-                mapper.convertValue(info, Map.class), version.asLong());
+                mapper.convertValue(info, Map.class), version.asLong(), uuid(payload, "sellerId"));
     }
 
     public boolean isPrepared() {

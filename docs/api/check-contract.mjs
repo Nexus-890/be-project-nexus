@@ -51,6 +51,8 @@ const services = {
     'src/main/java/com/group5/shipmentservice/shipping/controller/CarrierController.java',
     'src/main/java/com/group5/shipmentservice/shipping/controller/ShippingController.java',
     'src/main/java/com/group5/shipmentservice/shipping/controller/ShipmentController.java',
+    'src/main/java/com/group5/shipmentservice/shipping/controller/ShipmentStatusController.java',
+    'src/main/java/com/group5/shipmentservice/shipping/controller/CarrierWebhookController.java',
   ],
 };
 const normalize = (route) => route.replace(/\{[^}]+\}/g, '{}');
@@ -61,7 +63,7 @@ for (const [service, controllers] of Object.entries(services)) {
   for (const controller of controllers) {
     const source = readFileSync(resolve(root, service, controller), 'utf8');
     const base = source.match(/@RequestMapping\("([^"]+)"\)/)?.[1] ?? '';
-    const methods = source.matchAll(/@(Get|Post|Put|Patch|Delete)Mapping(?:\("([^"]*)"\))?/g);
+    const methods = source.matchAll(/@(Get|Post|Put|Patch|Delete)Mapping(?:\(\s*(?:(?:value|path)\s*=\s*)?"([^"]*)"[^)]*\))?/g);
     for (const method of methods) {
       const key = `${method[1].toUpperCase()} ${normalize(base + (method[2] ?? ''))}`;
       if (actual.has(key)) throw new Error(`Duplicate source route: ${key}`);

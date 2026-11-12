@@ -56,7 +56,9 @@ From `be-project-nexus`, run `node docs/api/check-contract.mjs` to compare deliv
 
 The original #103 catalogue contained 64 SRS names: 13 R1 contracts and 51 R2 entries. The current #186 table, including its 2026-10-28 decision, promotes **30 of those R2 entries**, adds **CheckoutPaymentConfirmed and PaymentUnreconciled**, and requires schemas/examples and publisher/consumer mappings for that **32-event R1 expansion set**. Its overview still says 30; the current table contains 32 names after the payment additions. PaymentConfirmed is no longer in that R1 expansion set.
 
-The group-payment requirements in #113/#118/#121/#240/#250 also require **CheckoutPaymentRequested and OrderGroupCancelled**. These two coordinated R1 additions have contracts here and are counted separately from the current #186 expansion set; CheckoutPaymentConfirmed is already counted in its 32 events. With PaymentConfirmed deferred to R2, the complete inventory is **69 names: 47 R1 design contracts and 22 R2 entries**. Within the original 64 SRS names the split remains **43 R1 / 21 R2**; the five additional names comprise four R1 contracts and one R2 reference. There are **48 documented schemas: 47 R1 contracts and the retained PaymentConfirmed R2 schema**. R2 means publication is outside current R1 scope, without a delivery-date commitment. HTTP feature scope and Kafka-event scope differ.
+The group-payment requirements in #113/#118/#121/#240/#250 also require **CheckoutPaymentRequested and OrderGroupCancelled**. These two coordinated R1 additions have contracts here and are counted separately from the current #186 expansion set; CheckoutPaymentConfirmed is already counted in its 32 events. With PaymentConfirmed deferred to R2, the complete inventory is **71 names: 49 R1 design contracts and 22 R2 entries**. Within the original 64 SRS names the split remains **43 R1 / 21 R2**; the seven additional names comprise six R1 contracts and one R2 reference. There are **50 documented schemas: 49 R1 contracts and the retained PaymentConfirmed R2 schema**. R2 means publication is outside current R1 scope, without a delivery-date commitment. HTTP feature scope and Kafka-event scope differ.
+
+The #203 update on 2026-11-11 adds ShipmentStatusUpdated and ShipmentCancelled as R1 contracts for accepted intermediate and cancellation transitions. These two names are additional to the #186 expansion set. Duplicate/no-op updates publish neither event.
 
 **CheckoutPaymentConfirmed is the authoritative payment confirmation event for R1**, using one immutable session per order group under #250. **PaymentConfirmed is deferred to R2 and must not be published or consumed as an alternative payment-state event during R1.** Its schema, example and historical #186 ownership references are retained only for traceability, not as an R1 compatibility publication. UserPasswordChanged, UserPasswordReset and UserLoggedIn remain R2 here; Keycloak owns their authentication events (#210/ADR-009).
 
@@ -67,6 +69,7 @@ The group-payment requirements in #113/#118/#121/#240/#250 also require **Checko
 | MR !82 review, applied 2026-10-28 | Unify money as decimal strings with exactly two fractional digits; select CheckoutPaymentConfirmed for R1 and defer PaymentConfirmed to R2. Other handoff decisions and both-lane approvals remain open. |
 | #234 / ADR-009; #244 / #246 | Eight domain topics, independent payment/shipment/rating/inventory owners, no notification/system topic. |
 | #113 / #118 / #121 / #240; #250 design in `../database/schema-after-service-split.md` | Complete group manifest, one immutable session/QR, one instruction and shipping/refund lifecycle per seller order. These newer explicit group rules supersede older per-order memo/payment prose in #155–#157 and ADR-009. |
+| #203 R1 status/cancellation handling | A PAID order may be cancelled until ShipmentPickedUp, with no handover request/ACK; accepted transitions commit one history and one Shipment* outbox row. |
 | #204 / #212 / #213 / #242 | Order completion, local rating eligibility, reputation inputs/results. |
 | #197 / #208 / #209 / #216 | Auction cancellation/timeout, auction stock, product flags. |
 | #191 / #192 / #193 / #211 / #217 / #247 | Delivery records, immutable event/audit log, health transitions, admin user/config audit and instruction-scoped refunds. |
@@ -250,9 +253,12 @@ The contract cell contains only `R2` for out-of-scope names. Each R1 link resolv
 | `CheckoutPaymentConfirmed` | #186 current table; #113/#118/#121/#240/#250 group design | [R1 — payload](#checkoutpaymentconfirmed) |
 | `OrderGroupCancelled` | #113/#118/#121/#240/#250 group design | [R1 — payload](#ordergroupcancelled) |
 
+| `ShipmentStatusUpdated` | #203 shipment status standardization | [R1 — payload](#shipmentstatusupdated) |
+| `ShipmentCancelled` | #203 R1 pre-pickup cancellation | [R1 — payload](#shipmentcancelled) |
+
 ## Publishers and consumers
 
-Issue numbers identify implementation ownership, not completed runtime behavior. The table covers 47 R1 contracts plus the deferred PaymentConfirmed R2 reference; its historical topic and issue links do not authorize R1 publication or consumption. See each payload section for log-only handling and review conditions.
+Issue numbers identify implementation ownership, not completed runtime behavior. The table covers 49 R1 contracts plus the deferred PaymentConfirmed R2 reference; its historical topic and issue links do not authorize R1 publication or consumption. See each payload section for log-only handling and review conditions.
 
 | Event | Topic | Publishing issue | Consuming issue / handling |
 | --- | --- | --- | --- |
@@ -263,7 +269,7 @@ Issue numbers identify implementation ownership, not completed runtime behavior.
 | `CategoryUpdated` | `nexus.catalog.events` | [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): skip/no template; no notification recipient; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `CategoryDeleted` | `nexus.catalog.events` | [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): skip/no template; no notification recipient; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `OrderCreated` | `nexus.commerce.events` | [#118](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/118), [#172](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/172) | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify the buyer; auction-service [#173](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/173): settle AUCTION orders; catalog-service [#216](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/216): set has_order on the listed products; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
-| `OrderCancelled` | `nexus.commerce.events` | [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159), [#189](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/189) | inventory-service [#161](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/161): release HELD order reservations; notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify the buyer; payment-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157), [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247): close unpaid instructions or refund the funded child; auction-service [#208](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/208): timeout AUCTION only for PAYMENT_DEADLINE_EXPIRED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `OrderCancelled` | `nexus.commerce.events` | [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159), [#189](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/189) | shipment-service [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203): cancel at carrier and persist CANCELLED before pickup, or warn Support after pickup; inventory-service [#161](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/161): release HELD order reservations; notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify the buyer; payment-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157), [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247): close unpaid instructions or refund the funded child; auction-service [#208](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/208): timeout AUCTION only for PAYMENT_DEADLINE_EXPIRED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `OrderPaid` | `nexus.commerce.events` | [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156) | inventory-service [#160](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/160): confirm order reservations; shipment-service [#202](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/202): create one shipment using this trusted snapshot; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `OrderCompleted` | `nexus.commerce.events` | [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204) | rating-service [#242](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/242), [#212](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/212): persist rating_eligibility without calling commerce; rating-service [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213): update score and transaction counts; notification-service [#191](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/191): deliver the HTML receipt; [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `OrderRefundRequested` | `nexus.payment.events` | [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247) | commerce-service [#116](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/116): move CANCELED -> REFUND_REQUESTED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit |
@@ -283,10 +289,12 @@ Issue numbers identify implementation ownership, not completed runtime behavior.
 | `InventoryReservationExpired` | `nexus.inventory.events` | [#175](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/175) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `ShipmentCreated` | `nexus.shipment.events` | [#202](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/202) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log creation; no order-state move; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `ShipmentPickedUp` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): PAID -> SHIPPED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
-| `ShipmentInTransit` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log only; no additional order state is defined in #116; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
-| `ShipmentDelivered` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): SHIPPED -> DELIVERED -> COMPLETED and publish OrderCompleted; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
-| `ShipmentFailed` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log only; no additional order state is defined in #116; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
-| `ShipmentReturned` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log only; no additional order state is defined in #116; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `ShipmentInTransit` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): confirm PAID -> SHIPPED if the pickup event was missed; no new order state is introduced; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `ShipmentDelivered` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recover SHIPPED if PAID, then DELIVERED -> COMPLETED and publish OrderCompleted once; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `ShipmentFailed` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): confirm PAID -> SHIPPED if the pickup event was missed; no new order state is introduced; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `ShipmentStatusUpdated` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log only; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `ShipmentCancelled` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log only, OrderCancelled already owns cancellation; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `ShipmentReturned` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): confirm PAID -> SHIPPED if the pickup event was missed; no new order state is introduced; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `NotificationCreated` | `none` | [#191](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/191) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log |
 | `NotificationSent` | `none` | [#191](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/191) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log |
 | `NotificationFailed` | `none` | [#191](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/191) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log |
@@ -308,9 +316,9 @@ Issue numbers identify implementation ownership, not completed runtime behavior.
 ## Integration flows and compatibility
 
 1. **Purchase/group payment:** #113/#118 commit one group, seller orders, OrderCreated per child and the complete CheckoutPaymentRequested. #121 creates one immutable payment session and all instructions. #156 accepts one exact on-time movement, funds the whole plan and writes CheckoutPaymentConfirmed; commerce validates/commits group and eligible child PAID/history plus OrderPaid per child. The first OrderCreated never issues a partial-group QR. PaymentConfirmed is R2; do not publish it or enable a payment-state handler for it in R1.
-2. **Delivery/completion:** #202 consumes per-order OrderPaid with the trusted buyer/warehouse/shipping snapshot. #203 publishes normalized Shipment* changes. #204 applies ShipmentPickedUp -> SHIPPED and ShipmentDelivered -> DELIVERED -> COMPLETED, then emits OrderCompleted. Other shipment types are recognized/logged without inventing order states. #242/#212 populate eligibility; #213 applies the unique canonical outcome and later UserRated inputs.
+2. **Delivery/completion:** #202 consumes per-order OrderPaid with the trusted buyer/warehouse/shipping snapshot. #203 publishes normalized Shipment* changes. #204 applies ShipmentPickedUp -> SHIPPED and ShipmentDelivered -> DELIVERED -> COMPLETED, then emits OrderCompleted. Post-pickup progress (IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERY_FAILED, RETURNING, RETURNED) also confirms PAID -> SHIPPED if pickup was missed. Delivery received while PAID atomically records PAID -> SHIPPED -> DELIVERED -> COMPLETED; missing orders or PENDING payment remain durably pending. No new order enum is introduced. #242/#212 populate eligibility; #213 applies the unique canonical outcome and later UserRated inputs.
 3. **Unpaid cancellation:** #189/#159 cancel the complete group and its still-PENDING children atomically in commerce, publishing OrderGroupCancelled and OrderCancelled per child. Payment closes the immutable unpaid session/instructions. A raced successful receipt remains successful financial evidence; a late confirmation cannot resurrect cancelled orders, and #247 compensates each funded cancelled child's own share.
-4. **Paid child cancellation/refund:** #250 requires shipment handover/cancellation coordination before #189's final OrderCancelled. The paid-child request/ACK contracts (OrderCancellationRequested and ShipmentCancellationConfirmed/Rejected) are not added to the 32-event #186 set here; the owning #189/#203 follow-up must specify them before that coordinated flow is implemented. OrderRefundRequested/Completed identify one child/instruction/refund; never refund the entire multi-seller receipt for each child.
+4. **Paid child cancellation/refund:** R1 allows a PAID seller order to be cancelled until ShipmentPickedUp, with no handover request or request/ACK protocol. #189 publishes the final OrderCancelled; #203 consumes it idempotently. Before pickup, cancel any existing carrier booking through CarrierAdapter, then commit CANCELLED, one history row, one ShipmentCancelled outbox event and the processed marker. After pickup, change nothing and log one WARN for Support for the handled event. A missing shipment completes without error after recording a durable cancellation tombstone, so a later OrderPaid cannot create or book a cancelled order; manual creation then returns 409 SHIPMENT_ORDER_NOT_PAID. Validate the nonblank OrderCancelled reason, at most 500 characters, before any carrier cancellation. Preserve the valid reason in the tombstone and sanitize/truncate to 255 characters for tracking/outbox audit. Carrier cancellation failure remains retryable and must not be marked processed. OrderRefundRequested/Completed identify one child/instruction/refund; never refund the entire multi-seller receipt for each child.
 5. **Auction stock and settlement:** #209 AuctionCreated -> inventory hold/InventoryReserved; AuctionFailed/AuctionCancelled -> release/InventoryReleased; AuctionSettled -> commit/InventoryCommitted. #171 AuctionWon -> #172 singleton group/AUCTION order -> OrderCreated -> #173 AuctionSettled. This expanded #209 stock behavior supersedes #103's earlier no-inventory-commit note. Financial payment is still separate. #208 consumes only AUCTION OrderCancelled with PAYMENT_DEADLINE_EXPIRED and emits AuctionPaymentTimeout for #213's winner-only penalty.
 6. **Logging/audit:** #192 independently consumes all eight domain topics and records the seven local notification/health types. #217's config audit delivery is a proposed durable internal handoff with no Kafka topic. Local logging does not subscribe to itself or create recursive notification events.
 
@@ -906,7 +914,7 @@ The STANDARD checkout publisher uses the existing `OrderEventPublisher` and tran
 
 - Topic: `nexus.commerce.events`.
 - Publisher: [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159), [#189](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/189).
-- Consumer: inventory-service [#161](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/161): release HELD order reservations; notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify the buyer; payment-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157), [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247): close unpaid instructions or refund the funded child; auction-service [#208](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/208): timeout AUCTION only for PAYMENT_DEADLINE_EXPIRED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Consumer: shipment-service [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203): cancel at carrier and persist CANCELLED before pickup, or warn Support after pickup; inventory-service [#161](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/161): release HELD order reservations; notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify the buyer; payment-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157), [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247): close unpaid instructions or refund the funded child; auction-service [#208](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/208): timeout AUCTION only for PAYMENT_DEADLINE_EXPIRED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `orderId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
@@ -1084,7 +1092,7 @@ The STANDARD checkout publisher uses the existing `OrderEventPublisher` and tran
 }
 ```
 
-#159 expiry and #189 manual cancellation commit state/history/outbox together through #116. PAYMENT_DEADLINE_EXPIRED is the exact #208 timeout discriminator; other reasons must not penalize the buyer. Before payment cancel the whole group, emit OrderGroupCancelled and per-child OrderCancelled atomically; do not reprice one unpaid child under an existing QR. After payment, #250's shipment-handover coordination must complete before final CANCELED; the cancellation-request/ACK event contracts remain a separate owner handoff. paidAmount is immutable child funding evidence, verified against the payment instruction by #247, never a caller override/group total. #161 releases HELD only and skips EXPIRED/CONFIRMED according to the owned stock flow. Payment retains successful incoming evidence and creates at most one instruction-budget refund. Apply source orderVersion so stale redelivery cannot reopen payment. No cross-topic ordering or cross-database transaction is assumed.
+#159 expiry and #189 manual cancellation commit state/history/outbox together through #116. PAYMENT_DEADLINE_EXPIRED is the exact #208 timeout discriminator; other reasons must not penalize the buyer. Before payment cancel the whole group, emit OrderGroupCancelled and per-child OrderCancelled atomically; do not reprice one unpaid child under an existing QR. After payment, the #203 R1 rule allows cancellation until ShipmentPickedUp without a handover request/ACK. Shipment-service consumes OrderCancelled, cancels a booking before pickup and commits CANCELLED/history/outbox with its processed marker; a missing shipment completes with a durable cancellation tombstone that blocks late OrderPaid creation/booking, and an already picked-up shipment is unchanged with a WARN for Support. Validate reason up to 500 characters before carrier effects; store a sanitized audit reason of at most 255 characters. Carrier failure remains retryable. paidAmount is immutable child funding evidence, verified against the payment instruction by #247, never a caller override/group total. #161 releases HELD only and skips EXPIRED/CONFIRMED according to the owned stock flow. Payment retains successful incoming evidence and creates at most one instruction-budget refund. Apply source orderVersion so stale redelivery cannot reopen payment. No cross-topic ordering or cross-database transaction is assumed.
 
 ### OrderPaid
 
@@ -3239,7 +3247,318 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 }
 ```
 
-#202 creates one shipment from OrderPaid or authorized idempotent manual creation, using trusted buyer/warehouse/shipping snapshots. A temporary carrier outage may commit the same creation fact with PENDING_TRACKING and trackingCode=null; obtaining tracking later does not create a second shipment or repeat the same creation event. #250's older success-only wording is extended here to describe the #202 outage case and needs shipment-owner review. Only ShipmentPickedUp and ShipmentDelivered drive #204 lifecycle moves. Persist the external request identity before retry/reconcile; DB uniqueness alone does not guarantee exactly-once carrier calls.
+#202 creates one shipment from OrderPaid or authorized idempotent manual creation, using trusted buyer/warehouse/shipping snapshots. A temporary carrier outage may commit the same creation fact with PENDING_TRACKING and trackingCode=null; obtaining tracking later does not create a second shipment or repeat the same creation event. #250's older success-only wording is extended here to describe the #202 outage case and needs shipment-owner review. ShipmentPickedUp, accepted post-pickup progress and ShipmentDelivered drive #204 lifecycle moves, recovering a missed pickup callback without extra shipment facts. Persist the external request identity before retry/reconcile; DB uniqueness alone does not guarantee exactly-once carrier calls.
+
+### ShipmentStatusUpdated
+
+- Topic: `nexus.shipment.events`.
+- Publisher: [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203).
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log only; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
+
+Exactly one event records an accepted intermediate transition for which no dedicated Shipment* event exists. It does not repeat ShipmentCreated. Both authorized status updates and overrides may skip forward steps after trackingCode assignment. Without trackingCode, manual updates may only repeat the current state or cancel, preserving pending booking retry; delivery retry may move DELIVERY_FAILED to OUT_FOR_DELIVERY. DELIVERED, CANCELLED and RETURNED are terminal, including for overrides. Each actual change commits status/version/history/outbox together; duplicate/no-op changes publish nothing.
+
+The payload uses the same history/version/source/actor fields as ShipmentPickedUp. trackingCode is null when no carrier booking exists. changedAt is the accepted persisted transition time in UTC. reason contains the sanitized manual/cancellation reason, or null for an automated update without a reason.
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ShipmentStatusUpdatedPayload",
+  "type": "object",
+  "properties": {
+    "shipmentId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "buyerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "warehouseId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "carrier": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 40
+    },
+    "trackingCode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 80
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "CREATED",
+        "PENDING_TRACKING",
+        "PICKING",
+        "PACKED",
+        "READY_TO_SHIP",
+        "OUT_FOR_DELIVERY",
+        "RETURNING"
+      ]
+    },
+    "historyId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "shipmentVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "SYSTEM",
+        "CARRIER_WEBHOOK",
+        "POLLER",
+        "MANUAL"
+      ]
+    },
+    "carrierEventId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 160
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "changedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 255
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "shipmentId",
+    "orderId",
+    "buyerId",
+    "warehouseId",
+    "carrier",
+    "trackingCode",
+    "status",
+    "historyId",
+    "shipmentVersion",
+    "source",
+    "carrierEventId",
+    "actorId",
+    "changedAt",
+    "reason"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "shipmentId": "00000000-0000-4000-8000-000000000040",
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "warehouseId": "00000000-0000-4000-8000-000000000010",
+  "carrier": "GHN",
+  "trackingCode": "GHN-12345",
+  "status": "PICKING",
+  "historyId": "00000000-0000-4000-8000-000000000041",
+  "shipmentVersion": 2,
+  "source": "MANUAL",
+  "carrierEventId": null,
+  "actorId": "00000000-0000-0000-0000-000000000000",
+  "changedAt": "2026-11-20T10:00:00Z",
+  "reason": "Support confirmed shipment preparation"
+}
+```
+
+### ShipmentCancelled
+
+- Topic: `nexus.shipment.events`.
+- Publisher: [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203).
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log only; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
+
+Records one accepted pre-pickup cancellation from a verified carrier update, an authorized manual update or OrderCancelled. Cancellation after pickup is rejected for HTTP updates; OrderCancelled instead completes unchanged and logs a WARN for Support. A pending shipment with no carrier booking can be cancelled locally. Manual and OrderCancelled cancellation must first cancel an existing booking through CarrierAdapter; a verified carrier cancellation records the carrier fact directly. Carrier failure rolls back the local effect and processed marker for retry. OrderCancelled reason is validated as nonblank and at most 500 characters before remote effects; its sanitized tracking/outbox reason is truncated to 255 characters. When no shipment exists, cancelled_shipment_orders records order_id, event_id, reason (up to 500 characters) and received_at to block late shipment creation/booking. No cancellation request/ACK event is required by R1.
+
+The payload uses the same history/version/source/actor fields as ShipmentPickedUp. trackingCode is null when no carrier booking exists. changedAt is the accepted persisted transition time in UTC. reason contains the sanitized manual/cancellation reason, or null for an automated update without a reason.
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ShipmentCancelledPayload",
+  "type": "object",
+  "properties": {
+    "shipmentId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "buyerId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "warehouseId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "carrier": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "maxLength": 40
+    },
+    "trackingCode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 80
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "const": "CANCELLED"
+    },
+    "historyId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "shipmentVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "SYSTEM",
+        "CARRIER_WEBHOOK",
+        "POLLER",
+        "MANUAL"
+      ]
+    },
+    "carrierEventId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 160
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "changedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 255
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "shipmentId",
+    "orderId",
+    "buyerId",
+    "warehouseId",
+    "carrier",
+    "trackingCode",
+    "status",
+    "historyId",
+    "shipmentVersion",
+    "source",
+    "carrierEventId",
+    "actorId",
+    "changedAt",
+    "reason"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "shipmentId": "00000000-0000-4000-8000-000000000040",
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
+  "warehouseId": "00000000-0000-4000-8000-000000000010",
+  "carrier": "GHN",
+  "trackingCode": null,
+  "status": "CANCELLED",
+  "historyId": "00000000-0000-4000-8000-000000000041",
+  "shipmentVersion": 2,
+  "source": "SYSTEM",
+  "carrierEventId": null,
+  "actorId": "00000000-0000-0000-0000-000000000000",
+  "changedAt": "2026-11-20T10:00:00Z",
+  "reason": "Order cancelled before carrier pickup"
+}
+```
 
 ### ShipmentPickedUp
 
@@ -3398,13 +3717,13 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 }
 ```
 
-#203 normalizes a verified carrier webhook, poller result or authorized manual update to SHIPPED. Commit status/version/history/outbox together; a duplicate or no-op produces no event. #204 uses only accepted forward transitions, through #116 and its own IdempotentConsumer. A late ShipmentCreated or lower shipmentVersion cannot reverse a completed order. Other Shipment* types are logged without inventing order statuses. Validate signatures before effects; store provider deduplication identities, and retain durable retry for missing prerequisites. A manual override needs permission and a nonempty reason even when the schema allows null for automated changes.
+#203 normalizes a verified carrier webhook, poller result or authorized manual update to SHIPPED. Commit status/version/history/outbox together; a duplicate or no-op produces no event. #204 uses only accepted forward transitions, through #116 and its own IdempotentConsumer. A late ShipmentCreated or lower shipmentVersion cannot reverse a completed order. Post-pickup ShipmentInTransit/ShipmentFailed/ShipmentReturned and ShipmentStatusUpdated OUT_FOR_DELIVERY/RETURNING confirm SHIPPED when pickup was missed; delivery can recover the missing SHIPPED prerequisite atomically. Early status updates and cancellation do not invent order states. Validate signatures before effects; store provider deduplication identities, and retain durable retry for missing prerequisites. A manual override needs permission and a nonempty reason even when the schema allows null for automated changes.
 
 ### ShipmentInTransit
 
 - Topic: `nexus.shipment.events`.
 - Publisher: [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203).
-- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log only; no additional order state is defined in #116; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): confirm PAID -> SHIPPED if the pickup event was missed; no new order state is introduced; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
@@ -3557,13 +3876,13 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 }
 ```
 
-#203 normalizes a verified carrier webhook, poller result or authorized manual update to IN_TRANSIT. Commit status/version/history/outbox together; a duplicate or no-op produces no event. #204 uses only accepted forward transitions, through #116 and its own IdempotentConsumer. A late ShipmentCreated or lower shipmentVersion cannot reverse a completed order. Other Shipment* types are logged without inventing order statuses. Validate signatures before effects; store provider deduplication identities, and retain durable retry for missing prerequisites. A manual override needs permission and a nonempty reason even when the schema allows null for automated changes.
+#203 normalizes a verified carrier webhook, poller result or authorized manual update to IN_TRANSIT. Commit status/version/history/outbox together; a duplicate or no-op produces no event. #204 uses only accepted forward transitions, through #116 and its own IdempotentConsumer. A late ShipmentCreated or lower shipmentVersion cannot reverse a completed order. Post-pickup ShipmentInTransit/ShipmentFailed/ShipmentReturned and ShipmentStatusUpdated OUT_FOR_DELIVERY/RETURNING confirm SHIPPED when pickup was missed; delivery can recover the missing SHIPPED prerequisite atomically. Early status updates and cancellation do not invent order states. Validate signatures before effects; store provider deduplication identities, and retain durable retry for missing prerequisites. A manual override needs permission and a nonempty reason even when the schema allows null for automated changes.
 
 ### ShipmentDelivered
 
 - Topic: `nexus.shipment.events`.
 - Publisher: [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203).
-- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): SHIPPED -> DELIVERED -> COMPLETED and publish OrderCompleted; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recover SHIPPED if PAID, then DELIVERED -> COMPLETED and publish OrderCompleted once; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
@@ -3716,13 +4035,13 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 }
 ```
 
-#203 normalizes a verified carrier webhook, poller result or authorized manual update to DELIVERED. Commit status/version/history/outbox together; a duplicate or no-op produces no event. #204 uses only accepted forward transitions, through #116 and its own IdempotentConsumer. A late ShipmentCreated or lower shipmentVersion cannot reverse a completed order. Other Shipment* types are logged without inventing order statuses. Validate signatures before effects; store provider deduplication identities, and retain durable retry for missing prerequisites. A manual override needs permission and a nonempty reason even when the schema allows null for automated changes.
+#203 normalizes a verified carrier webhook, poller result or authorized manual update to DELIVERED. Commit status/version/history/outbox together; a duplicate or no-op produces no event. #204 uses only accepted forward transitions, through #116 and its own IdempotentConsumer. A late ShipmentCreated or lower shipmentVersion cannot reverse a completed order. Post-pickup ShipmentInTransit/ShipmentFailed/ShipmentReturned and ShipmentStatusUpdated OUT_FOR_DELIVERY/RETURNING confirm SHIPPED when pickup was missed; delivery can recover the missing SHIPPED prerequisite atomically. Early status updates and cancellation do not invent order states. Validate signatures before effects; store provider deduplication identities, and retain durable retry for missing prerequisites. A manual override needs permission and a nonempty reason even when the schema allows null for automated changes.
 
 ### ShipmentFailed
 
 - Topic: `nexus.shipment.events`.
 - Publisher: [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203).
-- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log only; no additional order state is defined in #116; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): confirm PAID -> SHIPPED if the pickup event was missed; no new order state is introduced; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
@@ -3868,13 +4187,13 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 }
 ```
 
-#203 normalizes a verified carrier webhook, poller result or authorized manual update to DELIVERY_FAILED. Commit status/version/history/outbox together; a duplicate or no-op produces no event. #204 uses only accepted forward transitions, through #116 and its own IdempotentConsumer. A late ShipmentCreated or lower shipmentVersion cannot reverse a completed order. Other Shipment* types are logged without inventing order statuses. Validate signatures before effects; store provider deduplication identities, and retain durable retry for missing prerequisites. A manual override needs permission and a nonempty reason even when the schema allows null for automated changes.
+#203 normalizes a verified carrier webhook, poller result or authorized manual update to DELIVERY_FAILED. Commit status/version/history/outbox together; a duplicate or no-op produces no event. #204 uses only accepted forward transitions, through #116 and its own IdempotentConsumer. A late ShipmentCreated or lower shipmentVersion cannot reverse a completed order. Post-pickup ShipmentInTransit/ShipmentFailed/ShipmentReturned and ShipmentStatusUpdated OUT_FOR_DELIVERY/RETURNING confirm SHIPPED when pickup was missed; delivery can recover the missing SHIPPED prerequisite atomically. Early status updates and cancellation do not invent order states. Validate signatures before effects; store provider deduplication identities, and retain durable retry for missing prerequisites. A manual override needs permission and a nonempty reason even when the schema allows null for automated changes.
 
 ### ShipmentReturned
 
 - Topic: `nexus.shipment.events`.
 - Publisher: [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203).
-- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log only; no additional order state is defined in #116; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): confirm PAID -> SHIPPED if the pickup event was missed; no new order state is introduced; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
@@ -4027,7 +4346,7 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 }
 ```
 
-#203 normalizes a verified carrier webhook, poller result or authorized manual update to RETURNED. Commit status/version/history/outbox together; a duplicate or no-op produces no event. #204 uses only accepted forward transitions, through #116 and its own IdempotentConsumer. A late ShipmentCreated or lower shipmentVersion cannot reverse a completed order. Other Shipment* types are logged without inventing order statuses. Validate signatures before effects; store provider deduplication identities, and retain durable retry for missing prerequisites. A manual override needs permission and a nonempty reason even when the schema allows null for automated changes.
+#203 normalizes a verified carrier webhook, poller result or authorized manual update to RETURNED. Commit status/version/history/outbox together; a duplicate or no-op produces no event. #204 uses only accepted forward transitions, through #116 and its own IdempotentConsumer. A late ShipmentCreated or lower shipmentVersion cannot reverse a completed order. Post-pickup ShipmentInTransit/ShipmentFailed/ShipmentReturned and ShipmentStatusUpdated OUT_FOR_DELIVERY/RETURNING confirm SHIPPED when pickup was missed; delivery can recover the missing SHIPPED prerequisite atomically. Early status updates and cancellation do not invent order states. Validate signatures before effects; store provider deduplication identities, and retain durable retry for missing prerequisites. A manual override needs permission and a nonempty reason even when the schema allows null for automated changes.
 
 ### NotificationCreated
 
@@ -5934,7 +6253,7 @@ The publisher reads `dueAt` and each `paymentDueAt` from the refreshed persisted
 }
 ```
 
-#113/#250 require group CANCELED, every still-PENDING child CANCELED/history, this group event and individual OrderCancelled events in one commerce transaction. #189 owns manual cancellation; #159 owns expiry and must adopt the group boundary. Payment serializes cancellation with webhook funding under session/instruction locks; missing manifest/session is durable retry, not a processed no-op. If funding already won, keep PAID/receipt evidence and create at most the one refund per cancelled funded instruction. No cancellation ACK wait, unpaid-child fence or replacement QR is introduced. Group cancellation does not replace the paid child shipment-handover coordination described in #250.
+#113/#250 require group CANCELED, every still-PENDING child CANCELED/history, this group event and individual OrderCancelled events in one commerce transaction. #189 owns manual cancellation; #159 owns expiry and must adopt the group boundary. Payment serializes cancellation with webhook funding under session/instruction locks; missing manifest/session is durable retry, not a processed no-op. If funding already won, keep PAID/receipt evidence and create at most the one refund per cancelled funded instruction. No cancellation ACK wait, unpaid-child fence or replacement QR is introduced. Paid child cancellation follows the R1 pre-pickup rule in integration flow 4; no handover request/ACK is introduced.
 
 Checkout #138 uses GHN v3 provinceCode/wardCode. districtCode is optional for historical messages; new orders do not invent a district. Parcel is assembled from seller-owned Catalog shippingParcel measurements and retained in the order snapshot.
 
@@ -6058,7 +6377,7 @@ The file is ready for contract review, with these remaining decisions explicitly
 | --- | --- |
 | #217 / #192, both backend lanes | Confirm config write owner/route (ADR-009 leaves it open) and durable authenticated non-Kafka audit handoff. `none` cannot mean sending Kafka to a literal topic named none or using a nonexistent in-process shared DB. |
 | #202 / #203 / #241 | Approve trusted OrderPaid shippingInfo/warehouse and status mappings, preparation of missing parcel/pickup details, and ShipmentCreated's PENDING_TRACKING creation case. Historical messages need coordinated backfill/replay; never fake carrier measurements/locality codes. |
-| #189 / #203 / #250 | Specify paid-child cancellation request/ACK payloads in the owning follow-up before handover coordination is enabled. They are distinct from whole-group prepayment cancellation. |
+| #189 / #203 / #250 | Apply the R1 rule in integration flow 4: a PAID child can be cancelled until ShipmentPickedUp without a handover request/ACK. Keep this distinct from whole-group prepayment cancellation; already-picked-up shipments remain unchanged with a Support WARN. |
 | #209 / #197 / #216 | Agree admission/no-stock 409 versus async AuctionCreated reservation behavior, and cancellation product-flag reconciliation. #216 names AuctionCreated/AuctionEnded, not a new AuctionCancelled subscriber. |
 | #141 / #171 / #172 | Review the #139 order-line mapping and proposed image/quantity policy; implement the singleton group without another stock reservation. Defer the payment manifest until shipping confirmation. Record both sides' actual !150 approvals. |
 
@@ -6067,6 +6386,8 @@ The #186 table's consumers are all named here, including explicit filtering wher
 Runtime implementation checks remain with their owning issues: business/outbox rollback and stable relay identity/per-aggregate order (#104/#106/#118); duplicate/concurrent consumer effects and marker rollback (#105); one canonical auction order after replay/crash (#172/#174); cancellation/expiry stock races (#159/#161/#175); and traced scheduler contexts (#102/#145/#159/#175). This document revision does not claim those integration checks were run.
 
 ### Document validation
+
+The execution evidence below is the historical 2026-10-28 baseline. It predates the two additive #203 contracts and is not evidence that the current 71-name catalogue or shipment runtime has been revalidated.
 
 Recorded local validation on 2026-10-28 using Python 3.12 and jsonschema 4.10.3 with Draft 7, UUID checking and explicit standard-library UTC timestamp/URI checks:
 

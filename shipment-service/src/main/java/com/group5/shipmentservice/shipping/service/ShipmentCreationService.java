@@ -74,6 +74,7 @@ public class ShipmentCreationService {
     public CreationResult createPaid(EventEnvelope<JsonNode> event, OrderPaidSnapshot snapshot) {
         return transaction.execute(status -> {
             shipments.lockKey("shipment-order:" + snapshot.orderId());
+            if (shipments.isOrderCancelled(snapshot.orderId())) return new CreationResult(null, false);
             var existing = shipments.findByOrderId(snapshot.orderId());
             if (existing.isPresent()) {
                 requireSameSnapshot(existing.get(), snapshot);
@@ -124,6 +125,7 @@ public class ShipmentCreationService {
             }
 
             shipments.lockKey("shipment-order:" + request.orderId());
+            if (shipments.isOrderCancelled(request.orderId())) throw new DomainException(ShipmentErrorCode.ORDER_NOT_PAID);
             var existing = shipments.findByOrderIdForUpdate(request.orderId());
             if (existing.isEmpty()) return null;
             Shipment shipment = existing.get();
@@ -138,6 +140,7 @@ public class ShipmentCreationService {
                              Map<String, Object> info, String key, String fingerprint, String traceId) {
         Shipment shipment = Shipment.create(UUID.randomUUID(), snapshot.orderId(), snapshot.buyerId(),
                 warehouseId, carrier, serviceType, snapshot.shippingFee(), info, key);
+        shipment.assignSeller(snapshot.sellerId());
         if (key != null) shipment.claimManualRequest(key, fingerprint);
         shipment.trackingPending(now());
         shipment = shipments.saveAndFlush(shipment);
@@ -202,11 +205,13 @@ public class ShipmentCreationService {
 
     private void requireSameSnapshot(Shipment shipment, OrderPaidSnapshot snapshot) {
         if (!shipment.getBuyerId().equals(snapshot.buyerId())
+                || (shipment.getSellerId() != null && !shipment.getSellerId().equals(snapshot.sellerId()))
                 || shipment.getShippingFee().compareTo(snapshot.shippingFee()) != 0
                 || !sameRecipient(shipment.getShippingInfo(), snapshot.shippingInfo())
                 || !sortedItems(shipment.getShippingInfo()).equals(sortedItems(snapshot.shippingInfo()))) {
             throw new IllegalArgumentException("Conflicting OrderPaid snapshot for existing order");
         }
+        shipment.assignSeller(snapshot.sellerId());
     }
 
     private boolean sameRecipient(Map<String, Object> first, Map<String, Object> second) {

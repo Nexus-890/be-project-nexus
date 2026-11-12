@@ -236,6 +236,9 @@ nexus:
       - method: GET
         path: /api/v1/shipments/{id}/tracking
         privilege: SHIPPING.VIEW_SHIPMENT
+      - method: GET
+        path: /api/v1/shipments/{id}/history
+        privilege: SHIPPING.VIEW_SHIPMENT
       - method: PATCH
         path: /api/v1/shipments/{id}/status
         privilege: SHIPPING.UPDATE_STATUS

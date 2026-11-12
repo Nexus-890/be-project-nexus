@@ -69,4 +69,13 @@ public class ShipmentHistory extends AuditedEntity {
         history.source = "SYSTEM";
         return history;
     }
+
+    public static ShipmentHistory change(Shipment shipment, String description, String source,
+                                         String carrierEventId, UUID actorId) {
+        ShipmentHistory history = system(shipment, description);
+        history.source = source;
+        history.carrierEventId = carrierEventId;
+        history.changedBy = actorId;
+        return history;
+    }
 }

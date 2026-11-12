@@ -34,7 +34,8 @@ public class OrderShippingSnapshotService {
         if (order.getStatus() != OrderStatus.PAID) {
             throw new DomainException(CommerceErrorCode.ORDER_NOT_PAID);
         }
-        if (order.getPaidAt() == null || order.getUserId() == null || order.getShippingInfo() == null) invalid();
+        if (order.getPaidAt() == null || order.getUserId() == null || order.getSellerId() == null
+                || order.getShippingInfo() == null) invalid();
         BigDecimal fee = shippingFee(order.getShippingFee());
         Map<String, Object> info = new LinkedHashMap<>(order.getShippingInfo());
         info.put("recipient", recipient(info));
@@ -45,7 +46,7 @@ public class OrderShippingSnapshotService {
         UUID warehouseId = warehouse(info.get("warehouseId"));
         return new OrderShippingSnapshotResponse(order.getId(), order.getUserId(), order.getVersion(),
                 order.getStatus().name(), order.getPaidAt(), warehouseId, fee,
-                Collections.unmodifiableMap(info));
+                Collections.unmodifiableMap(info), order.getSellerId());
     }
 
     private static Map<String, Object> recipient(Map<String, Object> info) {

@@ -8003,7 +8003,7 @@ components:
           $ref: '#/components/schemas/OrderShippingSnapshotResponse'
     OrderShippingSnapshotResponse:
       type: object
-      required: [orderId, buyerId, orderVersion, status, paidAt, warehouseId, shippingFee, shippingInfo]
+      required: [orderId, buyerId, sellerId, orderVersion, status, paidAt, warehouseId, shippingFee, shippingInfo]
       properties:
         orderId:
           type: string
@@ -8011,6 +8011,10 @@ components:
         buyerId:
           type: string
           format: uuid
+        sellerId:
+          type: string
+          format: uuid
+          description: Trusted orders.seller_id used by shipment-service for seller ownership; never taken from shippingInfo or the caller.
         orderVersion:
           type: integer
           format: int64
