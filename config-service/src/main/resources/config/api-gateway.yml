@@ -194,6 +194,9 @@ nexus:
       - method: GET
         path: /api/v1/orders/{id}
         privilege: ORDER.VIEW
+      - method: GET
+        path: /api/v1/orders/{id}/invoice
+        privilege: ORDER.VIEW
       - method: POST
         path: /api/v1/orders/{id}/cancel
         privilege: ORDER.CANCEL
