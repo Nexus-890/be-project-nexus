@@ -20,6 +20,7 @@ public class ProductResponse {
     private UUID categoryId;
     private UUID sellerId;
     private BigDecimal minPrice;
+    private BigDecimal maxPrice;
     private List<ImageResponse> images = List.of();
 
     public ProductResponse(
@@ -29,7 +30,8 @@ public class ProductResponse {
             ProductStatus status,
             UUID categoryId,
             UUID sellerId,
-            BigDecimal minPrice) {
+            BigDecimal minPrice,
+            BigDecimal maxPrice) {
 
         this.id = id;
         this.name = name;
@@ -38,6 +40,7 @@ public class ProductResponse {
         this.categoryId = categoryId;
         this.sellerId = sellerId;
         this.minPrice = minPrice;
+        this.maxPrice = maxPrice;
     }
 
     public ProductResponse(
@@ -55,6 +58,7 @@ public class ProductResponse {
                 status,
                 categoryId,
                 sellerId,
+                null,
                 null
         );
     }

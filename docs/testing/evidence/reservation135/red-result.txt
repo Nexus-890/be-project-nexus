@@ -1,0 +1,54 @@
+Actual local red result, 2026-11-10 Asia/Saigon
+Base: develop commit 317e889, PostgreSQL 18-alpine, Java 21, real HTTP requests.
+Command: ./mvnw -B -Dit.test=ReservationConcurrencyIT test-compile failsafe:integration-test failsafe:verify
+Maven exit: 1
+Tests: 10, failures: 10, errors: 0, skipped: 0
+Unchanged ReservationConcurrencyIT.java SHA256: B84AE5A770D2E79ED2EBFE59937CF068B44F6F4EBE63935352EEF1583742DB41
+Only InventoryBalanceRepository.reserve was mutated (read-then-write.patch). No sleeps, test changes or forced synchronization added.
+
+Per-run log lines:
+RESERVATION_CONCURRENCY run=1 requests=100 created=92 conflicts=8 reservation_rows=92 available=0 reserved=10 total=10
+RESERVATION_CONCURRENCY run=2 requests=100 created=92 conflicts=8 reservation_rows=92 available=0 reserved=10 total=10
+RESERVATION_CONCURRENCY run=3 requests=100 created=95 conflicts=5 reservation_rows=95 available=0 reserved=10 total=10
+RESERVATION_CONCURRENCY run=4 requests=100 created=88 conflicts=12 reservation_rows=88 available=0 reserved=10 total=10
+RESERVATION_CONCURRENCY run=5 requests=100 created=98 conflicts=2 reservation_rows=98 available=1 reserved=9 total=10
+RESERVATION_CONCURRENCY run=6 requests=100 created=96 conflicts=4 reservation_rows=96 available=1 reserved=9 total=10
+RESERVATION_CONCURRENCY run=7 requests=100 created=93 conflicts=7 reservation_rows=93 available=1 reserved=9 total=10
+RESERVATION_CONCURRENCY run=8 requests=100 created=94 conflicts=6 reservation_rows=94 available=1 reserved=9 total=10
+RESERVATION_CONCURRENCY run=9 requests=100 created=91 conflicts=9 reservation_rows=91 available=1 reserved=9 total=10
+RESERVATION_CONCURRENCY run=10 requests=100 created=93 conflicts=7 reservation_rows=93 available=2 reserved=8 total=10
+
+First real assertion failure:
+[ERROR] com.group5.inventoryservice.reservation.ReservationConcurrencyIT.hundredConcurrentOneUnitReservationsAgainstTenUnitsReserveExactlyTen(RepetitionInfo)[1] -- Time elapsed: 4.953 s <<< FAILURE!
+org.assertj.core.error.AssertJMultipleFailuresError: 
+
+Multiple Failures (5 failures)
+-- failure 1 --
+[HTTP 201 responses] 
+expected: 10
+ but was: 92
+at ReservationConcurrencyIT.hundredConcurrentOneUnitReservationsAgainstTenUnitsReserveExactlyTen(ReservationConcurrencyIT.java:93)
+-- failure 2 --
+[HTTP 409 responses] 
+expected: 90
+ but was: 8
+at ReservationConcurrencyIT.hundredConcurrentOneUnitReservationsAgainstTenUnitsReserveExactlyTen(ReservationConcurrencyIT.java:94)
+-- failure 3 --
+[balance row] 
+expected: {"available_quantity"=0, "reserved_quantity"=10, "total_quantity"=10, "unavailable_quantity"=0, "version"=10L}
+ but was: {"available_quantity"=0, "reserved_quantity"=10, "total_quantity"=10, "unavailable_quantity"=0, "version"=92L}
+at ReservationConcurrencyIT.hundredConcurrentOneUnitReservationsAgainstTenUnitsReserveExactlyTen(ReservationConcurrencyIT.java:97)
+-- failure 4 --
+[SELECT count(*) FROM inventory_reservations] 
+expected: 10
+ but was: 92
+at ReservationConcurrencyIT.hundredConcurrentOneUnitReservationsAgainstTenUnitsReserveExactlyTen(ReservationConcurrencyIT.java:106)
+-- failure 5 --
+[RESERVE movements] 
+expected: 10
+ but was: 92
+at ReservationConcurrencyIT.hundredConcurrentOneUnitReservationsAgainstTenUnitsReserveExactlyTen(ReservationConcurrencyIT.java:114)
+	at com.group5.inventoryservice.reservation.ReservationConcurrencyIT.hundredConcurrentOneUnitReservationsAgainstTenUnitsReserveExactlyTen(ReservationConcurrencyIT.java:115)
+
+[ERROR] Tests run: 10, Failures: 10, Errors: 0, Skipped: 0
+[INFO] BUILD FAILURE

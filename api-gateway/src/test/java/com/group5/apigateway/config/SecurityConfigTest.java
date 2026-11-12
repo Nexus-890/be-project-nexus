@@ -304,6 +304,50 @@ class SecurityConfigTest {
     }
 
     @Test
+    void invoiceRequiresOrderViewAndForwardsBearerForServiceOwnershipChecks() {
+        String path = "/api/v1/orders/" + ID + "/invoice";
+        client.get().uri(path).exchange().expectStatus().isUnauthorized()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        String listOnly = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("privileges", List.of("ORDER.LIST")));
+        client.get().uri(path).header(HttpHeaders.AUTHORIZATION, listOnly)
+                .exchange().expectStatus().isForbidden()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody().jsonPath("$.code").isEqualTo("FORBIDDEN");
+        assertThat(SERVICE_LOG).isEmpty();
+
+        String view = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("privileges", List.of("ORDER.VIEW")));
+        client.get().uri(path).header(HttpHeaders.AUTHORIZATION, view)
+                .exchange().expectStatus().isOk().expectBody(String.class).isEqualTo("downstream");
+        assertThat(SERVICE_LOG).containsExactly("GET " + path);
+        assertThat(FORWARDED_TOKENS).containsExactly(view);
+    }
+
+    @Test
+    void orderGroupRequiresOrderViewAndForwardsBearerForServiceOwnershipChecks() {
+        String path = "/api/v1/orders/groups/" + ID;
+        client.get().uri(path).exchange().expectStatus().isUnauthorized()
+                .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        String listOnly = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("privileges", List.of("ORDER.LIST")));
+        client.get().uri(path).header(HttpHeaders.AUTHORIZATION, listOnly)
+                .exchange().expectStatus().isForbidden()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody().jsonPath("$.code").isEqualTo("FORBIDDEN");
+        assertThat(SERVICE_LOG).isEmpty();
+
+        // Commerce kiểm tra buyer owner hoặc ADMIN sau khi gateway chuyển nguyên bearer.
+        String view = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("roles", List.of("BUYER")).claim("privileges", List.of("ORDER.VIEW")));
+        client.get().uri(path).header(HttpHeaders.AUTHORIZATION, view)
+                .exchange().expectStatus().isOk().expectBody(String.class).isEqualTo("downstream");
+        assertThat(SERVICE_LOG).containsExactly("GET " + path);
+        assertThat(FORWARDED_TOKENS).containsExactly(view);
+    }
+
+    @Test
     void paymentInitiationRequiresCheckoutPrivilegeAndForwardsBuyerBearer() {
         String path = "/api/v1/payments";
         client.post().uri(path).exchange().expectStatus().isUnauthorized();
@@ -316,6 +360,35 @@ class SecurityConfigTest {
         client.post().uri(path).header(HttpHeaders.AUTHORIZATION, buyer).exchange().expectStatus().isOk();
         assertThat(SERVICE_LOG).containsExactly("POST " + path);
         assertThat(FORWARDED_TOKENS).containsExactly(buyer);
+    }
+
+    @Test
+    void reservingStockNeedsATokenAndForwardsTheBuyerBearerToInventory() {
+        String path = "/api/v1/inventory/reservations";
+        client.post().uri(path).exchange().expectStatus().isUnauthorized()
+                .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        assertThat(DOMAIN_LOG).isEmpty();
+        String buyer = "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of("BUYER")));
+        client.post().uri(path).header(HttpHeaders.AUTHORIZATION, buyer).exchange()
+                .expectStatus().isOk().expectBody(String.class).isEqualTo("inventory-service");
+        assertThat(DOMAIN_LOG).containsExactly("inventory-service POST " + path);
+        assertThat(FORWARDED_TOKENS).containsExactly(buyer);
+    }
+
+    @Test
+    void confirmAndReleaseAreNotRoutedSoAnOutsideCallGets404AndNeverReachesInventory() {
+        String admin = "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of("ADMIN")));
+        for (String action : List.of("confirm", "release")) {
+            String path = "/api/v1/inventory/reservations/" + ID + "/" + action;
+            client.post().uri(path).exchange().expectStatus().isUnauthorized();
+            client.post().uri(path).header(HttpHeaders.AUTHORIZATION, admin).exchange()
+                    .expectStatus().isNotFound().expectBody()
+                    .jsonPath("$.type").isEqualTo("https://nexus/errors/not-found");
+        }
+        assertThat(DOMAIN_LOG).isEmpty();
+        assertThat(SERVICE_LOG).isEmpty();
+        client.post().uri("/api/v1/inventory/reservations").header(HttpHeaders.AUTHORIZATION, admin).exchange()
+                .expectStatus().isOk().expectBody(String.class).isEqualTo("inventory-service");
     }
 
     @Test
@@ -569,8 +642,7 @@ class SecurityConfigTest {
     @Test
     void publicAddressListsAndSepayCallbackReachTheirOwnService() {
         for (String path : List.of("/api/v1/shipping/provinces",
-                "/api/v1/shipping/districts?provinceCode=202",
-                "/api/v1/shipping/wards?districtCode=1442")) {
+                "/api/v1/shipping/wards?provinceCode=1000001")) {
             client.get().uri(path).exchange().expectStatus().isOk()
                     .expectBody(String.class).isEqualTo("shipment-service");
         }
@@ -582,7 +654,6 @@ class SecurityConfigTest {
         }
         assertThat(DOMAIN_LOG).containsExactly(
                 "shipment-service GET /api/v1/shipping/provinces",
-                "shipment-service GET /api/v1/shipping/districts",
                 "shipment-service GET /api/v1/shipping/wards",
                 "payment-service POST /api/v1/webhooks/sepay",
                 "shipment-service POST /api/v1/webhooks/carriers/ghn",
@@ -590,11 +661,32 @@ class SecurityConfigTest {
     }
 
     @Test
+    void stockReadsArePublicButOtherInventoryPathsStillNeedAToken() {
+        client.get().uri("/api/v1/inventory/" + ID).exchange().expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("inventory-service");
+        client.get().uri("/api/v1/inventory?skuIds=" + ID + "," + ID).exchange().expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("inventory-service");
+        assertThat(DOMAIN_LOG).containsExactly(
+                "inventory-service GET /api/v1/inventory/" + ID,
+                "inventory-service GET /api/v1/inventory");
+        assertThat(FORWARDED_TOKENS).isEmpty();
+
+        SERVICE_LOG.clear();
+        for (String path : List.of("/api/v1/inventory/reservations", "/api/v1/inventory/balances",
+                "/api/v1/inventory/movements", "/api/v1/inventory/not-a-uuid", "/api/v1/inventory/" + ID + "/extra")) {
+            client.get().uri(path).exchange().expectStatus().isUnauthorized();
+        }
+        client.post().uri("/api/v1/inventory/" + ID).exchange().expectStatus().isUnauthorized();
+        client.post().uri("/api/v1/inventory").exchange().expectStatus().isUnauthorized();
+        assertThat(SERVICE_LOG).isEmpty();
+    }
+
+    @Test
     void webhookAndAddressExceptionsDoNotLeakToOtherPathsOrMethods() {
         for (String path : List.of("/api/v1/webhooks/unrelated", "/api/v1/webhooks/sepay/extra",
                 "/api/v1/webhooks/carriers/unknown", "/api/v1/webhooks/carriers/ghn/extra",
                 "/api/v1/webhooks/carriers/GHN", "/api/v1/webhooks/carriers/ghtk/extra",
-                "/api/v1/shipping/quotes", "/api/v1/shipping/provinces/extra")) {
+                "/api/v1/shipping/quotes", "/api/v1/shipping/provinces/extra", "/api/v1/shipping/districts")) {
             client.post().uri(path).exchange().expectStatus().isUnauthorized();
             client.get().uri(path).exchange().expectStatus().isUnauthorized();
         }

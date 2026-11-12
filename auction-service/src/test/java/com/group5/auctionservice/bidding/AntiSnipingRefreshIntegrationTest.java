@@ -178,7 +178,7 @@ class AntiSnipingRefreshIntegrationTest {
         Tracer tracer = context.getBean(Tracer.class);
         Span span = tracer.nextSpan().name("anti-sniping.test-bid").start();
         try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
-            bids.place(auctionId, new PlaceBidRequest(new BigDecimal(amount)), BUYER);
+            bids.place(auctionId, UUID.randomUUID().toString(), new PlaceBidRequest(new BigDecimal(amount)), BUYER);
         } finally {
             span.end();
         }

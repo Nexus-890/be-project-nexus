@@ -8,7 +8,6 @@ import com.group5.common_security.CurrentUser;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -20,7 +19,7 @@ public class CheckoutController {
     @PostMapping("/preview")
     @PreAuthorize("hasAuthority('CHECKOUT.START')")
     public ApiResponse<CheckoutPreviewResponse> preview(
-            @AuthenticationPrincipal CurrentUser user, @Valid @RequestBody CheckoutPreviewRequest request) {
-        return ApiResponse.of(pricing.preview(user, request.promoCode()));
+            CurrentUser user, @Valid @RequestBody CheckoutPreviewRequest request) {
+        return ApiResponse.of(pricing.previewCheckout(user, request));
     }
 }

@@ -12,6 +12,7 @@ import com.group5.paymentservice.payment.entity.PaymentSession;
 import com.group5.paymentservice.payment.enums.PaymentSessionStatus;
 import com.group5.paymentservice.payment.repository.PaymentSessionRepository;
 import com.group5.paymentservice.payment.service.PaymentMatcher;
+import com.group5.paymentservice.payment.service.PaymentConfirmationService;
 import com.group5.paymentservice.shared.config.SepayProperties;
 import com.group5.paymentservice.shared.config.SepayWebhookConfiguration;
 import com.group5.paymentservice.shared.config.SepayWebhookProperties;
@@ -61,6 +62,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+/** Kiểm tra chữ ký trên raw body, ACK SePay và bảo vệ endpoint trước khi xử lý thanh toán. */
 @ExtendWith(SpringExtension.class)
 @WebAppConfiguration
 @ContextConfiguration(classes = SepayWebhookControllerTest.TestApplication.class,
@@ -78,11 +80,12 @@ class SepayWebhookControllerTest {
     static final String PATH = "/api/v1/webhooks/sepay";
     @Autowired WebApplicationContext context;
     @Autowired PaymentSessionRepository sessions;
+    @Autowired PaymentConfirmationService confirmation;
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
-        reset(sessions);
+        reset(sessions, confirmation);
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
     }
@@ -173,6 +176,21 @@ class SepayWebhookControllerTest {
         verifyNoInteractions(sessions);
     }
 
+    /** ID thập phân đã ký hợp lệ phải bị từ chối trước khi tra memo hoặc xác nhận thanh toán. */
+    @ParameterizedTest
+    @ValueSource(strings = {"156987654.9", "156987654.0", "1.569876549e8"})
+    void signedFloatingPointReceiptIdReturns400BeforePaymentProcessing(String id) throws Exception {
+        byte[] body = bytes("{\"id\":" + id
+                + ",\"code\":\"NX20261105001\",\"transferType\":\"in\",\"transferAmount\":350000}");
+
+        mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body)
+                        .header("X-SePay-Signature", sign(body, NOW)).header("X-SePay-Timestamp", NOW.getEpochSecond()))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("PAYMENT_INVALID_WEBHOOK_REQUEST"));
+        verifyNoInteractions(sessions, confirmation);
+    }
+
     @Test
     void emptyMemoAcknowledgesAndOtherPaymentEndpointsStayProtected() throws Exception {
         byte[] body = bytes("{}");
@@ -218,6 +236,8 @@ class SepayWebhookControllerTest {
     @EnableConfigurationProperties({SepayProperties.class, SepayWebhookProperties.class})
     @Import({SepayWebhookController.class, PaymentMatcher.class, SepayWebhookConfiguration.class})
     static class TestApplication {
+        // Mock nghiệp vụ để các ca controller chỉ kiểm tra xác thực, memo và định dạng response.
+        @Bean PaymentConfirmationService confirmation() { return mock(PaymentConfirmationService.class); }
         @Bean PaymentSessionRepository sessions() { return mock(PaymentSessionRepository.class); }
         @Bean Clock clock() { return Clock.fixed(NOW, ZoneOffset.UTC); }
         @Bean JwtDecoder jwtDecoder() { return token -> { throw new BadJwtException("No bearer expected for this webhook"); }; }

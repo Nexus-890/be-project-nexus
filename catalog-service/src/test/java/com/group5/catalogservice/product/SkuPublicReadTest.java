@@ -61,6 +61,10 @@ class SkuPublicReadTest {
         sku.setProduct(product);
         sku.setSkuCode("SHIRT-M");
         sku.setPrice(new BigDecimal("150000"));
+        sku.setShippingWeightGrams(1200);
+        sku.setShippingLengthCm(30);
+        sku.setShippingWidthCm(20);
+        sku.setShippingHeightCm(15);
         when(products.findById(product.getId())).thenReturn(Optional.of(product));
         when(skus.findById(sku.getId())).thenReturn(Optional.of(sku));
         when(skus.findAllByProduct_Id(product.getId())).thenReturn(List.of(sku));
@@ -75,10 +79,15 @@ class SkuPublicReadTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].id").value(sku.getId().toString()))
                 .andExpect(jsonPath("$.data[0].productId").value(product.getId().toString()))
+                .andExpect(jsonPath("$.data[0].shippingParcel.weightGrams").value(1200))
                 .andExpect(jsonPath("$.page.totalElements").value(1));
         mvc.perform(get("/api/v1/skus/{id}", sku.getId()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.price").value(150000))
-                .andExpect(jsonPath("$.data.status").value("ACTIVE"));
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.data.shippingParcel.weightGrams").value(1200))
+                .andExpect(jsonPath("$.data.shippingParcel.lengthCm").value(30))
+                .andExpect(jsonPath("$.data.shippingParcel.widthCm").value(20))
+                .andExpect(jsonPath("$.data.shippingParcel.heightCm").value(15));
     }
 
     @ParameterizedTest

@@ -8,8 +8,11 @@ info:
     code, message and data containing a numeric whole-VND amount, including repeated reads.
     CheckoutPaymentRequested creates the immutable session and seller instructions;
     the initiation endpoint never creates a transaction, memo or replacement session.
-    The SePay callback verifies the original bytes and matches a session without
-    changing payment or order state; its protocol acknowledgement is not wrapped.
+    The SePay callback verifies the original bytes and matches a session, then
+    records a deduplicated receipt. An exact payable-session amount atomically
+    funds every instruction and emits CheckoutPaymentConfirmed. Commerce consumes
+    the event to mark the group and its eligible orders PAID; the protocol
+    acknowledgement is not wrapped.
 servers:
   - url: http://localhost:8080
     description: API gateway
@@ -27,7 +30,7 @@ paths:
     post:
       tags: [Webhooks]
       operationId: receiveSepayWebhook
-      summary: Verify a SePay callback and match its payment session
+      summary: Confirm a payable checkout from a verified SePay callback
       description: >-
         Public at the gateway and payment service; no bearer token is required.
         Before parsing JSON or querying payment_db, verifies HMAC-SHA256 over the
@@ -42,9 +45,23 @@ paths:
         1-32 uppercase ASCII letters/digits for an exact payment_sessions.memo_code
         lookup. There is no arbitrary substring matching. Missing, invalid or
         unknown memos are accepted with one WARN naming the normalized memo.
-        A valid parsed object returns 200 whether matched or unmatched. This
-        operation does not check amount, account, transfer direction, session state
-        or deadline, create transactions, change orders or emit events. The native
+        Unmatched memos return 200 without financial effects. Outgoing transfers
+        are acknowledged without funding a checkout. Matched incoming transfers
+        require a positive provider transaction id and a nonnegative transferAmount
+        within numeric(19,2) bounds. The provider id is stored as txnReference and
+        globally deduplicated by a durable sepay:{id} identity. A duplicate returns
+        200 and creates no further transaction or event, including concurrent
+        deliveries. When the amount equals the still-payable session total and
+        the complete instruction plan is payable, one transaction atomically
+        stores a NORMAL/SUCCESS receipt, marks the session and instructions PAID,
+        links funded_transaction_id, writes one CheckoutPaymentConfirmed and applies
+        pending paid-order cancellation refunds. Otherwise a valid incoming receipt
+        is UNRECONCILED with a WARN and no CheckoutPaymentConfirmed. The payment
+        outbox relay keys CheckoutPaymentConfirmed by orderGroupId while retaining
+        sessionId as the envelope aggregate. Commerce validates the complete plan
+        and commits group/order PAID, history and one OrderPaid per eligible order
+        asynchronously. Neither service changes inventory in this flow. HTTP 200
+        acknowledges receipt; it does not await commerce processing. The native
         SePay acknowledgement is exempt from ApiResponse using @ProtocolResponse.
       security: []
       parameters:
@@ -72,29 +89,35 @@ paths:
         description: >-
           SePay sends JSON. The controller reads original bytes before JSON parsing;
           an absent body fails signature verification with 401. Unknown object
-          properties are ignored, and no provider field is required by this matching
-          stage. A signed body that cannot be parsed into this object returns 400.
+          properties are ignored. A matched incoming transfer requires id,
+          transferType=in and transferAmount. An unmatched memo is acknowledged
+          without settlement validation. A signed body that cannot be parsed into
+          this object or an invalid matched incoming receipt returns 400.
+          The example is copied from docs/api/sepay-webhook-sample.json, captured
+          during the earlier provider spike; it is not a matching payment receipt
+          or a claim that payment settlement was executed.
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/SepayWebhookRequest'
             example:
-              id: 100001
               gateway: ACB
-              transactionDate: '2026-11-05 17:00:00'
+              transactionDate: '2026-10-18 16:51:32'
               accountNumber: '0000000002'
-              code: ' nx20261105001 '
-              content: SEVQR NX20261105001
+              subAccount: ''
+              code: ''
+              content: Giao dich thu nghiem 16h51m20s
               transferType: in
-              transferAmount: 350000
-              accumulated: 350000
-              subAccount: null
-              referenceCode: SYNTHETIC-TEST-100001
-              description: Synthetic example; not the immutable captured delivery
+              description: Giao dich thu nghiem 16h51m20s
+              transferAmount: 10000
+              referenceCode: SB4D116E4198F4
+              accumulated: 0
+              id: 39442
       responses:
         '200':
           description: >-
-            Verified, parsed callback accepted, including an unmatched memo. Native
+            Verified callback accepted, including duplicate deliveries, unmatched
+            memos, outgoing transfers and UNRECONCILED receipts. Native
             SePay protocol response, without code/message/data or session information.
           content:
             application/json:
@@ -105,7 +128,8 @@ paths:
         '400':
           description: >-
             Signature verified, but the JSON is malformed, null, not an object or
-            contains a value incompatible with the DTO (PAYMENT_INVALID_WEBHOOK_REQUEST).
+            contains a value incompatible with the DTO, or a matched incoming
+            receipt has an invalid id, direction or amount (PAYMENT_INVALID_WEBHOOK_REQUEST).
           content:
             application/problem+json:
               schema:
@@ -398,14 +422,18 @@ components:
       type: object
       additionalProperties: true
       description: >-
-        Provider wire object. Fields are optional and nullable at this stage;
-        amount, timestamp text and direction are not business-validated here.
+        Provider wire object. Fields remain optional and nullable during parsing
+        and memo matching. A matched incoming receipt requires a positive id,
+        transferType=in and a nonnegative amount fitting numeric(19,2). Outgoing
+        transfers are acknowledged without settlement. Provider timestamp text
+        is preserved; signature freshness uses the signed HTTP timestamp header.
         Unknown fields are ignored. A missing memo produces an accepted no-match.
       properties:
         id:
           type: integer
           format: int64
           nullable: true
+          description: Positive provider receipt identity required for matched incoming settlement; retained as txnReference
         gateway:
           type: string
           nullable: true
@@ -428,10 +456,11 @@ components:
         transferType:
           type: string
           nullable: true
-          description: Provider transfer direction; not restricted to an enum at this stage
+          description: Incoming settlement requires in (case insensitive); out is acknowledged without funding
         transferAmount:
           type: number
           nullable: true
+          description: Matched incoming receipts require a nonnegative numeric(19,2) value; only the exact payable-session total funds the checkout
         accumulated:
           type: number
           nullable: true

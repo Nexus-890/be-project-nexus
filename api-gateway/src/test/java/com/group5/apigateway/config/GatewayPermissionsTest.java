@@ -26,6 +26,8 @@ class GatewayPermissionsTest {
     private static final Set<Row> EXPECTED_PUBLIC = Set.of(
             new Row("/api/v1/auctions", "GET", "Public"),
             new Row("/api/v1/auctions/{id}", "GET", "Public"),
+            new Row("/api/v1/inventory", "GET", "Public"),
+            new Row("/api/v1/inventory/{id}", "GET", "Public"),
             new Row("/api/v1/carts/guest", "POST", "Public"),
             new Row("/api/v1/auth/register", "POST", "Public"),
             new Row("/api/v1/auth/session", "POST", "Public"),
@@ -41,7 +43,6 @@ class GatewayPermissionsTest {
             new Row("/api/v1/webhooks/carriers/ghn", "POST", "Public"),
             new Row("/api/v1/webhooks/carriers/ghtk", "POST", "Public"),
             new Row("/api/v1/shipping/provinces", "GET", "Public"),
-            new Row("/api/v1/shipping/districts", "GET", "Public"),
             new Row("/api/v1/shipping/wards", "GET", "Public"));
 
     @Test

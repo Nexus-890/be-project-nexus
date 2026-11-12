@@ -26,6 +26,7 @@
         <module>common-security</module>
         <module>common-events</module>
         <module>common-outbox</module>
+        <module>common-test</module>
     </modules>
 
     <name/>

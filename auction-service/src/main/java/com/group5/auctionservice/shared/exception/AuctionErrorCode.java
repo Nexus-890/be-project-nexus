@@ -12,6 +12,9 @@ public enum AuctionErrorCode implements ErrorCode {
     AUCTION_FORBIDDEN(HttpStatus.FORBIDDEN, "This actor cannot perform the auction action"),
     AUCTION_ILLEGAL_TRANSITION(HttpStatus.CONFLICT, "The auction cannot move to this status from its current status"),
     AUCTION_BID_TOO_LOW(HttpStatus.BAD_REQUEST, "Bid amount is below the minimum accepted bid"),
+    AUCTION_IDEMPOTENCY_KEY_REQUIRED(HttpStatus.BAD_REQUEST, "Idempotency-Key is required"),
+    AUCTION_INVALID_IDEMPOTENCY_KEY(HttpStatus.BAD_REQUEST, "Idempotency-Key must be a UUID"),
+    AUCTION_IDEMPOTENCY_KEY_CONFLICT(HttpStatus.CONFLICT, "Idempotency-Key was already used for another auction, bidder or amount"),
     AUCTION_NOT_ACTIVE(HttpStatus.CONFLICT, "Auction is not ACTIVE"),
     AUCTION_SELLER_CANNOT_BID(HttpStatus.CONFLICT, "The seller cannot bid on their own auction");
 

@@ -2212,6 +2212,7 @@ paths:
                       categoryId: "c8000000-0000-4000-8000-000000000001"
                       sellerId: "68000000-0000-4000-8000-000000000002"
                       minPrice: null
+                      maxPrice: null
         "400":
           description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`."
           content:
@@ -2675,6 +2676,7 @@ paths:
                         categoryId: "c8000000-0000-4000-8000-000000000001"
                         sellerId: "68000000-0000-4000-8000-000000000002"
                         minPrice: 150000.5
+                        maxPrice: 150000.5
                     page:
                       number: 0
                       size: 10
@@ -3034,6 +3036,7 @@ paths:
                       categoryId: "c8000000-0000-4000-8000-000000000001"
                       sellerId: "68000000-0000-4000-8000-000000000002"
                       minPrice: null
+                      maxPrice: null
         "400":
           description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`."
           content:
@@ -3489,13 +3492,14 @@ paths:
                       categoryId: "c8000000-0000-4000-8000-000000000001"
                       sellerId: "68000000-0000-4000-8000-000000000002"
                       minPrice: null
+                      maxPrice: null
                       description: "Demo product"
                       auctionEnable: false
                       skus:
                         -
                           id: "c8000000-0000-4000-8000-000000000003"
                           productId: "c8000000-0000-4000-8000-000000000002"
-                          skuCode: "SHOE-BLACK-42"
+                          skuCode: "SKU-c8000000000040008000000000000002-01"
                           color: "Black"
                           size: "42"
                           price: 150000.5
@@ -4269,6 +4273,7 @@ paths:
                         categoryId: "c8000000-0000-4000-8000-000000000001"
                         sellerId: "68000000-0000-4000-8000-000000000002"
                         minPrice: 150000.5
+                        maxPrice: 150000.5
                     page:
                       number: 0
                       size: 10
@@ -4594,6 +4599,64 @@ paths:
                     detail: "The service did not answer in time"
                     instance: "/api/v1/products/mine"
                     code: "GATEWAY_TIMEOUT"
+  /api/v1/products/mine/{id}:
+    get:
+      tags: [Products]
+      operationId: getOwnProduct
+      summary: Read the current seller's product with SKUs and images
+      description: >-
+        Protected editor read for the JWT seller's own nondeleted product, including DRAFT and
+        INACTIVE. Requires SELLER and PRODUCT.LIST; another seller receives 404. This does not
+        change visibility of the public ACTIVE-only GET /products/{id} endpoint.
+      security:
+        - bearerAuth: []
+      x-required-privileges: [PRODUCT.LIST]
+      x-gateway-privilege: PRODUCT.LIST
+      x-required-roles: [SELLER]
+      x-ownership: JWT subject must equal product sellerId; missing, deleted and other sellers' products return 404.
+      x-error-codes:
+        '400': [INVALID_PARAMETER]
+        '401': [UNAUTHENTICATED, CATALOG_UNAUTHENTICATED]
+        '403': [FORBIDDEN, CATALOG_UNAUTHORIZED]
+        '404': [CATALOG_PRODUCT_NOT_FOUND]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Own product detail, with numeric SKU prices and image public URLs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetProductResponse'
+        '400':
+          description: Invalid UUID parameter.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing or invalid authentication.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Missing SELLER role or PRODUCT.LIST privilege.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Product does not exist, was deleted, or belongs to another seller.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/products/{id}/status:
     patch:
       tags:
@@ -4677,6 +4740,7 @@ paths:
                       categoryId: "c8000000-0000-4000-8000-000000000001"
                       sellerId: "68000000-0000-4000-8000-000000000002"
                       minPrice: null
+                      maxPrice: null
         "400":
           description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `CATALOG_INVALID_PRODUCT_STATUS_TRANSITION`."
           content:
@@ -5130,7 +5194,6 @@ paths:
             schema:
               $ref: "#/components/schemas/WriteSku"
             example:
-              skuCode: "SHOE-BLACK-42"
               color: "Black"
               size: "42"
               price: 150000.5
@@ -5150,7 +5213,7 @@ paths:
                     data:
                       id: "c8000000-0000-4000-8000-000000000003"
                       productId: "c8000000-0000-4000-8000-000000000002"
-                      skuCode: "SHOE-BLACK-42"
+                      skuCode: "SKU-c8000000000040008000000000000002-01"
                       color: "Black"
                       size: "42"
                       price: 150000.5
@@ -5198,9 +5261,9 @@ paths:
                     code: "VALIDATION_FAILED"
                     errors:
                       -
-                        field: "skuCode"
+                        field: "size"
                         code: "VALIDATION_NOT_BLANK"
-                        detail: "Invalid value for skuCode"
+                        detail: "Invalid value for size"
                       -
                         field: "color"
                         code: "VALIDATION_NOT_BLANK"
@@ -5635,7 +5698,7 @@ paths:
                       -
                         id: "c8000000-0000-4000-8000-000000000003"
                         productId: "c8000000-0000-4000-8000-000000000002"
-                        skuCode: "SHOE-BLACK-42"
+                        skuCode: "SKU-c8000000000040008000000000000002-01"
                         color: "Black"
                         size: "42"
                         price: 150000.5
@@ -5997,7 +6060,6 @@ paths:
             schema:
               $ref: "#/components/schemas/WriteSku"
             example:
-              skuCode: "SHOE-BLACK-42"
               color: "Black"
               size: "42"
               price: 150000.5
@@ -6017,7 +6079,7 @@ paths:
                     data:
                       id: "c8000000-0000-4000-8000-000000000003"
                       productId: "c8000000-0000-4000-8000-000000000002"
-                      skuCode: "SHOE-BLACK-42"
+                      skuCode: "SKU-c8000000000040008000000000000002-01"
                       color: "Black"
                       size: "42"
                       price: 150000.5
@@ -6065,9 +6127,9 @@ paths:
                     code: "VALIDATION_FAILED"
                     errors:
                       -
-                        field: "skuCode"
+                        field: "size"
                         code: "VALIDATION_NOT_BLANK"
-                        detail: "Invalid value for skuCode"
+                        detail: "Invalid value for size"
                       -
                         field: "color"
                         code: "VALIDATION_NOT_BLANK"
@@ -6511,7 +6573,7 @@ paths:
                     data:
                       id: "c8000000-0000-4000-8000-000000000003"
                       productId: "c8000000-0000-4000-8000-000000000002"
-                      skuCode: "SHOE-BLACK-42"
+                      skuCode: "SKU-c8000000000040008000000000000002-01"
                       color: "Black"
                       size: "42"
                       price: 150000.5
@@ -7906,6 +7968,7 @@ components:
         - "categoryId"
         - "sellerId"
         - "minPrice"
+        - "maxPrice"
       properties:
         id:
           type: "string"
@@ -7929,7 +7992,12 @@ components:
         minPrice:
           type: "number"
           minimum: 0
-          description: "Existing BigDecimal JSON number; this migration preserves the delivered numeric wire format."
+          description: "Lowest SKU price of the product; null when it has no SKU. Existing BigDecimal JSON number; this migration preserves the delivered numeric wire format."
+          nullable: true
+        maxPrice:
+          type: "number"
+          minimum: 0
+          description: "Highest SKU price of the product; equals minPrice when every SKU has one price, null when it has no SKU. BigDecimal JSON number."
           nullable: true
         images:
           type: array
@@ -7946,6 +8014,7 @@ components:
         - "categoryId"
         - "sellerId"
         - "minPrice"
+        - "maxPrice"
         - "description"
         - "auctionEnable"
         - "skus"
@@ -7973,7 +8042,12 @@ components:
         minPrice:
           type: "number"
           minimum: 0
-          description: "Existing BigDecimal JSON number; this migration preserves the delivered numeric wire format."
+          description: "Lowest SKU price of the product; null when it has no SKU. Existing BigDecimal JSON number; this migration preserves the delivered numeric wire format."
+          nullable: true
+        maxPrice:
+          type: "number"
+          minimum: 0
+          description: "Highest SKU price of the product; equals minPrice when every SKU has one price, null when it has no SKU. BigDecimal JSON number."
           nullable: true
         description:
           type: "string"
@@ -8075,6 +8149,8 @@ components:
           format: "uuid"
         skuCode:
           type: "string"
+          maxLength: 60
+          description: "Generated on create as `SKU-<productId without dashes>-<NN>`, NN the next number for that product (01, 02, ...). An update never changes it. SKUs created before keep the code they had."
         color:
           type: "string"
           nullable: true
@@ -8088,19 +8164,47 @@ components:
         status:
           type: "string"
           description: "Current persisted SKU status string, initially ACTIVE. This issue does not restrict the existing string column to a new enum."
+        shippingParcel:
+          $ref: "#/components/schemas/ShippingParcel"
+    ShippingParcel:
+      type: "object"
+      nullable: true
+      description: "Seller supplied shipping-ready package for one SKU unit, measured in grams and centimetres. Null means the seller has not supplied verified measurements; checkout rejects missing measurements rather than inventing them."
+      required:
+        - "weightGrams"
+        - "lengthCm"
+        - "widthCm"
+        - "heightCm"
+      properties:
+        weightGrams:
+          type: "integer"
+          minimum: 1
+          maximum: 50000
+        lengthCm:
+          type: "integer"
+          minimum: 1
+          maximum: 200
+        widthCm:
+          type: "integer"
+          minimum: 1
+          maximum: 200
+        heightCm:
+          type: "integer"
+          minimum: 1
+          maximum: 200
+      example:
+        weightGrams: 1200
+        lengthCm: 30
+        widthCm: 20
+        heightCm: 15
     WriteSku:
       type: "object"
+      description: "The SKU code is not part of the request. A `skuCode` sent in the body is ignored."
       required:
-        - "skuCode"
         - "color"
         - "size"
         - "price"
       properties:
-        skuCode:
-          type: "string"
-          pattern: "\\S"
-          minLength: 1
-          maxLength: 60
         color:
           type: "string"
           pattern: "\\S"
@@ -8119,6 +8223,10 @@ components:
           maximum: 100000000000000000
           exclusiveMaximum: true
           description: "Greater than zero; at most 17 integer and 2 fractional decimal digits. Stored BigDecimal numeric(19,2)."
+        shippingParcel:
+          allOf:
+            - $ref: "#/components/schemas/ShippingParcel"
+          description: "Optional verified package measurements for one SKU unit. Omitted or null on update preserves the existing measurements for older clients. A supplied object must contain all four valid measurements."
     CreateCategoryResponse:
       type: "object"
       required:

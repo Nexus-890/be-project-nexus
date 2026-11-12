@@ -13,6 +13,7 @@ import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.service.InventoryClient;
 import com.group5.commerceservice.order.service.OrderService;
 import com.group5.commerceservice.order.service.PricingService;
+import com.group5.commerceservice.order.service.OrderShippingService;
 import com.group5.commerceservice.order.service.OrderStateMachine;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_core.model.ApiResponse;
@@ -70,6 +71,17 @@ class OrderReadTest {
     @Autowired private InventoryClient inventoryClient;
     @Autowired private DataSource dataSource;
 
+    @Autowired private OrderShippingService shipping;
+
+    @org.junit.jupiter.api.BeforeEach
+    void restoreShippingFixture() {
+        // Context dùng chung với test #138: mỗi test đọc đơn tự khôi phục fixture phí bằng 0.
+        Mockito.reset(shipping);
+        when(shipping.quote(any(), any())).thenReturn(new OrderShippingService.Quote(BigDecimal.ZERO,
+                new OrderShippingService.Parcel(1200, 30, 20, 15), "FAKE", "STANDARD",
+                java.time.OffsetDateTime.parse("2031-02-04T04:05:06Z")));
+    }
+
     @Test
     void theOwnerGetsEveryItemWithItsSnapshotPrice() {
         CurrentUser buyer = buyer();
@@ -85,6 +97,31 @@ class OrderReadTest {
         assertThat(order.items()).extracting(OrderItemResponse::totalPrice)
                 .containsExactlyInAnyOrder(new BigDecimal("300000.00"), new BigDecimal("178000.00"));
         assertThat(order.totalAmount()).isEqualByComparingTo("478000.00");
+        assertThat(order.recipientName()).isEqualTo("Buyer");
+        assertThat(order.phoneNumber()).isEqualTo("0900000000");
+    }
+
+    @Test
+    void shippingContactComesOnlyFromTheStoredSnapshotAndOlderOrdersRemainReadable() {
+        CurrentUser buyer = buyer();
+        UUID orderId = insertOrder(buyer.id(), OrderStatus.PAID, 1);
+        assertThat(orderService.getOrder(buyer, orderId).recipientName()).isNull();
+        assertThat(orderService.getOrder(buyer, orderId).phoneNumber()).isNull();
+
+        jdbc().update("UPDATE orders SET shipping_info=CAST(? AS jsonb) WHERE id=?", """
+                {"shippingAddress":{"recipientName":"  Original recipient  ","phoneNumber":" 0901111222 "}}
+                """, orderId);
+        OrderResponse response = orderService.listOwn(buyer, null, 0, 10).getContent().getFirst();
+        assertThat(response.recipientName()).isEqualTo("Original recipient");
+        assertThat(response.phoneNumber()).isEqualTo("0901111222");
+
+        for (String malformed : List.of("{}", "{\"shippingAddress\":\"legacy value\"}",
+                "{\"shippingAddress\":{\"recipientName\":42,\"phoneNumber\":\" \"}}")) {
+            jdbc().update("UPDATE orders SET shipping_info=CAST(? AS jsonb) WHERE id=?", malformed, orderId);
+            OrderResponse historical = orderService.getOrder(buyer, orderId);
+            assertThat(historical.recipientName()).isNull();
+            assertThat(historical.phoneNumber()).isNull();
+        }
     }
 
     @Test
@@ -185,10 +222,11 @@ class OrderReadTest {
             when(catalogClient.getProductById(productId)).thenReturn(ApiResponse.of(new CatalogClient.ProductResponse(
                     productId, sellerId, "Product " + price, "ACTIVE", List.of())));
         }
-        when(inventoryClient.reserve(any(), any(), anyInt())).thenReturn(true);
+        when(inventoryClient.reserve(any(), any())).thenReturn(new InventoryClient.Reservation(
+                List.of(UUID.randomUUID()), UUID.randomUUID(), java.time.OffsetDateTime.parse("2031-02-03T04:05:06.123456Z")));
 
         CreateOrderRequest request = new CreateOrderRequest(new CreateOrderRequest.ShippingAddress(
-                "Buyer", "0900000000", "1 Main Street", "Ward 1", "District 1", "Ho Chi Minh", "VN"), "SEPAY");
+                "Buyer", "0900000000", "1 Main Street", "1003646", "1000001", "VN"), "SEPAY");
         return orderService.create(buyer, UUID.randomUUID().toString(), request)
                 .response().orders().getFirst().orderId();
     }
@@ -218,6 +256,15 @@ class OrderReadTest {
     @EnableJpaAuditing(auditorAwareRef = "auditor")
     @Import({OrderService.class, OrderStateMachine.class, PricingService.class})
     static class JpaConfig {
+        // Fixture báo giá tách riêng khỏi transport Shipping; các test này kiểm nghiệp vụ Order hiện hữu.
+        @Bean
+        OrderShippingService shipping() {
+            OrderShippingService shipping = Mockito.mock(OrderShippingService.class);
+            Mockito.when(shipping.quote(Mockito.any(), Mockito.any())).thenReturn(new OrderShippingService.Quote(
+                    BigDecimal.ZERO, new OrderShippingService.Parcel(1200, 30, 20, 15), "FAKE", "STANDARD",
+                    java.time.OffsetDateTime.parse("2031-02-04T04:05:06Z")));
+            return shipping;
+        }
         @Bean
         DataSource dataSource() {
             DataSource source = new DriverManagerDataSource(POSTGRES.getJdbcUrl() + "&currentSchema=commerce_reads",

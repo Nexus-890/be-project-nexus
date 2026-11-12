@@ -42,7 +42,7 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
     /**
      * Product List không filter category.
      * LEFT JOIN giữ lại Product không có SKU.
-     * MIN(s.price) sẽ trả null nếu Product không có SKU.
+     * MIN(s.price) và MAX(s.price) sẽ trả null nếu Product không có SKU.
      */
     @Query(
             value = """
@@ -53,7 +53,8 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
                         p.status,
                         p.category.id,
                         p.sellerId,
-                        min(s.price)
+                        min(s.price),
+                        max(s.price)
                     )
                     from Product p
                     left join p.skuses s
@@ -91,7 +92,8 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
                         p.status,
                         p.category.id,
                         p.sellerId,
-                        min(s.price)
+                        min(s.price),
+                        max(s.price)
                     )
                     from Product p
                     left join p.skuses s
@@ -132,7 +134,8 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
                         p.status,
                         p.category.id,
                         p.sellerId,
-                        min(s.price)
+                        min(s.price),
+                        max(s.price)
                     )
                     from Product p
                     left join p.skuses s

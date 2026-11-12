@@ -25,7 +25,8 @@ import static org.mockito.Mockito.when;
 
 class PricingServiceTest {
     private final CatalogClient catalogClient = mock(CatalogClient.class);
-    private final PricingService pricingService = new PricingService(catalogClient);
+    private final PricingService pricingService = new PricingService(catalogClient,
+            mock(com.group5.commerceservice.order.service.OrderShippingService.class));
 
     @Test
     void changedPriceReportsBothFiguresAndRefreshesTheCartForConfirmation() {

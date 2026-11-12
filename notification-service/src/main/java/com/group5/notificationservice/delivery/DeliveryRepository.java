@@ -32,7 +32,7 @@ public class DeliveryRepository {
     // BỎ QUA CÁC DELIVERY LƯỢT NÀY ĐÃ NHẬN (excluded) -> 1 LƯỢT KHÔNG GỬI LẠI NGAY DELIVERY VỪA LỖI
     public List<DueDelivery> lockDueEmails(Instant now, int limit, Collection<UUID> excluded) {
         return jdbc.query("""
-                SELECT d.id, d.notification_id, d.attempt_count, n.user_id, n.title, n.content
+                SELECT d.id, d.notification_id, d.attempt_count, n.user_id, n.title, n.content, n.email_html
                 FROM notification_deliveries d
                 JOIN notifications n ON n.id = d.notification_id
                 WHERE d.status = 'PENDING' AND d.channel = 'EMAIL' AND d.next_attempt_at <= ?
@@ -42,7 +42,8 @@ public class DeliveryRepository {
                 FOR UPDATE OF d SKIP LOCKED
                 """, (rs, i) -> new DueDelivery(rs.getObject("id", UUID.class),
                 rs.getObject("notification_id", UUID.class), rs.getInt("attempt_count"),
-                rs.getObject("user_id", UUID.class), rs.getString("title"), rs.getString("content")),
+                rs.getObject("user_id", UUID.class), rs.getString("title"), rs.getString("content"),
+                rs.getString("email_html")),
                 Timestamp.from(now), uuidArray(excluded), limit);
     }
 
@@ -164,7 +165,7 @@ public class DeliveryRepository {
     }
 
     public record DueDelivery(UUID id, UUID notificationId, int attemptCount, UUID userId, String title,
-                              String content) {
+                              String content, String emailHtml) {
     }
 
     public record TimedOutAttempt(UUID id, int attemptNumber) {

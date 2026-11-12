@@ -1,0 +1,45 @@
+diff --git a/be-project-nexus/inventory-service/src/main/java/com/group5/inventoryservice/inventory/InventoryBalanceRepository.java b/be-project-nexus/inventory-service/src/main/java/com/group5/inventoryservice/inventory/InventoryBalanceRepository.java
+index 7cf75a4..4f82ffa 100644
+--- a/be-project-nexus/inventory-service/src/main/java/com/group5/inventoryservice/inventory/InventoryBalanceRepository.java
++++ b/be-project-nexus/inventory-service/src/main/java/com/group5/inventoryservice/inventory/InventoryBalanceRepository.java
+@@ -30,16 +30,35 @@ public interface InventoryBalanceRepository extends JpaRepository<InventoryBalan
+     int intake(@Param("skuId") UUID skuId, @Param("warehouseId") UUID warehouseId,
+                @Param("quantity") int quantity, @Param("actor") UUID actor);
+ 
++    @Query(nativeQuery = true, value = """
++            SELECT available_quantity, reserved_quantity FROM inventory_balances
++            WHERE sku_id = :skuId AND warehouse_id = :warehouseId
++            """)
++    java.util.List<Object[]> readQuantities(@Param("skuId") UUID skuId, @Param("warehouseId") UUID warehouseId);
++
+     @Modifying(clearAutomatically = true, flushAutomatically = true)
+     @Query(nativeQuery = true, value = """
+             UPDATE inventory_balances
+-            SET available_quantity = available_quantity - :quantity,
+-                reserved_quantity  = reserved_quantity + :quantity,
++            SET available_quantity = :available,
++                reserved_quantity  = :reserved,
+                 updated_by         = :actor,
+                 updated_at         = now(),
+                 version            = version + 1
+-            WHERE sku_id = :skuId AND warehouse_id = :warehouseId AND available_quantity >= :quantity
++            WHERE sku_id = :skuId AND warehouse_id = :warehouseId
+             """)
+-    int reserve(@Param("skuId") UUID skuId, @Param("warehouseId") UUID warehouseId,
+-                @Param("quantity") int quantity, @Param("actor") UUID actor);
++    int overwrite(@Param("skuId") UUID skuId, @Param("warehouseId") UUID warehouseId,
++                  @Param("available") int available, @Param("reserved") int reserved, @Param("actor") UUID actor);
++
++    default int reserve(UUID skuId, UUID warehouseId, int quantity, UUID actor) {
++        java.util.List<Object[]> rows = readQuantities(skuId, warehouseId);
++        if (rows.isEmpty()) {
++            return 0;
++        }
++        int available = ((Number) rows.get(0)[0]).intValue();
++        int reserved = ((Number) rows.get(0)[1]).intValue();
++        if (available < quantity) {
++            return 0;
++        }
++        return overwrite(skuId, warehouseId, available - quantity, reserved + quantity, actor);
++    }
+ }

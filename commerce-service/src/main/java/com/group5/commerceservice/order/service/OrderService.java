@@ -10,6 +10,7 @@ import com.group5.commerceservice.cart.repository.CartItemRepository;
 import com.group5.commerceservice.cart.repository.CartRepository;
 import com.group5.commerceservice.order.OrderStatus;
 import com.group5.commerceservice.order.OrderType;
+import com.group5.commerceservice.order.client.config.OrderRequestDeadline;
 import com.group5.commerceservice.order.dto.request.CancelOrderRequest;
 import com.group5.commerceservice.order.dto.request.ChangeOrderStatusRequest;
 import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
@@ -28,11 +29,11 @@ import com.group5.commerceservice.order.repository.OrderGroupRepository;
 import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.repository.OrderStatusHistoryRepository;
 import com.group5.commerceservice.shared.exception.CommerceErrorCode;
+import com.group5.commerceservice.shared.pricing.PriceBreakdown;
 import com.group5.common_core.constant.CommonErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
 import feign.FeignException;
-import jakarta.annotation.PostConstruct;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
@@ -97,16 +98,6 @@ public class OrderService {
     @Value("${nexus.order.idempotency-enabled:true}")
     private boolean idempotencyEnabled = true;
 
-    @Value("${nexus.order.payment-timeout-minutes:15}")
-    private long paymentTimeoutMinutes = 15;
-
-    @PostConstruct
-    void validateConfiguration() {
-        if (paymentTimeoutMinutes < 1) {
-            throw new IllegalStateException("Order payment timeout must be positive");
-        }
-    }
-
     public record CreationResult(boolean created, OrderGroupResponse response) {
     }
 
@@ -116,6 +107,13 @@ public class OrderService {
     // Each attempt must finish (or roll back) before reading a UNIQUE-conflict winner.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public CreationResult create(CurrentUser user, String key, CreateOrderRequest request) {
+        try (var deadline = OrderRequestDeadline.start(2600)) {
+            return createWithinDeadline(user, key, request);
+        }
+    }
+
+    private CreationResult createWithinDeadline(CurrentUser user, String key, CreateOrderRequest request) {
+        // Check quyền dưới hàm requireAccess
         requireAccess(user);
         if (key == null || !key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")) {
             throw new DomainException(CommerceErrorCode.INVALID_ORDER_REQUEST, "Idempotency-Key must be a UUID");
@@ -138,7 +136,7 @@ public class OrderService {
                         return new CheckoutResult(replay(user, snapshot, previous.get()), null);
                     }
                 }
-                return createFromCart(user, effectiveKey, snapshot);
+                return createFromCart(user, effectiveKey, request, snapshot);
             }));
         } catch (DataIntegrityViolationException violation) {
             if (!replayEnabled || !isIdempotencyKeyViolation(violation)) {
@@ -162,7 +160,9 @@ public class OrderService {
             throw new DomainException(CommerceErrorCode.IDEMPOTENCY_KEY_NOT_OWNED);
         }
         if (group.getOrders().isEmpty()
-                || group.getOrders().stream().anyMatch(order -> !snapshot.equals(order.getShippingInfo()))) {
+                || group.getOrders().stream().anyMatch(order -> order.getShippingInfo() == null
+                || snapshot.entrySet().stream().anyMatch(entry ->
+                        !Objects.equals(entry.getValue(), order.getShippingInfo().get(entry.getKey()))))) {
             throw new DomainException(CommerceErrorCode.IDEMPOTENCY_CONFLICT);
         }
         return new CreationResult(false, toResponse(group));
@@ -180,7 +180,9 @@ public class OrderService {
         return false;
     }
 
-    private CheckoutResult createFromCart(CurrentUser user, String key, Map<String, Object> snapshot) {
+    private CheckoutResult createFromCart(CurrentUser user, String key, CreateOrderRequest request,
+                                          Map<String, Object> snapshot) {
+        // Đồng bộ những lần tạo đơn của cùng một người mua
         groupRepository.lockKey("order-buyer:" + user.id());
         Cart cart = cartRepository.findForUpdateByUserIdAndStatus(user.id(), CartStatus.ACTIVE)
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.CART_EMPTY));
@@ -206,7 +208,8 @@ public class OrderService {
         OrderGroup group = new OrderGroup();
         group.setBuyerId(user.id());
         group.setIdempotencyKey(key);
-        group.setDueAt(now.plusMinutes(paymentTimeoutMinutes));
+        // Giá trị tạm trong transaction; deadline chính thức chỉ lấy từ Inventory trước commit.
+        group.setDueAt(now);
         group.setCreatedAt(now);
         group.setUpdatedAt(now);
         group.setCreatedBy(user.id());
@@ -219,9 +222,7 @@ public class OrderService {
             if (line.getQuantity() == null || line.getQuantity() <= 0) {
                 throw new DomainException(CommerceErrorCode.INVALID_QUANTITY);
             }
-            if (!inventoryClient.reserve(line.getProductId(), line.getSkuId(), line.getQuantity())) {
-                throw new DomainException(CommerceErrorCode.ITEM_UNAVAILABLE);
-            }
+            // Tạo order theo seller
             Order order = sellers.computeIfAbsent(product.sellerId(), sellerId -> {
                 Order child = new Order();
                 child.setOrderGroup(group);
@@ -229,7 +230,7 @@ public class OrderService {
                 child.setSellerId(sellerId);
                 child.setOrderNumber(nextOrderNumber(now));
                 child.setIdempotencyKey(childKey(user.id(), key, sellerId));
-                child.setShippingInfo(snapshot);
+                child.setShippingInfo(new HashMap<>(snapshot));
                 child.setPaymentDueAt(group.getDueAt());
                 child.setCreatedAt(now);
                 child.setUpdatedAt(now);
@@ -247,11 +248,22 @@ public class OrderService {
             item.setTotalPrice(money(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity()))));
             order.getItems().add(item);
         }
+        // Báo giá tất cả shop trước khi giữ hàng: lỗi Shipping không tạo reservation.
         for (Order order : sellers.values()) {
             BigDecimal subtotal = order.getItems().stream().map(OrderItem::getTotalPrice)
                     .reduce(new BigDecimal("0.00"), BigDecimal::add);
             order.setSubtotal(money(subtotal));
-            order.setTotalAmount(order.getSubtotal());
+            OrderShippingService.Quote quote = pricingService.shippingQuote(request.shippingAddress(),
+                    order.getItems().stream().map(item -> new OrderShippingService.Line(
+                            item.getSkuId(), item.getQuantity(), skus.get(item.getSkuId()))).toList());
+            order.setShippingFee(money(quote.fee()));
+            order.setTotalAmount(money(new PriceBreakdown(order.getSubtotal(), order.getDiscountAmount(),
+                    order.getTaxAmount(), order.getShippingFee()).total()));
+            order.getShippingInfo().put("parcel", Map.of("weightGrams", quote.parcel().weightGrams(),
+                    "lengthCm", quote.parcel().lengthCm(), "widthCm", quote.parcel().widthCm(),
+                    "heightCm", quote.parcel().heightCm()));
+            order.getShippingInfo().put("carrier", quote.carrier());
+            order.getShippingInfo().put("serviceType", quote.serviceType());
             group.getOrders().add(order);
         }
         group.setTotalAmount(money(group.getOrders().stream().map(Order::getTotalAmount)
@@ -260,6 +272,17 @@ public class OrderService {
             throw new DomainException(CommerceErrorCode.INVALID_ORDER_REQUEST, "SEPAY orders must have a positive total");
         }
         OrderGroup savedGroup = groupRepository.saveAndFlush(group);
+        // Một request cho toàn bộ nhóm: Inventory giữ tất cả shop hoặc rollback toàn bộ.
+        InventoryClient.Reservation reservation = inventoryClient.reserve(savedGroup.getId(),
+                savedGroup.getOrders().stream().flatMap(order -> order.getItems().stream().map(item ->
+                        new InventoryClient.Item(order.getId(), item.getSkuId(), item.getQuantity()))).toList());
+        // Chỉ dùng deadline/kho do Inventory trả về; không tự tính timeout thứ hai ở Commerce.
+        savedGroup.setDueAt(reservation.expiresAt());
+        savedGroup.getOrders().forEach(order -> {
+            order.setPaymentDueAt(reservation.expiresAt());
+            order.getShippingInfo().put("warehouseId", reservation.warehouseId().toString());
+        });
+        groupRepository.saveAndFlush(savedGroup);
         savedGroup.getOrders().forEach(order -> stateMachine.recordCreated(order.getId(), user.id()));
 
         log.info("Cart before checkout: id={}, status={}",
@@ -411,6 +434,23 @@ public class OrderService {
     private static DomainException notCancellable(String subject, String status) {
         return new DomainException(CommerceErrorCode.ORDER_NOT_CANCELLABLE,
                 subject + " is " + status + " and can no longer be cancelled");
+    }
+
+    /** Trả trọn nhóm đơn cho chủ sở hữu hoặc Admin có ORDER.VIEW; không mở quyền cho buyer khác. */
+    @Transactional(readOnly = true)
+    public OrderGroupResponse getGroup(CurrentUser user, UUID groupId) {
+        if (user == null || user.id() == null) {
+            throw new DomainException(CommerceErrorCode.UNAUTHENTICATED);
+        }
+        if (!user.hasPrivilege("ORDER.VIEW")) {
+            throw new DomainException(CommerceErrorCode.FORBIDDEN);
+        }
+        OrderGroup group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
+        if (!group.getBuyerId().equals(user.id()) && !user.hasRole("ADMIN")) {
+            throw new DomainException(CommerceErrorCode.FORBIDDEN);
+        }
+        return toResponse(group);
     }
 
     @Transactional(readOnly = true)
@@ -583,7 +623,26 @@ public class OrderService {
                 .map(this::toItemResponse)
                 .toList();
         return new OrderResponse(order.getId(), order.getOrderNumber(), order.getUserId(), order.getSellerId(),
-                order.getOrderType(), order.getStatus(), order.getCreatedAt(), order.getTotalAmount(), items);
+                order.getOrderType(), order.getStatus(), order.getCreatedAt(), order.getTotalAmount(), items,
+                shippingSnapshotText(order, "name", "recipientName"), shippingSnapshotText(order, "phone", "phoneNumber"),
+                order.getOrderGroup().getId(), order.getSubtotal(), order.getShippingFee(),
+                order.getDiscountAmount(), order.getTaxAmount());
+    }
+
+    // Read the immutable order snapshot, never current user-profile data. Old orders
+    // can predate the address shape; malformed/missing values remain unavailable.
+    private String shippingSnapshotText(Order order, String field, String legacyField) {
+        Map<String, Object> shipping = order.getShippingInfo();
+        if (shipping == null) return null;
+        Object value;
+        if (shipping.containsKey("recipient")) {
+            if (!(shipping.get("recipient") instanceof Map<?, ?> recipient)) return null;
+            value = recipient.get(field);
+        } else {
+            if (!(shipping.get("shippingAddress") instanceof Map<?, ?> address)) return null;
+            value = address.get(legacyField);
+        }
+        return value instanceof String text && !text.isBlank() ? text.trim() : null;
     }
 
     private OrderStatusHistoryResponse toHistoryResponse(OrderStatusHistory entry) {

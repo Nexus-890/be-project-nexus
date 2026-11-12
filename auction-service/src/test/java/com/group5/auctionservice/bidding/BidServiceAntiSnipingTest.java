@@ -23,6 +23,9 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -40,7 +43,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -53,6 +58,7 @@ class BidServiceAntiSnipingTest {
     private static final UUID SELLER_ID = UUID.fromString("14900000-0000-4000-8000-000000000003");
     private static final CurrentUser BUYER = new CurrentUser(
             UUID.fromString("14900000-0000-4000-8000-000000000004"), Set.of("BUYER"), Set.of("AUCTION.BID"));
+    private static final String KEY = "14900000-0000-4000-8000-000000000005";
     private static final BigDecimal AMOUNT = new BigDecimal("1050000.00");
     private static final PlaceBidRequest REQUEST = new PlaceBidRequest(AMOUNT);
     private static final Instant NOW = Instant.parse("2026-11-11T03:00:00.123456789Z");
@@ -63,12 +69,15 @@ class BidServiceAntiSnipingTest {
     @Mock private OutboxWriter outbox;
     @Mock private EventEnvelopeFactory envelopes;
     @Mock private AntiSnipingPolicy policy;
+    @Mock private PlatformTransactionManager transactions;
 
     private BidService service;
 
     @BeforeEach
     void setUp() {
-        service = new BidService(auctions, bids, outbox, envelopes, CLOCK, policy);
+        lenient().when(transactions.getTransaction(any(TransactionDefinition.class)))
+                .thenAnswer(invocation -> new SimpleTransactionStatus());
+        service = new BidService(auctions, bids, outbox, envelopes, CLOCK, transactions, policy);
     }
 
     @Test
@@ -76,10 +85,11 @@ class BidServiceAntiSnipingTest {
         allowBidAndPersist();
         createEnvelope();
 
-        BidResponse result = service.place(AUCTION_ID, REQUEST, BUYER);
+        BidService.PlacementResult result = service.place(AUCTION_ID, KEY, REQUEST, BUYER);
 
         ArgumentCaptor<Bid> stored = ArgumentCaptor.forClass(Bid.class);
         InOrder order = inOrder(auctions, bids, policy, envelopes, outbox);
+        order.verify(bids).findByIdempotencyKey(KEY);
         order.verify(auctions).acceptBid(AUCTION_ID, BUYER.id(), AMOUNT);
         order.verify(bids).saveAndFlush(stored.capture());
         order.verify(policy).extendAcceptedBid(AUCTION_ID, BUYER.id());
@@ -92,7 +102,9 @@ class BidServiceAntiSnipingTest {
         assertThat(stored.getValue().getAmount()).isEqualByComparingTo(AMOUNT);
         assertThat(stored.getValue().getPlacedAt()).isEqualTo(NOW.truncatedTo(ChronoUnit.MICROS));
         assertThat(stored.getValue().getStatus()).isEqualTo(Bid.Status.PLACED);
-        assertThat(result).isEqualTo(new BidResponse(BID_ID, AMOUNT, BUYER.id()));
+        assertThat(stored.getValue().getIdempotencyKey()).isEqualTo(KEY);
+        assertThat(result.created()).isTrue();
+        assertThat(result.response()).isEqualTo(new BidResponse(BID_ID, AMOUNT, BUYER.id()));
     }
 
     @Test
@@ -143,13 +155,13 @@ class BidServiceAntiSnipingTest {
         when(auction.getBidIncrement()).thenReturn(new BigDecimal("50000.00"));
 
         assertThatExceptionOfType(DomainException.class)
-                .isThrownBy(() -> service.place(AUCTION_ID,
+                .isThrownBy(() -> service.place(AUCTION_ID, KEY,
                         new PlaceBidRequest(new BigDecimal("1049999.99")), BUYER))
                 .satisfies(error -> {
                     assertThat(error.getErrorCode()).isEqualTo("AUCTION_BID_TOO_LOW");
                     assertThat(error.getProperties()).containsEntry("minimum", AMOUNT);
                 });
-        verifyNoInteractions(policy, bids, envelopes, outbox);
+        verifyNoBidOrExtensionWrites();
     }
 
     @Test
@@ -158,7 +170,7 @@ class BidServiceAntiSnipingTest {
         IllegalStateException failure = new IllegalStateException("Bid insert failed");
         when(bids.saveAndFlush(any(Bid.class))).thenThrow(failure);
 
-        assertThatThrownBy(() -> service.place(AUCTION_ID, REQUEST, BUYER)).isSameAs(failure);
+        assertThatThrownBy(() -> service.place(AUCTION_ID, KEY, REQUEST, BUYER)).isSameAs(failure);
 
         verifyNoInteractions(policy, envelopes, outbox);
     }
@@ -169,7 +181,7 @@ class BidServiceAntiSnipingTest {
         IllegalStateException failure = new IllegalStateException("Deadline update failed");
         doThrow(failure).when(policy).extendAcceptedBid(AUCTION_ID, BUYER.id());
 
-        assertThatThrownBy(() -> service.place(AUCTION_ID, REQUEST, BUYER)).isSameAs(failure);
+        assertThatThrownBy(() -> service.place(AUCTION_ID, KEY, REQUEST, BUYER)).isSameAs(failure);
 
         verify(bids).saveAndFlush(any(Bid.class));
         verifyNoInteractions(envelopes, outbox);
@@ -181,14 +193,42 @@ class BidServiceAntiSnipingTest {
         createEnvelope();
         AuctionProperties properties = new AuctionProperties();
         AntiSnipingPolicy realPolicy = new AntiSnipingPolicy(auctions, properties);
-        service = new BidService(auctions, bids, outbox, envelopes, CLOCK, realPolicy);
+        service = new BidService(auctions, bids, outbox, envelopes, CLOCK, transactions, realPolicy);
         when(auctions.extendEndAt(AUCTION_ID, BUYER.id(), 5, 30)).thenReturn(0);
 
-        BidResponse result = service.place(AUCTION_ID, REQUEST, BUYER);
+        BidService.PlacementResult result = service.place(AUCTION_ID, KEY, REQUEST, BUYER);
 
-        assertThat(result).isEqualTo(new BidResponse(BID_ID, AMOUNT, BUYER.id()));
+        assertThat(result.created()).isTrue();
+        assertThat(result.response()).isEqualTo(new BidResponse(BID_ID, AMOUNT, BUYER.id()));
         verify(auctions).extendEndAt(AUCTION_ID, BUYER.id(), 5, 30);
         verify(outbox).write(eq("Auction"), eq(Topics.AUCTION), any(EventEnvelope.class));
+    }
+
+    @Test
+    void replayOfALastMinuteBidReturnsTheOriginalResponseWithoutRunningThePolicyAgain() {
+        Bid previous = new Bid(AUCTION_ID, BUYER.id(), AMOUNT,
+                NOW.minusSeconds(30).truncatedTo(ChronoUnit.MICROS), KEY);
+        ReflectionTestUtils.setField(previous, "id", BID_ID);
+        when(bids.findByIdempotencyKey(KEY)).thenReturn(Optional.of(previous));
+
+        BidService.PlacementResult result = service.place(AUCTION_ID, KEY,
+                new PlaceBidRequest(new BigDecimal("1050000")), BUYER);
+
+        assertThat(result.created()).isFalse();
+        assertThat(result.response()).isEqualTo(new BidResponse(BID_ID, AMOUNT, BUYER.id()));
+        verify(bids).findByIdempotencyKey(KEY);
+        verify(bids, never()).saveAndFlush(any(Bid.class));
+        verifyNoInteractions(auctions, policy, envelopes, outbox);
+    }
+
+    @Test
+    void invalidIdempotencyKeyIsRejectedBeforeOpeningTheBidTransaction() {
+        assertThatExceptionOfType(DomainException.class)
+                .isThrownBy(() -> service.place(AUCTION_ID, "not-a-uuid", REQUEST, BUYER))
+                .satisfies(error -> assertThat(error.getErrorCode())
+                        .isEqualTo("AUCTION_INVALID_IDEMPOTENCY_KEY"));
+
+        verifyNoInteractions(transactions, auctions, bids, policy, envelopes, outbox);
     }
 
     private void allowBidAndPersist() {
@@ -219,13 +259,19 @@ class BidServiceAntiSnipingTest {
         return auction;
     }
 
+    private void verifyNoBidOrExtensionWrites() {
+        // #147 may read the key again after a refused UPDATE, but must not persist or extend.
+        verify(bids, never()).saveAndFlush(any(Bid.class));
+        verifyNoInteractions(policy, envelopes, outbox);
+    }
+
     private void assertRefused(PlaceBidRequest request, AuctionErrorCode expected) {
         assertThatExceptionOfType(DomainException.class)
-                .isThrownBy(() -> service.place(AUCTION_ID, request, BUYER))
+                .isThrownBy(() -> service.place(AUCTION_ID, KEY, request, BUYER))
                 .satisfies(error -> {
                     assertThat(error.getErrorCode()).isEqualTo(expected.code());
                     assertThat(error.getCode()).isEqualTo(expected.status().value());
                 });
-        verifyNoInteractions(policy, bids, envelopes, outbox);
+        verifyNoBidOrExtensionWrites();
     }
 }

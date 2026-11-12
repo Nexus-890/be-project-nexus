@@ -57,6 +57,12 @@ or Keycloak:
 These tests do not simulate SQL deadline arithmetic. The PostgreSQL tests below
 exercise the actual window, cap, original-deadline and rollback behavior.
 
+After merging develop, the bid-service tests also cover the #147 idempotency API:
+replay must not invoke the policy again, and an invalid key must be rejected
+before opening a transaction. `BidIdempotencyTest` additionally checks that a
+last-minute replay with the same numeric amount, or a changed-amount conflict,
+leaves the committed deadline, extension count, bid count and outbox unchanged.
+
 Verified on 11/11/2026: all 28 new unit/configuration cases passed (9 policy,
 11 bid-service, 8 configuration), with no failures, errors or skips. The attempted
 PostgreSQL rerun stopped before assertions because Testcontainers could not find
@@ -93,7 +99,15 @@ These are local results using disposable databases, not remote CI evidence.
 
 ## Dependency status
 
-Verified on GitLab on 10/11/2026: #145 is closed/merged; #146 remains open in
-review. This branch includes #146 commit `882be7d` so #149 can be implemented and
-tested, but the existing dependency on merging #146 still applies to release.
-No #147 idempotency or #148 concurrency-suite changes are included.
+On 12/11/2026 this branch merged develop, which now contains the bid placement,
+idempotency and concurrency dependencies. The accepted-bid extension remains in
+the same transaction as the conditional update, bid insert and outbox write.
+Replays return the original response before reaching the extension hook.
+
+Merge validation on 12/11/2026: all Auction main and test sources compiled;
+30 anti-sniping unit/configuration cases, 27 real-JWT/HTTP contract cases and
+7 Config Server cases passed with no failures, errors or skips. Auction OpenAPI
+passed Redocly 2.63.0 without warnings. The three focused PostgreSQL integration
+classes could not initialize: Docker's named-pipe endpoint returned HTTP 500
+(33 setup errors, no assertions executed). This is not a successful PostgreSQL
+rerun or remote CI result.

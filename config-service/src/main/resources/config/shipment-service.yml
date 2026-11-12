@@ -19,7 +19,33 @@ springdoc:
     enabled: false
 
 nexus:
+  shipping:
+    carrier: ${SHIPPING_CARRIER:NONE}
+    api-timeout-ms: ${SHIPPING_API_TIMEOUT_MS:3000}
+    retry-limit: ${SHIPPING_RETRY_LIMIT:3}
+    retry-backoff-ms: ${SHIPPING_RETRY_BACKOFF_MS:100}
+    free-shipping-threshold: ${FREE_SHIPPING_THRESHOLD:1000000}
+    breaker-failure-threshold: ${SHIPPING_BREAKER_FAILURE_THRESHOLD:5}
+    breaker-open-ms: ${SHIPPING_BREAKER_OPEN_MS:30000}
+    catalog-base-url: ${SHIPPING_CATALOG_BASE_URL:}
+    default-warehouse-id: ${SHIPPING_DEFAULT_WAREHOUSE_ID:}
+    default-pickup:
+      province-code: ${SHIPPING_PICKUP_PROVINCE_CODE:}
+      ward-code: ${SHIPPING_PICKUP_WARD_CODE:}
+      address-line: ${SHIPPING_PICKUP_ADDRESS_LINE:}
+    ghn:
+      base-url: ${GHN_BASE_URL:https://dev-online-gateway.ghn.vn}
+      shop-id: ${GHN_SHOP_ID:0}
+      payment-type-id: ${GHN_PAYMENT_TYPE_ID:1}
+      required-note: ${GHN_REQUIRED_NOTE:KHONGCHOXEMHANG}
+      http-timeout-ms: ${GHN_HTTP_TIMEOUT_MS:1500}
+      master-data-cache-ttl-ms: ${GHN_MASTER_DATA_CACHE_TTL_MS:300000}
   security:
+    public-endpoints:
+      - method: GET
+        path: /api/v1/shipping/provinces
+      - method: GET
+        path: /api/v1/shipping/wards
     jwt:
       issuer: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
       audience: nexus-services

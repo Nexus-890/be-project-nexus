@@ -12,14 +12,21 @@ import com.group5.common_events.Topics;
 import com.group5.common_outbox.OutboxWriter;
 import com.group5.common_security.CurrentUser;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -31,12 +38,50 @@ public class BidService {
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
     private final Clock clock;
+    private final PlatformTransactionManager transactionManager;
     private final AntiSnipingPolicy antiSnipingPolicy;
 
-    @Transactional
-    public BidResponse place(UUID auctionId, PlaceBidRequest request, CurrentUser bidder) {
+    public record PlacementResult(boolean created, BidResponse response) {
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public PlacementResult place(UUID auctionId, String key, PlaceBidRequest request, CurrentUser bidder) {
+        if (key == null || key.isBlank()) {
+            throw new DomainException(AuctionErrorCode.AUCTION_IDEMPOTENCY_KEY_REQUIRED);
+        }
+        if (!key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")) {
+            throw new DomainException(AuctionErrorCode.AUCTION_INVALID_IDEMPOTENCY_KEY);
+        }
+        String canonicalKey = UUID.fromString(key).toString();
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        try {
+            return transaction.execute(status -> placeOrReplay(auctionId, canonicalKey, request, bidder));
+        } catch (DataIntegrityViolationException violation) {
+            if (!isIdempotencyKeyViolation(violation)) {
+                throw violation;
+            }
+            // PostgreSQL aborts the UNIQUE loser; read the winner only after full rollback.
+            transaction.setReadOnly(true);
+            return transaction.execute(status -> bids.findByIdempotencyKey(canonicalKey)
+                    .map(bid -> replay(auctionId, bidder, request.amount(), bid))
+                    .orElseThrow(() -> violation));
+        }
+    }
+
+    private PlacementResult placeOrReplay(UUID auctionId, String key, PlaceBidRequest request, CurrentUser bidder) {
+        Optional<Bid> previous = bids.findByIdempotencyKey(key);
+        if (previous.isPresent()) {
+            return replay(auctionId, bidder, request.amount(), previous.get());
+        }
         BigDecimal amount = request.amount().setScale(2);
         if (auctions.acceptBid(auctionId, bidder.id(), amount) == 0) {
+            // An equal-amount retry may have waited for the first bid's auction row lock.
+            previous = bids.findByIdempotencyKey(key);
+            if (previous.isPresent()) {
+                return replay(auctionId, bidder, amount, previous.get());
+            }
             Auction auction = auctions.findAvailableById(auctionId)
                     .orElseThrow(() -> new DomainException(AuctionErrorCode.AUCTION_NOT_FOUND));
             if (auction.getSellerId().equals(bidder.id())) {
@@ -56,7 +101,7 @@ public class BidService {
         }
 
         Bid bid = bids.saveAndFlush(new Bid(auctionId, bidder.id(), amount,
-                Instant.now(clock).truncatedTo(ChronoUnit.MICROS)));
+                Instant.now(clock).truncatedTo(ChronoUnit.MICROS), key));
 
         // Cùng transaction và row lock với bid; lỗi sau đây rollback cả deadline lẫn bid.
         antiSnipingPolicy.extendAcceptedBid(auctionId, bidder.id());
@@ -64,7 +109,31 @@ public class BidService {
         BidPlaced payload = new BidPlaced(auctionId, bid.getId(), bidder.id(), amount.toPlainString(),
                 "VND", bid.getPlacedAt());
         outbox.write("Auction", Topics.AUCTION, envelopes.create("BidPlaced", auctionId.toString(), payload));
-        return new BidResponse(bid.getId(), amount, bidder.id());
+        return new PlacementResult(true, response(bid));
+    }
+
+    private PlacementResult replay(UUID auctionId, CurrentUser bidder, BigDecimal amount, Bid bid) {
+        // Chỉ replay cùng yêu cầu; khác cách viết phần thập phân vẫn là cùng giá trị tiền.
+        if (!bid.getAuctionId().equals(auctionId) || !bid.getBidderId().equals(bidder.id())
+                || bid.getAmount().compareTo(amount) != 0) {
+            throw new DomainException(AuctionErrorCode.AUCTION_IDEMPOTENCY_KEY_CONFLICT);
+        }
+        return new PlacementResult(false, response(bid));
+    }
+
+    private BidResponse response(Bid bid) {
+        return new BidResponse(bid.getId(), bid.getAmount(), bid.getBidderId());
+    }
+
+    private boolean isIdempotencyKeyViolation(DataIntegrityViolationException violation) {
+        for (Throwable cause = violation; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException constraint
+                    && "23505".equals(constraint.getSQLState())
+                    && "bids_idempotency_key_key".equals(constraint.getConstraintName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private record BidPlaced(UUID auctionId, UUID bidId, UUID bidderId, String amount,

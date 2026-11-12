@@ -1,0 +1,36 @@
+Actual local restored green result, 2026-11-11 Asia/Saigon
+QA dependency: #146 commit 882be7d4; QA merge base 3877dd81.
+Environment: Windows, Temurin Java 21.0.12.1, Maven 3.9.16, Docker 29.8.0, PostgreSQL 18-alpine.
+Command (auction-service): mvn -B -Duser.timezone=UTC clean verify
+Maven exit: 0
+Surefire: 145 tests; Failsafe: 10 concurrency repetitions; failures/errors/skipped: 0.
+BidConcurrencyIT.java SHA256 (same test for RED and restored GREEN): 0A92259C30F0F90B415B588BDF44FA215BAB1D0CF05F1AD96B9DC4DF31BE272B
+Production AuctionRepository.java SHA256 before/after mutation: 7F9BD64FACED0B1F08F2D7895FEF24D664A9509AB1CB1A37DF4E374E5CBEFF0A
+50 distinct amounts: 1050000.00..3500000.00; increment 50000.00; 10 bidders.
+Repository restored byte-for-byte before this clean build; mutation absent from production source.
+Local result only. CI AC replacement with local run plus logs is pending PO approval.
+
+Actual Maven output:
+[INFO] Tests run: 17, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 28.92 s -- in com.group5.auctionservice.auction.AuctionReadIntegrationTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 13.21 s -- in com.group5.auctionservice.auction.AuctionScheduleIntegrationTest
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 28.49 s -- in com.group5.auctionservice.auction.AuctionSchedulerIntegrationTest
+[INFO] Tests run: 82, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.374 s -- in com.group5.auctionservice.auction.AuctionStateMachineTest
+[INFO] Tests run: 12, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 11.37 s -- in com.group5.auctionservice.bidding.BidPlacementIntegrationTest
+[INFO] Tests run: 19, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 11.09 s -- in com.group5.auctionservice.KeycloakTokenTrustTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.805 s -- in com.group5.auctionservice.contract.AuctionApiArchitectureTest
+[INFO] Tests run: 145, Failures: 0, Errors: 0, Skipped: 0
+BID_CONCURRENCY run=1 requests=50 bidders=10 accepted=5 rejected=45 highest=3500000.00 invariants=PASS
+BID_CONCURRENCY run=2 requests=50 bidders=10 accepted=4 rejected=46 highest=3500000.00 invariants=PASS
+BID_CONCURRENCY run=3 requests=50 bidders=10 accepted=8 rejected=42 highest=3500000.00 invariants=PASS
+BID_CONCURRENCY run=4 requests=50 bidders=10 accepted=6 rejected=44 highest=3500000.00 invariants=PASS
+BID_CONCURRENCY run=5 requests=50 bidders=10 accepted=4 rejected=46 highest=3500000.00 invariants=PASS
+BID_CONCURRENCY run=6 requests=50 bidders=10 accepted=4 rejected=46 highest=3500000.00 invariants=PASS
+BID_CONCURRENCY run=7 requests=50 bidders=10 accepted=2 rejected=48 highest=3500000.00 invariants=PASS
+BID_CONCURRENCY run=8 requests=50 bidders=10 accepted=6 rejected=44 highest=3500000.00 invariants=PASS
+BID_CONCURRENCY run=9 requests=50 bidders=10 accepted=7 rejected=43 highest=3500000.00 invariants=PASS
+BID_CONCURRENCY run=10 requests=50 bidders=10 accepted=6 rejected=44 highest=3500000.00 invariants=PASS
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 40.96 s -- in com.group5.auctionservice.bidding.BidConcurrencyIT
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
+[INFO] Total time:  02:44 min
+[INFO] Finished at: 2026-11-11T11:47:33Z

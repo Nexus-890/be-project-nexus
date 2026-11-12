@@ -3,9 +3,11 @@ info:
   title: Nexus inventory
   version: 1.0.0
   description: >-
-    Issue #130 stock intake. Every 2xx body is an ApiResponse with code, message and data;
-    every error is Problem Details. Quantities are stored per SKU and warehouse in
-    inventory_balances, where total equals available plus reserved plus unavailable.
+    Issue #130 stock intake, #134 stock reservation, #136 confirming and releasing a
+    reservation, #199 warehouse management (WH-01 to WH-04) and #200 support reads
+    and adjustments. Every 2xx body is an ApiResponse with code, message and data;
+    every error is Problem Details. Quantities are stored per SKU and warehouse in inventory_balances,
+    where total equals available plus reserved plus unavailable.
 servers:
   - url: http://localhost:8080
     description: API gateway
@@ -13,8 +15,156 @@ servers:
     description: Inventory service
 tags:
   - name: Stock
-    description: Receive stock into a warehouse
+    description: Receive, correct and read stock per SKU and warehouse
+  - name: Reservations
+    description: Hold and list stock reservations
+  - name: Ledger
+    description: Every quantity change, one row each
+  - name: Warehouses
+    description: Warehouse records
 paths:
+  /api/v1/inventory/{skuId}:
+    get:
+      tags: [Stock]
+      operationId: getAvailability
+      summary: Read how much of one SKU is available
+      description: >-
+        Public, no token needed. Reads the default warehouse
+        (nexus.inventory.default-warehouse-code). Returns skuId and available only, never
+        total or reserved. A SKU with no balance row returns available 0, not 404.
+      security: []
+      x-catalogue-id: INV-02
+      parameters:
+        - name: skuId
+          in: path
+          required: true
+          description: SKU id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Available quantity of the SKU
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  skuId: 0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a81
+                  available: 97
+        '400':
+          description: skuId is not a UUID
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:invalid-parameter
+                title: Bad Request
+                status: 400
+                detail: A request parameter is invalid
+                instance: /api/v1/inventory/not-a-uuid
+                code: INVALID_PARAMETER
+        '500':
+          description: The configured default warehouse does not exist
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Internal Server Error
+                status: 500
+                detail: The configured default warehouse does not exist
+                instance: /api/v1/inventory/0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a81
+                code: INVENTORY_DEFAULT_WAREHOUSE_NOT_FOUND
+  /api/v1/inventory:
+    get:
+      tags: [Stock]
+      operationId: listAvailability
+      summary: Read how much of several SKUs is available
+      description: >-
+        Public, no token needed. Used by the cart page to read every line at once. All ids
+        are read from the default warehouse in one query. The result keeps the request
+        order, a repeated id appears once, and an id with no balance row reads as
+        available 0. At most 100 ids per request.
+      security: []
+      x-catalogue-id: INV-03
+      parameters:
+        - name: skuIds
+          in: query
+          required: true
+          description: Comma-separated SKU ids, 1 to 100
+          style: form
+          explode: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items:
+              type: string
+              format: uuid
+      responses:
+        '200':
+          description: One entry per distinct requested SKU, in request order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockListApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  - skuId: 0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a81
+                    available: 97
+                  - skuId: 0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a82
+                    available: 0
+                page:
+                  number: 0
+                  size: 2
+                  totalElements: 2
+                  totalPages: 1
+        '400':
+          description: >-
+            skuIds is missing or not a list of UUIDs (INVALID_PARAMETER), empty
+            (VALIDATION_FAILED), or holds more than 100 ids (INVENTORY_TOO_MANY_SKUS)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                INVALID_PARAMETER:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
+                    status: 400
+                    detail: A request parameter is invalid
+                    instance: /api/v1/inventory
+                    code: INVALID_PARAMETER
+                INVENTORY_TOO_MANY_SKUS:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: At most 100 SKU ids can be read at once
+                    instance: /api/v1/inventory
+                    code: INVENTORY_TOO_MANY_SKUS
+        '500':
+          description: The configured default warehouse does not exist
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Internal Server Error
+                status: 500
+                detail: The configured default warehouse does not exist
+                instance: /api/v1/inventory
+                code: INVENTORY_DEFAULT_WAREHOUSE_NOT_FOUND
   /api/v1/inventory/intake:
     post:
       tags: [Stock]
@@ -24,6 +174,10 @@ paths:
         Raises total and available by the quantity in one statement and creates the
         balance row on the first intake of a SKU in that warehouse. When warehouseId is
         left out, the warehouse is the one whose code is nexus.inventory.default-warehouse-code.
+        Only ACTIVE warehouses accept intake: INACTIVE or MAINTENANCE returns 409 for
+        both an explicit warehouseId and the configured default, without changing
+        balances or writing a movement. The status check and writes share a transaction
+        and coordinate with warehouse updates.
         The gateway only requires a valid token; the service requires the ADMIN role.
       security:
         - bearerAuth: []
@@ -104,6 +258,19 @@ paths:
                 detail: Warehouse not found
                 instance: /api/v1/inventory/intake
                 code: INVENTORY_WAREHOUSE_NOT_FOUND
+        '409':
+          description: The selected or configured default warehouse is INACTIVE or MAINTENANCE. Code INVENTORY_WAREHOUSE_UNAVAILABLE.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Conflict
+                status: 409
+                detail: Warehouse is not active for stock intake
+                instance: /api/v1/inventory/intake
+                code: INVENTORY_WAREHOUSE_UNAVAILABLE
         '500':
           description: The configured default warehouse code matches no warehouse
           content:
@@ -117,12 +284,1388 @@ paths:
                 detail: The configured default warehouse does not exist
                 instance: /api/v1/inventory/intake
                 code: INVENTORY_DEFAULT_WAREHOUSE_NOT_FOUND
+  /api/v1/inventory/reservations:
+    post:
+      tags: [Reservations]
+      operationId: reserveStock
+      summary: Hold stock for the orders of one order group
+      description: >-
+        Sent by commerce-service with the buyer's token while it creates the orders; the
+        frontend does not call it. Each SKU is reserved by one UPDATE whose WHERE clause
+        requires available_quantity to cover the quantity, in SKU order, all in one
+        transaction: one shortage reserves nothing. Items of the same SKU are checked
+        against their sum. Every reservation is HELD in the warehouse whose code is
+        nexus.inventory.default-warehouse-code, keeps its item's orderId and writes one
+        RESERVE ledger row. orderGroupId is not stored. Sending the same items again
+        returns the reservations already held. The gateway only requires a valid token;
+        the service requires the BUYER role.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [BUYER]
+      x-required-roles: [BUYER]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReserveRequest'
+            example:
+              orderGroupId: 0195f0a3-1111-7111-8111-111111111111
+              items:
+                - orderId: 0195f0a3-2222-7222-8222-222222222222
+                  skuId: 0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a81
+                  quantity: 2
+      responses:
+        '201':
+          description: The reservations held for the items, in request order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  reservationIds:
+                    - 0195f0a3-3333-7333-8333-333333333333
+                  warehouseId: 0195f0a1-0000-7000-8000-000000000001
+                  expiresAt: '2026-11-05T10:15:00Z'
+        '400':
+          description: >-
+            A missing orderGroupId, no items or more than 100, a missing field or a quantity
+            outside 1 to 999 (VALIDATION_FAILED), or the same orderId and skuId twice
+            (INVENTORY_DUPLICATE_RESERVATION_ITEM)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                VALIDATION_FAILED:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/inventory/reservations
+                    code: VALIDATION_FAILED
+                    errors:
+                      - field: items[0].quantity
+                        code: VALIDATION_POSITIVE
+                        detail: must be greater than 0
+                INVENTORY_DUPLICATE_RESERVATION_ITEM:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Each order and SKU pair may appear only once
+                    instance: /api/v1/inventory/reservations
+                    code: INVENTORY_DUPLICATE_RESERVATION_ITEM
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: The caller does not have the BUYER role
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:forbidden
+                title: Forbidden
+                status: 403
+                detail: You do not have permission to access this resource
+                instance: /api/v1/inventory/reservations
+                code: FORBIDDEN
+        '409':
+          description: >-
+            Not enough stock for a SKU (INVENTORY_INSUFFICIENT_STOCK, with skuId, available
+            and requested), or these orders already hold reservations that differ from the
+            request (INVENTORY_RESERVATION_CONFLICT). Nothing is reserved.
+          content:
+            application/problem+json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/InsufficientStockProblem'
+                  - $ref: '#/components/schemas/Problem'
+              examples:
+                INVENTORY_INSUFFICIENT_STOCK:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: Not enough stock; nothing was reserved
+                    instance: /api/v1/inventory/reservations
+                    code: INVENTORY_INSUFFICIENT_STOCK
+                    skuId: 0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a81
+                    available: 1
+                    requested: 2
+                INVENTORY_RESERVATION_CONFLICT:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: These orders already hold reservations that differ from this request
+                    instance: /api/v1/inventory/reservations
+                    code: INVENTORY_RESERVATION_CONFLICT
+        '500':
+          description: The configured default warehouse code matches no warehouse
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Internal Server Error
+                status: 500
+                detail: The configured default warehouse does not exist
+                instance: /api/v1/inventory/reservations
+                code: INVENTORY_DEFAULT_WAREHOUSE_NOT_FOUND
+    get:
+      tags: [Reservations]
+      operationId: listReservations
+      summary: List reservations for support
+      description: >-
+        Every filter is optional and they combine with AND. Newest first (createdAt, then id,
+        descending). expiresAt and releasedAt are in UTC; releasedAt is null while the
+        reservation is HELD. The gateway only requires a valid token; the service requires
+        ADMIN or SUPPORT_STAFF.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [ADMIN, SUPPORT_STAFF]
+      x-required-roles: [ADMIN, SUPPORT_STAFF]
+      parameters:
+        - name: orderId
+          in: query
+          description: The seller order that holds the reservation
+          schema:
+            type: string
+            format: uuid
+        - name: skuId
+          in: query
+          description: Only reservations of this SKU
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [HELD, CONFIRMED, RELEASED, EXPIRED]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        '200':
+          description: One page of reservations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationPageApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  - id: 0195f0a3-3333-7333-8333-333333333333
+                    skuId: 0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a81
+                    warehouseId: 0195f0a1-0000-7000-8000-000000000001
+                    orderId: 0195f0a3-2222-7222-8222-222222222222
+                    quantity: 2
+                    status: HELD
+                    expiresAt: '2026-11-10T08:30:00Z'
+                    releasedAt: null
+                page:
+                  number: 0
+                  size: 10
+                  totalElements: 1
+                  totalPages: 1
+        '400':
+          description: >-
+            A filter of the wrong type or an unknown enum value (INVALID_PARAMETER), or page below
+            0 or size outside 1 to 100 (VALIDATION_FAILED)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                INVALID_PARAMETER:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
+                    status: 400
+                    detail: A request parameter is invalid
+                    instance: /api/v1/inventory/reservations
+                    code: INVALID_PARAMETER
+                VALIDATION_FAILED:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/inventory/reservations
+                    code: VALIDATION_FAILED
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: The caller has neither ADMIN nor SUPPORT_STAFF
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:forbidden
+                title: Forbidden
+                status: 403
+                detail: You do not have permission to access this resource
+                instance: /api/v1/inventory/reservations
+                code: FORBIDDEN
+  /api/v1/inventory/adjustments:
+    post:
+      tags: [Stock]
+      operationId: adjustStock
+      summary: Correct a balance by a signed quantity
+      description: >-
+        Adds quantityDelta to total and available in one UPDATE whose WHERE clause requires
+        available plus the delta to stay at 0 or more, then writes one ADJUSTMENT ledger row
+        with the delta, the reason and the balance id as referenceId. Reserved and unavailable
+        do not change. The balance must already exist; new stock goes through intake. When
+        warehouseId is left out, the warehouse is the one whose code is
+        nexus.inventory.default-warehouse-code. The gateway only requires a valid token; the
+        service requires the ADMIN role.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [ADMIN]
+      x-required-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdjustmentRequest'
+            example:
+              skuId: 0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a81
+              quantityDelta: -2
+              reason: Two units damaged in the warehouse
+      responses:
+        '201':
+          description: Balance after the adjustment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  skuId: 0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a81
+                  warehouseId: 0195f0a1-0000-7000-8000-000000000001
+                  total: 98
+                  available: 98
+                  reserved: 0
+                  unavailable: 0
+        '400':
+          description: >-
+            Missing skuId, quantityDelta or reason, a quantityDelta of 0 or beyond plus or minus
+            1000000, a blank reason or one longer than 500 characters, or a malformed body
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:validation-error
+                title: Bad Request
+                status: 400
+                detail: The request data is invalid
+                instance: /api/v1/inventory/adjustments
+                code: VALIDATION_FAILED
+                errors:
+                  - field: quantityDelta
+                    code: VALIDATION_NON_ZERO
+                    detail: must not be 0
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: The caller does not have the ADMIN role
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:forbidden
+                title: Forbidden
+                status: 403
+                detail: You do not have permission to access this resource
+                instance: /api/v1/inventory/adjustments
+                code: FORBIDDEN
+        '404':
+          description: >-
+            The given warehouseId does not exist (INVENTORY_WAREHOUSE_NOT_FOUND), or the SKU has
+            no balance in that warehouse (INVENTORY_BALANCE_NOT_FOUND)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                INVENTORY_BALANCE_NOT_FOUND:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: SKU balance not found
+                    instance: /api/v1/inventory/adjustments
+                    code: INVENTORY_BALANCE_NOT_FOUND
+                INVENTORY_WAREHOUSE_NOT_FOUND:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Not Found
+                    status: 404
+                    detail: Warehouse not found
+                    instance: /api/v1/inventory/adjustments
+                    code: INVENTORY_WAREHOUSE_NOT_FOUND
+        '409':
+          description: The delta would make available negative; nothing is changed
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Conflict
+                status: 409
+                detail: The adjustment would make a quantity negative
+                instance: /api/v1/inventory/adjustments
+                code: INVENTORY_NEGATIVE_QUANTITY
+        '500':
+          description: The configured default warehouse code matches no warehouse
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Internal Server Error
+                status: 500
+                detail: The configured default warehouse does not exist
+                instance: /api/v1/inventory/adjustments
+                code: INVENTORY_DEFAULT_WAREHOUSE_NOT_FOUND
+  /api/v1/inventory/balances:
+    get:
+      tags: [Stock]
+      operationId: listBalances
+      summary: List stock balances
+      description: >-
+        ADMIN may combine the filters freely or leave them out. SELLER must pass skuId, and the
+        SKU must belong to one of the caller's products: the service asks catalog-service for the
+        SKU and its product and compares the product's sellerId with the caller. A SKU whose
+        product catalog does not show publicly counts as not owned. Sorted by skuId, then
+        warehouseId. The gateway only requires a valid token; the service requires ADMIN or
+        SELLER.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [ADMIN, SELLER]
+      x-required-roles: [ADMIN, SELLER]
+      parameters:
+        - name: skuId
+          in: query
+          description: Required for SELLER
+          schema:
+            type: string
+            format: uuid
+        - name: warehouseId
+          in: query
+          description: Only balances in this warehouse
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        '200':
+          description: One page of balances
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalancePageApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  - skuId: 0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a81
+                    warehouseId: 0195f0a1-0000-7000-8000-000000000001
+                    total: 98
+                    available: 96
+                    reserved: 2
+                    unavailable: 0
+                page:
+                  number: 0
+                  size: 10
+                  totalElements: 1
+                  totalPages: 1
+        '400':
+          description: >-
+            A filter of the wrong type or an unknown enum value (INVALID_PARAMETER), or page below
+            0 or size outside 1 to 100 (VALIDATION_FAILED), or a SELLER without skuId (INVALID_PARAMETER as a domain error)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                INVALID_PARAMETER:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
+                    status: 400
+                    detail: A request parameter is invalid
+                    instance: /api/v1/inventory/balances
+                    code: INVALID_PARAMETER
+                VALIDATION_FAILED:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/inventory/balances
+                    code: VALIDATION_FAILED
+                SELLER_WITHOUT_SKU:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: A seller must filter by skuId
+                    instance: /api/v1/inventory/balances
+                    code: INVALID_PARAMETER
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: >-
+            The caller has neither ADMIN nor SELLER (FORBIDDEN), or a SELLER asked for a SKU that
+            is not theirs (INVENTORY_FORBIDDEN)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                FORBIDDEN:
+                  value:
+                    type: urn:problem:forbidden
+                    title: Forbidden
+                    status: 403
+                    detail: You do not have permission to access this resource
+                    instance: /api/v1/inventory/balances
+                    code: FORBIDDEN
+                INVENTORY_FORBIDDEN:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: The caller does not own this SKU
+                    instance: /api/v1/inventory/balances
+                    code: INVENTORY_FORBIDDEN
+        '503':
+          description: catalog-service could not be reached to check who owns the SKU (SELLER only)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Service Unavailable
+                status: 503
+                detail: The catalog could not confirm who owns this SKU
+                instance: /api/v1/inventory/balances
+                code: INVENTORY_CATALOG_UNAVAILABLE
+  /api/v1/inventory/movements:
+    get:
+      tags: [Ledger]
+      operationId: listMovements
+      summary: Read the stock ledger
+      description: >-
+        Every filter is optional and they combine with AND. from is inclusive and to is
+        exclusive; both are ISO 8601 date-times with an offset, and from must be before to.
+        Newest first (createdAt, then id, descending). createdAt is in UTC. reason is set on
+        ADJUSTMENT rows only. The gateway only requires a valid token; the service requires
+        ADMIN or SUPPORT_STAFF.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [ADMIN, SUPPORT_STAFF]
+      x-required-roles: [ADMIN, SUPPORT_STAFF]
+      parameters:
+        - name: skuId
+          in: query
+          description: Only movements of this SKU
+          schema:
+            type: string
+            format: uuid
+        - name: warehouseId
+          in: query
+          description: Only movements in this warehouse
+          schema:
+            type: string
+            format: uuid
+        - name: type
+          in: query
+          schema:
+            $ref: '#/components/schemas/MovementType'
+        - name: referenceId
+          in: query
+          description: A reservation id, or the balance id for INTAKE and ADJUSTMENT rows
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+          example: '2026-11-10T15:00:00+07:00'
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        '200':
+          description: One page of ledger rows
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MovementPageApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  - id: 0195f0a4-4444-7444-8444-444444444444
+                    skuId: 0195f0a2-7c1e-7d2a-9b3f-2c4d5e6f7a81
+                    warehouseId: 0195f0a1-0000-7000-8000-000000000001
+                    movementType: ADJUSTMENT
+                    quantity: -2
+                    referenceId: 0195f0a4-5555-7555-8555-555555555555
+                    reason: Two units damaged in the warehouse
+                    createdAt: '2026-11-10T08:02:00Z'
+                page:
+                  number: 0
+                  size: 10
+                  totalElements: 1
+                  totalPages: 1
+        '400':
+          description: >-
+            A filter of the wrong type or an unknown enum value (INVALID_PARAMETER), or page below
+            0 or size outside 1 to 100 (VALIDATION_FAILED), or from not before to (INVALID_PARAMETER as a domain error)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                INVALID_PARAMETER:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
+                    status: 400
+                    detail: A request parameter is invalid
+                    instance: /api/v1/inventory/movements
+                    code: INVALID_PARAMETER
+                VALIDATION_FAILED:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/inventory/movements
+                    code: VALIDATION_FAILED
+                FROM_NOT_BEFORE_TO:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: from must be before to
+                    instance: /api/v1/inventory/movements
+                    code: INVALID_PARAMETER
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: The caller has neither ADMIN nor SUPPORT_STAFF
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:forbidden
+                title: Forbidden
+                status: 403
+                detail: You do not have permission to access this resource
+                instance: /api/v1/inventory/movements
+                code: FORBIDDEN
+  /api/v1/inventory/reservations/{id}/confirm:
+    post:
+      tags: [Reservations]
+      operationId: confirmReservation
+      summary: Move a held reservation out of stock for good
+      description: >-
+        Paid: reserved goes down and unavailable goes up by the reservation's quantity, the
+        status becomes CONFIRMED and one COMMIT ledger row is written, in one transaction. The
+        status change is conditional on HELD inside the UPDATE, so a repeat, or two calls at
+        once, change the stock once. Not routed from the gateway: a call from outside gets 404
+        there and never reaches inventory-service. The service requires the ADMIN role; the event consumers
+        of the later issues call the same service method in-process.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [system]
+      x-gateway-privilege: not routed
+      x-required-roles: [ADMIN]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The reservation id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Done, or already done by an earlier call. No body.
+        '400':
+          description: The id is not a UUID
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:invalid-parameter
+                title: Bad Request
+                status: 400
+                detail: A request parameter is invalid
+                instance: /api/v1/inventory/reservations/not-a-uuid/confirm
+                code: INVALID_PARAMETER
+                errors:
+                  - field: id
+                    code: INVALID_PARAMETER
+                    detail: A valid value is required
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: The caller does not have the ADMIN role
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:forbidden
+                title: Forbidden
+                status: 403
+                detail: You do not have permission to access this resource
+                instance: /api/v1/inventory/reservations/0195f0a3-3333-7333-8333-333333333333/confirm
+                code: FORBIDDEN
+        '404':
+          description: No reservation has this id
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Not Found
+                status: 404
+                detail: Reservation not found
+                instance: /api/v1/inventory/reservations/0195f0a3-3333-7333-8333-333333333333/confirm
+                code: INVENTORY_RESERVATION_NOT_FOUND
+        '409':
+          description: >-
+            The reservation is RELEASED or EXPIRED, so its stock is no longer held
+            (INVENTORY_ILLEGAL_TRANSITION). Nothing changes.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Conflict
+                status: 409
+                detail: The reservation is not HELD
+                instance: /api/v1/inventory/reservations/0195f0a3-3333-7333-8333-333333333333/confirm
+                code: INVENTORY_ILLEGAL_TRANSITION
+  /api/v1/inventory/reservations/{id}/release:
+    post:
+      tags: [Reservations]
+      operationId: releaseReservation
+      summary: Put a held reservation back on the shelf
+      description: >-
+        Not paid: reserved goes down and available goes up by the reservation's quantity, the
+        status becomes RELEASED with released_at set and one RELEASE ledger row is written, in
+        one transaction. The status change is conditional on HELD inside the UPDATE, so a repeat
+        changes the stock once; an EXPIRED reservation already returned its stock and also gives
+        204. Not routed from the gateway: a call from outside gets 404 there and never reaches
+        inventory-service. The service requires the ADMIN role; the event consumers
+        of the later issues call the same service method in-process.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [system]
+      x-gateway-privilege: not routed
+      x-required-roles: [ADMIN]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The reservation id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Done, or already done by an earlier call. No body.
+        '400':
+          description: The id is not a UUID
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:invalid-parameter
+                title: Bad Request
+                status: 400
+                detail: A request parameter is invalid
+                instance: /api/v1/inventory/reservations/not-a-uuid/release
+                code: INVALID_PARAMETER
+                errors:
+                  - field: id
+                    code: INVALID_PARAMETER
+                    detail: A valid value is required
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: The caller does not have the ADMIN role
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:forbidden
+                title: Forbidden
+                status: 403
+                detail: You do not have permission to access this resource
+                instance: /api/v1/inventory/reservations/0195f0a3-3333-7333-8333-333333333333/release
+                code: FORBIDDEN
+        '404':
+          description: No reservation has this id
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Not Found
+                status: 404
+                detail: Reservation not found
+                instance: /api/v1/inventory/reservations/0195f0a3-3333-7333-8333-333333333333/release
+                code: INVENTORY_RESERVATION_NOT_FOUND
+        '409':
+          description: >-
+            The reservation is CONFIRMED, so its stock has left (INVENTORY_ILLEGAL_TRANSITION).
+            Nothing changes.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Conflict
+                status: 409
+                detail: The reservation is not HELD
+                instance: /api/v1/inventory/reservations/0195f0a3-3333-7333-8333-333333333333/release
+                code: INVENTORY_ILLEGAL_TRANSITION
+  /api/v1/warehouses:
+    post:
+      tags: [Warehouses]
+      operationId: createWarehouse
+      summary: Create a warehouse
+      description: >-
+        Creates an ACTIVE warehouse. Code and name must not be blank; their length
+        limits apply to the supplied strings before surrounding ASCII whitespace
+        is trimmed for storage. Code uniqueness is case-sensitive and enforced by
+        the database, including simultaneous creates. Address is optional and may
+        be null. The initial status is always ACTIVE and is not a request field.
+        The gateway requires a valid token; the service requires the ADMIN role.
+      x-service: inventory-service
+      x-catalogue-id: WH-01
+      x-owning-issue: '#199'
+      x-actor-roles: [ADMIN]
+      x-gateway-privilege: token only
+      x-required-roles: [ADMIN]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWarehouseRequest'
+            example:
+              code: WH_HCM_02
+              name: Ho Chi Minh warehouse
+              address: 1 Nguyen Hue, District 1, Ho Chi Minh City
+      responses:
+        '201':
+          description: Warehouse created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WarehouseApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  id: 0195f0a1-0000-7000-8000-000000000002
+                  code: WH_HCM_02
+                  name: Ho Chi Minh warehouse
+                  address: 1 Nguyen Hue, District 1, Ho Chi Minh City
+                  status: ACTIVE
+        '400':
+          description: >-
+            Codes VALIDATION_FAILED (missing, blank or overlong code/name),
+            INVALID_REQUEST_BODY (missing or malformed JSON body).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                VALIDATION_FAILED:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/warehouses
+                    code: VALIDATION_FAILED
+                    errors:
+                      - field: code
+                        code: VALIDATION_NOT_BLANK
+                        detail: must not be blank
+                      - field: name
+                        code: VALIDATION_NOT_BLANK
+                        detail: must not be blank
+                INVALID_REQUEST_BODY:
+                  value:
+                    type: urn:problem:invalid-request-body
+                    title: Bad Request
+                    status: 400
+                    detail: The request body is invalid or malformed
+                    instance: /api/v1/warehouses
+                    code: INVALID_REQUEST_BODY
+        '401':
+          description: Missing or invalid bearer token. Code UNAUTHENTICATED.
+          headers:
+            WWW-Authenticate:
+              description: Bearer authentication challenge
+              schema:
+                type: string
+                example: Bearer
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:unauthorized
+                title: Unauthorized
+                status: 401
+                detail: A valid access token is required to access this resource
+                instance: /api/v1/warehouses
+                code: UNAUTHENTICATED
+        '403':
+          description: The caller does not have the ADMIN role. Code FORBIDDEN.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:forbidden
+                title: Forbidden
+                status: 403
+                detail: You do not have permission to access this resource
+                instance: /api/v1/warehouses
+                code: FORBIDDEN
+        '405':
+          description: Unsupported method. Code METHOD_NOT_ALLOWED.
+          headers:
+            Allow:
+              description: Supported HTTP methods for this resource
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:method-not-allowed
+                title: Method Not Allowed
+                status: 405
+                detail: The HTTP method is not supported for this endpoint
+                instance: /api/v1/warehouses
+                code: METHOD_NOT_ALLOWED
+        '406':
+          description: Unsupported Accept header. Code NOT_ACCEPTABLE.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:not-acceptable
+                title: Not Acceptable
+                status: 406
+                detail: The requested response format is not supported
+                instance: /api/v1/warehouses
+                code: NOT_ACCEPTABLE
+        '409':
+          description: The warehouse code already exists. Code INVENTORY_DUPLICATE_WAREHOUSE_CODE.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Conflict
+                status: 409
+                detail: Warehouse code already exists
+                instance: /api/v1/warehouses
+                code: INVENTORY_DUPLICATE_WAREHOUSE_CODE
+        '415':
+          description: Unsupported Content-Type header. Code UNSUPPORTED_MEDIA_TYPE.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:unsupported-media-type
+                title: Unsupported Media Type
+                status: 415
+                detail: The request content type is not supported
+                instance: /api/v1/warehouses
+                code: UNSUPPORTED_MEDIA_TYPE
+        '500':
+          description: Unexpected service failure. Code INTERNAL_ERROR.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:internal-server-error
+                title: Internal Server Error
+                status: 500
+                detail: An unexpected error occurred
+                instance: /api/v1/warehouses
+                code: INTERNAL_ERROR
+    get:
+      tags: [Warehouses]
+      operationId: listWarehouses
+      summary: List warehouses
+      description: >-
+        Returns all matching warehouses sorted by code in ascending database order.
+        The optional status filter accepts ACTIVE, INACTIVE or MAINTENANCE.
+        There are no page or size request parameters. The result forms one logical
+        page: number is 0, size is max(1, result count), totalElements is the result
+        count and totalPages is 1 for a nonempty result or 0 for an empty result.
+        The gateway requires a valid token; the service requires ADMIN or SUPPORT_STAFF.
+      x-service: inventory-service
+      x-catalogue-id: WH-02
+      x-owning-issue: '#199'
+      x-actor-roles: [ADMIN, SUPPORT_STAFF]
+      x-gateway-privilege: token only
+      x-required-roles: [ADMIN, SUPPORT_STAFF]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Filter by warehouse status; omit or leave empty to include all statuses
+          schema:
+            type: string
+            enum: [ACTIVE, INACTIVE, MAINTENANCE]
+      responses:
+        '200':
+          description: Warehouses matching the optional filter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WarehouseListApiResponse'
+              examples:
+                warehouses:
+                  value:
+                    code: 0
+                    message: response success
+                    data:
+                      - id: 0195f0a1-0000-7000-8000-000000000002
+                        code: WH_HCM_02
+                        name: Ho Chi Minh warehouse
+                        address: 1 Nguyen Hue, District 1, Ho Chi Minh City
+                        status: ACTIVE
+                    page:
+                      number: 0
+                      size: 1
+                      totalElements: 1
+                      totalPages: 1
+                empty:
+                  value:
+                    code: 0
+                    message: response success
+                    data: []
+                    page:
+                      number: 0
+                      size: 1
+                      totalElements: 0
+                      totalPages: 0
+        '400':
+          description: An unknown status value was supplied. Code INVALID_PARAMETER.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:invalid-parameter
+                title: Bad Request
+                status: 400
+                detail: A request parameter is invalid
+                instance: /api/v1/warehouses
+                code: INVALID_PARAMETER
+                errors:
+                  - field: status
+                    code: INVALID_PARAMETER
+                    detail: A valid value is required
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/warehouses/{id}:
+    parameters:
+      - $ref: '#/components/parameters/WarehouseId'
+    get:
+      tags: [Warehouses]
+      operationId: getWarehouse
+      summary: Read a warehouse
+      description: >-
+        Returns a warehouse in any status. The gateway requires a valid token;
+        the service requires ADMIN or SUPPORT_STAFF.
+      x-service: inventory-service
+      x-catalogue-id: WH-03
+      x-owning-issue: '#199'
+      x-actor-roles: [ADMIN, SUPPORT_STAFF]
+      x-gateway-privilege: token only
+      x-required-roles: [ADMIN, SUPPORT_STAFF]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/WarehouseRead'
+        '400':
+          $ref: '#/components/responses/InvalidWarehouseId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/WarehouseNotFound'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [Warehouses]
+      operationId: updateWarehouse
+      summary: Update a warehouse
+      description: >-
+        Replaces the warehouse name, address and status. Name and status are required;
+        name must not be blank or exceed 150 characters before surrounding ASCII
+        whitespace is trimmed. Omitted or null address clears the address. Code and id
+        are immutable and are not request fields. An INACTIVE or MAINTENANCE warehouse
+        rejects subsequent intake with INVENTORY_WAREHOUSE_UNAVAILABLE; setting ACTIVE
+        allows intake again. The update and intake coordinate on the same warehouse
+        row so status changes do not race with stock writes.
+        The gateway requires a valid token; the service requires the ADMIN role.
+      x-service: inventory-service
+      x-catalogue-id: WH-04
+      x-owning-issue: '#199'
+      x-actor-roles: [ADMIN]
+      x-gateway-privilege: token only
+      x-required-roles: [ADMIN]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWarehouseRequest'
+            example:
+              name: Ho Chi Minh warehouse
+              address: 1 Nguyen Hue, District 1, Ho Chi Minh City
+              status: MAINTENANCE
+      responses:
+        '200':
+          description: Warehouse after the update
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WarehouseApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  id: 0195f0a1-0000-7000-8000-000000000002
+                  code: WH_HCM_02
+                  name: Ho Chi Minh warehouse
+                  address: 1 Nguyen Hue, District 1, Ho Chi Minh City
+                  status: MAINTENANCE
+        '400':
+          description: >-
+            Codes VALIDATION_FAILED (missing, blank or overlong name, or missing status),
+            INVALID_REQUEST_BODY (missing or malformed JSON, including an unknown status),
+            INVALID_PARAMETER (id is not a UUID).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                VALIDATION_FAILED:
+                  value:
+                    type: urn:problem:validation-error
+                    title: Bad Request
+                    status: 400
+                    detail: The request data is invalid
+                    instance: /api/v1/warehouses/0195f0a1-0000-7000-8000-000000000002
+                    code: VALIDATION_FAILED
+                    errors:
+                      - field: name
+                        code: VALIDATION_NOT_BLANK
+                        detail: must not be blank
+                      - field: status
+                        code: VALIDATION_NOT_NULL
+                        detail: must not be null
+                INVALID_REQUEST_BODY:
+                  value:
+                    type: urn:problem:invalid-request-body
+                    title: Bad Request
+                    status: 400
+                    detail: The request body is invalid or malformed
+                    instance: /api/v1/warehouses/0195f0a1-0000-7000-8000-000000000002
+                    code: INVALID_REQUEST_BODY
+                INVALID_PARAMETER:
+                  value:
+                    type: urn:problem:invalid-parameter
+                    title: Bad Request
+                    status: 400
+                    detail: A request parameter is invalid
+                    instance: /api/v1/warehouses/not-a-uuid
+                    code: INVALID_PARAMETER
+                    errors:
+                      - field: id
+                        code: INVALID_PARAMETER
+                        detail: A valid value is required
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/WarehouseNotFound'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+  parameters:
+    WarehouseId:
+      name: id
+      in: path
+      required: true
+      description: Warehouse identifier
+      schema:
+        type: string
+        format: uuid
+  responses:
+    WarehouseRead:
+      description: Warehouse details
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/WarehouseApiResponse'
+          example:
+            code: 0
+            message: response success
+            data:
+              id: 0195f0a1-0000-7000-8000-000000000002
+              code: WH_HCM_02
+              name: Ho Chi Minh warehouse
+              address: 1 Nguyen Hue, District 1, Ho Chi Minh City
+              status: ACTIVE
+    InvalidWarehouseId:
+      description: id is not a UUID. Code INVALID_PARAMETER.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: urn:problem:invalid-parameter
+            title: Bad Request
+            status: 400
+            detail: A request parameter is invalid
+            instance: /api/v1/warehouses/not-a-uuid
+            code: INVALID_PARAMETER
+            errors:
+              - field: id
+                code: INVALID_PARAMETER
+                detail: A valid value is required
+    Unauthenticated:
+      description: Missing or invalid bearer token. Code UNAUTHENTICATED.
+      headers:
+        WWW-Authenticate:
+          description: Bearer authentication challenge
+          schema:
+            type: string
+            example: Bearer
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: urn:problem:unauthorized
+            title: Unauthorized
+            status: 401
+            detail: A valid access token is required to access this resource
+            instance: /api/v1/warehouses
+            code: UNAUTHENTICATED
+    Forbidden:
+      description: The caller does not have a role allowed by this operation. Code FORBIDDEN.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: urn:problem:forbidden
+            title: Forbidden
+            status: 403
+            detail: You do not have permission to access this resource
+            instance: /api/v1/warehouses
+            code: FORBIDDEN
+    WarehouseNotFound:
+      description: The warehouse does not exist. Code INVENTORY_WAREHOUSE_NOT_FOUND.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: urn:problem:domain-error
+            title: Not Found
+            status: 404
+            detail: Warehouse not found
+            instance: /api/v1/warehouses/0195f0a1-0000-7000-8000-000000000002
+            code: INVENTORY_WAREHOUSE_NOT_FOUND
+    NotAcceptable:
+      description: Unsupported Accept header. Code NOT_ACCEPTABLE.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: urn:problem:not-acceptable
+            title: Not Acceptable
+            status: 406
+            detail: The requested response format is not supported
+            instance: /api/v1/warehouses
+            code: NOT_ACCEPTABLE
+    UnsupportedMediaType:
+      description: Unsupported Content-Type header. Code UNSUPPORTED_MEDIA_TYPE.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: urn:problem:unsupported-media-type
+            title: Unsupported Media Type
+            status: 415
+            detail: The request content type is not supported
+            instance: /api/v1/warehouses
+            code: UNSUPPORTED_MEDIA_TYPE
+    InternalError:
+      description: Unexpected service failure. Code INTERNAL_ERROR.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: urn:problem:internal-server-error
+            title: Internal Server Error
+            status: 500
+            detail: An unexpected error occurred
+            instance: /api/v1/warehouses
+            code: INTERNAL_ERROR
   schemas:
     IntakeRequest:
       type: object
@@ -179,9 +1722,112 @@ components:
           type: integer
           format: int32
           minimum: 0
+    ReserveRequest:
+      type: object
+      required: [orderGroupId, items]
+      properties:
+        orderGroupId:
+          type: string
+          format: uuid
+          description: Identifies the request; not stored
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/ReserveItem'
+    ReserveItem:
+      type: object
+      required: [orderId, skuId, quantity]
+      properties:
+        orderId:
+          type: string
+          format: uuid
+          description: The seller order that owns the item; stored on its reservation
+        skuId:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 999
+    ReservationApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          default: response success
+          example: response success
+        data:
+          $ref: '#/components/schemas/Reservation'
+    Reservation:
+      type: object
+      required: [reservationIds, warehouseId, expiresAt]
+      properties:
+        reservationIds:
+          type: array
+          description: One per item, in request order
+          items:
+            type: string
+            format: uuid
+        warehouseId:
+          type: string
+          format: uuid
+        expiresAt:
+          type: string
+          format: date-time
+          description: >-
+            In UTC with a Z offset; the same for every item of the request. The time of the
+            request plus nexus.inventory.reservation-timeout-minutes from Config Server (30 by
+            default), read again on /actuator/refresh.
+    AdjustmentRequest:
+      type: object
+      required: [skuId, quantityDelta, reason]
+      properties:
+        skuId:
+          type: string
+          format: uuid
+        warehouseId:
+          type: string
+          format: uuid
+          description: Defaults to the warehouse with code nexus.inventory.default-warehouse-code
+        quantityDelta:
+          type: integer
+          format: int32
+          minimum: -1000000
+          maximum: 1000000
+          description: Not 0; negative removes stock, positive adds it
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Stored on the ADJUSTMENT ledger row without leading or trailing spaces
+    InsufficientStockProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [skuId, available, requested]
+          properties:
+            skuId:
+              type: string
+              format: uuid
+            available:
+              type: integer
+              format: int32
+              minimum: 0
+            requested:
+              type: integer
+              format: int32
+              minimum: 1
     Problem:
       type: object
-      required: [type, title, status, detail]
+      required: [type, title, status, detail, instance, code]
       properties:
         type:
           type: string
@@ -211,3 +1857,304 @@ components:
           type: string
         detail:
           type: string
+    StockApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          default: response success
+          example: response success
+        data:
+          $ref: '#/components/schemas/Stock'
+    StockListApiResponse:
+      type: object
+      required: [code, message, data, page]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          default: response success
+          example: response success
+        data:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/Stock'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+    Stock:
+      type: object
+      additionalProperties: false
+      required: [skuId, available]
+      properties:
+        skuId:
+          type: string
+          format: uuid
+        available:
+          type: integer
+          format: int32
+          minimum: 0
+          description: 0 when the SKU has no balance row in the default warehouse
+    PageInfo:
+      type: object
+      required: [number, size, totalElements, totalPages]
+      properties:
+        number:
+          type: integer
+          minimum: 0
+        size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        totalElements:
+          type: integer
+          format: int64
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+    BalancePageApiResponse:
+      type: object
+      required: [code, message, data, page]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          default: response success
+          example: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Balance'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+    ReservationView:
+      type: object
+      required: [id, skuId, warehouseId, orderId, quantity, status, expiresAt, releasedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        skuId:
+          type: string
+          format: uuid
+        warehouseId:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+        status:
+          type: string
+          enum: [HELD, CONFIRMED, RELEASED, EXPIRED]
+        expiresAt:
+          type: string
+          format: date-time
+          description: In UTC
+        releasedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: In UTC; null while HELD
+    ReservationPageApiResponse:
+      type: object
+      required: [code, message, data, page]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          default: response success
+          example: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReservationView'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+    MovementType:
+      type: string
+      enum: [INTAKE, RESERVE, RELEASE, COMMIT, ADJUSTMENT]
+    Movement:
+      type: object
+      required: [id, skuId, warehouseId, movementType, quantity, referenceId, reason, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        skuId:
+          type: string
+          format: uuid
+        warehouseId:
+          type: string
+          format: uuid
+        movementType:
+          $ref: '#/components/schemas/MovementType'
+        quantity:
+          type: integer
+          format: int32
+          description: Signed for ADJUSTMENT; otherwise the units moved
+        referenceId:
+          type: string
+          format: uuid
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+          description: Set on ADJUSTMENT rows only
+        createdAt:
+          type: string
+          format: date-time
+          description: In UTC
+    MovementPageApiResponse:
+      type: object
+      required: [code, message, data, page]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          default: response success
+          example: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Movement'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+    CreateWarehouseRequest:
+      type: object
+      required: [code, name]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 40
+          pattern: '\S'
+          description: Nonblank, case-sensitive unique code; surrounding ASCII whitespace is trimmed before storage
+          example: WH_HCM_02
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+          pattern: '\S'
+          description: Nonblank name; surrounding ASCII whitespace is trimmed before storage
+          example: Ho Chi Minh warehouse
+        address:
+          type: string
+          nullable: true
+          description: Optional warehouse address
+          example: 1 Nguyen Hue, District 1, Ho Chi Minh City
+    WarehouseApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          default: response success
+          example: response success
+        data:
+          $ref: '#/components/schemas/Warehouse'
+    UpdateWarehouseRequest:
+      type: object
+      required: [name, status]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+          pattern: '\S'
+          description: Nonblank name; surrounding ASCII whitespace is trimmed before storage
+        address:
+          type: string
+          nullable: true
+          description: Omit or set null to clear the warehouse address
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, MAINTENANCE]
+    WarehouseListApiResponse:
+      type: object
+      required: [code, message, data, page]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          default: response success
+          example: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warehouse'
+        page:
+          $ref: '#/components/schemas/WarehousePageInfo'
+    Warehouse:
+      type: object
+      required: [id, code, name, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          minLength: 1
+          maxLength: 40
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        address:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, MAINTENANCE]
+          description: Newly created warehouses are always ACTIVE
+    WarehousePageInfo:
+      type: object
+      required: [number, size, totalElements, totalPages]
+      properties:
+        number:
+          type: integer
+          minimum: 0
+          maximum: 0
+          description: Complete warehouse lists always use page number 0
+        size:
+          type: integer
+          minimum: 1
+          description: max(1, result count)
+        totalElements:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Number of warehouses matching the optional filter
+        totalPages:
+          type: integer
+          minimum: 0
+          maximum: 1
+          description: 0 for an empty result or 1 otherwise

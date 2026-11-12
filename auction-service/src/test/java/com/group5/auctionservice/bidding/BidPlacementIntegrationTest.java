@@ -3,8 +3,6 @@ package com.group5.auctionservice.bidding;
 import com.group5.auctionservice.auction.Auction;
 import com.group5.auctionservice.auction.AuctionRepository;
 import com.group5.auctionservice.shared.config.AuctionProperties;
-import com.group5.auctionservice.bidding.dto.PlaceBidRequest;
-import com.group5.common_security.CurrentUser;
 import com.group5.common_events.EventEnvelopeFactory;
 import com.group5.common_events.Topics;
 import com.group5.common_outbox.OutboxWriter;
@@ -93,7 +91,6 @@ class BidPlacementIntegrationTest {
     @Autowired private AuctionRepository auctions;
     @Autowired private PlatformTransactionManager transactions;
     @Autowired private AuctionProperties properties;
-    @Autowired private BidService service;
     private MockMvc client;
 
     @BeforeEach
@@ -325,7 +322,9 @@ class BidPlacementIntegrationTest {
                     extraMicros, extraMicros, auction.id());
             Instant before = time(auction.id(), "end_at");
 
-            service.place(auction.id(), new PlaceBidRequest(MINIMUM), buyer(bidder));
+            // Giữ cùng DB now() để kiểm tra biên; service #147 mở REQUIRES_NEW transaction.
+            assertThat(auctions.acceptBid(auction.id(), bidder, MINIMUM)).isEqualTo(1);
+            context.getBean(AntiSnipingPolicy.class).extendAcceptedBid(auction.id(), bidder);
 
             assertThat(time(auction.id(), "end_at"))
                     .isEqualTo(extended ? before.plus(Duration.ofMinutes(5)) : before);
@@ -438,9 +437,6 @@ class BidPlacementIntegrationTest {
         return jdbc.queryForObject("SELECT extension_count FROM auctions WHERE id=?", Integer.class, auction);
     }
 
-    private CurrentUser buyer(UUID id) {
-        return new CurrentUser(id, java.util.Set.of("BUYER"), java.util.Set.of("AUCTION.BID"));
-    }
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request(
             UUID auction, UUID bidder, String amount) {
         // #146 ignores this header; sending one keeps the same HTTP tests valid after dependent #147 merges.

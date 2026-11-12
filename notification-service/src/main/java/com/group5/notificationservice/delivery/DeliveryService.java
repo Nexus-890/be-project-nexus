@@ -49,7 +49,7 @@ public class DeliveryService {
             Instant leaseUntil = now.plus(properties.getAttemptTimeout());
             UUID attemptId = deliveries.startAttempt(delivery.id(), attemptNumber, leaseUntil, now);
             return Optional.of(new Claim(delivery.id(), delivery.notificationId(), attemptId, attemptNumber,
-                    delivery.userId(), delivery.title(), delivery.content()));
+                    delivery.userId(), delivery.title(), delivery.content(), delivery.emailHtml()));
         }
         return Optional.empty();
     }
@@ -106,6 +106,6 @@ public class DeliveryService {
     }
 
     public record Claim(UUID deliveryId, UUID notificationId, UUID attemptId, int attemptNumber,
-                        UUID recipientId, String title, String content) {
+                        UUID recipientId, String title, String content, String emailHtml) {
     }
 }

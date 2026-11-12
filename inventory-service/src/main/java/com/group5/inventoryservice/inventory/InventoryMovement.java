@@ -46,6 +46,9 @@ public class InventoryMovement extends AuditedEntity {
     @Column(name = "reference_id")
     private UUID referenceId;
 
+    @Column(name = "reason")
+    private String reason;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 }

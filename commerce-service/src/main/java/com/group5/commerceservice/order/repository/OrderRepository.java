@@ -30,6 +30,9 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     @Query("select o.status from Order o where o.id = :id")
     Optional<OrderStatus> findStatusById(UUID id);
 
+    @Query(value = "SELECT id FROM orders WHERE id = :id FOR UPDATE", nativeQuery = true)
+    Optional<UUID> lockOrder(UUID id);
+
     @Query(value = "SELECT id FROM orders WHERE order_group_id = :groupId ORDER BY id FOR UPDATE", nativeQuery = true)
     List<UUID> lockGroupOrders(UUID groupId);
 
@@ -39,6 +42,12 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     @Modifying
     @Query(value = "UPDATE orders SET last_refund_version = :refundVersion WHERE id = :id", nativeQuery = true)
     int recordRefundVersion(UUID id, long refundVersion);
+
+    // Chỉ ghi paid_at lần đầu sau khi state machine đã chuyển PAID, không ghi đè bằng chứng thanh toán cũ.
+    @Modifying
+    @Query(value = "UPDATE orders SET paid_at = :paidAt WHERE id = :id AND status = 'PAID' AND paid_at IS NULL",
+            nativeQuery = true)
+    int recordPaidAt(UUID id, java.time.OffsetDateTime paidAt);
 
     @Query("select o.id from Order o where o.orderGroup.id = :groupId and o.status = :status order by o.id")
     List<UUID> findIdsByGroupAndStatus(UUID groupId, OrderStatus status);
