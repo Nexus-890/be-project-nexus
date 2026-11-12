@@ -4,6 +4,7 @@ import com.group5.shipmentservice.shipping.event.OrderPaidShipmentConsumer;
 import com.group5.shipmentservice.shipping.event.payload.OrderPaidSnapshot;
 
 import com.group5.common_core.exception.DomainException;
+import com.group5.common_core.model.ApiResponse;
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.EventEnvelopeFactory;
 import com.group5.common_events.Topics;
@@ -14,12 +15,17 @@ import com.group5.shipmentservice.shared.exception.ShipmentErrorCode;
 import com.group5.shipmentservice.shipping.adapter.FakeCarrierAdapter;
 import com.group5.shipmentservice.shipping.adapter.model.CarrierShipmentRequest;
 import com.group5.shipmentservice.shipping.dto.request.CreateShipmentRequest;
+import com.group5.shipmentservice.shipping.dto.response.PaidOrderShippingResponse;
+import com.group5.shipmentservice.shipping.client.CommerceOrderClient;
+import com.group5.shipmentservice.shipping.client.config.CommerceResponseDecoder;
 import com.group5.shipmentservice.shipping.repository.ShipmentRepository;
 import com.group5.shipmentservice.shipping.resilience.ShippingDeadline;
 import com.group5.shipmentservice.shipping.resilience.CarrierExecutor;
 import com.group5.shipmentservice.shipping.service.ShipmentCreationService;
 import com.group5.shipmentservice.shipping.service.PaidOrderSnapshotService;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import feign.Request;
+import feign.Response;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,8 +45,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -472,6 +482,47 @@ class ShipmentCreationIntegrationTest {
         assertThat(count("processed_events")).isEqualTo(1);
         assertThat(carrier.requests).containsExactly(shipment.getId());
         assertThat(jdbc.queryForObject("SELECT service_type FROM shipments", String.class)).isEqualTo("HEAVY");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void exactDecodedShippingFeeIsPersistedAndMatchesTheLaterOrderPaid() throws Exception {
+        BigDecimal fee = new BigDecimal("100000000000000.01");
+        var original = event(UUID.randomUUID(), true);
+        ObjectNode payload = ((ObjectNode) original.payload()).deepCopy();
+        payload.put("shippingFee", fee.toPlainString());
+        var paidEvent = new EventEnvelope<>(original.eventId(), original.eventType(), original.aggregateId(),
+                original.occurredAt(), original.traceId(), (JsonNode) payload);
+        OrderPaidSnapshot expected = OrderPaidSnapshot.parse(paidEvent.payload(), mapper);
+        var upstream = new PaidOrderShippingResponse(expected.orderId(), expected.buyerId(), expected.orderVersion(),
+                "PAID", OffsetDateTime.parse("2026-11-11T00:00:00Z"), expected.warehouseId(), fee, expected.shippingInfo());
+        byte[] body = mapper.writeValueAsBytes(ApiResponse.of(upstream));
+        var request = Request.create(Request.HttpMethod.GET, "http://commerce-fixture/shipping-snapshot",
+                Map.of(), null, StandardCharsets.UTF_8, null);
+        ApiResponse<PaidOrderShippingResponse> decoded;
+        try (var response = Response.builder().request(request).status(200).reason("OK")
+                .headers(Map.of()).body(body).build()) {
+            var returnType = CommerceOrderClient.class
+                    .getMethod("getPaidOrder", UUID.class, String.class, Request.Options.class).getGenericReturnType();
+            decoded = (ApiResponse<PaidOrderShippingResponse>) new CommerceResponseDecoder(mapper).decode(response, returnType);
+        }
+        var decodedSnapshot = new OrderPaidSnapshot(decoded.data().orderId(), decoded.data().buyerId(),
+                decoded.data().warehouseId(), decoded.data().shippingFee(), decoded.data().shippingInfo(), decoded.data().orderVersion());
+        when(paidOrders.load(expected.orderId())).thenReturn(decodedSnapshot);
+
+        var shipment = creation.createManually("exact-shipping-fee",
+                new CreateShipmentRequest(expected.orderId(), null, null, null));
+
+        assertThat(jdbc.queryForObject("SELECT shipping_fee FROM shipments", BigDecimal.class))
+                .isEqualByComparingTo(fee);
+        receive(paidEvent);
+
+        assertThat(count("shipments")).isEqualTo(1);
+        assertThat(count("outbox")).isEqualTo(1);
+        assertThat(count("processed_events")).isEqualTo(1);
+        assertThat(carrier.requests).containsExactly(shipment.getId());
+        assertThat(jdbc.queryForObject("SELECT shipping_fee FROM shipments", BigDecimal.class))
+                .isEqualByComparingTo(fee);
     }
 
     @Test

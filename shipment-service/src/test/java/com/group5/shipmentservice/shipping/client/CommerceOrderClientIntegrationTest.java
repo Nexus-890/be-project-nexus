@@ -93,6 +93,17 @@ class CommerceOrderClientIntegrationTest {
                 "GET", "/internal/v1/orders/" + ORDER + "/shipping-snapshot", AUTHORIZATION, ""));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"0.00", "0.01", "30000.25", "100000000000000.01", "99999999999999999.99"})
+    void shippingFeeKeepsEveryDecimalDigitFromTheOriginalHttpBody(String shippingFee) {
+        // Replace the JSON number as text: building a tree here could round the fixture itself.
+        STUB.body = STUB.body.replace("30000.00", shippingFee);
+
+        var response = commerce.getPaidOrder(ORDER, AUTHORIZATION, options(1000));
+
+        assertThat(response.data().shippingFee()).isEqualByComparingTo(shippingFee);
+    }
+
     @Test
     void eachCallUsesItsOwnAuthorizationWithoutRetainingThePreviousCaller() {
         commerce.getPaidOrder(ORDER, AUTHORIZATION, options(1000));
