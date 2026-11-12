@@ -45,6 +45,9 @@ public class Notification extends AuditedEntity {
     @Column(name = "content", nullable = false, columnDefinition = "text")
     private String content;
 
+    @Column(name = "email_html", columnDefinition = "text")
+    private String emailHtml;
+
     @Column(name = "read_at")
     private OffsetDateTime readAt;
 
