@@ -78,3 +78,19 @@ SELECT id,auction_id,bidder_id,amount,status,placed_at FROM bids
 WHERE bidder_id=:bidder_id ORDER BY placed_at DESC,id DESC;
 SELECT id,current_price,leader_bidder_id,winner_id,status FROM auctions WHERE id=:auction_id;
 ```
+
+## Verification on 2026-11-12
+
+- Java21.0.9, PostgreSQL18.6 native isolated cluster; all fixture databases were disposable.
+- Full Maven verify: auction-service **152**, api-gateway **81**, config-service **7**;
+  no failures/errors/skips in the final runs. The 19 new mine tests prove both issue ACs
+  through the real HTTP boundary and database. JWT decoder is mocked; no live Postman is claimed.
+- Two additional tests passed in an isolated composition of #198 implementation
+  `8f4bdd260fcc45421e5ca041fe13df165d7298a7` with actual #146 head
+  `882be7d411e75066a78ea0965391f1c921688840`. POST bid110, bid120, rival130, bid140
+  produced four real bid/BidPlaced rows; each buyer still saw one result with their own
+  latest amount and leading switched correctly. A CANCELLED status fixture cleared
+  leading without removing the actual bid history. This was not a run of #197 cancellation.
+- Only merge conflicts combining repository methods, security-test mocks and contract
+  controller registrations were reconciled. Bid business logic was unchanged; the temporary
+  composition is not included in this MR. No settlement worker or live Kafka relay was run.
