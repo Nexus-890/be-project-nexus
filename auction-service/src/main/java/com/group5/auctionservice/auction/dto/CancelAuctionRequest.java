@@ -1,6 +1,6 @@
 package com.group5.auctionservice.auction.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
+import org.hibernate.validator.constraints.CodePointLength;
 
-public record CancelAuctionRequest(@NotBlank @Size(max = 255) String reason) { }
+public record CancelAuctionRequest(@NotBlank @CodePointLength(max = 255) String reason) { }

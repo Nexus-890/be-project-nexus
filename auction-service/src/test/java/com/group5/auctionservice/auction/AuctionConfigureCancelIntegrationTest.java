@@ -234,6 +234,26 @@ class AuctionConfigureCancelIntegrationTest {
         assertCancellation("SELLER", OWNER);
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void cancellationAccepts255UnicodeCodePoints(boolean admin) throws Exception {
+        String reason = "\uD83D\uDE00".repeat(255);
+        cancel(admin ? "admin" : "owner", admin, reason).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.cancelledReason").value(reason));
+        assertCancellation(admin ? "ADMIN" : "SELLER", admin ? ADMIN : OWNER, reason);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void cancellationRejects256UnicodeCodePointsWithoutWrites(boolean admin) throws Exception {
+        var before = row();
+        String reason = "\uD83D\uDE00".repeat(256);
+        cancel(admin ? "admin" : "owner", admin, reason).andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
+        assertThat(row()).isEqualTo(before);
+        assertThat(events()).isZero();
+    }
+
     @Test
     void missingAndSoftDeletedAuctionsReturnNotFound() throws Exception {
         UUID real = id;
@@ -310,9 +330,13 @@ class AuctionConfigureCancelIntegrationTest {
     }
 
     private void assertCancellation(String role, UUID actor) throws Exception {
+        assertCancellation(role, actor, "Seller request");
+    }
+
+    private void assertCancellation(String role, UUID actor, String reason) throws Exception {
         var row = row();
         assertThat(row).containsEntry("status_text", "CANCELLED").containsEntry("cancelled_by", role)
-                .containsEntry("cancelled_actor_id", actor).containsEntry("cancelled_reason", "Seller request");
+                .containsEntry("cancelled_actor_id", actor).containsEntry("cancelled_reason", reason);
         assertThat(row.get("cancelled_at")).isNotNull();
         assertThat(events()).isEqualTo(1);
         var event = json.readTree(jdbc.queryForObject("SELECT payload::text FROM outbox WHERE aggregate_id = ?", String.class, id.toString()));
@@ -325,7 +349,7 @@ class AuctionConfigureCancelIntegrationTest {
         assertThat(payload.path("auctionId").asText()).isEqualTo(id.toString());
         assertThat(payload.path("actorId").asText()).isEqualTo(actor.toString());
         assertThat(payload.path("cancelledBy").asText()).isEqualTo(role);
-        assertThat(payload.path("reason").asText()).isEqualTo("Seller request");
+        assertThat(payload.path("reason").asText()).isEqualTo(reason);
         assertThat(payload.path("auctionVersion").asLong()).isEqualTo(((Number) row.get("version")).longValue());
         assertThat(Instant.parse(payload.path("cancelledAt").asText())).isEqualTo(NOW);
     }
@@ -335,9 +359,13 @@ class AuctionConfigureCancelIntegrationTest {
     }
 
     private ResultActions cancel(String token, boolean admin) throws Exception {
+        return cancel(token, admin, "  Seller request  ");
+    }
+
+    private ResultActions cancel(String token, boolean admin, String reason) throws Exception {
         return client.perform(post(PATH + id + (admin ? "/admin-cancel" : "/cancel"))
                 .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"reason\":\"  Seller request  \"}"));
+                .content(json.writeValueAsString(Map.of("reason", reason))));
     }
 
     private String body(int minutes) {
