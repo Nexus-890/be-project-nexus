@@ -43,6 +43,7 @@ const services = {
   ],
   'auction-service': [
     'src/main/java/com/group5/auctionservice/auction/AuctionController.java',
+    'src/main/java/com/group5/auctionservice/bidding/MyBidController.java',
   ],
   'shipment-service': [
     'src/main/java/com/group5/shipmentservice/shipping/controller/CarrierController.java',

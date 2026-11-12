@@ -285,6 +285,12 @@ nexus:
         path: /api/v1/auctions/{id}/schedule
         privilege: AUCTION.UPDATE
       - method: GET
+        path: /api/v1/auctions/mine
+        privilege: AUCTION.LIST
+      - method: GET
+        path: /api/v1/bids/mine
+        privilege: AUCTION.VIEW_BID_HISTORY
+      - method: GET
         path: /api/v1/event-logs
         privilege: EVENT_LOG.VIEW
       - method: GET

@@ -105,7 +105,7 @@ public class RouteConfig {
                         .uri("lb://inventory-service"))
 
                 .route("auction-service", route -> route
-                        .path("/api/v1/auctions", "/api/v1/auctions/**")
+                        .path("/api/v1/auctions", "/api/v1/auctions/**", "/api/v1/bids", "/api/v1/bids/**")
                         .filters(filters -> filters.requestRateLimiter(config -> config
                                 .setRateLimiter(limiter)
                                 .setKeyResolver(resolver)

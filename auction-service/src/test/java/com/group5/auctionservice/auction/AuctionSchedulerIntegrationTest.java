@@ -16,7 +16,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.postgresql.PostgreSQLContainer;
+import com.group5.auctionservice.TestPostgres;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 class AuctionSchedulerIntegrationTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18");
+    private static final TestPostgres POSTGRES = new TestPostgres();
     private static ConfigurableApplicationContext first;
     private static ConfigurableApplicationContext second;
     private static JdbcTemplate jdbc;

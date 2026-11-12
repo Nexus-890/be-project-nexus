@@ -75,6 +75,19 @@ import static org.mockito.Mockito.when;
                 "spring.security.oauth2.resourceserver.jwt.audiences[0]=nexus-services"
         })
 class SecurityConfigTest {
+    @Test
+    void mineRoutesRequireTheirPrivilegesAndForwardBearer() {
+        for (String path : List.of("/api/v1/auctions/mine", "/api/v1/bids/mine")) {
+            client.get().uri(path).exchange().expectStatus().isUnauthorized();
+            String missing = "Bearer " + token(SIGNING_KEY, c -> { });
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, missing).exchange().expectStatus().isForbidden();
+            String privilege = path.contains("bids") ? "AUCTION.VIEW_BID_HISTORY" : "AUCTION.LIST";
+            String allowed = "Bearer " + token(SIGNING_KEY, c -> c.claim("privileges", List.of(privilege)));
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, allowed).exchange().expectStatus().isOk();
+        }
+        assertThat(SERVICE_LOG).containsExactly("GET /api/v1/auctions/mine", "GET /api/v1/bids/mine");
+        assertThat(FORWARDED_TOKENS).hasSize(2);
+    }
     private static final String ID = "11111111-1111-4111-8111-111111111111";
     private static final String ME = "/api/v1/users/me";
     private static final String ISSUER = "http://localhost:18080/realms/nexus";

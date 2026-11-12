@@ -13,7 +13,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.context.WebApplicationContext;
-import org.testcontainers.postgresql.PostgreSQLContainer;
+import com.group5.auctionservice.TestPostgres;
 
 import java.util.List;
 
@@ -36,7 +36,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
         "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/certs"
 })
 class AuctionReadIntegrationTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18");
+    private static final TestPostgres POSTGRES = new TestPostgres();
     static { POSTGRES.start(); }
 
     private static final String PATH = "/api/v1/auctions";

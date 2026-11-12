@@ -30,6 +30,18 @@ public class AuctionController {
 
     private final AuctionService auctions;
 
+    @GetMapping("/mine")
+    @PreAuthorize("hasRole('SELLER') and hasAuthority('AUCTION.LIST')")
+    public ApiResponse<List<AuctionResponse>> mine(
+            @RequestParam(required = false) AuctionStatus status,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size,
+            CurrentUser user) {
+        var result = auctions.mine(status, page, size, user);
+        return ApiResponse.page(result.getContent(), new PageInfo(
+                result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages()));
+    }
+
     @GetMapping("/{id}")
     public ApiResponse<AuctionResponse> get(@PathVariable UUID id) {
         return ApiResponse.of(auctions.get(id));
