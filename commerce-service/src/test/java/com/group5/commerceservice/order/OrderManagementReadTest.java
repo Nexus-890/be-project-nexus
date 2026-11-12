@@ -7,6 +7,7 @@ import com.group5.commerceservice.cart.entity.Cart;
 import com.group5.commerceservice.cart.repository.CartRepository;
 import com.group5.commerceservice.order.dto.response.OrderResponse;
 import com.group5.commerceservice.order.entity.Order;
+import com.group5.commerceservice.order.entity.OrderGroup;
 import com.group5.commerceservice.order.event.OrderEventPublisher;
 import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.service.InventoryClient;
@@ -18,6 +19,7 @@ import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
 import com.group5.common_security.CurrentUserAuditor;
 import jakarta.persistence.EntityManagerFactory;
+import org.assertj.core.api.SoftAssertions;
 import org.flywaydb.core.Flyway;
 import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,6 +47,7 @@ import javax.sql.DataSource;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -56,13 +59,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringJUnitConfig(OrderManagementReadTest.JpaConfig.class)
 class OrderManagementReadTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    // An explicit local PostgreSQL URL can run the same integration checks without Docker.
+    private static final String POSTGRES_URL = System.getProperty("nexus.test.postgres.url");
+    private static final PostgreSQLContainer POSTGRES = POSTGRES_URL == null
+            ? new PostgreSQLContainer("postgres:18-alpine") : null;
     private static final OffsetDateTime AT = OffsetDateTime.parse("2026-11-03T10:00:00Z");
     private static final CurrentUser ADMIN = user("ADMIN");
     private static final CurrentUser SUPPORT = user("SUPPORT_STAFF");
 
     static {
-        POSTGRES.start();
+        if (POSTGRES != null) POSTGRES.start();
     }
 
     @Autowired private OrderService orderService;
@@ -215,6 +221,66 @@ class OrderManagementReadTest {
     }
 
     @Test
+    void pendingPagesFetchGroupsWithoutPerOrderQueriesAndKeepCancellationRights() {
+        CurrentUser buyer = new CurrentUser(UUID.randomUUID(), Set.of("BUYER"),
+                Set.of("ORDER.LIST", "ORDER.CANCEL"));
+        CurrentUser manager = new CurrentUser(ADMIN.id(), ADMIN.roles(), Set.of("ORDER.LIST", "ORDER.CANCEL"));
+        CurrentUser seller = new CurrentUser(UUID.randomUUID(), Set.of("SELLER"),
+                Set.of("ORDER.LIST", "ORDER.CANCEL"));
+        List<UUID> expected = new ArrayList<>();
+        Set<UUID> cancellable = new HashSet<>();
+        for (int i = 0; i < 45; i++) {
+            UUID id = order(1000 + i, buyer.id(), seller.id(), OrderStatus.PENDING, OrderType.STANDARD,
+                    AT.plusDays(1).plusMinutes(i));
+            expected.add(id);
+            if (i % 3 == 0) {
+                jdbc().update("UPDATE order_groups SET status='CANCELED' WHERE id=(SELECT order_group_id FROM orders WHERE id=?)", id);
+            } else {
+                cancellable.add(id);
+            }
+        }
+        Collections.reverse(expected);
+        var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        record Read(String name, Supplier<Page<OrderResponse>> load, boolean mayCancel) { }
+        var queryAssertions = new SoftAssertions();
+
+        // Each service call owns a fresh persistence context; neither first-page data nor
+        // the previous caller's eligibility can hide secondary group loads on later pages.
+        for (int size : List.of(5, 20)) {
+            for (int page : List.of(0, 1)) {
+                List<Read> reads = List.of(
+                        new Read("own orders", () -> orderService.listOwn(buyer, null, page, size), true),
+                        new Read("filtered own orders", () -> orderService.listOwn(buyer, OrderStatus.PENDING, page, size), true),
+                        new Read("management orders", () -> managed(manager, buyer.id(), seller.id(),
+                                OrderStatus.PENDING, null, null, null, page, size), true),
+                        new Read("seller sales", () -> orderService.listSales(seller, OrderStatus.PENDING,
+                                null, null, page, size), false));
+                for (Read read : reads) {
+                    statistics.clear();
+                    Page<OrderResponse> result = read.load().get();
+
+                    assertIds(result, expected.subList(page * size, (page + 1) * size).toArray(UUID[]::new));
+                    assertThat(result.getNumber()).isEqualTo(page);
+                    assertThat(result.getSize()).isEqualTo(size);
+                    assertThat(result.getTotalElements()).isEqualTo(45);
+                    assertThat(result.getTotalPages()).isEqualTo((45 + size - 1) / size);
+                    assertThat(result.getContent()).allSatisfy(response -> {
+                        assertThat(response.items()).hasSize(1);
+                        assertThat(response.canCancel()).as("%s cancellation for %s", read.name(), response.orderId())
+                                .isEqualTo(read.mayCancel() && cancellable.contains(response.orderId()));
+                    });
+                    queryAssertions.assertThat(statistics.getEntityStatistics(OrderGroup.class.getName()).getFetchCount())
+                            .as("%s page %s size %s must fetch groups with the page", read.name(), page, size).isZero();
+                    queryAssertions.assertThat(statistics.getPrepareStatementCount())
+                            .as("%s page %s size %s needs only page, count and batched items", read.name(), page, size)
+                            .isLessThanOrEqualTo(3);
+                }
+            }
+        }
+        queryAssertions.assertAll();
+    }
+
+    @Test
     void salesAreScopedBySellerIdEvenWhenTheSellerAlsoBoughtAnotherSellersOrder() {
         Page<OrderResponse> salesA = orderService.listSales(sellerA, null, null, null, 0, 10);
         Page<OrderResponse> salesB = orderService.listSales(sellerB, null, null, null, 0, 10);
@@ -331,8 +397,11 @@ class OrderManagementReadTest {
         }
         @Bean
         DataSource dataSource() {
-            DataSource source = new DriverManagerDataSource(POSTGRES.getJdbcUrl() + "&currentSchema=commerce_management_reads",
-                    POSTGRES.getUsername(), POSTGRES.getPassword());
+            String url = POSTGRES == null ? POSTGRES_URL : POSTGRES.getJdbcUrl();
+            String username = POSTGRES == null ? System.getProperty("nexus.test.postgres.username", "postgres") : POSTGRES.getUsername();
+            String password = POSTGRES == null ? System.getProperty("nexus.test.postgres.password", "") : POSTGRES.getPassword();
+            DataSource source = new DriverManagerDataSource(url + (url.contains("?") ? "&" : "?") + "currentSchema=commerce_management_reads",
+                    username, password);
             Flyway.configure().dataSource(source).schemas("commerce_management_reads")
                     .defaultSchema("commerce_management_reads").load().migrate();
             return source;
