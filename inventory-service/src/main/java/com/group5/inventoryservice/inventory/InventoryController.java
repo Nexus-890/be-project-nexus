@@ -45,9 +45,10 @@ public class InventoryController {
 
     @PostMapping("/intake")
     @ResponseStatus(HttpStatus.CREATED)
-    // GATEWAY CHỈ CHECK TOKEN (SRS KHÔNG CÓ PRIVILEGE INVENTORY.*) -> SERVICE TỰ CHẶN, CHỈ ADMIN ĐƯỢC NHẬP KHO
-    @PreAuthorize("hasRole('ADMIN')")
+    // GATEWAY CHỈ CHECK TOKEN (SRS KHÔNG CÓ PRIVILEGE INVENTORY.*) -> SERVICE TỰ CHẶN: ADMIN HOẶC SELLER SỞ HỮU SKU
+    @PreAuthorize("hasAnyRole('ADMIN', 'SELLER')")
     public ApiResponse<BalanceResponse> intake(@Valid @RequestBody IntakeRequest request, CurrentUser currentUser) {
+        service.requireIntakeAccess(request, currentUser);
         return ApiResponse.of(service.intake(request, currentUser));
     }
 

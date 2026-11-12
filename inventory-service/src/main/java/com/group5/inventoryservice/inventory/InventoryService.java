@@ -5,6 +5,7 @@ import com.group5.common_security.CurrentUser;
 import com.group5.inventoryservice.inventory.dto.AdjustmentRequest;
 import com.group5.inventoryservice.inventory.dto.BalanceResponse;
 import com.group5.inventoryservice.inventory.dto.IntakeRequest;
+import com.group5.inventoryservice.shared.catalog.CatalogSkuOwners;
 import com.group5.inventoryservice.shared.exception.InventoryErrorCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,12 +18,27 @@ public class InventoryService {
     private final InventoryBalanceRepository balances;
     private final InventoryMovementRepository movements;
     private final WarehouseResolver warehouses;
+    private final CatalogSkuOwners skuOwners;
 
     public InventoryService(InventoryBalanceRepository balances, InventoryMovementRepository movements,
-                            WarehouseResolver warehouses) {
+                            WarehouseResolver warehouses, CatalogSkuOwners skuOwners) {
         this.balances = balances;
         this.movements = movements;
         this.warehouses = warehouses;
+        this.skuOwners = skuOwners;
+    }
+
+    public void requireIntakeAccess(IntakeRequest request, CurrentUser currentUser) {
+        if (currentUser.hasRole("ADMIN")) {
+            return;
+        }
+        if (request.warehouseId() != null) {
+            throw new DomainException(InventoryErrorCode.FORBIDDEN,
+                    "Sellers can only add stock to the default warehouse");
+        }
+        if (skuOwners.sellerOf(request.skuId()).filter(currentUser.id()::equals).isEmpty()) {
+            throw new DomainException(InventoryErrorCode.FORBIDDEN);
+        }
     }
 
     @Transactional
