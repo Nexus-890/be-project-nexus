@@ -1,6 +1,8 @@
 package com.group5.auctionservice;
 
 import com.group5.auctionservice.auction.AuctionRepository;
+import com.group5.auctionservice.bidding.BidRepository;
+import com.group5.common_outbox.OutboxWriter;
 import com.group5.common_security.CurrentUser;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -74,6 +76,8 @@ class KeycloakTokenTrustTest {
     private static final HttpServer JWKS = jwks();
     @Autowired private WebApplicationContext context;
     @MockitoBean private AuctionRepository auctions;
+    @MockitoBean private BidRepository bids;
+    @MockitoBean private OutboxWriter outbox;
     @MockitoBean private Clock clock;
     private MockMvc client;
 
