@@ -115,7 +115,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/shipments` | POST | SHIPPING.CREATE_SHIPMENT | #202 — shipment-service; manual creation additionally requires ADMIN or SUPPORT_STAFF downstream |
 | `/api/v1/shipments` | GET | SHIPPING.VIEW_SHIPMENT | #202 — shipment-service; own-order visibility enforced downstream |
 | `/api/v1/shipments/{id}` | GET | SHIPPING.VIEW_SHIPMENT | #202 — shipment-service; own-order visibility enforced downstream |
-| `/api/v1/shipments/{id}/tracking` | GET | SHIPPING.VIEW_SHIPMENT | #203 — shipment-service; own-order visibility enforced downstream |
+| `/api/v1/shipments/{id}/tracking` | GET | SHIPPING.VIEW_SHIPMENT | #206 / #203 — shipment-service; persisted tracking/history read delivered for the buyer order page; own-order visibility enforced downstream |
 | `/api/v1/shipments/{id}/status` | PATCH | SHIPPING.UPDATE_STATUS | #203 — shipment-service |
 | `/api/v1/shipments/{id}/override` | POST | SHIPPING.MANUAL_OVERRIDE | #203 — shipment-service; reason required downstream |
 | `/api/v1/ratings` | POST | REPUTATION.RATE | #212 — rating-service; completed-order eligibility checked downstream |
@@ -126,6 +126,9 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/auctions` | POST | AUCTION.CREATE | #140 — Create as SELLER; `sellerId` comes from the JWT subject |
 | `/api/v1/auctions/{id}/bids` | POST | AUCTION.BID | #146/#147 — Place a bid as BUYER; the bidder cannot be the auction seller. Required UUID `Idempotency-Key`; replay requires the original bidder, auction and numeric amount; a different amount returns 409 |
 | `/api/v1/auctions/{id}/schedule` | POST | AUCTION.UPDATE | #144 — Owner with SELLER role publishes a CREATED auction |
+| `/api/v1/auctions/{id}` | PUT | AUCTION.UPDATE | #197 — SELLER/ADMIN owner, CREATED/SCHEDULED before startAt |
+| `/api/v1/auctions/{id}/cancel` | POST | AUCTION.CANCEL | #197 — SELLER owner with no valid bids |
+| `/api/v1/auctions/{id}/admin-cancel` | POST | AUCTION.ADMIN_CANCEL | #197 — ADMIN; CREATED/SCHEDULED/ACTIVE/ENDED/WON only |
 | `/api/v1/auctions` | GET | Public | #143 — PUBLIC, non-deleted auctions; status defaults to ACTIVE, endAt ascending |
 | `/api/v1/auctions/{id}` | GET | Public | #143 — PUBLIC, non-deleted auction; hidden and missing rows return 404 |
 | `/api/v1/inventory` | GET | Public | #132 — inventory-service; `skuIds` query, at most 100; returns `skuId` and `available` only |

@@ -7,6 +7,7 @@ import com.group5.common_security.CurrentUser;
 import com.group5.shipmentservice.shared.exception.ShipmentErrorCode;
 import com.group5.shipmentservice.shipping.dto.request.CreateShipmentRequest;
 import com.group5.shipmentservice.shipping.dto.response.ShipmentResponse;
+import com.group5.shipmentservice.shipping.dto.response.ShipmentTrackingResponse;
 import com.group5.shipmentservice.shipping.entity.Shipment;
 import com.group5.shipmentservice.shipping.enums.ShipmentStatus;
 import com.group5.shipmentservice.shipping.service.ShipmentCreationService;
@@ -59,6 +60,12 @@ public class ShipmentController {
     @PreAuthorize("hasAuthority('SHIPPING.VIEW_SHIPMENT')")
     public ApiResponse<ShipmentResponse> get(CurrentUser user, @PathVariable UUID id) {
         return ApiResponse.of(reads.get(user, id));
+    }
+
+    @GetMapping("/{id}/tracking")
+    @PreAuthorize("hasAuthority('SHIPPING.VIEW_SHIPMENT')")
+    public ApiResponse<ShipmentTrackingResponse> tracking(CurrentUser user, @PathVariable UUID id) {
+        return ApiResponse.of(reads.tracking(user, id));
     }
 
     @GetMapping

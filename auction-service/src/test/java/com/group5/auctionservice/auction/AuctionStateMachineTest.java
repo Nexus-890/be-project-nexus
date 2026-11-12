@@ -44,7 +44,7 @@ class AuctionStateMachineTest {
     }
 
     @Test
-    void sellerCannotCancelEvenWhenTransitionIsAllowedForAdmin() {
+    void onlyAdminOrOwningSellerCanCancelAndGenericTransitionCannotBypassActorCheck() {
         var auction = new Auction();
         var seller = new CurrentUser(UUID.randomUUID(), Set.of("SELLER"), Set.of("AUCTION.CANCEL"));
 
@@ -56,6 +56,10 @@ class AuctionStateMachineTest {
         assertThatExceptionOfType(DomainException.class).isThrownBy(() -> machine.transition(auction, CANCELLED))
                 .satisfies(error -> assertThat(error.getCode()).isEqualTo(403));
         assertThat(auction.getStatus()).isEqualTo(CREATED);
+
+        ReflectionTestUtils.setField(auction, "sellerId", seller.id());
+        machine.cancel(auction, seller);
+        assertThat(auction.getStatus()).isEqualTo(CANCELLED);
     }
 
     private static Stream<Arguments> statusPairs() {
@@ -72,7 +76,7 @@ class AuctionStateMachineTest {
             case WON, FAILED -> from == ENDED;
             case SETTLED -> from == WON;
             case PAYMENT_TIMEOUT -> from == SETTLED;
-            case CANCELLED -> from != CANCELLED;
+            case CANCELLED -> Set.of(CREATED, SCHEDULED, ACTIVE, ENDED, WON).contains(from);
         };
     }
 }

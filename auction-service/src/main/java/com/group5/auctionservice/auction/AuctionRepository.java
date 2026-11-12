@@ -58,6 +58,11 @@ public interface AuctionRepository extends JpaRepository<Auction, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<Auction> findForUpdateByIdAndDeletedAtIsNull(UUID id);
 
+    // The caller holds the auction row lock also taken by the conditional bid UPDATE.
+    @Query(value = "SELECT EXISTS (SELECT 1 FROM bids WHERE auction_id = :id AND status <> 'CANCELLED')",
+            nativeQuery = true)
+    boolean hasValidBids(@Param("id") UUID id);
+
     @Query(value = """
             SELECT id FROM auctions
             WHERE status = 'SCHEDULED' AND start_at <= :now AND deleted_at IS NULL
