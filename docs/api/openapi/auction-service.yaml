@@ -290,6 +290,17 @@ paths:
         (exclusive). Outside that window, bids are refused even if the status is still ACTIVE.
         A conditional update prevents concurrent bids from both winning the same price.
         The authenticated buyer may not bid on their own auction.
+        Idempotency-Key is a required UUID. A new key returns 201. Reusing a key
+        for the same auction, authenticated bidder and numeric amount returns 200
+        with the original bidId, accepted amount and leaderBidderId, even if the
+        auction state has since changed. Amounts such as 1050000 and 1050000.00
+        are equivalent. A different amount with the same key returns 409
+        AUCTION_IDEMPOTENCY_KEY_CONFLICT; use a new key for a different bid.
+        A replay does not update the auction, insert a bid or publish another
+        event. UUID letter case is normalized. The key is globally unique;
+        reusing it for another auction, bidder or amount returns 409 without exposing
+        the original bid. Concurrent successful requests with one key create
+        one bid, increment bid_count once and publish one BidPlaced event.
       x-catalogue-id: BID-01
       x-required-roles: [BUYER]
       x-required-privileges: [AUCTION.BID]
@@ -301,6 +312,19 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: >
+            UUID identifying one bid attempt. Retry with the same key after a
+            timeout. Uppercase and lowercase UUID letters identify the same key.
+            Use a new key for a new bid.
+          schema:
+            type: string
+            format: uuid
+            minLength: 36
+            maxLength: 36
+          example: 68000000-0000-4000-8000-000000000004
       requestBody:
         required: true
         content:
@@ -310,6 +334,21 @@ paths:
             example:
               amount: 1200000
       responses:
+        '200':
+          description: >
+            The key was already accepted for this auction, bidder and numeric amount. Returns
+            the original response data and leaves the auction, bids and outbox unchanged.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceBidResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  bidId: 019a5509-abcd-7111-8111-111111111112
+                  currentPrice: 1200000
+                  leaderBidderId: 68000000-0000-4000-8000-000000000003
         '201':
           description: Bid accepted and the auction price advanced.
           content:
@@ -324,7 +363,9 @@ paths:
                   currentPrice: 1200000
                   leaderBidderId: 68000000-0000-4000-8000-000000000003
         '400':
-          description: Bid amount is invalid or below the current minimum.
+          description: >
+            Idempotency-Key is missing or invalid, or the bid amount is invalid
+            or below the current minimum. A rejected request writes no bid.
           content:
             application/problem+json:
               schema:
@@ -350,8 +391,24 @@ paths:
                           status:
                             enum: [400]
                           code:
-                            enum: [INVALID_REQUEST_BODY, VALIDATION_FAILED, INVALID_PARAMETER]
+                            enum: [AUCTION_IDEMPOTENCY_KEY_REQUIRED, AUCTION_INVALID_IDEMPOTENCY_KEY, INVALID_REQUEST_BODY, VALIDATION_FAILED, INVALID_PARAMETER]
               examples:
+                missingIdempotencyKey:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Idempotency-Key is required
+                    instance: /api/v1/auctions/019a5509-abcd-7111-8111-111111111111/bids
+                    code: AUCTION_IDEMPOTENCY_KEY_REQUIRED
+                invalidIdempotencyKey:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: Idempotency-Key must be a UUID
+                    instance: /api/v1/auctions/019a5509-abcd-7111-8111-111111111111/bids
+                    code: AUCTION_INVALID_IDEMPOTENCY_KEY
                 tooLow:
                   value:
                     type: urn:problem:domain-error
@@ -399,7 +456,9 @@ paths:
                 instance: /api/v1/auctions/019a5509-abcd-7111-8111-111111111111/bids
                 code: AUCTION_NOT_FOUND
         '409':
-          description: Auction is outside its bid window, is not ACTIVE, or the bidder is the auction seller.
+          description: >
+            Auction is outside its bid window, is not ACTIVE, the bidder is the auction seller,
+            or the key was already accepted for another auction, bidder or amount.
           content:
             application/problem+json:
               schema:
@@ -410,8 +469,16 @@ paths:
                       status:
                         enum: [409]
                       code:
-                        enum: [AUCTION_NOT_ACTIVE, AUCTION_SELLER_CANNOT_BID]
+                        enum: [AUCTION_NOT_ACTIVE, AUCTION_SELLER_CANNOT_BID, AUCTION_IDEMPOTENCY_KEY_CONFLICT]
               examples:
+                idempotencyKeyConflict:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: Idempotency-Key was already used for another auction, bidder or amount
+                    instance: /api/v1/auctions/019a5509-abcd-7111-8111-111111111111/bids
+                    code: AUCTION_IDEMPOTENCY_KEY_CONFLICT
                 notActive:
                   value:
                     type: urn:problem:domain-error
@@ -664,7 +731,7 @@ components:
           type: number
           minimum: 0
           multipleOf: 0.01
-          description: The accepted bid amount and new auction current price.
+          description: The original accepted bid amount, including on a replay after the auction price has changed.
         leaderBidderId:
           type: string
           format: uuid
