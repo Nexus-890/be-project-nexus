@@ -36,6 +36,9 @@ paths:
         '400': {$ref: '#/components/responses/MineInvalidQuery'}
         '401': {$ref: '#/components/responses/MineUnauthorized'}
         '403': {$ref: '#/components/responses/MineForbidden'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/UnexpectedError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
   /api/v1/bids/mine:
     get:
       tags: [Auctions]
@@ -65,6 +68,9 @@ paths:
         '400': {$ref: '#/components/responses/MineInvalidQuery'}
         '401': {$ref: '#/components/responses/MineUnauthorized'}
         '403': {$ref: '#/components/responses/MineForbidden'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/UnexpectedError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
   /api/v1/auctions:
     get:
       tags: [Auctions]
