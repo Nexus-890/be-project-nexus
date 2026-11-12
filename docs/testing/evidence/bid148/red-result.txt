@@ -1,0 +1,170 @@
+Actual local red result, 2026-11-11 Asia/Saigon
+QA dependency: #146 commit 882be7d4; QA merge base 3877dd81.
+Environment: Windows, Temurin Java 21.0.12.1, Maven 3.9.16, Docker 29.8.0, PostgreSQL 18-alpine.
+Command (auction-service): mvn -B -Duser.timezone=UTC -Dit.test=BidConcurrencyIT test-compile failsafe:integration-test failsafe:verify
+Maven exit: 1
+Tests: 10, failures: 10, errors: 0, skipped: 0
+BidConcurrencyIT.java SHA256 (same test for RED and restored GREEN): 0A92259C30F0F90B415B588BDF44FA215BAB1D0CF05F1AD96B9DC4DF31BE272B
+Production AuctionRepository.java SHA256 before/after mutation: 7F9BD64FACED0B1F08F2D7895FEF24D664A9509AB1CB1A37DF4E374E5CBEFF0A
+50 distinct amounts: 1050000.00..3500000.00; increment 50000.00; 10 bidders.
+Only AuctionRepository.acceptBid was mutated; AuctionStatus.ACTIVE and transaction-time guards retained.
+No sleeps, test changes, extra locks or forced synchronization. All failures are invariant assertions.
+Production repository restored byte-for-byte in finally before the restored clean verify.
+
+First real JUnit assertion failure:
+com.group5.auctionservice.bidding.BidConcurrencyIT.fiftyConcurrentBidsPreserveEveryInvariant(RepetitionInfo)[1] -- Time elapsed: 3.095 s <<< FAILURE!
+org.opentest4j.MultipleFailuresError:
+bid concurrency invariants, repetition 1 (3 failures)
+	org.opentest4j.AssertionFailedError:
+expected: 2
+ but was: 1
+	org.opentest4j.AssertionFailedError: [bid_count equals HTTP 201 count]
+expected: 50
+ but was: 1
+	org.opentest4j.AssertionFailedError: [current_price equals highest accepted amount]
+expected: 3500000.00
+ but was: 1900000.00
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
+	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:44)
+	at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:3054)
+	at com.group5.auctionservice.bidding.BidConcurrencyIT.fiftyConcurrentBidsPreserveEveryInvariant(BidConcurrencyIT.java:177)
+	Suppressed: org.opentest4j.AssertionFailedError:
+
+All ten repetition failure messages (from JUnit XML):
+
+fiftyConcurrentBidsPreserveEveryInvariant(RepetitionInfo)[1]
+bid concurrency invariants, repetition 1 (3 failures)
+ org.opentest4j.AssertionFailedError:
+expected: 2
+ but was: 1
+ org.opentest4j.AssertionFailedError: [bid_count equals HTTP 201 count]
+expected: 50
+ but was: 1
+ org.opentest4j.AssertionFailedError: [current_price equals highest accepted amount]
+expected: 3500000.00
+ but was: 1900000.00
+
+fiftyConcurrentBidsPreserveEveryInvariant(RepetitionInfo)[2]
+bid concurrency invariants, repetition 2 (3 failures)
+ java.lang.AssertionError: [201 currentPrice strictly increases in database update order]
+Expecting actual:
+  1700000.00
+to be greater than or equal to:
+  3350000.00
+
+ org.opentest4j.AssertionFailedError: [bid_count equals HTTP 201 count]
+expected: 50
+ but was: 1
+ org.opentest4j.AssertionFailedError: [current_price equals highest accepted amount]
+expected: 3500000.00
+ but was: 2200000.00
+
+fiftyConcurrentBidsPreserveEveryInvariant(RepetitionInfo)[3]
+bid concurrency invariants, repetition 3 (3 failures)
+ org.opentest4j.AssertionFailedError:
+expected: 2
+ but was: 1
+ org.opentest4j.AssertionFailedError: [bid_count equals HTTP 201 count]
+expected: 50
+ but was: 1
+ org.opentest4j.AssertionFailedError: [current_price equals highest accepted amount]
+expected: 3500000.00
+ but was: 1800000.00
+
+fiftyConcurrentBidsPreserveEveryInvariant(RepetitionInfo)[4]
+bid concurrency invariants, repetition 4 (3 failures)
+ java.lang.AssertionError: [201 currentPrice strictly increases in database update order]
+Expecting actual:
+  1400000.00
+to be greater than or equal to:
+  1500000.00
+
+ org.opentest4j.AssertionFailedError: [bid_count equals HTTP 201 count]
+expected: 50
+ but was: 1
+ org.opentest4j.AssertionFailedError: [current_price equals highest accepted amount]
+expected: 3500000.00
+ but was: 2950000.00
+
+fiftyConcurrentBidsPreserveEveryInvariant(RepetitionInfo)[5]
+bid concurrency invariants, repetition 5 (3 failures)
+ org.opentest4j.AssertionFailedError:
+expected: 2
+ but was: 1
+ org.opentest4j.AssertionFailedError: [bid_count equals HTTP 201 count]
+expected: 50
+ but was: 1
+ org.opentest4j.AssertionFailedError: [current_price equals highest accepted amount]
+expected: 3500000.00
+ but was: 1550000.00
+
+fiftyConcurrentBidsPreserveEveryInvariant(RepetitionInfo)[6]
+bid concurrency invariants, repetition 6 (3 failures)
+ org.opentest4j.AssertionFailedError:
+expected: 2
+ but was: 1
+ org.opentest4j.AssertionFailedError: [bid_count equals HTTP 201 count]
+expected: 50
+ but was: 1
+ org.opentest4j.AssertionFailedError: [current_price equals highest accepted amount]
+expected: 3500000.00
+ but was: 2950000.00
+
+fiftyConcurrentBidsPreserveEveryInvariant(RepetitionInfo)[7]
+bid concurrency invariants, repetition 7 (3 failures)
+ java.lang.AssertionError: [201 currentPrice strictly increases in database update order]
+Expecting actual:
+  1200000.00
+to be greater than or equal to:
+  3050000.00
+
+ org.opentest4j.AssertionFailedError: [bid_count equals HTTP 201 count]
+expected: 50
+ but was: 1
+ org.opentest4j.AssertionFailedError: [current_price equals highest accepted amount]
+expected: 3500000.00
+ but was: 1750000.00
+
+fiftyConcurrentBidsPreserveEveryInvariant(RepetitionInfo)[8]
+bid concurrency invariants, repetition 8 (3 failures)
+ org.opentest4j.AssertionFailedError:
+expected: 2
+ but was: 1
+ org.opentest4j.AssertionFailedError: [bid_count equals HTTP 201 count]
+expected: 50
+ but was: 1
+ org.opentest4j.AssertionFailedError: [current_price equals highest accepted amount]
+expected: 3500000.00
+ but was: 2050000.00
+
+fiftyConcurrentBidsPreserveEveryInvariant(RepetitionInfo)[9]
+bid concurrency invariants, repetition 9 (3 failures)
+ org.opentest4j.AssertionFailedError:
+expected: 2
+ but was: 1
+ org.opentest4j.AssertionFailedError: [bid_count equals HTTP 201 count]
+expected: 50
+ but was: 1
+ org.opentest4j.AssertionFailedError: [current_price equals highest accepted amount]
+expected: 3500000.00
+ but was: 1800000.00
+
+fiftyConcurrentBidsPreserveEveryInvariant(RepetitionInfo)[10]
+bid concurrency invariants, repetition 10 (3 failures)
+ org.opentest4j.AssertionFailedError:
+expected: 2
+ but was: 1
+ org.opentest4j.AssertionFailedError: [bid_count equals HTTP 201 count]
+expected: 50
+ but was: 1
+ org.opentest4j.AssertionFailedError: [current_price equals highest accepted amount]
+expected: 3500000.00
+ but was: 1950000.00
+
+Actual Maven summary:
+[ERROR] Tests run: 10, Failures: 10, Errors: 0, Skipped: 0, Time elapsed: 29.62 s <<< FAILURE! -- in com.group5.auctionservice.bidding.BidConcurrencyIT
+[ERROR] Tests run: 10, Failures: 10, Errors: 0, Skipped: 0
+[INFO] BUILD FAILURE
+[INFO] Total time:  44.879 s
+[INFO] Finished at: 2026-11-11T11:43:54Z
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-failsafe-plugin:3.5.6:verify (default-cli) on project auction-service: There are test failures.

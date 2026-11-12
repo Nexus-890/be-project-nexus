@@ -265,7 +265,7 @@ Issue numbers identify implementation ownership, not completed runtime behavior.
 | `OrderCreated` | `nexus.commerce.events` | [#118](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/118), [#172](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/172) | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify the buyer; auction-service [#173](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/173): settle AUCTION orders; catalog-service [#216](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/216): set has_order on the listed products; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `OrderCancelled` | `nexus.commerce.events` | [#159](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/159), [#189](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/189) | inventory-service [#161](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/161): release HELD order reservations; notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): notify the buyer; payment-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157), [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247): close unpaid instructions or refund the funded child; auction-service [#208](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/208): timeout AUCTION only for PAYMENT_DEADLINE_EXPIRED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `OrderPaid` | `nexus.commerce.events` | [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156) | inventory-service [#160](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/160): confirm order reservations; shipment-service [#202](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/202): create one shipment using this trusted snapshot; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
-| `OrderCompleted` | `nexus.commerce.events` | [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204) | rating-service [#242](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/242), [#212](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/212): persist rating_eligibility without calling commerce; rating-service [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213): update score and transaction counts; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `OrderCompleted` | `nexus.commerce.events` | [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204) | rating-service [#242](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/242), [#212](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/212): persist rating_eligibility without calling commerce; rating-service [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213): update score and transaction counts; notification-service [#191](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/191): deliver the HTML receipt; [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `OrderRefundRequested` | `nexus.payment.events` | [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247) | commerce-service [#116](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/116): move CANCELED -> REFUND_REQUESTED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit |
 | `OrderRefundCompleted` | `nexus.payment.events` | [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247) | commerce-service [#116](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/116): move REFUND_REQUESTED -> REFUNDED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit |
 | `AuctionCreated` | `nexus.auction.events` | [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209) | inventory-service [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209): hold one unit for the auction; catalog-service [#216](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/216): set product in_auction; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
@@ -1471,7 +1471,7 @@ The STANDARD checkout publisher uses the existing `OrderEventPublisher` and tran
 
 - Topic: `nexus.commerce.events`.
 - Publisher: [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204).
-- Consumer: rating-service [#242](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/242), [#212](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/212): persist rating_eligibility without calling commerce; rating-service [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213): update score and transaction counts; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Consumer: rating-service [#242](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/242), [#212](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/212): persist rating_eligibility without calling commerce; rating-service [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213): update score and transaction counts; notification-service [#191](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/191): deliver the HTML receipt; [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
 - Envelope aggregateId: `orderId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
@@ -1484,6 +1484,8 @@ The STANDARD checkout publisher uses the existing `OrderEventPublisher` and tran
 | `referenceId` | Auction UUID for AUCTION; null for STANDARD. |
 | `orderVersion` | Committed commerce orders.version, not a schema version or payment version. |
 | `completedAt` | Persisted business completion time; maps to rating_eligibility.completed_at. |
+| `orderNumber` | Optional human-readable seller-order number from commerce; #204 includes it for the receipt notification. |
+| `receiptHtml` | Optional HTML receipt with escaped snapshot fields from this completed seller order; #204 includes the document for delivery through notification-service #191. |
 
 **Payload schema**
 
@@ -1535,6 +1537,14 @@ The STANDARD checkout publisher uses the existing `OrderEventPublisher` and tran
       "type": "string",
       "format": "date-time",
       "pattern": "Z$"
+    },
+    "orderNumber": {
+      "type": "string",
+      "minLength": 1
+    },
+    "receiptHtml": {
+      "type": "string",
+      "minLength": 1
     }
   },
   "required": [
@@ -1588,11 +1598,22 @@ The STANDARD checkout publisher uses the existing `OrderEventPublisher` and tran
   "orderType": "STANDARD",
   "referenceId": null,
   "orderVersion": 1,
-  "completedAt": "2026-11-20T10:00:00Z"
+  "completedAt": "2026-11-20T10:00:00Z",
+  "orderNumber": "NX-20261120-00000001",
+  "receiptHtml": "<!doctype html><html lang=\"en\"><head><meta charset=\"UTF-8\"><title>Receipt NX-20261120-00000001</title></head><body><h1>Order receipt</h1><p>NX-20261120-00000001</p><p>Completed: 2026-11-20T10:00:00Z</p></body></html>"
 }
 ```
 
 #204 commits the DELIVERED -> COMPLETED transition, history and outbox together after ShipmentDelivered. #242 stores orderId/buyerId/sellerId/completedAt and referenceId as auction_id when applicable. #213 applies each canonical order outcome once per affected user; envelope deduplication alone does not prevent two different eventIds recounting the same order. Buyer/seller must differ. No new rating permission is inferred from a payment or shipment-created event.
+
+#204 also includes `orderNumber` and `receiptHtml` as additive payload fields. The receipt is a snapshot of the completed child order, including its own items and amounts, never the whole group's payment. The event/email document omits the delivery recipient's name, phone and address; those contact details remain available only in the owner's authenticated invoice response. Notification-service uses the buyer ID to resolve the email recipient and queues the HTML document through #191's durable email delivery; commerce does not send SMTP inside its order transaction. These extension fields remain optional for existing event fixtures and consumers; consumers that send a receipt require a nonblank HTML document and never substitute a buyer-supplied URL or product HTML. This limits contact data in newly published events; existing Kafka/audit records are unchanged. Moving the remaining receipt HTML off the shared event requires a separate authenticated receipt retrieval contract.
+
+Shipment facts whose order, payment or pickup prerequisite has not arrived are
+retained in commerce's `pending_order_shipment_events` inbox atomically with the
+consumer marker. The retry job can apply them after a restart without blocking
+the Kafka partition or requiring the carrier to publish again. Successful retry
+removes the inbox row together with the order history and completion outbox;
+failed effects leave the persisted fact available for another attempt.
 
 ### OrderRefundRequested
 
