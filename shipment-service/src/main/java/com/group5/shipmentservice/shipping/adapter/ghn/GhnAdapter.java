@@ -126,7 +126,7 @@ public class GhnAdapter implements CarrierAdapter {
                 .newToAddress(true)
                 .toProvinceName(request.toAddress().provinceName())
                 .toWardName(request.toAddress().wardName())
-                .toAddress(fullAddress(request.toAddress()))
+                .toAddress(areaAddress(request.toAddress()))
                 .toName(request.recipientName())
                 .toPhone(request.recipientPhone())
                 .paymentTypeId(properties.paymentTypeId())
@@ -144,7 +144,11 @@ public class GhnAdapter implements CarrierAdapter {
     }
 
     private String fullAddress(CarrierAddress address) {
-        return String.join(", ", address.addressLine(), address.wardName(), address.provinceName());
+        return String.join(", ", address.addressLine(), areaAddress(address));
+    }
+
+    private String areaAddress(CarrierAddress address) {
+        return String.join(", ", address.wardName(), address.provinceName());
     }
 
     private List<LocalityResponse> localities(JsonNode data, String expectedType, int expectedParent) {
