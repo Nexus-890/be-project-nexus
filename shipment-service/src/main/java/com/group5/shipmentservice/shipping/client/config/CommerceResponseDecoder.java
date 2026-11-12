@@ -39,7 +39,8 @@ public final class CommerceResponseDecoder implements Decoder {
                 throw invalidResponse(response);
             }
             OffsetDateTime.parse(data.path("paidAt").asString());
-            return mapper.convertValue(root, mapper.constructType(type));
+            // Bind BigDecimal from the original numeric token, not a tree's rounded double node.
+            return mapper.readValue(body, mapper.constructType(type));
         } catch (DecodeException error) {
             throw error;
         } catch (RuntimeException error) {

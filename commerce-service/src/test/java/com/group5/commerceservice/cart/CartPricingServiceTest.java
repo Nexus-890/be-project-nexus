@@ -32,7 +32,8 @@ class CartPricingServiceTest {
     private final CartItemRepository items = mock(CartItemRepository.class);
     private final CatalogClient catalog = mock(CatalogClient.class);
     private final CheckoutProperties properties = new CheckoutProperties();
-    private final CartPricingService service = new CartPricingService(carts, items, catalog, properties);
+    private final CartPricingService service = new CartPricingService(carts, items, catalog, properties,
+            mock(com.group5.commerceservice.order.service.PricingService.class));
     private final CurrentUser user = new CurrentUser(UUID.randomUUID(), Set.of("BUYER"), Set.of());
     private final Cart cart = new Cart();
     private final CartItem line = new CartItem();
@@ -90,6 +91,17 @@ class CartPricingServiceTest {
         assertThat(price.estimatedShippingFee()).isNull();
         assertThat(service.preview(user, null).shippingFee()).isNull();
         assertThat(service.validate(user).valid()).isTrue();
+    }
+
+    @Test void pricingAndPreviewTotalsAreSubtotalMinusDiscountPlusTaxPlusShipping() {
+        var pricing = service.pricing(user, null);
+        var preview = service.preview(user, null);
+
+        assertThat(pricing.total()).isEqualByComparingTo(pricing.subtotal().subtract(pricing.discountAmount())
+                .add(pricing.taxAmount()));
+        assertThat(preview.total()).isEqualByComparingTo(preview.subtotal().subtract(preview.discountAmount())
+                .add(preview.taxAmount()));
+        assertThat(preview.total()).isEqualByComparingTo(pricing.total());
     }
 
     @Test void shippingStaysUnknownAboveFreeShippingThresholdUntilQuoteExists() {

@@ -1,5 +1,7 @@
 package com.group5.commerceservice.order;
 
+import java.math.BigDecimal;
+
 import com.group5.commerceservice.cart.dto.CatalogClient;
 import com.group5.commerceservice.cart.entity.Cart;
 import com.group5.commerceservice.cart.repository.CartRepository;
@@ -12,6 +14,7 @@ import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.service.InventoryClient;
 import com.group5.commerceservice.order.service.OrderService;
 import com.group5.commerceservice.order.service.PricingService;
+import com.group5.commerceservice.order.service.OrderShippingService;
 import com.group5.commerceservice.order.service.OrderStateMachine;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_events.EventEnvelopeFactory;
@@ -338,6 +341,15 @@ class OrderCancellationTest {
     @EnableJpaAuditing(auditorAwareRef = "auditor")
     @Import({OrderService.class, OrderStateMachine.class, OrderEventPublisher.class, PricingService.class})
     static class JpaConfig {
+        // Fixture báo giá tách riêng khỏi transport Shipping; các test này kiểm nghiệp vụ Order hiện hữu.
+        @Bean
+        OrderShippingService shipping() {
+            OrderShippingService shipping = Mockito.mock(OrderShippingService.class);
+            Mockito.when(shipping.quote(Mockito.any(), Mockito.any())).thenReturn(new OrderShippingService.Quote(
+                    BigDecimal.ZERO, new OrderShippingService.Parcel(1200, 30, 20, 15), "FAKE", "STANDARD",
+                    java.time.OffsetDateTime.parse("2031-02-04T04:05:06Z")));
+            return shipping;
+        }
         @Bean
         DataSource dataSource() {
             DataSource source = new DriverManagerDataSource(POSTGRES.getJdbcUrl() + "&currentSchema=commerce_cancel",

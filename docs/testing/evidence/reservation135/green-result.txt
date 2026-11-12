@@ -1,0 +1,23 @@
+Actual local green result, 2026-11-10 Asia/Saigon
+Base: develop commit 317e889 plus this branch, PostgreSQL 18-alpine, Java 21, real HTTP requests.
+Command: ./mvnw -B clean verify (from inventory-service, after lib install)
+Maven exit: 0
+Surefire: 39 tests, 0 failures, 0 errors, 0 skipped
+Failsafe ReservationConcurrencyIT: 10 tests, 0 failures, 0 errors, 0 skipped
+ReservationConcurrencyIT.java SHA256: B84AE5A770D2E79ED2EBFE59937CF068B44F6F4EBE63935352EEF1583742DB41 (same file as the red run)
+InventoryBalanceRepository.java is unchanged from develop.
+
+Per-run log lines:
+RESERVATION_CONCURRENCY run=1 requests=100 created=10 conflicts=90 reservation_rows=10 available=0 reserved=10 total=10
+RESERVATION_CONCURRENCY run=2 requests=100 created=10 conflicts=90 reservation_rows=10 available=0 reserved=10 total=10
+RESERVATION_CONCURRENCY run=3 requests=100 created=10 conflicts=90 reservation_rows=10 available=0 reserved=10 total=10
+RESERVATION_CONCURRENCY run=4 requests=100 created=10 conflicts=90 reservation_rows=10 available=0 reserved=10 total=10
+RESERVATION_CONCURRENCY run=5 requests=100 created=10 conflicts=90 reservation_rows=10 available=0 reserved=10 total=10
+RESERVATION_CONCURRENCY run=6 requests=100 created=10 conflicts=90 reservation_rows=10 available=0 reserved=10 total=10
+RESERVATION_CONCURRENCY run=7 requests=100 created=10 conflicts=90 reservation_rows=10 available=0 reserved=10 total=10
+RESERVATION_CONCURRENCY run=8 requests=100 created=10 conflicts=90 reservation_rows=10 available=0 reserved=10 total=10
+RESERVATION_CONCURRENCY run=9 requests=100 created=10 conflicts=90 reservation_rows=10 available=0 reserved=10 total=10
+RESERVATION_CONCURRENCY run=10 requests=100 created=10 conflicts=90 reservation_rows=10 available=0 reserved=10 total=10
+
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 33.77 s -- in com.group5.inventoryservice.reservation.ReservationConcurrencyIT
+[INFO] BUILD SUCCESS

@@ -1,6 +1,8 @@
 package com.group5.inventoryservice.inventory;
 
 import com.group5.inventoryservice.inventory.dto.StockResponse;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -79,4 +81,25 @@ public interface InventoryBalanceRepository extends JpaRepository<InventoryBalan
             """)
     int releaseReserved(@Param("skuId") UUID skuId, @Param("warehouseId") UUID warehouseId,
                         @Param("quantity") int quantity, @Param("actor") UUID actor);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(nativeQuery = true, value = """
+            UPDATE inventory_balances
+            SET total_quantity     = total_quantity + :delta,
+                available_quantity = available_quantity + :delta,
+                updated_by         = :actor,
+                updated_at         = now(),
+                version            = version + 1
+            WHERE sku_id = :skuId AND warehouse_id = :warehouseId AND available_quantity + :delta >= 0
+            """)
+    int adjust(@Param("skuId") UUID skuId, @Param("warehouseId") UUID warehouseId,
+               @Param("delta") int delta, @Param("actor") UUID actor);
+
+    @Query("""
+            SELECT b FROM InventoryBalance b
+            WHERE (:skuId IS NULL OR b.skuId = :skuId)
+              AND (:warehouseId IS NULL OR b.warehouseId = :warehouseId)
+            """)
+    Page<InventoryBalance> search(@Param("skuId") UUID skuId, @Param("warehouseId") UUID warehouseId,
+                                  Pageable pageable);
 }

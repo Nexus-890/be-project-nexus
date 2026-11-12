@@ -164,6 +164,48 @@ class CatalogPersistenceTest {
     }
 
     @Test
+    void shippingPackageUpgradePreservesLegacyRowsAndRejectsPartialOrInvalidMeasurements() throws Exception {
+        DataSource dataSource = database();
+        Flyway.configure().dataSource(dataSource).locations("classpath:db/migration")
+                .target("7").load().migrate();
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        int before = jdbc.queryForObject("SELECT count(*) FROM skus", Integer.class);
+
+        migrate(dataSource);
+
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM skus WHERE shipping_weight_grams IS NULL
+                  AND shipping_length_cm IS NULL AND shipping_width_cm IS NULL AND shipping_height_cm IS NULL
+                """, Integer.class)).isEqualTo(before);
+        UUID skuId = jdbc.queryForObject("SELECT id FROM skus ORDER BY id LIMIT 1", UUID.class);
+        jdbc.update("""
+                UPDATE skus SET shipping_weight_grams = 50000, shipping_length_cm = 200,
+                  shipping_width_cm = 200, shipping_height_cm = 200 WHERE id = ?
+                """, skuId);
+        try (var connection = dataSource.getConnection()) {
+            // NULL không được làm CHECK thành UNKNOWN rồi cho qua một kiện thiếu số đo.
+            for (String invalid : List.of("shipping_weight_grams = NULL", "shipping_length_cm = NULL",
+                    "shipping_width_cm = NULL", "shipping_height_cm = NULL", "shipping_weight_grams = 0",
+                    "shipping_weight_grams = 50001", "shipping_length_cm = 0", "shipping_length_cm = 201",
+                    "shipping_width_cm = 0", "shipping_width_cm = 201", "shipping_height_cm = 0",
+                    "shipping_height_cm = 201")) {
+                try (var statement = connection.prepareStatement("UPDATE skus SET " + invalid + " WHERE id = ?")) {
+                    statement.setObject(1, skuId);
+                    assertThatThrownBy(statement::executeUpdate)
+                            .isInstanceOfSatisfying(SQLException.class,
+                                    exception -> assertThat(exception.getSQLState()).isEqualTo("23514"));
+                }
+            }
+        }
+        jdbc.update("""
+                UPDATE skus SET shipping_weight_grams = 1, shipping_length_cm = 1,
+                  shipping_width_cm = 1, shipping_height_cm = 1 WHERE id = ?
+                """, skuId);
+        assertThat(jdbc.queryForObject("SELECT shipping_weight_grams FROM skus WHERE id = ?",
+                Integer.class, skuId)).isEqualTo(1);
+    }
+
+    @Test
     void hibernateValidatesAndWritesEnumsWithCurrentActorAuditing() {
         DataSource dataSource = database();
         migrate(dataSource);
@@ -202,6 +244,10 @@ class CatalogPersistenceTest {
                                 sku.setColor(skuStatus.name());
                                 sku.setPrice(BigDecimal.TEN);
                                 sku.setStatus(skuStatus);
+                                sku.setShippingWeightGrams(1200);
+                                sku.setShippingLengthCm(30);
+                                sku.setShippingWidthCm(20);
+                                sku.setShippingHeightCm(15);
                                 skus.saveAndFlush(sku);
                             }
                         });
@@ -213,6 +259,12 @@ class CatalogPersistenceTest {
                                 UUID.class, productId)).isEqualTo(editor);
                         assertThat(skus.findAllByProduct_Id(productId)).extracting(Skus::getStatus)
                                 .containsExactlyInAnyOrder(SkuStatus.values());
+                        assertThat(skus.findAllByProduct_Id(productId)).allSatisfy(sku -> {
+                            assertThat(sku.getShippingWeightGrams()).isEqualTo(1200);
+                            assertThat(sku.getShippingLengthCm()).isEqualTo(30);
+                            assertThat(sku.getShippingWidthCm()).isEqualTo(20);
+                            assertThat(sku.getShippingHeightCm()).isEqualTo(15);
+                        });
 
                         SecurityContextHolder.clearContext();
                         transaction.executeWithoutResult(status -> {

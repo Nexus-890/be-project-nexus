@@ -17,11 +17,13 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Duration;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+/** Đọc event chưa phát từ outbox, gửi Kafka và chỉ đánh dấu hoàn tất khi broker xác nhận. */
 public class OutboxRelay {
 
     static final String CLAIM_SQL = """
@@ -44,10 +46,20 @@ public class OutboxRelay {
     private final KafkaTemplate<String, EventEnvelope<?>> kafka;
     private final TransactionTemplate transaction;
     private final long sendTimeoutMillis;
+    private final OutboxEventKeyResolver keyResolver;
 
+    /** Giữ cách chọn key bằng aggregateId cho các service chưa cấu hình resolver riêng. */
     public OutboxRelay(JdbcTemplate jdbc, JsonMapper jsonMapper,
                        KafkaTemplate<String, EventEnvelope<?>> kafka,
                        PlatformTransactionManager transactionManager, Duration sendTimeout) {
+        this(jdbc, jsonMapper, kafka, transactionManager, sendTimeout, EventEnvelope::aggregateId);
+    }
+
+    /** Cho phép service chọn Kafka key riêng, độc lập với aggregateId của envelope. */
+    public OutboxRelay(JdbcTemplate jdbc, JsonMapper jsonMapper,
+                       KafkaTemplate<String, EventEnvelope<?>> kafka,
+                       PlatformTransactionManager transactionManager, Duration sendTimeout,
+                       OutboxEventKeyResolver keyResolver) {
         if (sendTimeout == null || sendTimeout.toMillis() < 1) {
             throw new IllegalArgumentException("sendTimeout must be at least one millisecond");
         }
@@ -58,16 +70,24 @@ public class OutboxRelay {
         this.transaction = new TransactionTemplate(transactionManager);
         this.transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.sendTimeoutMillis = sendTimeout.toMillis();
+        this.keyResolver = Objects.requireNonNull(keyResolver, "keyResolver");
     }
 
+    /** Khóa một lô event chưa gửi; lỗi gửi hoặc key không hợp lệ sẽ giữ event để thử lại. */
     @Scheduled(fixedDelayString = "${nexus.outbox.relay.fixed-delay:1000}",
             initialDelayString = "${nexus.outbox.relay.initial-delay:1000}")
     public void publishPending() {
         transaction.executeWithoutResult(status -> {
             for (OutboxEntry entry : jdbc.query(CLAIM_SQL, OutboxRelay::mapEntry)) {
                 try {
-                    EventEnvelope<?> envelope = jsonMapper.readValue(entry.payload(), envelopeType);
-                    kafka.send(entry.topic(), publicationKey(entry, envelope), envelope)
+                    // Đọc lại envelope gốc để giữ eventId, thời gian và trace qua mọi lần gửi lại.
+                    EventEnvelope<JsonNode> envelope = jsonMapper.readValue(entry.payload(), envelopeType);
+                    // Key dùng để phân vùng Kafka có thể khác aggregateId, ví dụ key nhóm đơn và aggregate session.
+                    String key = keyResolver.resolve(envelope);
+                    if (key == null || key.isBlank()) {
+                        throw new IllegalArgumentException("Outbox Kafka key must not be blank");
+                    }
+                    kafka.send(entry.topic(), key, envelope)
                             .get(sendTimeoutMillis, TimeUnit.MILLISECONDS);
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
@@ -78,14 +98,10 @@ public class OutboxRelay {
                     break;
                 }
 
+                // Chỉ đánh dấu đã phát sau khi Kafka xác nhận, tránh mất event khi broker lỗi.
                 jdbc.update(MARK_PUBLISHED_SQL, entry.id());
             }
         });
-    }
-
-    /** Override only when the domain contract uses a key distinct from the envelope aggregate. */
-    protected String publicationKey(OutboxEntry entry, EventEnvelope<?> envelope) {
-        return entry.aggregateId();
     }
 
     private static OutboxEntry mapEntry(ResultSet row, int rowNumber) throws SQLException {

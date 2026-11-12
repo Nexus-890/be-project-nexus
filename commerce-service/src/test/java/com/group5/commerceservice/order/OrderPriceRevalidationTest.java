@@ -36,19 +36,26 @@ import static org.mockito.Mockito.when;
 class OrderPriceRevalidationTest {
     private static final CreateOrderRequest REQUEST = new CreateOrderRequest(
             new CreateOrderRequest.ShippingAddress("Buyer", "0900000000", "1 Main Street",
-                    "Ward 1", "District 1", "Ho Chi Minh", "VN"), "SEPAY");
+                    "1003646", "1000001", "VN"), "SEPAY");
 
     @Autowired private OrderService orderService;
     @Autowired private PricingService pricingService;
     @Autowired private DataSource dataSource;
     @Autowired private CatalogClient catalogClient;
     @Autowired private InventoryClient inventoryClient;
+    @Autowired private com.group5.commerceservice.order.service.OrderShippingService shipping;
 
     @BeforeEach
     void prepareCheckout() {
+        // Test thay đổi giá chỉ đo giá sản phẩm, độc lập fixture phí của các test checkout khác.
+        org.mockito.Mockito.reset(shipping);
+        when(shipping.quote(any(), any())).thenReturn(new com.group5.commerceservice.order.service.OrderShippingService.Quote(
+                BigDecimal.ZERO, new com.group5.commerceservice.order.service.OrderShippingService.Parcel(1200, 30, 20, 15),
+                "FAKE", "STANDARD", java.time.OffsetDateTime.parse("2031-02-04T04:05:06Z")));
         ReflectionTestUtils.setField(pricingService, "priceRevalidation", true);
         clearInvocations(catalogClient, inventoryClient);
-        when(inventoryClient.reserve(any(), any(), anyInt())).thenReturn(true);
+        when(inventoryClient.reserve(any(), any())).thenReturn(new InventoryClient.Reservation(
+                List.of(UUID.randomUUID()), UUID.randomUUID(), java.time.OffsetDateTime.parse("2031-02-03T04:05:06.123456Z")));
     }
 
     @AfterEach

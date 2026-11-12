@@ -8,6 +8,9 @@
 một shipment. Envelope của `ShipmentCreated` dùng `aggregateId=shipmentId`, còn
 Kafka key là `orderId`, theo [event catalogue](../api/events.md).
 
+`ShipmentOutboxConfiguration` cung cấp `OutboxEventKeyResolver` cho relay dùng
+chung trên `develop`. #202 không sửa `common-outbox` hoặc tạo relay riêng.
+
 Consumer commit shipment `PENDING_TRACKING`, history, outbox và processed
 marker trong cùng transaction của shipment-service, trước mọi cuộc gọi
 carrier. Shipment giữ snapshot và lựa chọn carrier/service; chính `shipment.id`
@@ -306,20 +309,32 @@ node docs/api/check-contract.mjs
 npx --yes @redocly/cli@2.63.0 lint docs/api/openapi/shipment-service.yaml
 ```
 
-Từ `shipment-service`, chạy `mvnw.cmd verify`; thư viện `common-outbox` có thay
-đổi phải được verify/install trong `lib` trước.
+Build/install `lib` từ cùng checkout trước khi chạy `mvnw.cmd verify` trong
+`shipment-service`, để dùng API `OutboxEventKeyResolver` đã có trên `develop`.
 
 ## Kiểm thử sau thay đổi luồng tạo shipment
 
-Ngày 11/11/2026, verify bằng Java 21 đạt:
+Ngày 12/11/2026, rebase #202 lên `develop` `b97244b9` và kiểm tra lại bằng
+Java 21: shipment-service 338 test pass; commerce-service 403 test pass,
+5 test catalog opt-in skip; config-service 7 test pass. Contract inventory
+khớp 88 operation. OpenAPI hợp lệ; commerce giữ ba cảnh báo đường dẫn mơ hồ
+có sẵn trên `develop`, không phát sinh từ #202.
 
-- Shipment-service: 335 test pass, không lỗi hoặc skip; gồm 24 tình huống
+Conflict hai test cùng tên được giải quyết bằng cách giữ nguyên
+`OrderShippingSnapshotTest` của `develop` (4 test), đặt 14 test snapshot đơn
+PAID của #202 trong `PaidOrderShippingSnapshotTest`. Cả hai bộ đều pass;
+không thay đổi code checkout, đóng kiện hoặc payload OrderPaid đã merge.
+
+Ngày 11/11/2026, kiểm tra lại bằng Java 21 trên nền `develop` `02385a14`, sau
+khi bỏ commit #201 đã merge và merge commit cũ khỏi lịch sử #202:
+
+- Shipment-service: 338 test pass, không lỗi hoặc skip; gồm 24 tình huống
   PostgreSQL, Kafka thật, HTTP client/timeout/token relay và circuit breaker.
-- Commerce-service: 310 test pass, không lỗi; 5 test `CatalogEnvelopeHttpTest`
+- Commerce-service: 373 test pass, không lỗi (378 test tổng); 5 test `CatalogEnvelopeHttpTest`
   opt-in skip vì chưa đặt `CATALOG_CONTRACT_SIMULATION_URL`. Cả 23 test snapshot
   mới đều pass (14 PostgreSQL và 9 HTTP security/contract).
 - Config-service: 7 test pass.
-- Contract inventory khớp 74 operation; Redocly lint cả OpenAPI commerce và
+- Contract inventory khớp 86 operation; Redocly lint cả OpenAPI commerce và
   shipment, cùng `git diff --check`, đều pass.
 
 Các ca mới xác minh manual tạo trước OrderPaid, replay không gọi lại commerce,
@@ -343,9 +358,10 @@ shipment cuối cùng có tracking, một marker, một outbox creation PENDING_
 và một event trên Kafka có key `orderId`, envelope aggregateId `shipmentId`.
 Test chờ offset của cả hai delivery được commit và outbox được đánh dấu published.
 
-Hand-publish xác minh contract consumer; nó không chứng minh chuỗi webhook
-#155 → CheckoutPaymentConfirmed/OrderPaid #156 → shipment. Demo real chain cần
-#156 phải cung cấp snapshot chuẩn bị đầy đủ, tin cậy để fake tạo tracking thành
-công; ví dụ canonical có parcel/pickup null vẫn pending. Chuỗi này phải được
-tích hợp và được chạy riêng. GHN booking
-thật chưa được triển khai trong #202; quote GHN của #201 không phải tạo vận đơn.
+#201 và #156 đã merge vào `develop`; #202 dùng adapter và contract `OrderPaid`
+từ nền này. Hand-publish xác minh contract consumer, chưa chứng minh chuỗi
+webhook #155 → CheckoutPaymentConfirmed/OrderPaid #156 → shipment. Demo real
+chain vẫn cần được chạy riêng với snapshot chuẩn bị đầy đủ, tin cậy để fake
+cấp tracking; ví dụ canonical có parcel/pickup null tiếp tục pending.
+GHN booking thật chưa được triển khai trong #202; quote GHN của #201 không
+phải tạo vận đơn.

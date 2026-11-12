@@ -12,8 +12,12 @@ import com.group5.commerceservice.cart.repository.CartItemRepository;
 import com.group5.commerceservice.cart.repository.CartRepository;
 import com.group5.commerceservice.checkout.dto.CheckoutPreviewResponse;
 import com.group5.commerceservice.checkout.dto.CheckoutPreviewResponse.Item;
+import com.group5.commerceservice.checkout.dto.CheckoutPreviewRequest;
+import com.group5.commerceservice.order.service.OrderShippingService;
+import com.group5.commerceservice.order.service.PricingService;
 import com.group5.commerceservice.shared.config.CheckoutProperties;
 import com.group5.commerceservice.shared.exception.CommerceErrorCode;
+import com.group5.commerceservice.shared.pricing.PriceBreakdown;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
 import feign.FeignException;
@@ -39,10 +43,12 @@ public class CartPricingService {
     private final CartItemRepository cartItems;
     private final CatalogClient catalog;
     private final CheckoutProperties properties;
+    private final PricingService orderPricing;
 
     public CartPricingResponse pricing(CurrentUser user, String promoCode) {
-        Calculation result = calculate(user, false);
-        return new CartPricingResponse(result.subtotal(), BigDecimal.ZERO, BigDecimal.ZERO, null, result.subtotal());
+        PriceBreakdown price = breakdown(calculate(user, false));
+        return new CartPricingResponse(price.subtotal(), price.taxAmount(), price.discountAmount(),
+                price.shippingFee(), price.total());
     }
 
     public CartValidationResponse validate(CurrentUser user) {
@@ -52,8 +58,32 @@ public class CartPricingService {
 
     public CheckoutPreviewResponse preview(CurrentUser user, String promoCode) {
         Calculation result = calculate(user, true);
-        return new CheckoutPreviewResponse(result.items(), result.subtotal(), null,
-                BigDecimal.ZERO, BigDecimal.ZERO, result.subtotal(), result.issues());
+        PriceBreakdown price = breakdown(result);
+        return new CheckoutPreviewResponse(result.items(), price.subtotal(), price.shippingFee(),
+                price.taxAmount(), price.discountAmount(), price.total(), result.issues());
+    }
+
+    /** Preview và tạo đơn cùng gọi báo giá theo shop từ metadata Catalog. Không giữ tồn kho. */
+    public CheckoutPreviewResponse previewCheckout(CurrentUser user, CheckoutPreviewRequest request) {
+        Calculation result = calculate(user, true);
+        if (result.issues().stream().anyMatch(issue -> issue.code() == PRODUCT_INACTIVE)) {
+            return new CheckoutPreviewResponse(result.items(), result.subtotal(), null,
+                    BigDecimal.ZERO, BigDecimal.ZERO, result.subtotal(), result.issues());
+        }
+        Map<UUID, List<OrderShippingService.Line>> sellers = new java.util.TreeMap<>();
+        for (Item item : result.items()) {
+            CatalogClient.ProductResponse product = result.products().get(item.productId());
+            if (product.sellerId() == null) throw new DomainException(CommerceErrorCode.INVALID_CATALOG_RESPONSE);
+            sellers.computeIfAbsent(product.sellerId(), ignored -> new ArrayList<>()).add(
+                    new OrderShippingService.Line(item.skuId(), item.quantity(), result.skus().get(item.skuId())));
+        }
+        BigDecimal shipping = BigDecimal.ZERO;
+        for (var seller : sellers.values()) {
+            shipping = shipping.add(orderPricing.shippingQuote(request.shippingAddress(), seller).fee());
+        }
+        PriceBreakdown price = new PriceBreakdown(result.subtotal(), BigDecimal.ZERO, BigDecimal.ZERO, shipping);
+        return new CheckoutPreviewResponse(result.items(), price.subtotal(), price.shippingFee(),
+                price.taxAmount(), price.discountAmount(), price.total(), result.issues());
     }
 
     public List<CartIssue> mergeIssues(CurrentUser user) {
@@ -78,12 +108,14 @@ public class CartPricingService {
         List<CartIssue> issues = new ArrayList<>();
         //lưu product theo productId
         Map<UUID, CatalogClient.ProductResponse> products = new HashMap<>();
+        Map<UUID, CatalogSkuResponse> skus = new HashMap<>();
         BigDecimal subtotal = BigDecimal.ZERO;
         for (CartItem line : listCartItem) {
             if (line.getQuantity() == null || line.getQuantity() <= 0) {
                 throw new DomainException(CommerceErrorCode.INVALID_QUANTITY);
             }
             CatalogSkuResponse sku = readSku(line);
+            skus.put(line.getSkuId(), sku);
             //nếu Map chưa có productId này...
             if (!products.containsKey(line.getProductId())) {
                 //thì gọi hàm readProduct() để gắn products vào productId này
@@ -117,7 +149,7 @@ public class CartPricingService {
             //chưa có promotion nên để mốt update sau
         }
 
-        return new Calculation(List.copyOf(items), subtotal, List.copyOf(issues));
+        return new Calculation(List.copyOf(items), subtotal, List.copyOf(issues), products, skus);
     }
 
     private CatalogSkuResponse readSku(CartItem line) {
@@ -153,5 +185,11 @@ public class CartPricingService {
         }
     }
 
-    private record Calculation(List<Item> items, BigDecimal subtotal, List<CartIssue> issues) { }
+    private static PriceBreakdown breakdown(Calculation result) {
+        return new PriceBreakdown(result.subtotal(), BigDecimal.ZERO, BigDecimal.ZERO, null);
+    }
+
+    private record Calculation(List<Item> items, BigDecimal subtotal, List<CartIssue> issues,
+                               Map<UUID, CatalogClient.ProductResponse> products,
+                               Map<UUID, CatalogSkuResponse> skus) { }
 }

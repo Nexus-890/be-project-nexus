@@ -1,5 +1,8 @@
 package com.group5.inventoryservice.inventory;
 
+import com.group5.common_core.exception.DomainException;
+import com.group5.inventoryservice.shared.catalog.CatalogSkuOwners;
+import com.group5.inventoryservice.shared.exception.InventoryErrorCode;
 import jakarta.servlet.Filter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.RepeatedTest;
@@ -22,6 +25,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -30,7 +34,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -56,10 +63,12 @@ class InventoryIntakeIntegrationTest {
 
     private static final UUID ADMIN_ID = UUID.randomUUID();
     private static final UUID BUYER_ID = UUID.randomUUID();
+    private static final UUID SELLER_ID = UUID.randomUUID();
     @Autowired private WebApplicationContext context;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private InventoryMovementRepository movements;
     @MockitoBean private JwtDecoder decoder;
+    @MockitoBean private CatalogSkuOwners skuOwners;
     private MockMvc mvc;
     private UUID defaultWarehouse;
 
@@ -76,9 +85,10 @@ class InventoryIntakeIntegrationTest {
         jdbc.update("DELETE FROM inventory_balances");
         jdbc.update("INSERT INTO warehouses (code, name) VALUES ('WH_IT', 'Intake test') ON CONFLICT (code) DO NOTHING");
         defaultWarehouse = warehouseId("WH_IT");
-        reset(decoder);
+        reset(decoder, skuOwners);
         when(decoder.decode("admin")).thenReturn(token("admin", ADMIN_ID, "ADMIN"));
         when(decoder.decode("buyer")).thenReturn(token("buyer", BUYER_ID, "BUYER"));
+        when(decoder.decode("seller")).thenReturn(token("seller", SELLER_ID, "SELLER"));
         mvc = webAppContextSetup(context).addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
     }
 
@@ -237,6 +247,64 @@ class InventoryIntakeIntegrationTest {
                 .andExpect(jsonPath("$.code").value("INVENTORY_WAREHOUSE_NOT_FOUND"));
         assertThat(rowCount(sku)).isEqualTo(1);
         assertThat(movementCount(sku)).isEqualTo(1);
+    }
+
+    @Test
+    void sellerAddsStockToTheirOwnSkuInTheDefaultWarehouse() throws Exception {
+        UUID sku = UUID.randomUUID();
+        when(skuOwners.sellerOf(sku)).thenReturn(Optional.of(SELLER_ID));
+        intake("seller", body(sku, null, 30))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.warehouseId").value(defaultWarehouse.toString()))
+                .andExpect(jsonPath("$.data.available").value(30));
+
+        assertThat(row(sku, defaultWarehouse)).containsEntry("total_quantity", 30)
+                .containsEntry("created_by", SELLER_ID);
+        assertThat(movementCount(sku)).isEqualTo(1);
+    }
+
+    @Test
+    void sellerGets403ForAnotherSellersOrUnknownSkuWithoutTouchingStock() throws Exception {
+        UUID foreign = UUID.randomUUID();
+        UUID unknown = UUID.randomUUID();
+        when(skuOwners.sellerOf(foreign)).thenReturn(Optional.of(UUID.randomUUID()));
+        when(skuOwners.sellerOf(unknown)).thenReturn(Optional.empty());
+
+        for (UUID sku : List.of(foreign, unknown)) {
+            intake("seller", body(sku, null, 30))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("INVENTORY_FORBIDDEN"));
+            assertThat(rowCount(sku)).isZero();
+            assertThat(movementCount(sku)).isZero();
+        }
+    }
+
+    @Test
+    void sellerCannotChooseAWarehouse() throws Exception {
+        UUID sku = UUID.randomUUID();
+        intake("seller", body(sku, warehouseId("WH_001"), 30))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("INVENTORY_FORBIDDEN"));
+
+        verify(skuOwners, never()).sellerOf(any());
+        assertThat(rowCount(sku)).isZero();
+    }
+
+    @Test
+    void sellerIntakeReturns503WhenCatalogCannotConfirmTheOwner() throws Exception {
+        UUID sku = UUID.randomUUID();
+        when(skuOwners.sellerOf(sku)).thenThrow(new DomainException(InventoryErrorCode.CATALOG_UNAVAILABLE));
+        intake("seller", body(sku, null, 30))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("INVENTORY_CATALOG_UNAVAILABLE"));
+
+        assertThat(rowCount(sku)).isZero();
+    }
+
+    @Test
+    void adminIntakeDoesNotAskCatalogForTheOwner() throws Exception {
+        intake("admin", body(UUID.randomUUID(), null, 5)).andExpect(status().isCreated());
+        verify(skuOwners, never()).sellerOf(any());
     }
 
     private ResultActions intake(String token, String body) throws Exception {

@@ -12,6 +12,7 @@ import com.group5.inventoryservice.reservation.dto.request.ReserveRequest;
 import com.group5.inventoryservice.reservation.dto.response.ReservationResponse;
 import com.group5.inventoryservice.reservation.entity.InventoryReservation;
 import com.group5.inventoryservice.reservation.repository.ReservationRepository;
+import com.group5.inventoryservice.shared.UuidOrder;
 import com.group5.inventoryservice.shared.config.ReservationTimeout;
 import com.group5.inventoryservice.shared.exception.InventoryErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +38,7 @@ import java.util.stream.Collectors;
 public class ReservationService {
 
     private static final String ORDER_ITEM_UNIQUE_INDEX = "uq_reservation_order_item";
+    private static final UUID SYSTEM_ACTOR = new UUID(0, 0);
 
     private final InventoryBalanceRepository balances;
     private final InventoryMovementRepository movements;
@@ -78,7 +80,17 @@ public class ReservationService {
 
     @Transactional
     public void confirm(UUID reservationId, CurrentUser currentUser) {
-        UUID actor = currentUser.id();
+        confirmAs(reservationId, currentUser.id());
+    }
+
+    @Transactional
+    public int confirmOrder(UUID orderId) {
+        List<InventoryReservation> held = reservations.findByOrderIdOrderBySkuIdAscIdAsc(orderId);
+        held.forEach(reservation -> confirmAs(reservation.getId(), SYSTEM_ACTOR));
+        return held.size();
+    }
+
+    private void confirmAs(UUID reservationId, UUID actor) {
         if (reservations.confirmHeld(reservationId, actor) == 0) {
             requireAlready(reservationId, Set.of(ReservationStatus.CONFIRMED));
             return;
@@ -133,7 +145,7 @@ public class ReservationService {
 
     private static SortedMap<UUID, Integer> quantitiesBySku(List<ReserveRequest.Item> items) {
         return items.stream().collect(Collectors.toMap(ReserveRequest.Item::skuId, ReserveRequest.Item::quantity,
-                Math::addExact, TreeMap::new));
+                Math::addExact, () -> new TreeMap<>(UuidOrder.DATABASE)));
     }
 
     private DomainException insufficientStock(UUID skuId, UUID warehouseId, int requested) {

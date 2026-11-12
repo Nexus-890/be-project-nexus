@@ -4,6 +4,7 @@ import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.EventKafka;
 import com.group5.common_events.autoconfigure.EventsAutoConfiguration;
 import com.group5.common_outbox.OutboxRelay;
+import com.group5.common_outbox.OutboxEventKeyResolver;
 import com.group5.common_outbox.OutboxWriter;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -49,12 +50,15 @@ public class OutboxAutoConfiguration {
 
         @Bean
         @ConditionalOnMissingBean
+        // Service có thể cung cấp resolver riêng; mặc định vẫn dùng aggregateId để tương thích code hiện có.
         OutboxRelay outboxRelay(JdbcTemplate jdbc, ObjectProvider<JsonMapper> jsonMapper,
                                 @Qualifier(EventKafka.TEMPLATE) KafkaTemplate<String, EventEnvelope<?>> kafka,
                                 PlatformTransactionManager transactionManager,
+                                ObjectProvider<OutboxEventKeyResolver> keyResolver,
                                 @Value("${nexus.outbox.relay.send-timeout:3s}") String sendTimeout) {
             return new OutboxRelay(jdbc, jsonMapper.getIfAvailable(JsonMapper::shared), kafka,
-                    transactionManager, DurationStyle.detectAndParse(sendTimeout));
+                    transactionManager, DurationStyle.detectAndParse(sendTimeout),
+                    keyResolver.getIfAvailable(() -> EventEnvelope::aggregateId));
         }
     }
 }

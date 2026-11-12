@@ -1,4 +1,4 @@
-# SePay webhook signature and memo matching — #155
+# SePay webhook signature and memo matching — #155 / #156
 
 `POST /api/v1/webhooks/sepay` is public at the gateway and payment-service.
 The provider authenticates with `X-SePay-Signature` and `X-SePay-Timestamp`.
@@ -27,10 +27,15 @@ does not have an `ApiResponse` envelope. A no-match writes exactly one WARN with
 the normalized memo, with control characters sanitized and length limited.
 Neither the signature header nor the full request body is logged.
 
-Matching performs no payment/order updates, transaction inserts or event
-publication. Financial checks, delivery deduplication and settlement remain
-separate work. A supplied invalid bearer token can still be rejected by shared
-security; provider checks should omit the bearer header.
+Matching alone performs no financial writes. After a successful match, #156
+processes incoming receipts idempotently: exact payable-session funding stores
+the SUCCESS transaction, funds every instruction and writes one group confirmation
+in the same payment transaction. Amount mismatches and unpayable sessions store
+UNRECONCILED receipts without a confirmation. Outgoing transfers are acknowledged
+without funding. Commerce processes CheckoutPaymentConfirmed asynchronously.
+See [checkout payment confirmation](checkout-payment-confirmation.md) for the
+payment/commerce checks. A supplied invalid bearer token can still be rejected
+by shared security; provider checks should omit the bearer header.
 
 The [payment OpenAPI](../api/openapi/payment-service.yaml) is the wire contract.
 The [gateway permissions](../api/gateway-permissions.md) document the exact public
@@ -66,8 +71,10 @@ mode is selected. Run:
 mvn -f payment-service/pom.xml '-Duser.timezone=UTC' '-Dtest=SepayWebhookPersistenceTest' test
 ```
 
-Persistence assertions compare sessions, instructions, transactions and outbox
-before/after accepted matched, accepted unmatched and rejected requests. Gateway
+The #155 persistence checks exercise matching/signature handling with the financial
+confirmation collaborator isolated; they do not prove #156 settlement. Compare
+sessions, instructions, transactions and outbox before/after unmatched and
+rejected requests; use the #156 integration checks for a real matched receipt. Gateway
 integration must forward the exact bytes/headers without a bearer token and
 preserve the downstream `PAYMENT_UNAUTHENTICATED` response, rather than return
 a gateway authentication error. Run the relevant gateway security tests and
@@ -123,8 +130,9 @@ JSON and HMAC-SHA256 headers; do not send secrets in URLs or request bodies.
 For a live HTTP smoke check through the gateway, use a fresh provider delivery
 or an independently signed synthetic request with the current timestamp.
 Historical headers should fail the production freshness window. Check the
-native 200 ACK, downstream signature 401, one no-match WARN and unchanged DB
-rows; retain only redacted evidence. No real money transfer is required for
+native 200 ACK, downstream signature 401 and one no-match WARN. A no-match or
+rejected request leaves DB rows unchanged; a real matched incoming receipt can
+fund its checkout under #156. Retain only redacted evidence. No real money transfer is required for
 the captured-sample acceptance test.
 
 ## Reusable gateway smoke check
@@ -148,13 +156,18 @@ secret or full body is printed, including on network errors.
 
 `SEPAY_WEBHOOK_SMOKE_BASE_URL` defaults to `http://127.0.0.1:8080`; set it to a
 different local gateway origin if necessary. `SEPAY_WEBHOOK_SMOKE_MEMO` defaults
-to `NXUNKNOWN155`; use a controlled test memo to exercise a matched session.
+to `NXUNKNOWN155`; a controlled matched-session memo can trigger #156 financial
+effects, so use a disposable fixture when overriding it.
 The smoke check itself makes no database queries or state comparisons. For the
 default no-match case, inspect the service log for one WARN and use the persistence
 tests above to prove unchanged rows. It uses a synthetic signature, so a passing
 run does not replace the original captured-delivery acceptance test.
 
 ## Verification recorded on 2026-11-06
+
+The dated results below describe the matching-only #155 implementation at their
+recorded commits. They do not claim settlement behavior or validate the #156
+implementation added later.
 
 Validation used JDK 21 and an isolated PostgreSQL 18.6 database. Maven `verify`
 completed successfully for payment-service (186 tests: 183 passed, 3 skipped),

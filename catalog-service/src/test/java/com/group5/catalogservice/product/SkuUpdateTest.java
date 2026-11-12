@@ -48,7 +48,6 @@ class SkuUpdateTest {
 
     private SkuRequest request() {
         SkuRequest request = new SkuRequest();
-        request.setSkuCode(" NEW ");
         request.setColor(" Black ");
         request.setSize(" M ");
         request.setPrice(new BigDecimal("150000"));
@@ -57,7 +56,7 @@ class SkuUpdateTest {
 
     @ParameterizedTest
     @EnumSource(ProductStatus.class)
-    void ownerCanUpdateEveryNonDeletedProductStatus(ProductStatus status) {
+    void ownerCanUpdateEveryNonDeletedProductStatusAndTheSkuCodeStays(ProductStatus status) {
         Skus sku = sku(status);
         when(products.findByIdAndDeletedAtIsNull(sku.getProduct().getId()))
                 .thenReturn(Optional.of(sku.getProduct()));
@@ -65,7 +64,7 @@ class SkuUpdateTest {
 
         var response = service.update(sku.getId(), request(), seller);
 
-        assertThat(response.getSkuCode()).isEqualTo("NEW");
+        assertThat(response.getSkuCode()).isEqualTo("OLD");
         assertThat(response.getColor()).isEqualTo("Black");
         assertThat(response.getSize()).isEqualTo("M");
         assertThat(response.getPrice()).isEqualByComparingTo("150000");

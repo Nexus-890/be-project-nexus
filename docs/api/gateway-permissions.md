@@ -63,6 +63,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/users` | GET | USER.LIST | #76 — Admin user list and user by id                    |
 | `/api/v1/products` | POST | PRODUCT.CREATE | #83 — Product create, update and read                   |
 | `/api/v1/products/mine` | GET | PRODUCT.LIST | #99 — Product lists                                     |
+| `/api/v1/products/mine/{id}` | GET | PRODUCT.LIST | Back-office demo (issue TBD) — SELLER reads own nondeleted product, including DRAFT/INACTIVE; another seller receives 404 downstream |
 | `/api/v1/products/{id}` | PUT | PRODUCT.UPDATE | #83 — Product create, update and read                   |
 | `/api/v1/products/{id}/status` | PATCH | PRODUCT.UPDATE | #84 — Product status workflow                           |
 | `/api/v1/products/{id}` | DELETE | PRODUCT.DELETE | #85 — Product soft delete                               |
@@ -93,7 +94,9 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/orders` | GET | ORDER.LIST | #117 — Order read endpoints; the caller's own orders only |
 | `/api/v1/orders/manage` | GET | ORDER.LIST | #190 — All orders; service additionally requires ADMIN or SUPPORT_STAFF |
 | `/api/v1/orders/sales` | GET | ORDER.LIST | #190 — Seller orders; service additionally requires SELLER and JWT seller ownership |
+| `/api/v1/orders/groups/{id}` | GET | ORDER.VIEW | #138 — The complete order group; service requires its buyer owner or ADMIN |
 | `/api/v1/orders/{id}` | GET | ORDER.VIEW | #117 — Order read endpoints; the owner or ADMIN |
+| `/api/v1/orders/{id}/invoice` | GET | ORDER.VIEW | #204 — Completed-order HTML receipt; the buyer owner only |
 | `/api/v1/orders/{id}/cancel` | POST | ORDER.CANCEL | #189 — Order cancellation; the buyer, ADMIN or SUPPORT_STAFF |
 | `/api/v1/carts/me/pricing` | GET | CART.VIEW | CRT-05 — Read-only cart pricing |
 | `/api/v1/carts/me/validate` | POST | CART.VIEW | CRT-06 — Read-only cart validation |
@@ -121,6 +124,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/reputations/{userId}/adjustments` | POST | USER.REPUTATION.ADJUST | #213 — rating-service; reason and score bounds checked downstream |
 | `/api/v1/reputations/{userId}/history` | GET | USER.REPUTATION.VIEW | #213 — rating-service |
 | `/api/v1/auctions` | POST | AUCTION.CREATE | #140 — Create as SELLER; `sellerId` comes from the JWT subject |
+| `/api/v1/auctions/{id}/bids` | POST | AUCTION.BID | #146/#147 — Place a bid as BUYER; the bidder cannot be the auction seller. Required UUID `Idempotency-Key`; replay requires the original bidder, auction and numeric amount; a different amount returns 409 |
 | `/api/v1/auctions/{id}/schedule` | POST | AUCTION.UPDATE | #144 — Owner with SELLER role publishes a CREATED auction |
 | `/api/v1/auctions` | GET | Public | #143 — PUBLIC, non-deleted auctions; status defaults to ACTIVE, endAt ascending |
 | `/api/v1/auctions/{id}` | GET | Public | #143 — PUBLIC, non-deleted auction; hidden and missing rows return 404 |
@@ -150,6 +154,10 @@ above: any valid token passes the gateway and the owning service checks the role
 | POST | `/api/v1/inventory/reservations` | token only | Service requires BUYER; commerce-service forwards the buyer token | #134 — Reserve stock with a conditional update |
 | POST | `/api/v1/inventory/reservations/{id}/confirm` | not routed | Service requires ADMIN; the OrderPaid consumer calls the service method in-process | #136 — Confirm and release a reservation |
 | POST | `/api/v1/inventory/reservations/{id}/release` | not routed | Service requires ADMIN; the OrderCancelled consumer calls the service method in-process | #136 — Confirm and release a reservation |
+| GET | `/api/v1/inventory/reservations` | token only | Service requires ADMIN or SUPPORT_STAFF | #200 — Inventory support reads and stock adjustment |
+| GET | `/api/v1/inventory/balances` | token only | Service requires ADMIN, or SELLER with `skuId` of a SKU whose product catalog-service shows with the caller as `sellerId` | #200 — Inventory support reads and stock adjustment |
+| POST | `/api/v1/inventory/adjustments` | token only | Service requires ADMIN; writes one ADJUSTMENT ledger row with the reason | #200 — Inventory support reads and stock adjustment |
+| GET | `/api/v1/inventory/movements` | token only | Service requires ADMIN or SUPPORT_STAFF | #200 — Inventory support reads and stock adjustment |
 
 `not routed` means the inventory route leaves the path out: with a valid token the
 gateway answers 404 and nothing reaches inventory-service, without a token it answers
@@ -205,7 +213,10 @@ in payment-service's `nexus.security.public-endpoints`. The service verifies
 parsing JSON or looking up the memo. Invalid signatures return service Problem
 Details with `PAYMENT_UNAUTHENTICATED` (401), including requests without a bearer
 token. Accepted callbacks return native `{"success":true}` (200), including
-unmatched memos; this stage only matches a session and performs no settlement.
+unmatched memos and duplicate deliveries. Matched incoming receipts are processed
+by #156: exact payable-session funding and its CheckoutPaymentConfirmed outbox
+row commit atomically; mismatched or unpayable receipts are UNRECONCILED. Commerce
+processes the group confirmation asynchronously, without inventory writes here.
 The [delivered payment contract](openapi/payment-service.yaml) documents the
 request, acknowledgement and errors; the [test guide](../testing/sepay-webhook.md)
 covers local and captured-delivery verification. The earlier #245 fixture tests
@@ -394,6 +405,8 @@ These older drafts add no public method/path pairs to the active table above.
 | POST | `/api/v1/orders` | BUYER | ORDER.CREATE | CHECKOUT.START AND ORDER.CREATE | Own cart; caller-scoped idempotency key | #113, #114, #115 |
 | GET | `/api/v1/orders` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.LIST | ORDER.LIST | Own orders only, including for ADMIN; not a global admin list | #117 |
 | GET | `/api/v1/orders/{id}` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #117 |
+| GET | `/api/v1/orders/{id}/invoice` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Buyer owner only, including for ADMIN; HTML for COMPLETED, other status returns 409 | #204 |
+| GET | `/api/v1/orders/groups/{id}` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Group buyer owner or ADMIN; includes every seller order; another buyer returns 403 | #138 |
 | GET | `/api/v1/orders/{id}/history` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | ORDER.VIEW | ORDER.VIEW | Owner or ADMIN; other caller returns 403 | #116 |
 | PATCH | `/api/v1/orders/{id}/status` | ADMIN | token only | none (role-only) | Service requires ADMIN; moves follow the order transition table, other moves return 409; audit actor and reason | #116 |
 | POST | `/api/v1/payments` | BUYER | CHECKOUT.START | CHECKOUT.START | Own PENDING group/session before dueAt; repeated call returns the same instructions | #120, #121 |
@@ -560,6 +573,38 @@ nonempty-body criterion. Implementation MRs still need to register the gateway
 privilege and enforce the full downstream policy before deployment; these drafts
 and Prism cannot demonstrate runtime authorization.
 
+## Sprint 3 contract handoff (#139)
+
+The following rules describe the Sprint 3 contract boundary, including paths
+whose owners have not implemented them yet. They do not register runtime routes.
+The active policy table/config above remains the source for enabled endpoints.
+
+| Method | Path / family | Bearer policy | Downstream rule | Owning issue / status |
+| --- | --- | --- | --- | --- |
+| GET | `/api/v1/auctions/{id}/state` | Public | One-second data cache; fresh serverTime; masked leader; public visibility | #168, [draft response](auction-service.yaml) |
+| POST | `/api/v1/auctions/{id}/bids` | AUCTION.BID | BUYER, not own auction; caller-scoped Idempotency-Key | #146/#147, draft until delivered |
+| POST | `/api/v1/orders/{id}/shipping-confirmation` | Authenticated; privilege decision belongs to #172 | BUYER and winner/order owner; PENDING; linked hold, address and pricing checks; repeated identical confirmation writes no second manifest | #172, proposed policy; owner must register on delivery |
+| POST | `/api/v1/webhooks/**` | Public callback contract family; no bearer required | Provider authentication is mandatory in each receiving service; this row does not enable a wildcard matcher | #139 design scope; concrete routes below |
+| POST | `/api/v1/webhooks/sepay` | Public, enabled | Verify signature/timestamp over raw bytes before parsing; native ACK; no payment-state change in #155 | #155, [delivered contract](openapi/payment-service.yaml) |
+| POST | `/api/v1/webhooks/carriers/ghn`, `/api/v1/webhooks/carriers/ghtk` | Public, enabled | Carrier-specific validation at shipment-service | #203/#245 |
+
+**Target contract versus enabled paths:** the #139 Sprint 3 contract declares
+`POST /api/v1/webhooks/**` public without bearer authentication. Each callback
+still requires its provider's authentication at its owning service. The current
+#245/#155 runtime registers the supported POST paths individually; it does not
+yet enable the wildcard. When an implementation adopts the family matcher, it
+must update gateway and receiving-service policies with their security tests,
+and preserve routing to the callback's owner. A public policy does not create a
+route or a handler. This contract revision documents the requested public family;
+it does not activate a runtime authorization change.
+
+The state endpoint must support two-second polling under #168's gateway test;
+neither this table nor an OpenAPI example proves rate-limit/latency acceptance.
+The shipping-confirmation policy is a proposal for #172 approval, not an
+implemented permission claim. The six event publishers/consumers and transaction
+handoff are in [events.md](events.md#sprint-3-handoff-139). Their Kafka consumers
+are not public HTTP endpoints.
+
 ## API shapes draft (#124) — inventory and auction
 
 These **26 method/path contracts** are drafts (`0.1.0-draft`) for the
@@ -608,7 +653,7 @@ A path with several roles in `x-required-roles` accepts any one of them.
 | POST | `/api/v1/auctions/{id}/cancel` | ADMIN, SELLER | AUCTION.CANCEL | AUCTION.CANCEL | Owner of the auction; only while it has no valid bid | #197 |
 | POST | `/api/v1/auctions/{id}/admin-cancel` | ADMIN | AUCTION.ADMIN_CANCEL | AUCTION.ADMIN_CANCEL | Any auction not yet settled or cancelled; audit actor and reason | #197 |
 | GET | `/api/v1/auctions/mine` | SELLER | AUCTION.LIST | AUCTION.LIST | Own auctions only | #198 |
-| POST | `/api/v1/auctions/{id}/bids` | BUYER | AUCTION.BID | AUCTION.BID | Not the auction's seller; caller-scoped idempotency key | #146, #147 |
+| POST | `/api/v1/auctions/{id}/bids` | BUYER | AUCTION.BID | AUCTION.BID | Not the auction's seller; globally unique UUID key replays only for the original bidder, auction and numeric amount; a different amount returns 409 | #146, #147 |
 | GET | `/api/v1/auctions/{id}/bids` | public | public | none (public) |  | #169 |
 | GET | `/api/v1/bids/mine` | BUYER | AUCTION.VIEW_BID_HISTORY | AUCTION.VIEW_BID_HISTORY | Own bids only | #198 |
 
@@ -645,6 +690,8 @@ A path with several roles in `x-required-roles` accepts any one of them.
   `inventory_movement_type` values plus `INTAKE` and `COMMIT`, which V6 adds (#131).
   #200 writes `ADJUSTMENT`. The schema document still names an `ADJUST` value that no
   issue writes.
+  As delivered, the `type` filter and `movementType` use only the five values the
+  service writes: `INTAKE`, `RESERVE`, `RELEASE`, `COMMIT` and `ADJUSTMENT`.
 - **Money:** a JSON number, per ADR-008. It differs from the #88 decimal strings.
 - **Error codes:** the `AUCTION_*` and `INVENTORY_*` names under
   `x-business-error-codes` are proposals, except `AUCTION_BID_TOO_LOW` and

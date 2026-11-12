@@ -304,6 +304,50 @@ class SecurityConfigTest {
     }
 
     @Test
+    void invoiceRequiresOrderViewAndForwardsBearerForServiceOwnershipChecks() {
+        String path = "/api/v1/orders/" + ID + "/invoice";
+        client.get().uri(path).exchange().expectStatus().isUnauthorized()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        String listOnly = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("privileges", List.of("ORDER.LIST")));
+        client.get().uri(path).header(HttpHeaders.AUTHORIZATION, listOnly)
+                .exchange().expectStatus().isForbidden()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody().jsonPath("$.code").isEqualTo("FORBIDDEN");
+        assertThat(SERVICE_LOG).isEmpty();
+
+        String view = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("privileges", List.of("ORDER.VIEW")));
+        client.get().uri(path).header(HttpHeaders.AUTHORIZATION, view)
+                .exchange().expectStatus().isOk().expectBody(String.class).isEqualTo("downstream");
+        assertThat(SERVICE_LOG).containsExactly("GET " + path);
+        assertThat(FORWARDED_TOKENS).containsExactly(view);
+    }
+
+    @Test
+    void orderGroupRequiresOrderViewAndForwardsBearerForServiceOwnershipChecks() {
+        String path = "/api/v1/orders/groups/" + ID;
+        client.get().uri(path).exchange().expectStatus().isUnauthorized()
+                .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        String listOnly = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("privileges", List.of("ORDER.LIST")));
+        client.get().uri(path).header(HttpHeaders.AUTHORIZATION, listOnly)
+                .exchange().expectStatus().isForbidden()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody().jsonPath("$.code").isEqualTo("FORBIDDEN");
+        assertThat(SERVICE_LOG).isEmpty();
+
+        // Commerce kiểm tra buyer owner hoặc ADMIN sau khi gateway chuyển nguyên bearer.
+        String view = "Bearer " + token(SIGNING_KEY,
+                c -> c.claim("roles", List.of("BUYER")).claim("privileges", List.of("ORDER.VIEW")));
+        client.get().uri(path).header(HttpHeaders.AUTHORIZATION, view)
+                .exchange().expectStatus().isOk().expectBody(String.class).isEqualTo("downstream");
+        assertThat(SERVICE_LOG).containsExactly("GET " + path);
+        assertThat(FORWARDED_TOKENS).containsExactly(view);
+    }
+
+    @Test
     void paymentInitiationRequiresCheckoutPrivilegeAndForwardsBuyerBearer() {
         String path = "/api/v1/payments";
         client.post().uri(path).exchange().expectStatus().isUnauthorized();

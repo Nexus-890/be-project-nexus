@@ -108,6 +108,8 @@ class CatalogResponseContractTest {
         when(products.changeStatusProduct(eq(id), any(), eq(actor))).thenReturn(product);
         when(products.getById(id)).thenReturn(new ProductDetailResponse(id, "Shirt", "shirt", ProductStatus.ACTIVE,
                 id, sellerId, "Description", false, List.of(), List.of()));
+        when(products.getMyProduct(id, actor)).thenReturn(new ProductDetailResponse(id, "Shirt", "shirt", ProductStatus.DRAFT,
+                id, sellerId, "Draft description", true, List.of(), List.of()));
         var page = new PageImpl<>(List.of(product), PageRequest.of(1, 2), 5);
         when(products.getProductsByCategory(null, 1, 2)).thenReturn(page);
         when(products.getMyProducts(actor, 1, 2)).thenReturn(page);
@@ -116,6 +118,14 @@ class CatalogResponseContractTest {
         assertObject(post("/api/v1/products").contentType(MediaType.APPLICATION_JSON).content(request), 201);
         assertObject(put("/api/v1/products/{id}", id).contentType(MediaType.APPLICATION_JSON).content(request), 200);
         assertObject(get("/api/v1/products/{id}", id), 200);
+        mvc.perform(get("/api/v1/products/mine/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(id.toString()))
+                .andExpect(jsonPath("$.data.status").value("DRAFT"))
+                .andExpect(jsonPath("$.data.description").value("Draft description"))
+                .andExpect(jsonPath("$.data.auctionEnable").value(true))
+                .andExpect(jsonPath("$.data.skus").isArray())
+                .andExpect(jsonPath("$.data.images").isArray());
         assertObject(patch("/api/v1/products/{id}/status", id).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"status\":\"ACTIVE\"}"), 200);
 
@@ -135,7 +145,7 @@ class CatalogResponseContractTest {
 
     @Test
     void skuRoutesUseDataEnvelopeForObjectsAndLists() throws Exception {
-        SkuResponse sku = new SkuResponse(id, id, "SHIRT-M", "Black", "M", BigDecimal.TEN, SkuStatus.ACTIVE);
+        SkuResponse sku = new SkuResponse(id, id, "SHIRT-M", "Black", "M", BigDecimal.TEN, SkuStatus.ACTIVE, null);
         when(skus.create(eq(id), any(), eq(actor))).thenReturn(sku);
         when(skus.update(eq(id), any(), eq(actor))).thenReturn(sku);
         when(skus.getById(id)).thenReturn(sku);
@@ -149,6 +159,34 @@ class CatalogResponseContractTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].id").value(id.toString()))
                 .andExpect(jsonPath("$.page.number").value(0))
                 .andExpect(jsonPath("$.page.totalElements").value(1));
+    }
+
+    @Test
+    void ownerDetailNotFoundDoesNotRevealWhetherAnotherSellerOwnsTheProduct() throws Exception {
+        when(products.getMyProduct(id, actor)).thenThrow(new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND));
+        mvc.perform(get("/api/v1/products/mine/{id}", id))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("CATALOG_PRODUCT_NOT_FOUND"))
+                .andExpect(jsonPath("$.instance").value("/api/v1/products/mine/" + id))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void skuPackageValidationRejectsMissingAndInvalidNestedMeasurements() throws Exception {
+        String request = """
+                {"skuCode":"SHIRT-M","color":"Black","size":"M","price":10,
+                 "shippingParcel":{"weightGrams":0,"lengthCm":201,"widthCm":20}}
+                """;
+        for (MockHttpServletRequestBuilder operation : List.of(
+                post("/api/v1/products/{id}/skus", id), put("/api/v1/skus/{id}", id))) {
+            mvc.perform(operation.contentType(MediaType.APPLICATION_JSON).content(request))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(jsonPath("$.errors[*].field", hasItems("shippingParcel.weightGrams",
+                            "shippingParcel.lengthCm", "shippingParcel.heightCm")));
+        }
+        verifyNoInteractions(skus);
     }
 
     @Test

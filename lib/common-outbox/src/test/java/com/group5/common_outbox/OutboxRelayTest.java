@@ -156,23 +156,46 @@ class OutboxRelayTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    /** Resolver chỉ thay key Kafka; nội dung envelope đã lưu phải giữ nguyên khi phát. */
     @Test
-    void domainRelayCanChooseAPublicationKeyWithoutChangingTheEnvelope() {
-        OutboxRelay domainRelay = new OutboxRelay(jdbc, mapper, kafka, transactions, Duration.ofMillis(50)) {
-            @Override
-            protected String publicationKey(OutboxEntry entry, EventEnvelope<?> envelope) {
-                return "domain-order-1";
-            }
-        };
+    void usesTheApplicationKeyWithoutChangingTheStoredEnvelope() {
         rows(entry(event));
         acknowledge();
+        OutboxRelay custom = new OutboxRelay(jdbc, mapper, kafka, transactions, Duration.ofMillis(50),
+                envelope -> "custom-partition");
 
-        domainRelay.publishPending();
+        custom.publishPending();
 
         ArgumentCaptor<EventEnvelope<?>> sent = ArgumentCaptor.captor();
-        verify(kafka).send(eq(Topics.CATALOG), eq("domain-order-1"), sent.capture());
-        assertThat(sent.getValue().aggregateId()).isEqualTo(event.aggregateId());
+        verify(kafka).send(eq(Topics.CATALOG), eq("custom-partition"), sent.capture());
+        assertThat(mapper.writeValueAsString(sent.getValue())).isEqualTo(mapper.writeValueAsString(event));
         verify(jdbc).update(OutboxRelay.MARK_PUBLISHED_SQL, event.eventId());
+    }
+
+    /** Không đánh dấu đã gửi nếu không xác định được key bắt buộc của event. */
+    @Test
+    void leavesTheStoredEventPendingWhenItsRequiredKeyCannotBeResolved() {
+        rows(entry(event));
+        OutboxRelay custom = new OutboxRelay(jdbc, mapper, kafka, transactions, Duration.ofMillis(50),
+                envelope -> { throw new IllegalArgumentException("Missing required partition identity"); });
+
+        custom.publishPending();
+
+        verifyNoInteractions(kafka);
+        verify(jdbc, never()).update(anyString(), any(UUID.class));
+    }
+
+    /** Key rỗng bị từ chối để event không bị gửi sai phân vùng rồi mất khả năng retry. */
+    @Test
+    void refusesBlankKeysInsteadOfPublishingToAnArbitraryPartition() {
+        rows(entry(event));
+        OutboxRelay custom = new OutboxRelay(jdbc, mapper, kafka, transactions, Duration.ofMillis(50),
+                envelope -> " ");
+
+        custom.publishPending();
+
+        verifyNoInteractions(kafka);
+        verify(jdbc, never()).update(anyString(), any(UUID.class));
     }
 
     @SuppressWarnings("unchecked")

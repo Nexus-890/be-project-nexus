@@ -8,7 +8,8 @@ import java.util.UUID;
 
 public enum NotificationTemplate {
 
-    ORDER_CREATED("OrderCreated", "buyerId", "Order placed", "Your order %s was placed", "orderNumber");
+    ORDER_CREATED("OrderCreated", "buyerId", "Order placed", "Your order %s was placed", "orderNumber"),
+    ORDER_COMPLETED("OrderCompleted", "buyerId", "Order receipt", "Your order %s is complete. Your receipt is ready.", "orderNumber");
 
     private final String eventType;
     private final String recipientField;
@@ -37,6 +38,11 @@ public enum NotificationTemplate {
         notification.setType(name());
         notification.setTitle(title);
         notification.setContent(contentFormat.formatted(requiredText(payload, contentField)));
+        if (this == ORDER_COMPLETED) {
+            UUID.fromString(requiredText(payload, "orderId"));
+            // Commerce renders and escapes the immutable receipt snapshot before publishing it.
+            notification.setEmailHtml(requiredText(payload, "receiptHtml"));
+        }
         return notification;
     }
 

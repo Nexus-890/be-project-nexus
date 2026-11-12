@@ -1,5 +1,7 @@
 package com.group5.catalogservice.product.service;
 
+import com.group5.catalogservice.product.dto.ShippingParcel;
+
 import com.group5.catalogservice.product.dto.request.ChangeStatusRequest;
 import com.group5.catalogservice.product.dto.request.ProductRequest;
 import com.group5.catalogservice.product.dto.response.ImageResponse;
@@ -125,6 +127,21 @@ public class ProductService {
                 .orElseThrow(() ->
                         new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND));
 
+        return toDetailResponse(product);
+    }
+
+    @Transactional(readOnly = true)
+    public ProductDetailResponse getMyProduct(UUID id, CurrentUser currentUser) {
+        requirePrivilege(currentUser, "PRODUCT.LIST");
+        if (!currentUser.hasRole("SELLER")) {
+            throw new DomainException(CatalogErrorCode.UNAUTHORIZED);
+        }
+        Product product = productRepository.findByIdAndDeletedAtIsNull(id)
+                .orElseThrow(() -> new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND));
+        if (!product.getSellerId().equals(currentUser.id())) {
+            throw new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND);
+        }
+        // The public read remains ACTIVE-only; an owner's editor also needs drafts.
         return toDetailResponse(product);
     }
 
@@ -259,7 +276,10 @@ public class ProductService {
                         sku.getColor(),
                         sku.getSize(),
                         sku.getPrice(),
-                        sku.getStatus()
+                        sku.getStatus(),
+                        sku.getShippingWeightGrams() == null ? null : new ShippingParcel(
+                                sku.getShippingWeightGrams(), sku.getShippingLengthCm(),
+                                sku.getShippingWidthCm(), sku.getShippingHeightCm())
                 ))
                 .toList();
 
