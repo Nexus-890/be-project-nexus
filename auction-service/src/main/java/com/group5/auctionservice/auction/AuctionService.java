@@ -29,6 +29,7 @@ public class AuctionService {
     private final AuctionProperties properties;
     private final Clock clock;
     private final AuctionStateMachine stateMachine;
+    private final AuctionCatalog catalog;
 
     @Transactional(readOnly = true)
     public AuctionResponse get(UUID id) {
@@ -44,7 +45,6 @@ public class AuctionService {
                 .map(AuctionResponse::from);
     }
 
-    @Transactional
     public AuctionResponse create(CreateAuctionRequest request, CurrentUser seller) {
         if (request.startAt().isBefore(Instant.now(clock).minus(START_TIME_TOLERANCE))) {
             throw new DomainException(AuctionErrorCode.AUCTION_START_IN_PAST);
@@ -62,11 +62,19 @@ public class AuctionService {
                     "Auction duration must be at most %d hours".formatted(properties.getMaxDurationHours()));
         }
 
+        CatalogClient.Product product = catalog.requireProduct(request.productId());
+        if (!seller.id().equals(product.sellerId())) {
+            throw new DomainException(AuctionErrorCode.AUCTION_FORBIDDEN, "The product belongs to another seller");
+        }
+        if (product.skus().stream().noneMatch(sku -> request.skuId().equals(sku.id()))) {
+            throw new DomainException(AuctionErrorCode.AUCTION_SKU_NOT_FOUND);
+        }
+
         BigDecimal increment = request.bidIncrement() == null
                 ? properties.getDefaultBidIncrement()
                 : request.bidIncrement();
-        Auction auction = new Auction(request.productId(), request.skuId(), seller.id(), request.title(),
-                request.startingPrice(), increment, request.startAt(), request.endAt());
+        Auction auction = new Auction(request.productId(), request.skuId(), seller.id(), product.name(),
+                product.firstImageUrl(), request.startingPrice(), increment, request.startAt(), request.endAt());
         return AuctionResponse.from(auctions.save(auction));
     }
 

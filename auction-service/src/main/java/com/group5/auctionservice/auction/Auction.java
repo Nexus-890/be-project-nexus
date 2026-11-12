@@ -104,12 +104,13 @@ public class Auction extends AuditedEntity {
 
     private Instant deletedAt;
 
-    Auction(UUID productId, UUID skuId, UUID sellerId, String title, BigDecimal startingPrice,
+    Auction(UUID productId, UUID skuId, UUID sellerId, String title, String imageUrl, BigDecimal startingPrice,
             BigDecimal bidIncrement, Instant startAt, Instant endAt) {
         this.productId = productId;
         this.skuId = skuId;
         this.sellerId = sellerId;
         this.title = title;
+        this.imageUrl = imageUrl;
         this.startingPrice = startingPrice;
         this.currentPrice = startingPrice;
         this.bidIncrement = bidIncrement;

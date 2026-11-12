@@ -9,6 +9,30 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+  cloud:
+    loadbalancer:
+      retry:
+        enabled: false
+    openfeign:
+      client:
+        config:
+          auctionCatalog:
+            connectTimeout: 500
+            readTimeout: 1500
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      auctionCatalog:
+        slidingWindowSize: 5
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 15s
+        permittedNumberOfCallsInHalfOpenState: 1
+  timelimiter:
+    instances:
+      auctionCatalog:
+        timeoutDuration: 2s
 
 springdoc:
   api-docs:
