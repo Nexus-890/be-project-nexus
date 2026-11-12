@@ -8166,6 +8166,10 @@ components:
           description: "Current persisted SKU status string, initially ACTIVE. This issue does not restrict the existing string column to a new enum."
         shippingParcel:
           $ref: "#/components/schemas/ShippingParcel"
+        costPrice:
+          type: "number"
+          minimum: 0
+          description: "Seller purchase cost for one unit. Returned only to the owning seller or an admin: on SKU create/update and on GET /api/v1/products/mine/{id}. Public reads omit it. Absent when the seller has not entered a cost."
     ShippingParcel:
       type: "object"
       nullable: true
@@ -8227,6 +8231,14 @@ components:
           allOf:
             - $ref: "#/components/schemas/ShippingParcel"
           description: "Optional verified package measurements for one SKU unit. Omitted or null on update preserves the existing measurements for older clients. A supplied object must contain all four valid measurements."
+        costPrice:
+          type: "number"
+          nullable: true
+          minimum: 0
+          multipleOf: 0.01
+          maximum: 100000000000000000
+          exclusiveMaximum: true
+          description: "Optional purchase cost for one unit, zero or more; at most 17 integer and 2 fractional decimal digits. Stored numeric(19,2), private to the owner. It never changes the selling `price`. Omitted or null on update keeps the stored cost."
     CreateCategoryResponse:
       type: "object"
       required:
