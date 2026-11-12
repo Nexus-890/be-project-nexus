@@ -112,7 +112,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/refunds/{id}/complete` | POST | ORDER.REFUND | #247 — payment-service; manual transfer confirmation enforced downstream |
 | `/api/v1/shipping/quotes` | POST | SHIPPING.QUOTE | #201 — shipment-service |
 | `/api/v1/carriers` | GET | SHIPPING.QUOTE | #201 — shipment-service; SHP-11 |
-| `/api/v1/shipments` | POST | SHIPPING.CREATE_SHIPMENT | #202 — shipment-service; manual creation |
+| `/api/v1/shipments` | POST | SHIPPING.CREATE_SHIPMENT | #202 — shipment-service; manual creation additionally requires ADMIN or SUPPORT_STAFF downstream |
 | `/api/v1/shipments` | GET | SHIPPING.VIEW_SHIPMENT | #202 — shipment-service; own-order visibility enforced downstream |
 | `/api/v1/shipments/{id}` | GET | SHIPPING.VIEW_SHIPMENT | #202 — shipment-service; own-order visibility enforced downstream |
 | `/api/v1/shipments/{id}/tracking` | GET | SHIPPING.VIEW_SHIPMENT | #203 — shipment-service; own-order visibility enforced downstream |

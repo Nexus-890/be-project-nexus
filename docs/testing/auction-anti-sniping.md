@@ -106,7 +106,8 @@ Replays return the original response before reaching the extension hook.
 
 Merge validation on 12/11/2026: all Auction main and test sources compiled;
 30 anti-sniping unit/configuration cases, 27 real-JWT/HTTP contract cases and
-7 Config Server cases passed with no failures, errors or skips. Auction OpenAPI
+7 Config Server cases passed with no failures, errors or skips. Contract checking
+passed 90 operations. Auction OpenAPI
 passed Redocly 2.63.0 without warnings. The three focused PostgreSQL integration
 classes could not initialize: Docker's named-pipe endpoint returned HTTP 500
 (33 setup errors, no assertions executed). This is not a successful PostgreSQL
