@@ -90,13 +90,15 @@ nexus:
       - method: GET
         path: /api/v1/shipping/provinces
       - method: GET
-        path: /api/v1/shipping/districts
-      - method: GET
         path: /api/v1/shipping/wards
       - method: GET
         path: /api/v1/auctions
       - method: GET
         path: /api/v1/auctions/{id}
+      - method: GET
+        path: /api/v1/inventory
+      - method: GET
+        path: /api/v1/inventory/{id}
     protected-endpoints:
       - method: GET
         path: /api/v1/users/me
@@ -112,6 +114,9 @@ nexus:
         privilege: PRODUCT.CREATE
       - method: GET
         path: /api/v1/products/mine
+        privilege: PRODUCT.LIST
+      - method: GET
+        path: /api/v1/products/mine/{id}
         privilege: PRODUCT.LIST
       - method: PUT
         path: /api/v1/products/{id}
@@ -183,6 +188,9 @@ nexus:
       - method: GET
         path: /api/v1/orders/sales
         privilege: ORDER.LIST
+      - method: GET
+        path: /api/v1/orders/groups/{id}
+        privilege: ORDER.VIEW
       - method: GET
         path: /api/v1/orders/{id}
         privilege: ORDER.VIEW
@@ -258,6 +266,12 @@ nexus:
       - method: PATCH
         path: /api/v1/notifications/read-all
         privilege: NOTIFICATION.VIEW
+      - method: GET
+        path: /api/v1/system/health
+        privilege: SYSTEM.HEALTH.VIEW
+      - method: GET
+        path: /api/v1/system/health/brokers
+        privilege: SYSTEM.HEALTH.VIEW
       - method: POST
         path: /api/v1/products/{id}/images
         privilege: PRODUCT.UPDATE
@@ -270,6 +284,9 @@ nexus:
       - method: POST
         path: /api/v1/auctions
         privilege: AUCTION.CREATE
+      - method: POST
+        path: /api/v1/auctions/{id}/schedule
+        privilege: AUCTION.UPDATE
       - method: GET
         path: /api/v1/event-logs
         privilege: EVENT_LOG.VIEW

@@ -12,6 +12,9 @@ spring:
 
 nexus:
   security:
+    public-endpoints:
+      - method: POST
+        path: /api/v1/webhooks/sepay
     jwt:
       issuer: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
       audience: nexus-services
@@ -29,3 +32,5 @@ nexus:
       account-name: ${SEPAY_ACCOUNT_NAME:}
       vietqr-template: ${SEPAY_VIETQR_TEMPLATE:compact}
       transfer-content-prefix: ${SEPAY_TRANSFER_CONTENT_PREFIX:SEVQR}
+      webhook:
+        secret: ${SEPAY_WEBHOOK_SECRET:}

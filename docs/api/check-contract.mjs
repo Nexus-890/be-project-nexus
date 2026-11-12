@@ -27,6 +27,7 @@ const services = {
   ],
   'notification-service': [
     'src/main/java/com/group5/notificationservice/notification/NotificationController.java',
+    'src/main/java/com/group5/notificationservice/health/SystemHealthController.java',
     'src/main/java/com/group5/notificationservice/delivery/DeliveryController.java',
     'src/main/java/com/group5/notificationservice/eventlog/EventLogController.java',
     'src/main/java/com/group5/notificationservice/eventlog/AuditLogController.java',
@@ -34,12 +35,19 @@ const services = {
   'payment-service': [
     'src/main/java/com/group5/paymentservice/payment/controller/PaymentController.java',
     'src/main/java/com/group5/paymentservice/payment/controller/RefundController.java',
+    'src/main/java/com/group5/paymentservice/payment/controller/SepayWebhookController.java',
   ],
   'inventory-service': [
     'src/main/java/com/group5/inventoryservice/inventory/InventoryController.java',
+    'src/main/java/com/group5/inventoryservice/warehouse/controller/WarehouseController.java',
+    'src/main/java/com/group5/inventoryservice/reservation/controller/ReservationController.java',
   ],
   'auction-service': [
     'src/main/java/com/group5/auctionservice/auction/AuctionController.java',
+  ],
+  'shipment-service': [
+    'src/main/java/com/group5/shipmentservice/shipping/controller/CarrierController.java',
+    'src/main/java/com/group5/shipmentservice/shipping/controller/ShippingController.java',
   ],
 };
 const normalize = (route) => route.replace(/\{[^}]+\}/g, '{}');

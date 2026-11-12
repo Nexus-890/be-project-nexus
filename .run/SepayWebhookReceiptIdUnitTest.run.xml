@@ -1,0 +1,15 @@
+<component name="ProjectRunConfigurationManager">
+  <!-- Chạy unit test ID webhook với SDK của module payment-service (JDK 21).
+       ARGS_FILE tránh lỗi command line quá dài trên Windows. -->
+  <configuration default="false" name="SepayWebhookReceiptIdUnitTest" type="JUnit" factoryName="JUnit">
+    <module name="payment-service" />
+    <shortenClasspath name="ARGS_FILE" />
+    <option name="PACKAGE_NAME" value="com.group5.paymentservice.payment" />
+    <option name="MAIN_CLASS_NAME" value="com.group5.paymentservice.payment.SepayWebhookReceiptIdUnitTest" />
+    <option name="TEST_OBJECT" value="class" />
+    <option name="VM_PARAMETERS" value="-Duser.timezone=UTC -Dfile.encoding=UTF-8" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

@@ -60,7 +60,8 @@ public class RouteConfig {
                 .route("notification-service", route -> route
                         .path("/api/v1/notifications", "/api/v1/notifications/**",
                                 "/api/v1/event-logs", "/api/v1/event-logs/**",
-                                "/api/v1/audit-logs", "/api/v1/audit-logs/**")
+                                "/api/v1/audit-logs", "/api/v1/audit-logs/**",
+                                "/api/v1/system/health", "/api/v1/system/health/**")
                         .filters(filters -> filters.requestRateLimiter(config ->
                                 config.setRateLimiter(limiter)
                                         .setKeyResolver(resolver)
@@ -95,6 +96,8 @@ public class RouteConfig {
 
                 .route("inventory-service", route -> route
                         .path("/api/v1/inventory/**", "/api/v1/warehouses/**")
+                        .and().not(settle -> settle.path("/api/v1/inventory/reservations/*/confirm",
+                                "/api/v1/inventory/reservations/*/release"))
                         .filters(filters -> filters.requestRateLimiter(config ->
                                 config.setRateLimiter(limiter)
                                         .setKeyResolver(resolver)

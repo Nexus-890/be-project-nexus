@@ -1,6 +1,7 @@
 package com.group5.catalogservice.product.service;
 
 import com.group5.catalogservice.product.dto.request.SkuRequest;
+import com.group5.catalogservice.product.dto.ShippingParcel;
 import com.group5.catalogservice.product.dto.response.SkuResponse;
 import com.group5.catalogservice.product.entity.Product;
 import com.group5.catalogservice.product.entity.Skus;
@@ -19,9 +20,13 @@ import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Service
 public class SkuService {
+
+    private static final String SKU_CODE_PREFIX = "SKU-";
+    private static final Pattern SKU_NUMBER = Pattern.compile("\\d{1,9}");
 
     private final SkuRepository skuRepository;
     private final ProductRepository productRepository;
@@ -44,7 +49,9 @@ public class SkuService {
         requirePrivilege(currentUser, "PRODUCT.UPDATE");
 
         // Đảm bảo sản phẩm tồn tại và người dùng được quyền quản lý.
-        Product product = findEditableProduct(productId, currentUser);
+        Product product = skuRepository.findProductForSkuCreate(productId)
+                .orElseThrow(() -> new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND));
+        checkProductOwner(product, currentUser);
 
         //Chaeck giá tiền hợp lệ
         validatePrice(request.getPrice());
@@ -52,10 +59,11 @@ public class SkuService {
         //Map dữ liệu qua SKU mới
         Skus sku = new Skus();
         sku.setProduct(product);
-        sku.setSkuCode(request.getSkuCode().trim());
+        sku.setSkuCode(nextSkuCode(product.getId()));
         sku.setColor(request.getColor().trim());
         sku.setSize(request.getSize().trim());
         sku.setPrice(request.getPrice());
+        applyShippingParcel(sku, request.getShippingParcel());
 
         return toResponse(saveSku(sku));
     }
@@ -76,10 +84,10 @@ public class SkuService {
         validatePrice(request.getPrice());
 
         //Áp dụng update cho Sku có tồn tại
-        sku.setSkuCode(request.getSkuCode().trim());
         sku.setColor(request.getColor().trim());
         sku.setSize(request.getSize().trim());
         sku.setPrice(request.getPrice());
+        applyShippingParcel(sku, request.getShippingParcel());
 
         return toResponse(saveSku(sku));
     }
@@ -149,6 +157,17 @@ public class SkuService {
         }
     }
 
+    private String nextSkuCode(UUID productId) {
+        String prefix = SKU_CODE_PREFIX + productId.toString().replace("-", "") + "-";
+        int last = skuRepository.findSkuCodes(productId, prefix + "%").stream()
+                .map(code -> code.substring(prefix.length()))
+                .filter(SKU_NUMBER.asMatchPredicate())
+                .mapToInt(Integer::parseInt)
+                .max()
+                .orElse(0);
+        return prefix + String.format("%02d", last + 1);
+    }
+
     private void validatePrice(BigDecimal price) {
         if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
             throw new DomainException(CatalogErrorCode.DATA_INVALID);
@@ -185,6 +204,17 @@ public class SkuService {
         return false;
     }
 
+    /** Ghi đủ bốn số đo cùng lúc; client cũ không gửi vẫn giữ metadata đã có. */
+    private void applyShippingParcel(Skus sku, ShippingParcel parcel) {
+        if (parcel == null) {
+            return;
+        }
+        sku.setShippingWeightGrams(parcel.weightGrams());
+        sku.setShippingLengthCm(parcel.lengthCm());
+        sku.setShippingWidthCm(parcel.widthCm());
+        sku.setShippingHeightCm(parcel.heightCm());
+    }
+
     private SkuResponse toResponse(Skus sku) {
         return new SkuResponse(
                 sku.getId(),
@@ -193,7 +223,10 @@ public class SkuService {
                 sku.getColor(),
                 sku.getSize(),
                 sku.getPrice(),
-                sku.getStatus()
+                sku.getStatus(),
+                sku.getShippingWeightGrams() == null ? null : new ShippingParcel(
+                        sku.getShippingWeightGrams(), sku.getShippingLengthCm(),
+                        sku.getShippingWidthCm(), sku.getShippingHeightCm())
         );
     }
 }

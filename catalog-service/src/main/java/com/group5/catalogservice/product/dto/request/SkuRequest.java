@@ -1,5 +1,7 @@
 package com.group5.catalogservice.product.dto.request;
 
+import com.group5.catalogservice.product.dto.ShippingParcel;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -11,10 +13,6 @@ import java.math.BigDecimal;
 @Setter
 @NoArgsConstructor
 public class SkuRequest {
-
-    @NotBlank(message = "SKU code cannot be empty")
-    @Size(max = 60, message = "SKU code cannot exceed 60 characters")
-    private String skuCode;
 
     @NotBlank(message = "Color cannot be empty")
     @Size(max = 50, message = "Color cannot exceed 50 characters")
@@ -30,4 +28,7 @@ public class SkuRequest {
     @Digits(integer = 17, fraction = 2,
             message = "Price must have at most 17 integer digits and 2 decimal places")
     private BigDecimal price;
+
+    @Valid
+    private ShippingParcel shippingParcel;
 }

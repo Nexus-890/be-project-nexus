@@ -1773,7 +1773,7 @@ paths:
       tags: ["Cart"]
       operationId: "getCartPricing"
       summary: "Calculate current cart pricing (CRT-05)"
-      description: "Read-only: never creates a cart, touches activity/audit timestamps, updates cart prices, reserves inventory, creates orders or publishes events. Reads only the JWT subject's active cart, even for ADMIN. Uses current SKU prices and compares them numerically with saved prices. Catalog 404 means PRODUCT_INACTIVE; unavailable SKU lines remain visible at their last saved price and cannot be treated as a valid checkout. Catalog transport failures return a named error, never a valid result. Tax-inclusive prices give taxAmount=0; D01 gives discountAmount=0 and promoCode is ignored. Shipping is null until #201 and total excludes unknown shipping; FREE_SHIPPING_THRESHOLD is configured but cannot manufacture a carrier quote. INV-03 stock check is skipped until that endpoint exists. CHECKOUT_PRICE_REVALIDATION must remain true (BR-103), enforced at configuration binding. Empty or missing active cart returns zero amounts or valid=true with issues=[] without inserting a cart."
+      description: "Read-only: never creates a cart, touches activity/audit timestamps, updates cart prices, reserves inventory, creates orders or publishes events. Reads only the JWT subject's active cart, even for ADMIN. Uses current SKU prices and compares them numerically with saved prices. Catalog 404 means PRODUCT_INACTIVE; unavailable SKU lines remain visible at their last saved price and cannot be treated as a valid checkout. Catalog transport failures return a named error, never a valid result. Tax-inclusive prices give taxAmount=0; D01 gives discountAmount=0 and promoCode is ignored. Shipping is null without a delivery address and total excludes unknown shipping; FREE_SHIPPING_THRESHOLD cannot manufacture a carrier quote. INV-03 stock check is skipped until that endpoint exists. CHECKOUT_PRICE_REVALIDATION must remain true (BR-103), enforced at configuration binding. Empty or missing active cart returns zero amounts or valid=true with issues=[] without inserting a cart."
       security: [{"bearerAuth":[]}]
       x-required-privileges: ["CART.VIEW"]
       x-gateway-privilege: "CART.VIEW"
@@ -2028,7 +2028,7 @@ paths:
       tags: ["Cart"]
       operationId: "validateCart"
       summary: "Validate the current cart (CRT-06)"
-      description: "Read-only: never creates a cart, touches activity/audit timestamps, updates cart prices, reserves inventory, creates orders or publishes events. Reads only the JWT subject's active cart, even for ADMIN. Uses current SKU prices and compares them numerically with saved prices. Catalog 404 means PRODUCT_INACTIVE; unavailable SKU lines remain visible at their last saved price and cannot be treated as a valid checkout. Catalog transport failures return a named error, never a valid result. Tax-inclusive prices give taxAmount=0; D01 gives discountAmount=0 and promoCode is ignored. Shipping is null until #201 and total excludes unknown shipping; FREE_SHIPPING_THRESHOLD is configured but cannot manufacture a carrier quote. INV-03 stock check is skipped until that endpoint exists. CHECKOUT_PRICE_REVALIDATION must remain true (BR-103), enforced at configuration binding. Empty or missing active cart returns zero amounts or valid=true with issues=[] without inserting a cart."
+      description: "Read-only: never creates a cart, touches activity/audit timestamps, updates cart prices, reserves inventory, creates orders or publishes events. Reads only the JWT subject's active cart, even for ADMIN. Uses current SKU prices and compares them numerically with saved prices. Catalog 404 means PRODUCT_INACTIVE; unavailable SKU lines remain visible at their last saved price and cannot be treated as a valid checkout. Catalog transport failures return a named error, never a valid result. Tax-inclusive prices give taxAmount=0; D01 gives discountAmount=0 and promoCode is ignored. Shipping is null without a delivery address and total excludes unknown shipping; FREE_SHIPPING_THRESHOLD cannot manufacture a carrier quote. INV-03 stock check is skipped until that endpoint exists. CHECKOUT_PRICE_REVALIDATION must remain true (BR-103), enforced at configuration binding. Empty or missing active cart returns zero amounts or valid=true with issues=[] without inserting a cart."
       security: [{"bearerAuth":[]}]
       x-required-privileges: ["CART.VIEW"]
       x-gateway-privilege: "CART.VIEW"
@@ -2278,23 +2278,25 @@ paths:
       tags: ["Checkout"]
       operationId: "previewCheckout"
       summary: "Preview checkout without creating an order (ORD-02)"
-      description: "Read-only: never creates a cart, touches activity/audit timestamps, updates cart prices, reserves inventory, creates orders or publishes events. Reads only the JWT subject's active cart, even for ADMIN. Uses current SKU prices and compares them numerically with saved prices. Catalog 404 means PRODUCT_INACTIVE; unavailable SKU lines remain visible at their last saved price and cannot be treated as a valid checkout. Catalog transport failures return a named error, never a valid result. Tax-inclusive prices give taxAmount=0; D01 gives discountAmount=0 and promoCode is ignored. Shipping is null until #201 and total excludes unknown shipping; FREE_SHIPPING_THRESHOLD is configured but cannot manufacture a carrier quote. INV-03 stock check is skipped until that endpoint exists. CHECKOUT_PRICE_REVALIDATION must remain true (BR-103), enforced at configuration binding. Empty or missing active cart returns 400 COMMERCE_CART_EMPTY. Item issues are returned with 200 for buyer review; this call does not place an order. Shipping/payment inputs are validated but are not persisted."
+      description: "Read-only checkout for the JWT buyer: never creates a cart, touches activity timestamps, changes saved cart prices, reserves stock, creates orders or publishes events. Uses current catalog prices and returns item issues for review. A valid cart is grouped by seller; backend packs each seller parcel from catalog-owned per-unit shippingParcel metadata and calls shipment-service once per seller with the two-level recipient address. shippingFee is the sum of those quotes and total includes it. Missing metadata or an oversized parcel returns 409; carrier transport failure returns 503 instead of a zero fee. Client fees or parcel measurements are never trusted. Empty active cart returns 400 COMMERCE_CART_EMPTY. Promo code remains ignored under D01. Inactive/missing product issues leave shipping unknown; PRICE_CHANGED still quotes current catalog data for buyer review."
       security: [{"bearerAuth":[]}]
       x-required-privileges: ["CHECKOUT.START"]
       x-gateway-privilege: "CHECKOUT.START"
       x-required-roles: []
       x-ownership: "JWT subject only; no ADMIN override; no cart/user identifier is accepted."
       x-error-codes:
-        400: ["COMMERCE_INVALID_QUANTITY","COMMERCE_CART_EMPTY","VALIDATION_FAILED","INVALID_REQUEST_BODY"]
+        400: ["COMMERCE_INVALID_QUANTITY","COMMERCE_CART_EMPTY","VALIDATION_FAILED","INVALID_REQUEST_BODY","COMMERCE_INVALID_SHIPPING_ADDRESS"]
+        409: ["COMMERCE_SHIPPING_METADATA_REQUIRED","COMMERCE_INVALID_PARCEL"]
+        422: ["COMMERCE_SHIPPING_NOT_AVAILABLE"]
         401: ["UNAUTHENTICATED","COMMERCE_UNAUTHENTICATED"]
-        403: ["FORBIDDEN"]
+        403: ["FORBIDDEN","COMMERCE_FORBIDDEN"]
         405: ["METHOD_NOT_ALLOWED"]
         406: ["NOT_ACCEPTABLE"]
         415: ["UNSUPPORTED_MEDIA_TYPE"]
         429: ["RATE_LIMITED"]
         500: ["INTERNAL_ERROR","COMMERCE_INVALID_PRICING_CONFIGURATION"]
         502: ["COMMERCE_INVALID_CATALOG_RESPONSE"]
-        503: ["SERVICE_UNAVAILABLE","COMMERCE_CATALOG_UNAVAILABLE"]
+        503: ["SERVICE_UNAVAILABLE","COMMERCE_CATALOG_UNAVAILABLE","COMMERCE_SHIPPING_UNAVAILABLE"]
         504: ["GATEWAY_TIMEOUT"]
       responses:
         200:
@@ -2312,10 +2314,10 @@ paths:
                     data:
                       items: [{"itemId":"c8000000-0000-4000-8000-000000000005","productId":"c8000000-0000-4000-8000-000000000002","skuId":"c8000000-0000-4000-8000-000000000003","quantity":2,"unitPrice":150000,"lineTotal":300000}]
                       subtotal: 300000
-                      shippingFee: null
+                      shippingFee: 30000
                       taxAmount: 0
                       discountAmount: 0
-                      total: 300000
+                      total: 330000
                       issues: []
                 changedPrice:
                   summary: "Current price differs from saved cart price"
@@ -2325,17 +2327,17 @@ paths:
                     data:
                       items: [{"itemId":"c8000000-0000-4000-8000-000000000005","productId":"c8000000-0000-4000-8000-000000000002","skuId":"c8000000-0000-4000-8000-000000000003","quantity":2,"unitPrice":150000,"lineTotal":300000}]
                       subtotal: 300000
-                      shippingFee: null
+                      shippingFee: 30000
                       taxAmount: 0
                       discountAmount: 0
-                      total: 300000
+                      total: 330000
                       issues: [{"itemId":"c8000000-0000-4000-8000-000000000005","skuId":"c8000000-0000-4000-8000-000000000003","code":"PRICE_CHANGED"}]
         400:
-          description: "Bad Request. Codes: `COMMERCE_INVALID_QUANTITY`, `COMMERCE_CART_EMPTY`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`."
+          description: "Bad Request. Codes: `COMMERCE_INVALID_QUANTITY`, `COMMERCE_CART_EMPTY`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`. Additional codes: `COMMERCE_INVALID_SHIPPING_ADDRESS`."
           content:
             "application/problem+json":
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[400]},"code":{"type":"string","enum":["COMMERCE_INVALID_QUANTITY","COMMERCE_CART_EMPTY","VALIDATION_FAILED","INVALID_REQUEST_BODY"]}}}]
+                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[400]},"code":{"type":"string","enum":["COMMERCE_INVALID_QUANTITY","COMMERCE_CART_EMPTY","VALIDATION_FAILED","INVALID_REQUEST_BODY","COMMERCE_INVALID_SHIPPING_ADDRESS"]}}}]
               examples:
                 COMMERCE_INVALID_QUANTITY:
                   summary: "COMMERCE_INVALID_QUANTITY"
@@ -2373,6 +2375,9 @@ paths:
                     detail: "The request body is invalid"
                     instance: "/api/v1/checkout/preview"
                     code: "INVALID_REQUEST_BODY"
+                COMMERCE_INVALID_SHIPPING_ADDRESS:
+                  summary: COMMERCE_INVALID_SHIPPING_ADDRESS
+                  value: {"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"The selected ward does not belong to the province","instance":"/api/v1/checkout/preview","code":"COMMERCE_INVALID_SHIPPING_ADDRESS"}
         401:
           description: "Unauthorized. Codes: `UNAUTHENTICATED`, `COMMERCE_UNAUTHENTICATED`."
           content:
@@ -2405,11 +2410,11 @@ paths:
                 type: "string"
                 example: "Bearer"
         403:
-          description: "Forbidden. Codes: `FORBIDDEN`."
+          description: "Forbidden. Codes: `FORBIDDEN`, `COMMERCE_FORBIDDEN`."
           content:
             "application/problem+json":
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[403]},"code":{"type":"string","enum":["FORBIDDEN"]}}}]
+                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[403]},"code":{"type":"string","enum":["FORBIDDEN","COMMERCE_FORBIDDEN"]}}}]
               examples:
                 FORBIDDEN:
                   summary: "FORBIDDEN"
@@ -2420,6 +2425,9 @@ paths:
                     detail: "Forbidden"
                     instance: "/api/v1/checkout/preview"
                     code: "FORBIDDEN"
+                COMMERCE_FORBIDDEN:
+                  summary: "Downstream authorization denied"
+                  value: {"type":"urn:problem:domain-error","title":"Forbidden","status":403,"detail":"You do not have permission","instance":"/api/v1/checkout/preview","code":"COMMERCE_FORBIDDEN"}
         405:
           description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
           content:
@@ -2473,6 +2481,20 @@ paths:
                     detail: "Unsupported Media Type"
                     instance: "/api/v1/checkout/preview"
                     code: "UNSUPPORTED_MEDIA_TYPE"
+        "409":
+          description: "Codes: `COMMERCE_SHIPPING_METADATA_REQUIRED`, `COMMERCE_INVALID_PARCEL`."
+          content:
+            application/problem+json:
+              schema:
+                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[409]},"code":{"type":"string","enum":["COMMERCE_SHIPPING_METADATA_REQUIRED","COMMERCE_INVALID_PARCEL"]}}}]
+              examples: {"COMMERCE_SHIPPING_METADATA_REQUIRED":{"summary":"COMMERCE_SHIPPING_METADATA_REQUIRED","value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"A cart SKU has no shipping parcel metadata","instance":"/api/v1/checkout/preview","code":"COMMERCE_SHIPPING_METADATA_REQUIRED"}},"COMMERCE_INVALID_PARCEL":{"summary":"COMMERCE_INVALID_PARCEL","value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"The seller parcel exceeds the supported carrier limits","instance":"/api/v1/checkout/preview","code":"COMMERCE_INVALID_PARCEL"}}}
+        "422":
+          description: "Codes: `COMMERCE_SHIPPING_NOT_AVAILABLE`."
+          content:
+            application/problem+json:
+              schema:
+                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[422]},"code":{"type":"string","enum":["COMMERCE_SHIPPING_NOT_AVAILABLE"]}}}]
+              examples: {"COMMERCE_SHIPPING_NOT_AVAILABLE":{"summary":"COMMERCE_SHIPPING_NOT_AVAILABLE","value":{"type":"urn:problem:domain-error","title":"Unprocessable Entity","status":422,"detail":"No carrier quote is available for this seller order","instance":"/api/v1/checkout/preview","code":"COMMERCE_SHIPPING_NOT_AVAILABLE"}}}
         429:
           description: "Too Many Requests. Codes: `RATE_LIMITED`."
           content:
@@ -2537,11 +2559,11 @@ paths:
                     instance: "/api/v1/checkout/preview"
                     code: "COMMERCE_INVALID_CATALOG_RESPONSE"
         503:
-          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`, `COMMERCE_CATALOG_UNAVAILABLE`."
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`, `COMMERCE_CATALOG_UNAVAILABLE`. Additional codes: `COMMERCE_SHIPPING_UNAVAILABLE`."
           content:
             "application/problem+json":
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[503]},"code":{"type":"string","enum":["SERVICE_UNAVAILABLE","COMMERCE_CATALOG_UNAVAILABLE"]}}}]
+                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[503]},"code":{"type":"string","enum":["SERVICE_UNAVAILABLE","COMMERCE_CATALOG_UNAVAILABLE","COMMERCE_SHIPPING_UNAVAILABLE"]}}}]
               examples:
                 SERVICE_UNAVAILABLE:
                   summary: "SERVICE_UNAVAILABLE"
@@ -2561,6 +2583,9 @@ paths:
                     detail: "Catalog is unavailable"
                     instance: "/api/v1/checkout/preview"
                     code: "COMMERCE_CATALOG_UNAVAILABLE"
+                COMMERCE_SHIPPING_UNAVAILABLE:
+                  summary: COMMERCE_SHIPPING_UNAVAILABLE
+                  value: {"type":"urn:problem:domain-error","title":"Service Unavailable","status":503,"detail":"Shipping service is unavailable","instance":"/api/v1/checkout/preview","code":"COMMERCE_SHIPPING_UNAVAILABLE"}
         504:
           description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
           content:
@@ -2588,9 +2613,8 @@ paths:
                 recipientName: "Buyer"
                 phoneNumber: "0901234567"
                 addressLine: "123 Street"
-                ward: "Ward"
-                district: "District"
-                city: "HCM"
+                wardCode: "1003646"
+                provinceCode: "1000001"
                 countryCode: "VN"
               paymentMethod: "SEPAY"
               promoCode: "IGNORED-D01"
@@ -2625,6 +2649,7 @@ paths:
                     data:
                       -
                         orderId: "c8000000-0000-4000-8000-000000000005"
+                        orderGroupId: "c8000000-0000-4000-8000-000000000006"
                         orderNumber: "NX-20261029-00000002"
                         userId: "68000000-0000-4000-8000-000000000001"
                         sellerId: "68000000-0000-4000-8000-000000000003"
@@ -2632,6 +2657,10 @@ paths:
                         createdAt: "2026-10-29T08:00:00Z"
                         status: "PENDING"
                         totalAmount: 300000
+                        subtotal: 300000
+                        shippingFee: 0
+                        discountAmount: 0
+                        taxAmount: 0
                         items:
                           -
                             orderItemId: "c8000000-0000-4000-8000-000000000006"
@@ -2992,7 +3021,7 @@ paths:
         - "Orders"
       operationId: "createOrder"
       summary: "Place an order from the current cart"
-      description: "Requires CHECKOUT.START AND ORDER.CREATE and a UUID Idempotency-Key. Splits the active cart by seller and checks current SKU availability before checkout. With nexus.order.idempotency-enabled=true (ORDER_IDEMPOTENCY_ENABLED, default true), a matching replay of the same key, buyer and shipping/payment payload returns the original order group and seller order IDs with 200 before price validation and creates no new rows; a fresh key returns 201. UUID letter case is normalized, so uppercase and lowercase forms are the same key. Concurrent successful requests for one key leave one group and one order per seller; the losing request returns the committed winner's group. A missing or invalid key returns 400 COMMERCE_INVALID_ORDER_REQUEST. A key owned by another buyer returns 400 COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED without that buyer's order data. The same buyer reusing a key with changed shipping/payment data returns 409 COMMERCE_IDEMPOTENCY_CONFLICT. When idempotency is disabled, the UUID header remains required but each successful checkout uses a fresh internal key and does not replay the supplied key. With nexus.checkout.price-revalidation=true (CHECKOUT_PRICE_REVALIDATION, default true), current SKU prices are compared with the cart prices using exact long minor units. A changed price returns 409 COMMERCE_PRICE_CHANGED with top-level skuId, oldPrice and newPrice in the original currency units. Only the reported cart item's price is updated and committed; no order or inventory reservation is created. A confirmed retry with a new Idempotency-Key returns 201 at the updated cart price if prices have not changed again. If several prices changed, each 409 reports and updates one item, leaving the other changed prices for subsequent confirmation. With price-revalidation=false, orders use the saved cart prices while SKU and product availability checks still apply. Cart ownership and checkout guards still apply. Unsupported promotion, unavailable item and unrepresentable money fail before checkout completes. Payment method is SEPAY; the current reservation implementation may reject unavailable inventory. Gateway checks ORDER.CREATE; downstream additionally checks CHECKOUT.START."
+      description: "Requires CHECKOUT.START AND ORDER.CREATE and a UUID Idempotency-Key. Splits the active cart by seller and checks current SKU availability before checkout. With nexus.order.idempotency-enabled=true (ORDER_IDEMPOTENCY_ENABLED, default true), a matching replay of the same key, buyer and shipping/payment payload returns the original order group and seller order IDs with 200 before price validation and creates no new rows; a fresh key returns 201. UUID letter case is normalized, so uppercase and lowercase forms are the same key. Concurrent successful requests for one key leave one group and one order per seller; the losing request returns the committed winner's group. A missing or invalid key returns 400 COMMERCE_INVALID_ORDER_REQUEST. A key owned by another buyer returns 400 COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED without that buyer's order data. The same buyer reusing a key with changed shipping/payment data returns 409 COMMERCE_IDEMPOTENCY_CONFLICT. When idempotency is disabled, the UUID header remains required but each successful checkout uses a fresh internal key and does not replay the supplied key. With nexus.checkout.price-revalidation=true (CHECKOUT_PRICE_REVALIDATION, default true), current SKU prices are compared with the cart prices using exact long minor units. A changed price returns 409 COMMERCE_PRICE_CHANGED with top-level skuId, oldPrice and newPrice in the original currency units. Only the reported cart item's price is updated and committed; no order or inventory reservation is created. A confirmed retry with a new Idempotency-Key returns 201 at the updated cart price if prices have not changed again. If several prices changed, each 409 reports and updates one item, leaving the other changed prices for subsequent confirmation. With price-revalidation=false, orders use the saved cart prices while SKU and product availability checks still apply. Cart ownership and checkout guards still apply. Unsupported promotion, unavailable item and unrepresentable money fail before checkout completes. Payment method is SEPAY. Quote every seller order before reserving anything using catalog-owned shippingParcel metadata; client shipping fees are never used. Shipping failure leaves no order or reservation. Save the group and child orders in the commerce transaction, then make one inventory reservation call with all seller order items. Inventory 409 becomes COMMERCE_INSUFFICIENT_STOCK with skuId, available and requested; all commerce group/order rows roll back. Timeout or open inventory circuit returns COMMERCE_INVENTORY_UNAVAILABLE within the configured bounded inventory-call deadline below 3 seconds, with no committed commerce order. Every child paymentDueAt and group dueAt come from reservation expiresAt. Saved shipping_info holds recipient{name,phone,address{line1,wardCode,provinceCode}}, warehouseId from the reservation and the backend-computed parcel. Failure after a successful remote hold may leave inventory for the expiry job; this path sends no compensating release. Gateway checks ORDER.CREATE; downstream additionally checks CHECKOUT.START."
       security:
         -
           bearerAuth: []
@@ -3024,6 +3053,7 @@ paths:
                       orders:
                         -
                           orderId: "c8000000-0000-4000-8000-000000000005"
+                          orderGroupId: "c8000000-0000-4000-8000-000000000006"
                           orderNumber: "NX-20261029-00000001"
                           userId: "68000000-0000-4000-8000-000000000001"
                           sellerId: "68000000-0000-4000-8000-000000000002"
@@ -3031,10 +3061,14 @@ paths:
                           createdAt: "2026-10-29T08:00:00Z"
                           status: "PENDING"
                           totalAmount: 150000
+                          subtotal: 150000
+                          shippingFee: 0
+                          discountAmount: 0
+                          taxAmount: 0
                           items: []
 
         "201":
-          description: "A new order group and one order for each seller in the cart were created."
+          description: "A new group and one order per seller were committed with backend shipping fees and one atomic reservation request."
           content:
             application/json:
               schema:
@@ -3054,6 +3088,7 @@ paths:
                       orders:
                         -
                           orderId: "c8000000-0000-4000-8000-000000000005"
+                          orderGroupId: "c8000000-0000-4000-8000-000000000006"
                           orderNumber: "NX-20261029-00000001"
                           userId: "68000000-0000-4000-8000-000000000001"
                           sellerId: "68000000-0000-4000-8000-000000000002"
@@ -3061,10 +3096,14 @@ paths:
                           createdAt: "2026-10-29T08:00:00Z"
                           status: "PENDING"
                           totalAmount: 150000
+                          subtotal: 150000
+                          shippingFee: 0
+                          discountAmount: 0
+                          taxAmount: 0
                           items: []
 
         "400":
-          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `COMMERCE_INVALID_ORDER_REQUEST`, `COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED`, `COMMERCE_INVALID_QUANTITY`, `COMMERCE_CART_EMPTY`. Missing or invalid Idempotency-Key writes no order. A key owned by another buyer returns no order data."
+          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `COMMERCE_INVALID_ORDER_REQUEST`, `COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED`, `COMMERCE_INVALID_QUANTITY`, `COMMERCE_CART_EMPTY`. Missing or invalid Idempotency-Key writes no order. A key owned by another buyer returns no order data. Additional codes: `COMMERCE_INVALID_SHIPPING_ADDRESS`."
           content:
             application/problem+json:
               schema:
@@ -3090,6 +3129,7 @@ paths:
                           - "COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED"
                           - "COMMERCE_INVALID_QUANTITY"
                           - "COMMERCE_CART_EMPTY"
+                          - "COMMERCE_INVALID_SHIPPING_ADDRESS"
 
               examples:
                 INVALID_PARAMETER:
@@ -3173,6 +3213,9 @@ paths:
                     detail: "Cart is empty"
                     instance: "/api/v1/orders"
                     code: "COMMERCE_CART_EMPTY"
+                COMMERCE_INVALID_SHIPPING_ADDRESS:
+                  summary: COMMERCE_INVALID_SHIPPING_ADDRESS
+                  value: {"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"The selected ward does not belong to the province","instance":"/api/v1/orders","code":"COMMERCE_INVALID_SHIPPING_ADDRESS"}
         "401":
           description: "Unauthorized. Codes: `UNAUTHENTICATED`, `COMMERCE_UNAUTHENTICATED`."
           headers:
@@ -3328,11 +3371,13 @@ paths:
                     instance: "/api/v1/orders"
                     code: "NOT_ACCEPTABLE"
         "409":
-          description: "Conflict. Codes: `COMMERCE_IDEMPOTENCY_CONFLICT`, `COMMERCE_PROMOTION_NOT_SUPPORTED`, `COMMERCE_ITEM_UNAVAILABLE`, `COMMERCE_INVALID_ORDER_AMOUNT`, `COMMERCE_PRICE_CHANGED`. IDEMPOTENCY_CONFLICT applies when the same buyer reuses a key with changed shipping/payment data; a key belonging to another buyer returns 400 instead. PRICE_CHANGED includes skuId, oldPrice and newPrice; the reported cart price is saved, but no order or inventory reservation is created."
+          description: "Conflict. Codes: `COMMERCE_INSUFFICIENT_STOCK`, `COMMERCE_IDEMPOTENCY_CONFLICT`, `COMMERCE_PROMOTION_NOT_SUPPORTED`, `COMMERCE_ITEM_UNAVAILABLE`, `COMMERCE_INVALID_ORDER_AMOUNT`, `COMMERCE_PRICE_CHANGED`. IDEMPOTENCY_CONFLICT applies when the same buyer reuses a key with changed shipping/payment data; a key belonging to another buyer returns 400 instead. PRICE_CHANGED includes skuId, oldPrice and newPrice; the reported cart price is saved, but no order or inventory reservation is created. Additional codes: `COMMERCE_SHIPPING_METADATA_REQUIRED`, `COMMERCE_INVALID_PARCEL`."
           content:
             application/problem+json:
               schema:
                 oneOf:
+                  -
+                    $ref: "#/components/schemas/InsufficientStockProblem"
                   -
                     $ref: "#/components/schemas/PriceChangedProblem"
                   -
@@ -3354,8 +3399,13 @@ paths:
                               - "COMMERCE_PROMOTION_NOT_SUPPORTED"
                               - "COMMERCE_ITEM_UNAVAILABLE"
                               - "COMMERCE_INVALID_ORDER_AMOUNT"
+                              - "COMMERCE_SHIPPING_METADATA_REQUIRED"
+                              - "COMMERCE_INVALID_PARCEL"
 
               examples:
+                COMMERCE_INSUFFICIENT_STOCK:
+                  summary: "Group stock reservation failed; no seller order is committed"
+                  value: {"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"SKU has insufficient stock","instance":"/api/v1/orders","code":"COMMERCE_INSUFFICIENT_STOCK","skuId":"c8000000-0000-4000-8000-000000000003","available":1,"requested":2}
                 COMMERCE_IDEMPOTENCY_CONFLICT:
                   summary: "COMMERCE_IDEMPOTENCY_CONFLICT"
                   value:
@@ -3404,6 +3454,12 @@ paths:
                     skuId: "c8000000-0000-4000-8000-000000000003"
                     oldPrice: 150000
                     newPrice: 180000
+                COMMERCE_SHIPPING_METADATA_REQUIRED:
+                  summary: COMMERCE_SHIPPING_METADATA_REQUIRED
+                  value: {"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"A cart SKU has no shipping parcel metadata","instance":"/api/v1/orders","code":"COMMERCE_SHIPPING_METADATA_REQUIRED"}
+                COMMERCE_INVALID_PARCEL:
+                  summary: COMMERCE_INVALID_PARCEL
+                  value: {"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"The seller parcel exceeds the supported carrier limits","instance":"/api/v1/orders","code":"COMMERCE_INVALID_PARCEL"}
         "415":
           description: "Unsupported Media Type. Codes: `UNSUPPORTED_MEDIA_TYPE`."
           content:
@@ -3436,6 +3492,13 @@ paths:
                     detail: "The request content type is not supported"
                     instance: "/api/v1/orders"
                     code: "UNSUPPORTED_MEDIA_TYPE"
+        "422":
+          description: "Codes: `COMMERCE_SHIPPING_NOT_AVAILABLE`."
+          content:
+            application/problem+json:
+              schema:
+                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[422]},"code":{"type":"string","enum":["COMMERCE_SHIPPING_NOT_AVAILABLE"]}}}]
+              examples: {"COMMERCE_SHIPPING_NOT_AVAILABLE":{"summary":"COMMERCE_SHIPPING_NOT_AVAILABLE","value":{"type":"urn:problem:domain-error","title":"Unprocessable Entity","status":422,"detail":"No carrier quote is available for this seller order","instance":"/api/v1/orders","code":"COMMERCE_SHIPPING_NOT_AVAILABLE"}}}
         "429":
           description: "Too Many Requests. Codes: `RATE_LIMITED`."
           content:
@@ -3506,7 +3569,7 @@ paths:
                     instance: "/api/v1/orders"
                     code: "INTERNAL_ERROR"
         "503":
-          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`, `COMMERCE_CATALOG_UNAVAILABLE`."
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`, `COMMERCE_CATALOG_UNAVAILABLE`. Additional codes: `COMMERCE_SHIPPING_UNAVAILABLE`, `COMMERCE_INVENTORY_UNAVAILABLE`."
           content:
             application/problem+json:
               schema:
@@ -3527,6 +3590,8 @@ paths:
                         enum:
                           - "SERVICE_UNAVAILABLE"
                           - "COMMERCE_CATALOG_UNAVAILABLE"
+                          - "COMMERCE_SHIPPING_UNAVAILABLE"
+                          - "COMMERCE_INVENTORY_UNAVAILABLE"
 
               examples:
                 SERVICE_UNAVAILABLE:
@@ -3547,6 +3612,12 @@ paths:
                     detail: "Catalog is unavailable"
                     instance: "/api/v1/orders"
                     code: "COMMERCE_CATALOG_UNAVAILABLE"
+                COMMERCE_SHIPPING_UNAVAILABLE:
+                  summary: COMMERCE_SHIPPING_UNAVAILABLE
+                  value: {"type":"urn:problem:domain-error","title":"Service Unavailable","status":503,"detail":"Shipping service is unavailable","instance":"/api/v1/orders","code":"COMMERCE_SHIPPING_UNAVAILABLE"}
+                COMMERCE_INVENTORY_UNAVAILABLE:
+                  summary: COMMERCE_INVENTORY_UNAVAILABLE
+                  value: {"type":"urn:problem:domain-error","title":"Service Unavailable","status":503,"detail":"Inventory service is unavailable","instance":"/api/v1/orders","code":"COMMERCE_INVENTORY_UNAVAILABLE"}
         "504":
           description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
           content:
@@ -3606,9 +3677,8 @@ paths:
                 recipientName: "Nguyen Van A"
                 phoneNumber: "0901234567"
                 addressLine: "123 Le Loi"
-                ward: "Ben Thanh"
-                district: "1"
-                city: "Ho Chi Minh"
+                wardCode: "1003646"
+                provinceCode: "1000001"
                 countryCode: "VN"
   /api/v1/orders/manage:
     get:
@@ -3685,6 +3755,7 @@ paths:
                     message: response success
                     data:
                       - orderId: "c8000000-0000-4000-8000-000000000005"
+                        orderGroupId: "c8000000-0000-4000-8000-000000000006"
                         orderNumber: NX-20261103-00000001
                         userId: "68000000-0000-4000-8000-000000000001"
                         sellerId: "68000000-0000-4000-8000-000000000003"
@@ -3692,6 +3763,10 @@ paths:
                         createdAt: "2026-11-03T08:00:00Z"
                         status: PENDING
                         totalAmount: 150000
+                        subtotal: 150000
+                        shippingFee: 0
+                        discountAmount: 0
+                        taxAmount: 0
                         items: []
                     page: {number: 0, size: 10, totalElements: 1, totalPages: 1}
                 empty:
@@ -3898,6 +3973,7 @@ paths:
                     message: response success
                     data:
                       - orderId: "c8000000-0000-4000-8000-000000000005"
+                        orderGroupId: "c8000000-0000-4000-8000-000000000006"
                         orderNumber: NX-20261103-00000001
                         userId: "68000000-0000-4000-8000-000000000001"
                         sellerId: "68000000-0000-4000-8000-000000000003"
@@ -3905,6 +3981,10 @@ paths:
                         createdAt: "2026-11-03T08:00:00Z"
                         status: PENDING
                         totalAmount: 150000
+                        subtotal: 150000
+                        shippingFee: 0
+                        discountAmount: 0
+                        taxAmount: 0
                         items: []
                     page: {number: 0, size: 10, totalElements: 1, totalPages: 1}
                 empty:
@@ -4054,6 +4134,413 @@ paths:
                 GATEWAY_TIMEOUT:
                   value: {"type":"urn:problem:gateway-timeout","title":"Gateway Timeout","status":504,"detail":"The service did not answer in time","instance":"/api/v1/orders/sales","code":"GATEWAY_TIMEOUT"}
 
+  /api/v1/orders/groups/{id}:
+    get:
+      tags:
+        - "Orders"
+      operationId: "getOrderGroup"
+      summary: "Read the complete order group"
+      description: "Requires ORDER.VIEW and the group buyer owner or ADMIN. Includes every seller order, stored price/shipping breakdown, current status and the common reservation deadline. Another buyer receives 403; a missing group returns 404 COMMERCE_ORDER_NOT_FOUND."
+      security:
+        -
+          bearerAuth: []
+
+      x-required-privileges:
+        - "ORDER.VIEW"
+      x-required-roles: []
+      x-ownership: "Group buyer owner or ADMIN; ORDER.VIEW remains mandatory."
+      responses:
+        "200":
+          description: "The complete buyer order group."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateOrderResponse"
+              example:
+                code: 0
+                message: response success
+                data:
+                  orderGroupId: "c8000000-0000-4000-8000-000000000006"
+                  status: PENDING
+                  totalAmount: 330000
+                  currency: VND
+                  dueAt: "2026-11-11T08:30:00Z"
+                  orders:
+                    - orderId: "c8000000-0000-4000-8000-000000000005"
+                      orderGroupId: "c8000000-0000-4000-8000-000000000006"
+                      orderNumber: NX-20261111-00000001
+                      userId: "68000000-0000-4000-8000-000000000001"
+                      sellerId: "68000000-0000-4000-8000-000000000003"
+                      orderType: STANDARD
+                      status: PENDING
+                      createdAt: "2026-11-11T08:00:00Z"
+                      subtotal: 300000
+                      shippingFee: 30000
+                      discountAmount: 0
+                      taxAmount: 0
+                      totalAmount: 330000
+                      items: []
+        "400":
+          description: "Bad Request. Codes: `INVALID_PARAMETER`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 400
+                      code:
+                        type: "string"
+                        enum:
+                          - "INVALID_PARAMETER"
+
+              examples:
+                INVALID_PARAMETER:
+                  summary: "INVALID_PARAMETER"
+                  value:
+                    type: "urn:problem:invalid-parameter"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "A request parameter is invalid"
+                    instance: "/api/v1/orders/groups/c8000000-0000-4000-8000-000000000006"
+                    code: "INVALID_PARAMETER"
+        "401":
+          description: "Unauthorized. Codes: `UNAUTHENTICATED`, `COMMERCE_UNAUTHENTICATED`."
+          headers:
+            WWW-Authenticate:
+              description: "Bearer challenge for security failures; domain failures may omit it."
+              schema:
+                type: "string"
+                example: "Bearer"
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 401
+                      code:
+                        type: "string"
+                        enum:
+                          - "UNAUTHENTICATED"
+                          - "COMMERCE_UNAUTHENTICATED"
+
+              examples:
+                UNAUTHENTICATED:
+                  summary: "UNAUTHENTICATED"
+                  value:
+                    type: "urn:problem:unauthenticated"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "A valid access token is required to access this resource"
+                    instance: "/api/v1/orders/groups/c8000000-0000-4000-8000-000000000006"
+                    code: "UNAUTHENTICATED"
+                COMMERCE_UNAUTHENTICATED:
+                  summary: "COMMERCE_UNAUTHENTICATED"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "Unauthenticated"
+                    instance: "/api/v1/orders/groups/c8000000-0000-4000-8000-000000000006"
+                    code: "COMMERCE_UNAUTHENTICATED"
+        "403":
+          description: "Forbidden. Codes: `FORBIDDEN`, `COMMERCE_FORBIDDEN`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 403
+                      code:
+                        type: "string"
+                        enum:
+                          - "FORBIDDEN"
+                          - "COMMERCE_FORBIDDEN"
+
+              examples:
+                FORBIDDEN:
+                  summary: "FORBIDDEN"
+                  value:
+                    type: "urn:problem:forbidden"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission to access this resource"
+                    instance: "/api/v1/orders/groups/c8000000-0000-4000-8000-000000000006"
+                    code: "FORBIDDEN"
+                COMMERCE_FORBIDDEN:
+                  summary: "COMMERCE_FORBIDDEN"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission"
+                    instance: "/api/v1/orders/groups/c8000000-0000-4000-8000-000000000006"
+                    code: "COMMERCE_FORBIDDEN"
+        "404":
+          description: "Not Found. Codes: `COMMERCE_ORDER_NOT_FOUND`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 404
+                      code:
+                        type: "string"
+                        enum:
+                          - "COMMERCE_ORDER_NOT_FOUND"
+
+              examples:
+                COMMERCE_ORDER_NOT_FOUND:
+                  summary: "COMMERCE_ORDER_NOT_FOUND"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Not Found"
+                    status: 404
+                    detail: "Order not found"
+                    instance: "/api/v1/orders/groups/c8000000-0000-4000-8000-000000000006"
+                    code: "COMMERCE_ORDER_NOT_FOUND"
+        "405":
+          description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 405
+                      code:
+                        type: "string"
+                        enum:
+                          - "METHOD_NOT_ALLOWED"
+
+              examples:
+                METHOD_NOT_ALLOWED:
+                  summary: "METHOD_NOT_ALLOWED"
+                  value:
+                    type: "urn:problem:method-not-allowed"
+                    title: "Method Not Allowed"
+                    status: 405
+                    detail: "The HTTP method is not supported for this endpoint"
+                    instance: "/api/v1/orders/groups/c8000000-0000-4000-8000-000000000006"
+                    code: "METHOD_NOT_ALLOWED"
+        "406":
+          description: "Not Acceptable. Codes: `NOT_ACCEPTABLE`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 406
+                      code:
+                        type: "string"
+                        enum:
+                          - "NOT_ACCEPTABLE"
+
+              examples:
+                NOT_ACCEPTABLE:
+                  summary: "NOT_ACCEPTABLE"
+                  value:
+                    type: "urn:problem:not-acceptable"
+                    title: "Not Acceptable"
+                    status: 406
+                    detail: "The requested response format is not supported"
+                    instance: "/api/v1/orders/groups/c8000000-0000-4000-8000-000000000006"
+                    code: "NOT_ACCEPTABLE"
+        "429":
+          description: "Too Many Requests. Codes: `RATE_LIMITED`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 429
+                      code:
+                        type: "string"
+                        enum:
+                          - "RATE_LIMITED"
+
+              examples:
+                RATE_LIMITED:
+                  summary: "RATE_LIMITED"
+                  value:
+                    type: "urn:problem:rate-limited"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many requests; retry after the indicated delay"
+                    instance: "/api/v1/orders/groups/c8000000-0000-4000-8000-000000000006"
+                    code: "RATE_LIMITED"
+          headers:
+            Retry-After:
+              description: "Present when supplied by the limiter."
+              schema:
+                type: "string"
+        "500":
+          description: "Internal Server Error. Codes: `INTERNAL_ERROR`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 500
+                      code:
+                        type: "string"
+                        enum:
+                          - "INTERNAL_ERROR"
+
+              examples:
+                INTERNAL_ERROR:
+                  summary: "INTERNAL_ERROR"
+                  value:
+                    type: "urn:problem:internal-error"
+                    title: "Internal Server Error"
+                    status: 500
+                    detail: "An unexpected error occurred"
+                    instance: "/api/v1/orders/groups/c8000000-0000-4000-8000-000000000006"
+                    code: "INTERNAL_ERROR"
+        "503":
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 503
+                      code:
+                        type: "string"
+                        enum:
+                          - "SERVICE_UNAVAILABLE"
+
+              examples:
+                SERVICE_UNAVAILABLE:
+                  summary: "SERVICE_UNAVAILABLE"
+                  value:
+                    type: "urn:problem:service-unavailable"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "A required service is unavailable"
+                    instance: "/api/v1/orders/groups/c8000000-0000-4000-8000-000000000006"
+                    code: "SERVICE_UNAVAILABLE"
+        "504":
+          description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+
+                  -
+                    type: "object"
+                    required: []
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 504
+                      code:
+                        type: "string"
+                        enum:
+                          - "GATEWAY_TIMEOUT"
+
+              examples:
+                GATEWAY_TIMEOUT:
+                  summary: "GATEWAY_TIMEOUT"
+                  value:
+                    type: "urn:problem:gateway-timeout"
+                    title: "Gateway Timeout"
+                    status: 504
+                    detail: "The service did not answer in time"
+                    instance: "/api/v1/orders/groups/c8000000-0000-4000-8000-000000000006"
+                    code: "GATEWAY_TIMEOUT"
+      x-gateway-privilege: "ORDER.VIEW"
+      parameters:
+        -
+          name: "id"
+          in: "path"
+          required: true
+          description: "Resource UUID."
+          schema:
+            type: "string"
+            format: "uuid"
   /api/v1/orders/{id}:
     get:
       tags:
@@ -4084,6 +4571,7 @@ paths:
                     message: "response success"
                     data:
                       orderId: "c8000000-0000-4000-8000-000000000005"
+                      orderGroupId: "c8000000-0000-4000-8000-000000000006"
                       orderNumber: "NX-20261029-00000002"
                       userId: "68000000-0000-4000-8000-000000000001"
                       sellerId: "68000000-0000-4000-8000-000000000003"
@@ -4091,6 +4579,10 @@ paths:
                       createdAt: "2026-10-29T08:00:00Z"
                       status: "PENDING"
                       totalAmount: 300000
+                      subtotal: 300000
+                      shippingFee: 0
+                      discountAmount: 0
+                      taxAmount: 0
                       items:
                         -
                           orderItemId: "c8000000-0000-4000-8000-000000000006"
@@ -4922,6 +5414,7 @@ paths:
                     message: "response success"
                     data:
                       orderId: "c8000000-0000-4000-8000-000000000005"
+                      orderGroupId: "c8000000-0000-4000-8000-000000000006"
                       orderNumber: "NX-20261029-00000001"
                       userId: "68000000-0000-4000-8000-000000000001"
                       sellerId: "68000000-0000-4000-8000-000000000002"
@@ -4929,6 +5422,10 @@ paths:
                       createdAt: "2026-10-29T08:00:00Z"
                       status: "PAID"
                       totalAmount: 150000
+                      subtotal: 150000
+                      shippingFee: 0
+                      discountAmount: 0
+                      taxAmount: 0
                       items: []
         "400":
           description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`."
@@ -5421,6 +5918,7 @@ paths:
                       orders:
                         -
                           orderId: "c8000000-0000-4000-8000-000000000005"
+                          orderGroupId: "c8000000-0000-4000-8000-000000000006"
                           orderNumber: "NX-20261030-00000001"
                           userId: "68000000-0000-4000-8000-000000000001"
                           sellerId: "68000000-0000-4000-8000-000000000003"
@@ -5428,6 +5926,10 @@ paths:
                           createdAt: "2026-10-30T08:00:00Z"
                           status: "CANCELED"
                           totalAmount: 150000
+                          subtotal: 150000
+                          shippingFee: 0
+                          discountAmount: 0
+                          taxAmount: 0
                           items: []
         "400":
           description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `COMMERCE_RESERVED_CANCEL_REASON`."
@@ -7415,12 +7917,12 @@ components:
         estimatedShippingFee:
           type: "number"
           minimum: 0
-          description: "Always null until shipping quote #201 is delivered, including above FREE_SHIPPING_THRESHOLD."
+          description: "Null because this endpoint has no delivery address; use checkout preview for an address-aware quote, including above FREE_SHIPPING_THRESHOLD."
           nullable: true
         total:
           type: "number"
           minimum: 0
-          description: "subtotal + taxAmount - discountAmount. Unknown shipping is excluded until #201."
+          description: "subtotal + taxAmount - discountAmount. Unknown shipping is excluded from this address-free estimate."
     CartIssue:
       type: object
       required:
@@ -7493,7 +7995,7 @@ components:
         shippingFee:
           type: "number"
           minimum: 0
-          description: "Unknown until #201; explicitly null."
+          description: "Sum of backend shipping quotes for each seller order; null while inactive/missing product issues prevent quotation."
           nullable: true
         taxAmount:
           type: "number"
@@ -7506,7 +8008,7 @@ components:
         total:
           type: "number"
           minimum: 0
-          description: "Numeric VND amount; BigDecimal preserves the existing cart money contract."
+          description: "subtotal - discountAmount + taxAmount + shippingFee. A null shippingFee counts as 0 until #201."
         issues:
           type: "array"
           items:
@@ -7598,6 +8100,17 @@ components:
           type: "array"
           items:
             $ref: "#/components/schemas/ValidationError"
+    InsufficientStockProblem:
+      allOf:
+        - $ref: "#/components/schemas/Problem"
+        - type: object
+          required: [skuId, available, requested]
+          properties:
+            status: {type: integer, enum: [409]}
+            code: {type: string, enum: [COMMERCE_INSUFFICIENT_STOCK]}
+            skuId: {type: string, format: uuid}
+            available: {type: integer, minimum: 0}
+            requested: {type: integer, minimum: 1}
     PriceChangedProblem:
       allOf:
         -
@@ -7804,50 +8317,35 @@ components:
         - "REFUND_REQUESTED"
         - "REFUNDED"
     ShippingAddress:
-      type: "object"
-      required:
-        - "recipientName"
-        - "phoneNumber"
-        - "addressLine"
-        - "ward"
-        - "district"
-        - "city"
-        - "countryCode"
+      type: object
+      description: "GHN v3 two-level recipient address. Use active province/ward codes from the shipping locality API; the ward must belong to the province."
+      required: [recipientName, phoneNumber, addressLine, wardCode, provinceCode, countryCode]
       properties:
         recipientName:
-          type: "string"
+          type: string
           minLength: 1
           maxLength: 150
-          pattern: "\\S"
+          pattern: '\S'
         phoneNumber:
-          type: "string"
-          minLength: 8
-          maxLength: 20
-          pattern: "\\S"
+          type: string
+          pattern: '^(0[0-9]{9}|\+84[0-9]{9})$'
+          description: "Vietnamese carrier-compatible phone; trimmed before validation."
         addressLine:
-          type: "string"
+          type: string
           minLength: 1
-          maxLength: 500
-          pattern: "\\S"
-        ward:
-          type: "string"
-          minLength: 1
-          maxLength: 100
-          pattern: "\\S"
-        district:
-          type: "string"
-          minLength: 1
-          maxLength: 100
-          pattern: "\\S"
-        city:
-          type: "string"
-          minLength: 1
-          maxLength: 100
-          pattern: "\\S"
+          maxLength: 255
+          pattern: '\S'
+        wardCode:
+          type: string
+          pattern: '^[1-9][0-9]{0,8}$'
+          description: "Active GHN v3 ward _id as a string; no district is accepted."
+        provinceCode:
+          type: string
+          pattern: '^[1-9][0-9]{0,8}$'
+          description: "Active GHN v3 province _id as a string."
         countryCode:
-          type: "string"
-          enum:
-            - "VN"
+          type: string
+          enum: [VN]
           description: "Trimmed and uppercased before validation."
     CreateOrder:
       type: "object"
@@ -7929,24 +8427,41 @@ components:
       type: "object"
       required:
         - "orderId"
+        - "orderGroupId"
         - "orderNumber"
         - "userId"
         - "sellerId"
         - "orderType"
         - "status"
         - "createdAt"
+        - "subtotal"
+        - "shippingFee"
+        - "discountAmount"
+        - "taxAmount"
         - "totalAmount"
         - "items"
       properties:
         orderId:
           type: "string"
           format: "uuid"
+        orderGroupId:
+          type: string
+          format: uuid
+          description: "Group containing this seller order; returned on all detail/list reads."
         orderNumber:
           type: "string"
         userId:
           type: "string"
           format: "uuid"
           description: "Buyer who placed the order."
+        recipientName:
+          type: "string"
+          nullable: true
+          description: "Recipient name from the order shippingAddress snapshot; unavailable for historical orders without a valid name. This is not a current profile lookup."
+        phoneNumber:
+          type: "string"
+          nullable: true
+          description: "Recipient phone from the order shippingAddress snapshot; unavailable for historical orders without a valid phone."
         sellerId:
           type: "string"
           format: "uuid"
@@ -7958,10 +8473,24 @@ components:
         createdAt:
           type: "string"
           format: "date-time"
+        subtotal:
+          type: number
+          minimum: 0
+          description: "Sum of stored item line totals."
+        shippingFee:
+          type: number
+          minimum: 0
+          description: "Backend shipping quote for this seller order."
+        discountAmount:
+          type: number
+          minimum: 0
+        taxAmount:
+          type: number
+          minimum: 0
         totalAmount:
           type: "number"
           minimum: 0
-          description: "BigDecimal JSON number; no decimal-string conversion."
+          description: "subtotal - discountAmount + taxAmount + shippingFee, recomputed by the backend and enforced by the database CHECK; BigDecimal JSON number."
         items:
           type: "array"
           items:
@@ -7984,13 +8513,14 @@ components:
         totalAmount:
           type: "number"
           minimum: 0
-          description: "BigDecimal JSON number; no decimal-string conversion."
+          description: "Sum of all child order totalAmount values, including their shipping fees."
         currency:
           type: "string"
           example: "VND"
         dueAt:
           type: "string"
           format: "date-time"
+          description: "Reservation expiresAt; every child paymentDueAt has this same deadline."
         orders:
           type: "array"
           items:

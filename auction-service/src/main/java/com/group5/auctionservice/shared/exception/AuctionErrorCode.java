@@ -5,6 +5,8 @@ import org.springframework.http.HttpStatus;
 
 public enum AuctionErrorCode implements ErrorCode {
     AUCTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Auction not found"),
+    AUCTION_FORBIDDEN(HttpStatus.FORBIDDEN, "This actor cannot perform the auction action"),
+    AUCTION_ILLEGAL_TRANSITION(HttpStatus.CONFLICT, "The auction cannot move to this status from its current status"),
     AUCTION_START_IN_PAST("startAt must not be in the past (5 seconds of clock skew allowed)"),
     AUCTION_INVALID_TIME_WINDOW("endAt must be after startAt"),
     AUCTION_DURATION_TOO_SHORT("Auction duration is below the configured minimum"),

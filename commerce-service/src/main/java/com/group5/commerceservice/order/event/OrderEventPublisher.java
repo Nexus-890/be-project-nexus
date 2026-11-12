@@ -48,6 +48,12 @@ public class OrderEventPublisher {
                 envelopes.create("OrderCancelled", payload.orderId().toString(), payload));
     }
 
+    /** Ghi một OrderPaid cho từng đơn vào outbox trong transaction đang chuyển trạng thái PAID. */
+    public void orderPaid(OrderPaid payload) {
+        outbox.write("Order", Topics.COMMERCE,
+                envelopes.create("OrderPaid", payload.orderId().toString(), payload));
+    }
+
     public void orderCompleted(OrderCompleted payload) {
         outbox.write("Order", Topics.COMMERCE,
                 envelopes.create("OrderCompleted", payload.orderId().toString(), payload));

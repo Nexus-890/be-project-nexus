@@ -1,8 +1,11 @@
 package com.group5.inventoryservice;
 
+import com.group5.common_outbox.IdempotentConsumer;
 import com.group5.common_security.CurrentUser;
 import com.group5.inventoryservice.inventory.InventoryBalanceRepository;
-import com.group5.inventoryservice.inventory.WarehouseRepository;
+import com.group5.inventoryservice.inventory.InventoryMovementRepository;
+import com.group5.inventoryservice.warehouse.repository.WarehouseRepository;
+import com.group5.inventoryservice.reservation.repository.ReservationRepository;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.RSASSASigner;
@@ -61,7 +64,10 @@ class KeycloakTokenTrustTest {
     private static final HttpServer JWKS = jwks();
     @Autowired private WebApplicationContext context;
     @MockitoBean private InventoryBalanceRepository balances;
+    @MockitoBean private InventoryMovementRepository movements;
     @MockitoBean private WarehouseRepository warehouses;
+    @MockitoBean private ReservationRepository reservations;
+    @MockitoBean private IdempotentConsumer idempotentConsumer;
     private MockMvc client;
 
     @DynamicPropertySource

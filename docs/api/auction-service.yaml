@@ -5,6 +5,8 @@ info:
   description: |
     Draft for frontend mocks, not an implementation or proof of gateway enforcement. Access per path is in `docs/api/gateway-permissions.md`, section "API shapes draft (#124)".
 
+    #139 refines the #168 bid-state handoff. This endpoint remains a draft until its owning issue implements it; the delivered inventory is `docs/api/openapi/auction-service.yaml`.
+
     The runnable frontend guide is in `docs/api/inventory-service.yaml`, under `info.description`, "Frontend quick start". This mock runs on `http://localhost:4013`.
 servers:
 - url: http://localhost:4013
@@ -578,7 +580,6 @@ paths:
       x-catalogue-id: AUC-03
       x-owning-issue: '#144'
       x-actor-roles:
-      - ADMIN
       - SELLER
       x-gateway-privilege: AUCTION.UPDATE
       x-required-privileges:
@@ -621,11 +622,6 @@ paths:
                   originalEndAt: '2026-11-06T10:00:00Z'
                   extensionCount: 0
                   status: SCHEDULED
-                  finalPrice: null
-                  paymentDueAt: null
-                  orderId: null
-                  cancelledBy: null
-                  cancelledReason: null
         '401':
           description: 'Unauthorized. Codes: `UNAUTHENTICATED`.'
           content:
@@ -667,7 +663,7 @@ paths:
                     type: urn:problem:domain-error
                     title: Forbidden
                     status: 403
-                    detail: Only the owner can do this
+                    detail: This actor cannot perform the auction action
                     instance: /api/v1/auctions/00000051-1111-4111-8111-111111111111/schedule
                     code: AUCTION_FORBIDDEN
         '404':
@@ -712,7 +708,18 @@ paths:
       x-actor-roles:
       - public
       x-gateway-privilege: public
-      description: Public. Cached 1 second; serverTime is read after the cache.
+      description: >-
+        Public polling contract for #168; viewers poll every 2 seconds. Read one
+        local auction projection without joining or calling another service.
+        Cache auction data by auction id for 1 second with Caffeine; read
+        serverTime from the server clock after the cache on every request.
+        Return endAt and serverTime as ISO-8601 with an explicit offset (Z or
+        +/-HH:MM); clients localize them. Expose only a masked leader name,
+        never the full name or bidder UUID; return null before the first bid.
+        Missing, deleted or non-public auctions return AUCTION_NOT_FOUND (404),
+        consistent with the public auction read boundary. Performance and rate
+        limit acceptance remain #168's staging/integration work, not evidence
+        supplied by this draft.
       security: []
       parameters:
       - name: id
@@ -1821,6 +1828,7 @@ components:
       - currentPrice
       - bidCount
       - bidIncrement
+      - leaderBidderName
       - endAt
       - status
       - serverTime
@@ -1845,7 +1853,7 @@ components:
         leaderBidderName:
           type: string
           nullable: true
-          description: Masked. null while there is no bid.
+          description: Masked per #168 (for example Ng**** V**); never the full name. Explicit null while there is no bid.
         endAt:
           type: string
           format: date-time
@@ -1864,7 +1872,7 @@ components:
         serverTime:
           type: string
           format: date-time
-          description: Read after the 1 second cache.
+          description: Fresh server clock read after the 1-second data cache on every request; ISO-8601 with Z or an explicit offset, within 2 seconds of that clock.
     PlaceBidRequest:
       type: object
       additionalProperties: false

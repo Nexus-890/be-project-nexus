@@ -2,9 +2,10 @@ package com.group5.inventoryservice.inventory;
 
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
+import com.group5.inventoryservice.inventory.dto.AdjustmentRequest;
 import com.group5.inventoryservice.inventory.dto.BalanceResponse;
 import com.group5.inventoryservice.inventory.dto.IntakeRequest;
-import com.group5.inventoryservice.shared.config.InventoryProperties;
+import com.group5.inventoryservice.shared.catalog.CatalogSkuOwners;
 import com.group5.inventoryservice.shared.exception.InventoryErrorCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,36 +16,55 @@ import java.util.UUID;
 public class InventoryService {
 
     private final InventoryBalanceRepository balances;
-    private final WarehouseRepository warehouses;
-    private final InventoryProperties properties;
+    private final InventoryMovementRepository movements;
+    private final WarehouseResolver warehouses;
+    private final CatalogSkuOwners skuOwners;
 
-    public InventoryService(InventoryBalanceRepository balances, WarehouseRepository warehouses,
-                            InventoryProperties properties) {
+    public InventoryService(InventoryBalanceRepository balances, InventoryMovementRepository movements,
+                            WarehouseResolver warehouses, CatalogSkuOwners skuOwners) {
         this.balances = balances;
+        this.movements = movements;
         this.warehouses = warehouses;
-        this.properties = properties;
+        this.skuOwners = skuOwners;
+    }
+
+    public void requireIntakeAccess(IntakeRequest request, CurrentUser currentUser) {
+        if (currentUser.hasRole("ADMIN")) {
+            return;
+        }
+        if (request.warehouseId() != null) {
+            throw new DomainException(InventoryErrorCode.FORBIDDEN,
+                    "Sellers can only add stock to the default warehouse");
+        }
+        if (skuOwners.sellerOf(request.skuId()).filter(currentUser.id()::equals).isEmpty()) {
+            throw new DomainException(InventoryErrorCode.FORBIDDEN);
+        }
     }
 
     @Transactional
     public BalanceResponse intake(IntakeRequest request, CurrentUser currentUser) {
-        UUID warehouseId = resolveWarehouse(request.warehouseId());
+        UUID warehouseId = warehouses.resolveForIntake(request.warehouseId());
         balances.intake(request.skuId(), warehouseId, request.quantity(), currentUser.id());
         // ĐỌC LẠI DÒNG SAU KHI UPSERT ĐỂ TRẢ VỀ SỐ MỚI NHẤT (clearAutomatically ĐÃ XÓA CACHE CŨ)
-        return balances.findBySkuIdAndWarehouseId(request.skuId(), warehouseId)
-                .map(BalanceResponse::from)
-                .orElseThrow();
+        InventoryBalance balance = balances.findBySkuIdAndWarehouseId(request.skuId(), warehouseId).orElseThrow();
+        // GHI SỔ KHO CÙNG TRANSACTION VỚI SỐ TỒN -> LỖI Ở ĐÂU THÌ CẢ 2 CÙNG ROLLBACK, KHÔNG LỆCH NHAU
+        movements.record(request.skuId(), warehouseId, MovementType.INTAKE, request.quantity(), balance.getId(),
+                currentUser.id());
+        return BalanceResponse.from(balance);
     }
 
-    private UUID resolveWarehouse(UUID warehouseId) {
-        if (warehouseId != null) {
-            if (!warehouses.existsById(warehouseId)) {
-                throw new DomainException(InventoryErrorCode.WAREHOUSE_NOT_FOUND);
-            }
-            return warehouseId;
+    @Transactional
+    public BalanceResponse adjust(AdjustmentRequest request, CurrentUser currentUser) {
+        UUID warehouseId = warehouses.resolve(request.warehouseId());
+        int delta = request.quantityDelta();
+        if (balances.adjust(request.skuId(), warehouseId, delta, currentUser.id()) == 0) {
+            throw balances.findBySkuIdAndWarehouseId(request.skuId(), warehouseId).isPresent()
+                    ? new DomainException(InventoryErrorCode.NEGATIVE_QUANTITY)
+                    : new DomainException(InventoryErrorCode.BALANCE_NOT_FOUND);
         }
-        // KHÔNG GỬI warehouseId -> LẤY KHO MẶC ĐỊNH THEO CODE TRONG CONFIG (WH_001), KHÔNG HARDCODE UUID
-        return warehouses.findByCode(properties.defaultWarehouseCode())
-                .map(Warehouse::getId)
-                .orElseThrow(() -> new DomainException(InventoryErrorCode.DEFAULT_WAREHOUSE_NOT_FOUND));
+        InventoryBalance balance = balances.findBySkuIdAndWarehouseId(request.skuId(), warehouseId).orElseThrow();
+        movements.recordAdjustment(request.skuId(), warehouseId, delta, balance.getId(), request.reason().strip(),
+                currentUser.id());
+        return BalanceResponse.from(balance);
     }
 }
