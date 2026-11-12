@@ -18,9 +18,9 @@ public class AuctionStateMachine {
             ACTIVE, Set.of(ENDED, CANCELLED),
             ENDED, Set.of(WON, FAILED, CANCELLED),
             WON, Set.of(SETTLED, CANCELLED),
-            SETTLED, Set.of(PAYMENT_TIMEOUT, CANCELLED),
-            FAILED, Set.of(CANCELLED),
-            PAYMENT_TIMEOUT, Set.of(CANCELLED),
+            SETTLED, Set.of(PAYMENT_TIMEOUT),
+            FAILED, Set.of(),
+            PAYMENT_TIMEOUT, Set.of(),
             CANCELLED, Set.of()
     );
 
@@ -36,7 +36,7 @@ public class AuctionStateMachine {
     }
 
     public void cancel(Auction auction, CurrentUser actor) {
-        if (!actor.hasRole("ADMIN")) {
+        if (!actor.hasRole("ADMIN") && !(actor.hasRole("SELLER") && actor.id().equals(auction.getSellerId()))) {
             throw new DomainException(AuctionErrorCode.AUCTION_FORBIDDEN);
         }
         apply(auction, CANCELLED);
