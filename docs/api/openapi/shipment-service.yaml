@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Nexus vận chuyển
-  version: 2.3.0
+  version: 2.4.0
   description: >-
     Issue #201: danh sách nhà vận chuyển, địa giới GHN v3 hai cấp sau sáp nhập và báo giá bằng preview. Bản
     2.1 bổ sung insuranceValue tùy chọn, độc lập với subtotal của catalog; bỏ trống hoặc null tương đương 0.
@@ -16,6 +16,7 @@ info:
     PAID đọc trực tiếp từ commerce-service khi shipment chưa tồn tại. Fake hỗ trợ tạo tracking; GHN create thuộc
     tích hợp riêng. Snapshot thiếu dữ liệu chuẩn bị hoặc carrier chưa khả dụng giữ PENDING_TRACKING.
     Tracking retry không bổ sung dữ liệu chuẩn bị còn thiếu; #202 chưa có endpoint hoàn tất chuẩn bị.
+    Bản 2.4 bổ sung đọc tracking và lịch sử trạng thái đã lưu cho buyer trên trang đơn hàng.
 servers:
   - url: http://localhost:8080
     description: Cổng API của hệ thống
@@ -335,6 +336,103 @@ paths:
                   $ref: '#/components/examples/CreatedShipment'
                 pending:
                   $ref: '#/components/examples/PendingShipment'
+        '400':
+          $ref: '#/components/responses/ShipmentBadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/ShipmentNotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RoutingUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+  /api/v1/shipments/{id}/tracking:
+    get:
+      tags:
+        - Shipments
+      operationId: getShipmentTracking
+      summary: Đọc tracking và lịch sử trạng thái shipment
+      description: >-
+        Yêu cầu SHIPPING.VIEW_SHIPMENT. ADMIN và SUPPORT_STAFF đọc mọi shipment; các actor khác chỉ đọc
+        shipment có buyerId bằng sub của JWT. Shipment không tồn tại hoặc thuộc buyer khác đều trả cùng
+        404 SHIPMENT_NOT_FOUND. Quyền sở hữu được kiểm tra trước khi đọc lịch sử. Chỉ đọc shipment và
+        shipment_history đã lưu, không gọi carrier hoặc tạo sự kiện giả. history tăng dần theo createdAt,
+        sau đó id; history=[] là hợp lệ với shipment chưa có lịch sử. trackingCode=null khi chưa được cấp.
+        Để tìm shipment của order, dùng GET /api/v1/shipments?orderId={orderId}; data=[] nghĩa là chưa có
+        shipment và giao diện có thể ẩn khối tracking.
+      security:
+        - bearerAuth: []
+      x-required-privileges:
+        - SHIPPING.VIEW_SHIPMENT
+      x-required-roles: []
+      x-ownership: ADMIN/SUPPORT_STAFF đọc tất cả; các actor khác chỉ đọc buyerId bằng sub của JWT.
+      x-error-codes:
+        '400':
+          - SHIPMENT_INVALID_PARAMETER
+        '401':
+          - SHIPMENT_UNAUTHENTICATED
+          - UNAUTHENTICATED
+        '403':
+          - SHIPMENT_FORBIDDEN
+          - FORBIDDEN
+        '404':
+          - SHIPMENT_NOT_FOUND
+        '405':
+          - SHIPMENT_METHOD_NOT_ALLOWED
+        '406':
+          - SHIPMENT_NOT_ACCEPTABLE
+        '429':
+          - RATE_LIMITED
+        '500':
+          - SHIPMENT_INTERNAL_ERROR
+          - INTERNAL_ERROR
+        '503':
+          - SERVICE_UNAVAILABLE
+        '504':
+          - GATEWAY_TIMEOUT
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: UUID shipment, không phải UUID order.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Tracking hiện tại và lịch sử trạng thái theo thời gian.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipmentTrackingEnvelope'
+              example:
+                code: 0
+                message: response success
+                data:
+                  shipmentId: 00000000-0000-4000-8000-000000000040
+                  orderId: 00000000-0000-4000-8000-000000000001
+                  carrier: GHN
+                  trackingCode: GHN123456
+                  status: IN_TRANSIT
+                  history:
+                    - id: 00000000-0000-4000-8000-000000000041
+                      status: SHIPPED
+                      description: Shipment handed to carrier
+                      createdAt: '2026-11-12T08:00:00Z'
+                    - id: 00000000-0000-4000-8000-000000000042
+                      status: IN_TRANSIT
+                      description: null
+                      createdAt: '2026-11-12T09:00:00Z'
         '400':
           $ref: '#/components/responses/ShipmentBadRequest'
         '401':
@@ -1901,6 +1999,76 @@ components:
           type: integer
           format: int64
           minimum: 0
+    ShipmentHistoryResponse:
+      type: object
+      required:
+        - id
+        - status
+        - description
+        - createdAt
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        description:
+          type: string
+          nullable: true
+          maxLength: 255
+        createdAt:
+          type: string
+          format: date-time
+    ShipmentTrackingResponse:
+      type: object
+      required:
+        - shipmentId
+        - orderId
+        - carrier
+        - trackingCode
+        - status
+        - history
+      additionalProperties: false
+      properties:
+        shipmentId:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+          format: uuid
+        carrier:
+          type: string
+          minLength: 1
+          maxLength: 40
+        trackingCode:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 80
+        status:
+          $ref: '#/components/schemas/ShipmentStatus'
+        history:
+          type: array
+          description: Các trạng thái đã lưu theo createdAt tăng dần, sau đó id; không tạo mốc giả khi rỗng.
+          items:
+            $ref: '#/components/schemas/ShipmentHistoryResponse'
+    ShipmentTrackingEnvelope:
+      type: object
+      required:
+        - code
+        - message
+        - data
+      additionalProperties: false
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          $ref: '#/components/schemas/ShipmentTrackingResponse'
     ShipmentEnvelope:
       type: object
       required:

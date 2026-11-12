@@ -3,8 +3,10 @@ package com.group5.shipmentservice.shipping.service;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
 import com.group5.shipmentservice.shipping.entity.Shipment;
+import com.group5.shipmentservice.shipping.entity.ShipmentHistory;
 import com.group5.shipmentservice.shipping.enums.ShipmentStatus;
 import com.group5.shipmentservice.shipping.repository.ShipmentRepository;
+import com.group5.shipmentservice.shipping.repository.ShipmentHistoryRepository;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Path;
@@ -26,6 +28,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -50,11 +53,13 @@ class ShipmentReadServiceTest {
 
     @Mock
     private ShipmentRepository shipments;
+    @Mock
+    private ShipmentHistoryRepository histories;
     private ShipmentReadService service;
 
     @BeforeEach
     void setUp() {
-        service = new ShipmentReadService(shipments);
+        service = new ShipmentReadService(shipments, histories);
     }
 
     @Test
@@ -65,6 +70,85 @@ class ShipmentReadServiceTest {
         when(shipments.findById(SHIPMENT)).thenReturn(Optional.of(shipment));
 
         assertThat(service.get(user("BUYER"), SHIPMENT).id()).isEqualTo(SHIPMENT);
+    }
+
+    @Test
+    void trackingReturnsPersistedHistoryAndCurrentCarrierSnapshot() {
+        Shipment shipment = Shipment.create(SHIPMENT, ORDER, BUYER, UUID.randomUUID(), "GHN", "STANDARD",
+                java.math.BigDecimal.ZERO, java.util.Map.of(), null);
+        shipment.trackingAssigned("GHN123456");
+        ShipmentHistory entry = mock(ShipmentHistory.class);
+        UUID eventId = UUID.randomUUID();
+        OffsetDateTime occurredAt = OffsetDateTime.parse("2026-11-12T09:00:00Z");
+        when(entry.getId()).thenReturn(eventId);
+        when(entry.getShipmentStatus()).thenReturn(ShipmentStatus.PENDING_TRACKING);
+        when(entry.getDescription()).thenReturn("Shipment created");
+        when(entry.getCreatedAt()).thenReturn(occurredAt);
+        when(shipments.findById(SHIPMENT)).thenReturn(Optional.of(shipment));
+        when(histories.findByShipment_IdOrderByCreatedAtAscIdAsc(SHIPMENT)).thenReturn(List.of(entry));
+
+        var result = service.tracking(user("BUYER"), SHIPMENT);
+
+        assertThat(result.shipmentId()).isEqualTo(SHIPMENT);
+        assertThat(result.orderId()).isEqualTo(ORDER);
+        assertThat(result.carrier()).isEqualTo("GHN");
+        assertThat(result.trackingCode()).isEqualTo("GHN123456");
+        assertThat(result.status()).isEqualTo(ShipmentStatus.CREATED);
+        assertThat(result.history()).singleElement().satisfies(history -> {
+            assertThat(history.id()).isEqualTo(eventId);
+            assertThat(history.status()).isEqualTo(ShipmentStatus.PENDING_TRACKING);
+            assertThat(history.description()).isEqualTo("Shipment created");
+            assertThat(history.createdAt()).isEqualTo(occurredAt);
+        });
+    }
+
+    @Test
+    void pendingTrackingPreservesNullCodeAndEmptyHistoryWithoutInventingEvents() {
+        Shipment shipment = Shipment.create(SHIPMENT, ORDER, BUYER, UUID.randomUUID(), "GHN", "STANDARD",
+                java.math.BigDecimal.ZERO, java.util.Map.of(), null);
+        when(shipments.findById(SHIPMENT)).thenReturn(Optional.of(shipment));
+        when(histories.findByShipment_IdOrderByCreatedAtAscIdAsc(SHIPMENT)).thenReturn(List.of());
+
+        var result = service.tracking(user("BUYER"), SHIPMENT);
+
+        assertThat(result.status()).isEqualTo(ShipmentStatus.PENDING_TRACKING);
+        assertThat(result.trackingCode()).isNull();
+        assertThat(result.history()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"BUYER", "SELLER"})
+    void trackingChecksOwnershipBeforeReadingHistory(String role) {
+        Shipment shipment = mock(Shipment.class);
+        when(shipment.getBuyerId()).thenReturn(OTHER_BUYER);
+        when(shipments.findById(SHIPMENT)).thenReturn(Optional.of(shipment));
+
+        assertThatThrownBy(() -> service.tracking(user(role), SHIPMENT))
+                .isInstanceOfSatisfying(DomainException.class,
+                        failure -> assertThat(failure.getErrorCode()).isEqualTo("SHIPMENT_NOT_FOUND"));
+        verifyNoInteractions(histories);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ADMIN", "SUPPORT_STAFF"})
+    void trackingAllowsStaffToReadOtherBuyersHistory(String role) {
+        Shipment shipment = Shipment.create(SHIPMENT, ORDER, OTHER_BUYER, UUID.randomUUID(), "GHN", "STANDARD",
+                java.math.BigDecimal.ZERO, java.util.Map.of(), null);
+        when(shipments.findById(SHIPMENT)).thenReturn(Optional.of(shipment));
+        when(histories.findByShipment_IdOrderByCreatedAtAscIdAsc(SHIPMENT)).thenReturn(List.of());
+
+        assertThat(service.tracking(user(role), SHIPMENT).shipmentId()).isEqualTo(SHIPMENT);
+        verify(histories).findByShipment_IdOrderByCreatedAtAscIdAsc(SHIPMENT);
+    }
+
+    @Test
+    void missingShipmentDoesNotReadTrackingHistory() {
+        when(shipments.findById(SHIPMENT)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.tracking(user("BUYER"), SHIPMENT))
+                .isInstanceOfSatisfying(DomainException.class,
+                        failure -> assertThat(failure.getErrorCode()).isEqualTo("SHIPMENT_NOT_FOUND"));
+        verifyNoInteractions(histories);
     }
 
     @ParameterizedTest
@@ -105,7 +189,9 @@ class ShipmentReadServiceTest {
                         failure -> assertThat(failure.getErrorCode()).isEqualTo("SHIPMENT_UNAUTHENTICATED"));
         assertThatThrownBy(() -> service.list(null, null, null, 0, 20))
                 .isInstanceOf(DomainException.class);
-        verifyNoInteractions(shipments);
+        assertThatThrownBy(() -> service.tracking(null, SHIPMENT))
+                .isInstanceOf(DomainException.class);
+        verifyNoInteractions(shipments, histories);
     }
 
     @ParameterizedTest

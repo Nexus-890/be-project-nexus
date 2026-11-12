@@ -2,6 +2,7 @@ package com.group5.auctionservice.bidding;
 
 import com.group5.auctionservice.auction.Auction;
 import com.group5.auctionservice.auction.AuctionRepository;
+import com.group5.auctionservice.shared.config.AuctionProperties;
 import com.group5.common_events.EventEnvelopeFactory;
 import com.group5.common_events.Topics;
 import com.group5.common_outbox.OutboxWriter;
@@ -50,6 +51,7 @@ import tools.jackson.databind.json.JsonMapper;
 import javax.sql.DataSource;
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -88,11 +90,15 @@ class BidPlacementIntegrationTest {
     @Autowired private OutboxWriter outbox;
     @Autowired private AuctionRepository auctions;
     @Autowired private PlatformTransactionManager transactions;
+    @Autowired private AuctionProperties properties;
     private MockMvc client;
 
     @BeforeEach
     void setup() {
         reset(outbox);
+        properties.setAntiSnipingEnabled(true);
+        properties.setAntiSnipingExtensionMinutes(5);
+        properties.setAntiSnipingMaxExtensionMinutes(30);
         client = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
     }
@@ -272,6 +278,165 @@ class BidPlacementIntegrationTest {
         assertThat(refusedBody.get("minimum").decimalValue()).isEqualByComparingTo("1100000.00");
     }
 
+    /** #149: thời gian được gia hạn dựa vào deadline DB, không dựa vào Clock của event. */
+    @Test
+    void lastMinuteAcceptedBidAddsFiveMinutesAndPreservesOriginalDeadline() throws Exception {
+        Fixture auction = auctionEndingIn(2);
+        Instant originalEnd = time(auction.id(), "original_end_at");
+        Instant before = time(auction.id(), "end_at");
+
+        client.perform(request(auction.id(), UUID.randomUUID(), MINIMUM.toPlainString()))
+                .andExpect(status().isCreated());
+
+        assertThat(time(auction.id(), "end_at")).isEqualTo(before.plus(Duration.ofMinutes(5)));
+        assertThat(time(auction.id(), "original_end_at")).isEqualTo(originalEnd);
+        assertThat(extensionCount(auction.id())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bids WHERE auction_id = ?", Integer.class,
+                auction.id())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox WHERE aggregate_id = ?", Integer.class,
+                auction.id().toString())).isEqualTo(1);
+    }
+
+    @Test
+    void acceptedBidThirtyMinutesBeforeEndDoesNotExtend() throws Exception {
+        Fixture auction = auctionEndingIn(30);
+        Instant before = time(auction.id(), "end_at");
+
+        client.perform(request(auction.id(), UUID.randomUUID(), MINIMUM.toPlainString()))
+                .andExpect(status().isCreated());
+
+        assertThat(time(auction.id(), "end_at")).isEqualTo(before);
+        assertThat(time(auction.id(), "original_end_at")).isEqualTo(before);
+        assertThat(extensionCount(auction.id())).isZero();
+    }
+
+    /** Cùng transaction để kiểm tra chính xác biên 5 phút và 5 phút cộng 1 microsecond. */
+    @ParameterizedTest
+    @CsvSource({"0, true", "1, false"})
+    void extensionWindowIncludesExactBoundary(long extraMicros, boolean extended) {
+        Fixture auction = auction("ACTIVE");
+        UUID bidder = UUID.randomUUID();
+        new TransactionTemplate(transactions).executeWithoutResult(transaction -> {
+            jdbc.update("UPDATE auctions SET end_at=now()+interval '5 minutes' + ? * interval '1 microsecond', "
+                    + "original_end_at=now()+interval '5 minutes' + ? * interval '1 microsecond' WHERE id=?",
+                    extraMicros, extraMicros, auction.id());
+            Instant before = time(auction.id(), "end_at");
+
+            // Giữ cùng DB now() để kiểm tra biên; service #147 mở REQUIRES_NEW transaction.
+            assertThat(auctions.acceptBid(auction.id(), bidder, MINIMUM)).isEqualTo(1);
+            context.getBean(AntiSnipingPolicy.class).extendAcceptedBid(auction.id(), bidder);
+
+            assertThat(time(auction.id(), "end_at"))
+                    .isEqualTo(extended ? before.plus(Duration.ofMinutes(5)) : before);
+            assertThat(time(auction.id(), "original_end_at")).isEqualTo(before);
+            assertThat(extensionCount(auction.id())).isEqualTo(extended ? 1 : 0);
+            transaction.setRollbackOnly();
+        });
+    }
+
+    @Test
+    void finalExtensionIsClippedAtCapAndLaterAcceptedBidsCannotMoveIt() throws Exception {
+        properties.setAntiSnipingMaxExtensionMinutes(12);
+        Fixture auction = auctionEndingIn(2);
+        jdbc.update("UPDATE auctions SET original_end_at=end_at-interval '10 minutes' WHERE id=?", auction.id());
+        Instant originalEnd = time(auction.id(), "original_end_at");
+        Instant cap = originalEnd.plus(Duration.ofMinutes(12));
+        UUID bidder = UUID.randomUUID();
+
+        client.perform(request(auction.id(), bidder, MINIMUM.toPlainString()))
+                .andExpect(status().isCreated());
+        assertThat(time(auction.id(), "end_at")).isEqualTo(cap);
+        assertThat(extensionCount(auction.id())).isEqualTo(1);
+        for (int next = 1; next <= 3; next++) {
+            String amount = MINIMUM.add(new BigDecimal("50000.00").multiply(BigDecimal.valueOf(next)))
+                    .toPlainString();
+            client.perform(request(auction.id(), bidder, amount)).andExpect(status().isCreated());
+            assertThat(time(auction.id(), "end_at")).isEqualTo(cap);
+            assertThat(time(auction.id(), "original_end_at")).isEqualTo(originalEnd);
+            assertThat(extensionCount(auction.id())).isEqualTo(1);
+        }
+        assertThat(jdbc.queryForObject("SELECT bid_count FROM auctions WHERE id=?", Integer.class,
+                auction.id())).isEqualTo(4);
+    }
+
+    @Test
+    void loweringCapBelowExistingExtensionNeverShortensDeadline() throws Exception {
+        properties.setAntiSnipingMaxExtensionMinutes(12);
+        Fixture auction = auctionEndingIn(2);
+        jdbc.update("UPDATE auctions SET original_end_at=end_at-interval '15 minutes', extension_count=3 WHERE id=?",
+                auction.id());
+        Instant before = time(auction.id(), "end_at");
+        Instant originalEnd = time(auction.id(), "original_end_at");
+
+        client.perform(request(auction.id(), UUID.randomUUID(), MINIMUM.toPlainString()))
+                .andExpect(status().isCreated());
+
+        assertThat(time(auction.id(), "end_at")).isEqualTo(before);
+        assertThat(time(auction.id(), "original_end_at")).isEqualTo(originalEnd);
+        assertThat(extensionCount(auction.id())).isEqualTo(3);
+    }
+
+    @Test
+    void disabledPolicyLeavesLastMinuteDeadlineUnchanged() throws Exception {
+        properties.setAntiSnipingEnabled(false);
+        Fixture auction = auctionEndingIn(2);
+        Instant before = time(auction.id(), "end_at");
+
+        client.perform(request(auction.id(), UUID.randomUUID(), MINIMUM.toPlainString()))
+                .andExpect(status().isCreated());
+
+        assertThat(time(auction.id(), "end_at")).isEqualTo(before);
+        assertThat(time(auction.id(), "original_end_at")).isEqualTo(before);
+        assertThat(extensionCount(auction.id())).isZero();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false, 400, AUCTION_BID_TOO_LOW", "true, 409, AUCTION_SELLER_CANNOT_BID"})
+    void refusedLastMinuteBidLeavesDeadlineAndAllOtherStateUnchanged(boolean sellerBid, int status,
+                                                                     String errorCode) throws Exception {
+        Fixture auction = auctionEndingIn(2);
+        Snapshot before = snapshot(auction.id());
+        UUID bidder = sellerBid ? auction.seller() : UUID.randomUUID();
+        String amount = sellerBid ? MINIMUM.toPlainString() : "1020000.00";
+
+        client.perform(request(auction.id(), bidder, amount))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().is(status))
+                .andExpect(jsonPath("$.code").value(errorCode));
+
+        assertThat(snapshot(auction.id())).isEqualTo(before);
+    }
+
+    @Test
+    void failureAfterOutboxInsertionRollsBackLastMinuteExtensionTogetherWithBid() throws Exception {
+        Fixture auction = auctionEndingIn(2);
+        Snapshot before = snapshot(auction.id());
+        doAnswer(invocation -> {
+            invocation.callRealMethod();
+            throw new IllegalStateException("Test failure after anti-sniping extension and BidPlaced insert");
+        }).when(outbox).write(anyString(), anyString(), any());
+
+        client.perform(request(auction.id(), UUID.randomUUID(), MINIMUM.toPlainString()))
+                .andExpect(status().isInternalServerError());
+
+        assertThat(snapshot(auction.id())).isEqualTo(before);
+    }
+
+    private Fixture auctionEndingIn(int minutes) {
+        Fixture auction = auction("ACTIVE");
+        jdbc.update("UPDATE auctions SET end_at=now()+?*interval '1 minute', "
+                + "original_end_at=now()+?*interval '1 minute' WHERE id=?", minutes, minutes, auction.id());
+        return auction;
+    }
+
+    private Instant time(UUID auction, String column) {
+        return jdbc.queryForObject("SELECT " + column + " FROM auctions WHERE id=?",
+                (rs, row) -> rs.getObject(1, OffsetDateTime.class).toInstant(), auction);
+    }
+
+    private int extensionCount(UUID auction) {
+        return jdbc.queryForObject("SELECT extension_count FROM auctions WHERE id=?", Integer.class, auction);
+    }
+
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request(
             UUID auction, UUID bidder, String amount) {
         // #146 ignores this header; sending one keeps the same HTTP tests valid after dependent #147 merges.
@@ -328,7 +493,7 @@ class BidPlacementIntegrationTest {
     @EnableJpaRepositories(basePackageClasses = {AuctionRepository.class, BidRepository.class})
     @EnableJpaAuditing(auditorAwareRef = "auditor")
     @ImportAutoConfiguration(SecurityAutoConfiguration.class)
-    @Import({BidService.class, BidController.class})
+    @Import({BidService.class, BidController.class, AntiSnipingPolicy.class})
     static class Config {
         @Bean
         DataSource dataSource() {
@@ -340,6 +505,7 @@ class BidPlacementIntegrationTest {
             return source;
         }
 
+        @Bean AuctionProperties auctionProperties() { return new AuctionProperties(); }
         @Bean JdbcTemplate jdbc(DataSource source) { return new JdbcTemplate(source); }
         @Bean AuditorAware<UUID> auditor() { return new CurrentUserAuditor(); }
         @Bean Clock clock() { return Clock.fixed(NOW, ZoneOffset.UTC); }

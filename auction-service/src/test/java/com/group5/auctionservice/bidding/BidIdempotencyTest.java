@@ -3,6 +3,7 @@ package com.group5.auctionservice.bidding;
 import com.group5.auctionservice.auction.Auction;
 import com.group5.auctionservice.auction.AuctionRepository;
 import com.group5.auctionservice.bidding.dto.PlaceBidRequest;
+import com.group5.auctionservice.shared.config.AuctionProperties;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_events.EventEnvelopeFactory;
 import com.group5.common_outbox.OutboxWriter;
@@ -35,6 +36,7 @@ import javax.sql.DataSource;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Locale;
@@ -123,6 +125,46 @@ class BidIdempotencyTest {
                 .isInstanceOf(DomainException.class)
                 .extracting("errorCode").isEqualTo("AUCTION_IDEMPOTENCY_KEY_CONFLICT");
         assertThat(snapshot(fixture.id())).isEqualTo(ended);
+    }
+
+    @Test
+    void lastMinuteReplayAndChangedAmountLeaveTheExtendedAuctionBidAndOutboxUnchanged() {
+        Fixture fixture = auction();
+        String key = key();
+        jdbc().update("UPDATE auctions SET end_at=now()+interval '2 minutes', "
+                + "original_end_at=now()+interval '2 minutes' WHERE id=?", fixture.id());
+        Instant originalEnd = jdbc().queryForObject("SELECT original_end_at FROM auctions WHERE id=?",
+                (rs, row) -> rs.getObject(1, OffsetDateTime.class).toInstant(), fixture.id());
+
+        BidService.PlacementResult accepted = place(fixture, key, MINIMUM);
+        Snapshot afterFirstBid = snapshot(fixture.id());
+        assertThat(accepted.created()).isTrue();
+        assertThat(jdbc().<Instant>queryForObject("SELECT end_at FROM auctions WHERE id=?",
+                (rs, row) -> rs.getObject(1, OffsetDateTime.class).toInstant(), fixture.id()))
+                .isEqualTo(originalEnd.plusSeconds(300));
+        assertThat(jdbc().<Instant>queryForObject("SELECT original_end_at FROM auctions WHERE id=?",
+                (rs, row) -> rs.getObject(1, OffsetDateTime.class).toInstant(), fixture.id()))
+                .isEqualTo(originalEnd);
+        assertThat(((Number) afterFirstBid.auction().get("extension_count")).intValue()).isEqualTo(1);
+        assertThat(((Number) afterFirstBid.auction().get("bid_count")).intValue()).isEqualTo(1);
+        assertThat(afterFirstBid.bids()).hasSize(1);
+        assertThat(afterFirstBid.events()).hasSize(1);
+
+        // Replay cả UUID hoa/thường và cách viết amount khác vẫn giữ nguyên deadline đã gia hạn.
+        BidService.PlacementResult replay = place(fixture, key.toUpperCase(Locale.ROOT),
+                new BigDecimal("1050000"));
+        assertThat(replay.created()).isFalse();
+        assertThat(replay.response()).isEqualTo(accepted.response());
+        assertThat(snapshot(fixture.id())).isEqualTo(afterFirstBid);
+
+        assertThatThrownBy(() -> place(fixture, key, HIGHER))
+                .isInstanceOf(DomainException.class)
+                .satisfies(error -> {
+                    DomainException conflict = (DomainException) error;
+                    assertThat(conflict.getCode()).isEqualTo(409);
+                    assertThat(conflict.getErrorCode()).isEqualTo("AUCTION_IDEMPOTENCY_KEY_CONFLICT");
+                });
+        assertThat(snapshot(fixture.id())).isEqualTo(afterFirstBid);
     }
 
     @Test
@@ -366,7 +408,7 @@ class BidIdempotencyTest {
     @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses = {AuctionRepository.class, BidRepository.class})
     @EnableJpaAuditing(auditorAwareRef = "auditor")
-    @Import(BidService.class)
+    @Import({BidService.class, AntiSnipingPolicy.class})
     static class JpaConfig {
         @Bean
         DataSource dataSource() {
@@ -379,6 +421,7 @@ class BidIdempotencyTest {
             return source;
         }
 
+        @Bean AuctionProperties auctionProperties() { return new AuctionProperties(); }
         @Bean AuditorAware<UUID> auditor() { return new CurrentUserAuditor(); }
         @Bean Clock clock() { return Clock.fixed(Instant.parse("2026-11-06T10:00:00Z"), ZoneOffset.UTC); }
 
