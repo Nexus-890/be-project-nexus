@@ -2757,6 +2757,7 @@ paths:
                         orderType: STANDARD
                         createdAt: "2026-10-29T08:00:00Z"
                         status: "PENDING"
+                        canCancel: true
                         totalAmount: 300000
                         subtotal: 300000
                         shippingFee: 0
@@ -3161,6 +3162,7 @@ paths:
                           orderType: STANDARD
                           createdAt: "2026-10-29T08:00:00Z"
                           status: "PENDING"
+                          canCancel: true
                           totalAmount: 150000
                           subtotal: 150000
                           shippingFee: 0
@@ -3196,6 +3198,7 @@ paths:
                           orderType: STANDARD
                           createdAt: "2026-10-29T08:00:00Z"
                           status: "PENDING"
+                          canCancel: true
                           totalAmount: 150000
                           subtotal: 150000
                           shippingFee: 0
@@ -3863,6 +3866,7 @@ paths:
                         orderType: STANDARD
                         createdAt: "2026-11-03T08:00:00Z"
                         status: PENDING
+                        canCancel: true
                         totalAmount: 150000
                         subtotal: 150000
                         shippingFee: 0
@@ -4081,6 +4085,7 @@ paths:
                         orderType: STANDARD
                         createdAt: "2026-11-03T08:00:00Z"
                         status: PENDING
+                        canCancel: false
                         totalAmount: 150000
                         subtotal: 150000
                         shippingFee: 0
@@ -4274,6 +4279,7 @@ paths:
                       sellerId: "68000000-0000-4000-8000-000000000003"
                       orderType: STANDARD
                       status: PENDING
+                      canCancel: true
                       createdAt: "2026-11-11T08:00:00Z"
                       subtotal: 300000
                       shippingFee: 30000
@@ -4679,6 +4685,7 @@ paths:
                       orderType: STANDARD
                       createdAt: "2026-10-29T08:00:00Z"
                       status: "PENDING"
+                      canCancel: true
                       totalAmount: 300000
                       subtotal: 300000
                       shippingFee: 0
@@ -5522,6 +5529,7 @@ paths:
                       orderType: STANDARD
                       createdAt: "2026-10-29T08:00:00Z"
                       status: "PAID"
+                      canCancel: true
                       totalAmount: 150000
                       subtotal: 150000
                       shippingFee: 0
@@ -6026,6 +6034,7 @@ paths:
                           orderType: STANDARD
                           createdAt: "2026-10-30T08:00:00Z"
                           status: "CANCELED"
+                          canCancel: false
                           totalAmount: 150000
                           subtotal: 150000
                           shippingFee: 0
@@ -8585,6 +8594,7 @@ components:
         - "sellerId"
         - "orderType"
         - "status"
+        - "canCancel"
         - "createdAt"
         - "subtotal"
         - "shippingFee"
@@ -8622,6 +8632,9 @@ components:
           enum: [STANDARD, AUCTION]
         status:
           $ref: "#/components/schemas/OrderStatus"
+        canCancel:
+          type: boolean
+          description: "Cancellation eligibility for the current caller: ORDER.CANCEL and ownership (or ADMIN/SUPPORT_STAFF), and either PAID or PENDING in a PENDING group. This is a read-time snapshot; cancellation rechecks locked state and can return 409. Missing on older backends must be treated as false."
         createdAt:
           type: "string"
           format: "date-time"
@@ -8707,9 +8720,13 @@ components:
           $ref: "#/components/schemas/OrderStatus"
         reason:
           type: "string"
+          nullable: true
+          description: "May be unavailable for historical or system-generated history."
         changedBy:
           type: "string"
           format: "uuid"
+          nullable: true
+          description: "May be unavailable for historical or system-generated history."
         createdAt:
           type: "string"
           format: "date-time"
