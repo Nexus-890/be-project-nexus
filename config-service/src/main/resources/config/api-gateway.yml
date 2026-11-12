@@ -284,6 +284,15 @@ nexus:
       - method: POST
         path: /api/v1/auctions/{id}/schedule
         privilege: AUCTION.UPDATE
+      - method: PUT
+        path: /api/v1/auctions/{id}
+        privilege: AUCTION.UPDATE
+      - method: POST
+        path: /api/v1/auctions/{id}/cancel
+        privilege: AUCTION.CANCEL
+      - method: POST
+        path: /api/v1/auctions/{id}/admin-cancel
+        privilege: AUCTION.ADMIN_CANCEL
       - method: GET
         path: /api/v1/event-logs
         privilege: EVENT_LOG.VIEW

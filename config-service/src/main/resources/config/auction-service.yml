@@ -18,6 +18,9 @@ springdoc:
     enabled: true
 
 nexus:
+  auction:
+    min-duration-minutes: ${AUCTION_MIN_DURATION_MINUTES:60}
+    max-duration-hours: ${AUCTION_MAX_DURATION_HOURS:168}
   security:
     public-endpoints:
       - method: GET

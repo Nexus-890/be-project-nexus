@@ -74,6 +74,7 @@ class KeycloakTokenTrustTest {
     private static final HttpServer JWKS = jwks();
     @Autowired private WebApplicationContext context;
     @MockitoBean private AuctionRepository auctions;
+    @MockitoBean private com.group5.common_outbox.OutboxWriter outbox;
     @MockitoBean private Clock clock;
     private MockMvc client;
 
