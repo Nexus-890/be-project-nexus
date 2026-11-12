@@ -1,8 +1,6 @@
 package com.group5.auctionservice.auction;
 
 import com.group5.auctionservice.TestPostgres;
-import com.group5.auctionservice.auction.dto.CancelAuctionRequest;
-import com.group5.common_security.CurrentUser;
 import jakarta.servlet.Filter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,14 +27,12 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -66,7 +62,6 @@ class AuctionConfigureCancelIntegrationTest {
     @Autowired private WebApplicationContext context;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private ObjectMapper json;
-    @Autowired private AuctionService service;
     @Autowired private TransactionTemplate transactions;
     @MockitoBean private JwtDecoder decoder;
     @MockitoBean private Clock clock;
@@ -252,12 +247,16 @@ class AuctionConfigureCancelIntegrationTest {
     }
 
     @Test
-    void outboxFailureRollsBackCancellationAndAudit() {
+    void outboxFailureRollsBackCancellationAndAudit() throws Exception {
         var before = row();
         jdbc.execute("ALTER TABLE outbox ADD CONSTRAINT reject_cancel_test CHECK (event_type <> 'AuctionCancelled')");
         try {
-            assertThatThrownBy(() -> service.cancel(id, new CancelAuctionRequest("Seller request"), owner(), false))
-                    .isInstanceOf(RuntimeException.class);
+            var failure = cancel("owner", false).andExpect(status().isInternalServerError())
+                    .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
+                    .andReturn().getResolvedException();
+            assertThat(failure)
+                    .hasRootCauseInstanceOf(org.postgresql.util.PSQLException.class)
+                    .hasStackTraceContaining("reject_cancel_test");
             assertThat(row()).isEqualTo(before);
             assertThat(events()).isZero();
         } finally {
@@ -354,7 +353,6 @@ class AuctionConfigureCancelIntegrationTest {
         jdbc.update("INSERT INTO bids(auction_id,bidder_id,amount,status,idempotency_key) VALUES(?,gen_random_uuid(),110000,?::bid_status,?)",
                 id, state, UUID.randomUUID().toString());
     }
-    private static CurrentUser owner() { return new CurrentUser(OWNER, Set.of("SELLER"), Set.of("AUCTION.CANCEL")); }
     private static Jwt token(String value, UUID subject, String role, String... privileges) {
         return Jwt.withTokenValue(value).header("alg", "RS256").subject(subject.toString())
                 .claim("roles", List.of(role)).claim("privileges", List.of(privileges)).build();

@@ -44,3 +44,11 @@ SELECT id, status, amount FROM bids WHERE auction_id = :auction_id;
 ```
 
 Postman collection/environment must contain no saved bearer token, password or service secret. Evidence must distinguish tests on #197 alone, composed dependency tests and live application requests.
+
+## Verified on 2026-11-12
+
+- Java 21.0.9, PostgreSQL 18.6 in an isolated native cluster (Docker unavailable).
+- Full Maven verify: auction-service 164 tests, api-gateway 81, config-service 7; no failures/errors/skips. Contract checker: 87 delivered operations; auction OpenAPI lint passed.
+- After strengthening the rollback assertion, all 31 configure/cancel tests were rerun and passed. The rollback test checks both the HTTP 500 and the resolved PostgreSQL exception naming the rejected outbox constraint, followed by an unchanged auction/audit and zero events. A missing trace cannot satisfy this assertion.
+- Separate composition: #197 implementation `72549308fa9fb78dfa8c9350536f5cab4ebb0479` plus actual #146 head `882be7d411e75066a78ea0965391f1c921688840`. Four additional HTTP/DB tests passed: accepted bid blocks seller cancel; admin cancel after an accepted bid rejects a later bid with no extra bid/BidPlaced; cancel-first blocks a waiting bid; bid-first causes a waiting seller cancel to reject. Tests wait for a real PostgreSQL row-lock wait before releasing the first transaction. JWT decoding is mocked; bidding/cancellation/controller/security/database/outbox code is real. Only enum/mocks/OpenAPI merge conflicts were reconciled; bid business logic was unchanged. This dependency composition is not merged into #197 or develop.
+- Settlement integration (#170–#173) and live Postman were not run. Keep the final combined AC (bid rejected **and no settlement**) unchecked; the bid half is verified, the settlement half is pending the actual worker/consumer.
