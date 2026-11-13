@@ -564,6 +564,27 @@ class SecurityConfigTest {
     }
 
     @Test
+    void auctionConfigurationAndCancellationRequireTheirExactPrivileges() {
+        var paths = Map.of(
+                "/api/v1/auctions/" + ID, "AUCTION.UPDATE",
+                "/api/v1/auctions/" + ID + "/cancel", "AUCTION.CANCEL",
+                "/api/v1/auctions/" + ID + "/admin-cancel", "AUCTION.ADMIN_CANCEL");
+        paths.forEach((path, privilege) -> {
+            HttpMethod method = privilege.equals("AUCTION.UPDATE") ? HttpMethod.PUT : HttpMethod.POST;
+            int before = SERVICE_LOG.size();
+            client.method(method).uri(path).exchange().expectStatus().isUnauthorized();
+            client.method(method).uri(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                    c -> c.claim("privileges", List.of("AUCTION.CREATE"))))
+                    .exchange().expectStatus().isForbidden();
+            assertThat(SERVICE_LOG).hasSize(before);
+            client.method(method).uri(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                    c -> c.claim("privileges", List.of(privilege))))
+                    .exchange().expectStatus().isOk();
+            assertThat(SERVICE_LOG).hasSize(before + 1).contains(method + " " + path);
+        });
+    }
+
+    @Test
     void postProductsDoesNotInheritPublicGetAndScopeOrRoleCannotGrantPrivilege() {
         client.post().uri("/api/v1/products").exchange().expectStatus().isUnauthorized();
         for (Consumer<JWTClaimsSet.Builder> claim : List.<Consumer<JWTClaimsSet.Builder>>of(

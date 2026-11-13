@@ -1,6 +1,7 @@
 package com.group5.shipmentservice.shipping.adapter;
 
 import com.group5.shipmentservice.shipping.adapter.model.CarrierQuoteRequest;
+import com.group5.shipmentservice.shipping.adapter.model.CarrierShipmentRequest;
 import com.group5.shipmentservice.shipping.dto.response.LocalityResponse;
 import com.group5.shipmentservice.shipping.dto.response.ShippingQuoteResponse;
 import com.group5.shipmentservice.shipping.enums.ShippingServiceType;
@@ -50,5 +51,11 @@ public class FakeCarrierAdapter implements CarrierAdapter {
         return List.of(new ShippingQuoteResponse(code(), ShippingServiceType.forWeight(request.parcel().weightGrams()),
                 new BigDecimal("30000"),
                 OffsetDateTime.now(clock).plusDays(3)));
+    }
+
+    @Override
+    public String createShipment(CarrierShipmentRequest request, ShippingDeadline deadline) {
+        deadline.remainingOrThrow();
+        return "FAKE-" + request.requestId();
     }
 }

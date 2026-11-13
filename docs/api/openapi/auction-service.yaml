@@ -6,7 +6,7 @@ servers:
   - url: http://localhost:8080
 tags:
   - name: Auctions
-    description: Seller auction creation and scheduling, buyer bidding and public reads from stored auction snapshots
+    description: Auction creation, configuration, scheduling, cancellation, buyer bidding and public snapshot reads
 security:
   - bearerAuth: []
 paths:
@@ -291,6 +291,66 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
   /api/v1/auctions/{id}:
+    put:
+      tags: [Auctions]
+      operationId: updateAuction
+      summary: Configure an auction before it starts
+      description: The authenticated actor must own the auction. Only CREATED/SCHEDULED before the stored startAt; updates startingPrice/currentPrice, bidIncrement, startAt, endAt and the originalEndAt baseline atomically.
+      x-catalogue-id: AUC-02
+      x-required-roles: [SELLER, ADMIN]
+      x-required-privileges: [AUCTION.UPDATE]
+      x-ownership: The authenticated actor must own the auction. Only CREATED/SCHEDULED before the stored startAt; updates startingPrice/currentPrice, bidIncrement, startAt, endAt and the originalEndAt baseline atomically.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Auction UUID.
+          schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAuctionRequest'
+      responses:
+        '200':
+          description: Updated auction snapshot; status is preserved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAuctionResponse'
+        '400':
+          description: 'VALIDATION_FAILED, INVALID_PARAMETER, INVALID_REQUEST_BODY, AUCTION_START_IN_PAST, AUCTION_INVALID_TIME_WINDOW, AUCTION_DURATION_TOO_SHORT, AUCTION_DURATION_TOO_LONG.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          $ref: '#/components/responses/InvalidBearer'
+        '403':
+          description: 'FORBIDDEN for missing role or privilege; AUCTION_FORBIDDEN for ownership failure.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'AUCTION_NOT_FOUND — Missing or soft-deleted auction.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: 'AUCTION_NOT_EDITABLE or AUCTION_HAS_BIDS. No changes are committed.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/UnexpectedError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     get:
       tags: [Auctions]
       operationId: getAuction
@@ -351,14 +411,19 @@ paths:
         (exclusive). Outside that window, bids are refused even if the status is still ACTIVE.
         A conditional update prevents concurrent bids from both winning the same price.
         The authenticated buyer may not bid on their own auction.
+        Anti-sniping is enabled by default: an accepted bid with at most five minutes
+        remaining adds five minutes to endAt, capped at originalEndAt plus the configured
+        maximum extension (30 minutes by default). The bid, extension and BidPlaced outbox
+        event commit together; refused bids leave the deadline unchanged. Read the auction
+        again to obtain its effective endAt and extensionCount.
         Idempotency-Key is a required UUID. A new key returns 201. Reusing a key
         for the same auction, authenticated bidder and numeric amount returns 200
         with the original bidId, accepted amount and leaderBidderId, even if the
         auction state has since changed. Amounts such as 1050000 and 1050000.00
         are equivalent. A different amount with the same key returns 409
         AUCTION_IDEMPOTENCY_KEY_CONFLICT; use a new key for a different bid.
-        A replay does not update the auction, insert a bid or publish another
-        event. UUID letter case is normalized. The key is globally unique;
+        A replay does not extend endAt or increment extensionCount, update the auction,
+        insert a bid or publish another event. UUID letter case is normalized. The key is globally unique;
         reusing it for another auction, bidder or amount returns 409 without exposing
         the original bid. Concurrent successful requests with one key create
         one bid, increment bid_count once and publish one BidPlaced event.
@@ -642,6 +707,128 @@ paths:
           $ref: '#/components/responses/UnexpectedError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/auctions/{id}/cancel:
+    post:
+      tags: [Auctions]
+      operationId: cancelAuction
+      summary: Cancel an auction as its seller
+      description: Only the owning Seller may cancel a non-final auction with no valid bids. PLACED/OUTBID/WON bids count as valid; CANCELLED bids do not. Records actor/reason/time and AuctionCancelled in one transaction.
+      x-catalogue-id: AUC-07
+      x-required-roles: [SELLER]
+      x-required-privileges: [AUCTION.CANCEL]
+      x-ownership: Only the owning Seller may cancel a non-final auction with no valid bids. PLACED/OUTBID/WON bids count as valid; CANCELLED bids do not. Records actor/reason/time and AuctionCancelled in one transaction.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Auction UUID.
+          schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelAuctionRequest'
+      responses:
+        '200':
+          description: CANCELLED snapshot with cancellation audit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAuctionResponse'
+        '400':
+          description: 'VALIDATION_FAILED, INVALID_PARAMETER, INVALID_REQUEST_BODY.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          $ref: '#/components/responses/InvalidBearer'
+        '403':
+          description: 'FORBIDDEN for missing role or privilege; AUCTION_FORBIDDEN for ownership failure.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'AUCTION_NOT_FOUND — Missing or soft-deleted auction.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: 'AUCTION_HAS_BIDS or AUCTION_ILLEGAL_TRANSITION. Final states are SETTLED, FAILED, PAYMENT_TIMEOUT and CANCELLED.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/UnexpectedError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/auctions/{id}/admin-cancel:
+    post:
+      tags: [Auctions]
+      operationId: adminCancelAuction
+      summary: Cancel a non-final auction as an admin
+      description: Any auction in CREATED/SCHEDULED/ACTIVE/ENDED/WON, including auctions with bids. Final SETTLED/FAILED/PAYMENT_TIMEOUT/CANCELLED cannot be cancelled. Emits one AuctionCancelled; repeated calls return 409 without another event.
+      x-catalogue-id: AUC-08
+      x-required-roles: [ADMIN]
+      x-required-privileges: [AUCTION.ADMIN_CANCEL]
+      x-ownership: Any auction in CREATED/SCHEDULED/ACTIVE/ENDED/WON, including auctions with bids. Final SETTLED/FAILED/PAYMENT_TIMEOUT/CANCELLED cannot be cancelled. Emits one AuctionCancelled; repeated calls return 409 without another event.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Auction UUID.
+          schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelAuctionRequest'
+      responses:
+        '200':
+          description: CANCELLED snapshot with cancelledBy ADMIN.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAuctionResponse'
+        '400':
+          description: 'VALIDATION_FAILED, INVALID_PARAMETER, INVALID_REQUEST_BODY.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          $ref: '#/components/responses/InvalidBearer'
+        '403':
+          description: 'FORBIDDEN for missing role or privilege; AUCTION_FORBIDDEN for ownership failure.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: 'AUCTION_NOT_FOUND — Missing or soft-deleted auction.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: 'AUCTION_ILLEGAL_TRANSITION — The auction is already final.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/UnexpectedError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 components:
   parameters:
     MinePage:
@@ -804,6 +991,36 @@ components:
         endAt:
           type: string
           format: date-time
+    UpdateAuctionRequest:
+      type: object
+      required: [startingPrice, bidIncrement, startAt, endAt]
+      properties:
+        startingPrice:
+          $ref: '#/components/schemas/CreateAuctionRequest/properties/startingPrice'
+        bidIncrement:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          multipleOf: 0.01
+          description: Required, positive; at most 17 integer digits and two fractional digits.
+        startAt:
+          type: string
+          format: date-time
+          description: Must not precede server time by more than 5 seconds.
+        endAt:
+          type: string
+          format: date-time
+          description: After startAt, with AUCTION_MIN_DURATION_MINUTES and AUCTION_MAX_DURATION_HOURS enforced.
+    CancelAuctionRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: '\S'
+          description: Must contain non-whitespace; surrounding whitespace is stripped when stored.
     CreateAuctionResponse:
       type: object
       required: [code, message, data]
@@ -906,6 +1123,22 @@ components:
           minimum: 0
         status:
           $ref: '#/components/schemas/AuctionStatus'
+        cancelledBy:
+          type: string
+          nullable: true
+          enum: [SELLER, ADMIN]
+        cancelledReason:
+          type: string
+          nullable: true
+          maxLength: 255
+        cancelledActorId:
+          type: string
+          format: uuid
+          nullable: true
+        cancelledAt:
+          type: string
+          format: date-time
+          nullable: true
     Problem:
       type: object
       required: [type, title, status, detail, instance, code]

@@ -64,6 +64,7 @@ class AuctionSchedulerIntegrationTest {
         UUID created = seed("CREATED", deadline.minusSeconds(60), deadline, deadline, false);
         UUID extended = seed("ACTIVE", deadline.minusSeconds(3600), deadline.plusSeconds(3600), deadline, false);
         UUID deleted = seed("SCHEDULED", deadline, deadline.plusSeconds(3600), deadline.plusSeconds(3600), true);
+        UUID cancelled = seed("CANCELLED", deadline.minusSeconds(3600), deadline, deadline, false);
 
         await().atMost(Duration.ofSeconds(13)).untilAsserted(() -> {
             assertThat(status(scheduled)).isEqualTo("ACTIVE");
@@ -74,6 +75,7 @@ class AuctionSchedulerIntegrationTest {
         assertUnchanged(created, "CREATED");
         assertUnchanged(extended, "ACTIVE");
         assertUnchanged(deleted, "SCHEDULED");
+        assertUnchanged(cancelled, "CANCELLED");
     }
 
     @Test

@@ -66,11 +66,37 @@ class PaymentMatcherTest {
     }
 
     @Test
-    void doesNotSearchForMemoInsideArbitraryBankTextOrStripUnconfiguredPrefix() {
-        assertThat(matcher.match(request(null, "bank NXABC123XYZ done"))).isEmpty();
-        assertThat(matcher("").match(request(null, "SEVQR NXABC123XYZ"))).isEmpty();
-        verify(sessions).findByMemoCode("BANKNXABC123XYZDONE");
-        verify(sessions).findByMemoCode("SEVQRNXABC123XYZ");
+    void findsMemoInsideBankTextWhenContentDoesNotStartWithPrefix() {
+        PaymentSession session = new PaymentSession();
+        when(sessions.findByMemoCode("NX6A6GAFVFMESFMASGCGIJ5N0B9")).thenReturn(Optional.of(session));
+        assertThat(matcher.match(request(null, "156542812138-0786252750-SEVQRNX6A6GAFVFMESFMASGCGIJ5N0B9")))
+                .containsSame(session);
+        var order = inOrder(sessions);
+        order.verify(sessions).findByMemoCode("NX6A6GAFVFMESFMASGCGIJ5N0B9");
+        verifyNoMoreInteractions(sessions);
+    }
+
+    @Test
+    void searchesEveryNxTokenInContentAndCapsAtMemoLength() {
+        PaymentSession session = new PaymentSession();
+        when(sessions.findByMemoCode("NXABC123XYZ")).thenReturn(Optional.of(session));
+        assertThat(matcher("").match(request(null, "bank NXOTHER ck NXABC123XYZ done"))).containsSame(session);
+        var order = inOrder(sessions);
+        order.verify(sessions).findByMemoCode("BANKNXOTHERCKNXABC123XYZDONE");
+        order.verify(sessions).findByMemoCode("NXOTHER");
+        order.verify(sessions).findByMemoCode("NXABC123XYZ");
+        verifyNoMoreInteractions(sessions);
+
+        clearInvocations(sessions);
+        assertThat(matcher.match(request(null, "FT NX6A6GAFVFMESFMASGCGIJ5N0B9EXTRA"))).isEmpty();
+        verify(sessions).findByMemoCode("NX6A6GAFVFMESFMASGCGIJ5N0B9");
+        verifyNoMoreInteractions(sessions);
+    }
+
+    @Test
+    void contentWithoutNxNeverQueriesBeyondTheWholeMemo() {
+        assertThat(matcher.match(request(null, "chuyen tien an trua"))).isEmpty();
+        verify(sessions).findByMemoCode("CHUYENTIENANTRUA");
         verifyNoMoreInteractions(sessions);
     }
 

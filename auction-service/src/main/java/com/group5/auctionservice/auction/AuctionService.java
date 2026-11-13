@@ -2,10 +2,15 @@ package com.group5.auctionservice.auction;
 
 import com.group5.auctionservice.auction.dto.AuctionResponse;
 import com.group5.auctionservice.auction.dto.CreateAuctionRequest;
+import com.group5.auctionservice.auction.dto.UpdateAuctionRequest;
+import com.group5.auctionservice.auction.dto.CancelAuctionRequest;
 import com.group5.auctionservice.shared.config.AuctionProperties;
 import com.group5.auctionservice.shared.exception.AuctionErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
+import com.group5.common_events.EventEnvelopeFactory;
+import com.group5.common_events.Topics;
+import com.group5.common_outbox.OutboxWriter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.data.domain.Page;
@@ -17,6 +22,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 @Service
@@ -29,6 +35,8 @@ public class AuctionService {
     private final AuctionProperties properties;
     private final Clock clock;
     private final AuctionStateMachine stateMachine;
+    private final OutboxWriter outbox;
+    private final EventEnvelopeFactory envelopes;
 
     @Transactional(readOnly = true)
     public AuctionResponse get(UUID id) {
@@ -57,28 +65,83 @@ public class AuctionService {
 
     @Transactional
     public AuctionResponse create(CreateAuctionRequest request, CurrentUser seller) {
-        if (request.startAt().isBefore(Instant.now(clock).minus(START_TIME_TOLERANCE))) {
-            throw new DomainException(AuctionErrorCode.AUCTION_START_IN_PAST);
-        }
-        Duration duration = Duration.between(request.startAt(), request.endAt());
-        if (duration.isZero() || duration.isNegative()) {
-            throw new DomainException(AuctionErrorCode.AUCTION_INVALID_TIME_WINDOW);
-        }
-        if (duration.compareTo(Duration.ofMinutes(properties.minDurationMinutes())) < 0) {
-            throw new DomainException(AuctionErrorCode.AUCTION_DURATION_TOO_SHORT,
-                    "Auction duration must be at least %d minutes".formatted(properties.minDurationMinutes()));
-        }
-        if (duration.compareTo(Duration.ofHours(properties.maxDurationHours())) > 0) {
-            throw new DomainException(AuctionErrorCode.AUCTION_DURATION_TOO_LONG,
-                    "Auction duration must be at most %d hours".formatted(properties.maxDurationHours()));
-        }
-
+        validateWindow(request.startAt(), request.endAt());
         BigDecimal increment = request.bidIncrement() == null
-                ? properties.defaultBidIncrement()
+                ? properties.getDefaultBidIncrement()
                 : request.bidIncrement();
         Auction auction = new Auction(request.productId(), request.skuId(), seller.id(), request.title(),
                 request.startingPrice(), increment, request.startAt(), request.endAt());
         return AuctionResponse.from(auctions.save(auction));
+    }
+
+    private void validateWindow(Instant startAt, Instant endAt) {
+        if (startAt.isBefore(Instant.now(clock).minus(START_TIME_TOLERANCE))) {
+            throw new DomainException(AuctionErrorCode.AUCTION_START_IN_PAST);
+        }
+        Duration duration = Duration.between(startAt, endAt);
+        if (duration.isZero() || duration.isNegative()) {
+            throw new DomainException(AuctionErrorCode.AUCTION_INVALID_TIME_WINDOW);
+        }
+        if (duration.compareTo(Duration.ofMinutes(properties.getMinDurationMinutes())) < 0) {
+            throw new DomainException(AuctionErrorCode.AUCTION_DURATION_TOO_SHORT,
+                    "Auction duration must be at least %d minutes".formatted(properties.getMinDurationMinutes()));
+        }
+        if (duration.compareTo(Duration.ofHours(properties.getMaxDurationHours())) > 0) {
+            throw new DomainException(AuctionErrorCode.AUCTION_DURATION_TOO_LONG,
+                    "Auction duration must be at most %d hours".formatted(properties.getMaxDurationHours()));
+        }
+    }
+
+    @Transactional
+    public AuctionResponse update(UUID id, UpdateAuctionRequest request, CurrentUser owner) {
+        Auction auction = lock(id);
+        requireOwner(auction, owner);
+        if ((auction.getStatus() != AuctionStatus.CREATED && auction.getStatus() != AuctionStatus.SCHEDULED)
+                || !clock.instant().isBefore(auction.getStartAt())) {
+            throw new DomainException(AuctionErrorCode.AUCTION_NOT_EDITABLE);
+        }
+        if (auctions.hasValidBids(id)) {
+            throw new DomainException(AuctionErrorCode.AUCTION_HAS_BIDS);
+        }
+        validateWindow(request.startAt(), request.endAt());
+        auction.configure(request.startingPrice(), request.bidIncrement(), request.startAt(), request.endAt());
+        return AuctionResponse.from(auction);
+    }
+
+    @Transactional
+    public AuctionResponse cancel(UUID id, CancelAuctionRequest request, CurrentUser actor, boolean admin) {
+        if (admin && !actor.hasRole("ADMIN") || !admin && !actor.hasRole("SELLER")) {
+            throw new DomainException(AuctionErrorCode.AUCTION_FORBIDDEN);
+        }
+        Auction auction = lock(id);
+        if (!admin) {
+            requireOwner(auction, actor);
+        }
+        if (!stateMachine.canTransition(auction.getStatus(), AuctionStatus.CANCELLED)) {
+            throw new DomainException(AuctionErrorCode.AUCTION_ILLEGAL_TRANSITION);
+        }
+        if (!admin && auctions.hasValidBids(id)) {
+            throw new DomainException(AuctionErrorCode.AUCTION_HAS_BIDS);
+        }
+        stateMachine.cancel(auction, actor);
+        auction.recordCancellation(admin ? "ADMIN" : "SELLER", actor.id(), request.reason().strip(),
+                clock.instant().truncatedTo(ChronoUnit.MICROS));
+        // Flush once before the event so its version is the committed entity version.
+        auctions.flush();
+        outbox.write("Auction", Topics.AUCTION,
+                envelopes.create("AuctionCancelled", id.toString(), AuctionCancelled.from(auction)));
+        return AuctionResponse.from(auction);
+    }
+
+    private Auction lock(UUID id) {
+        return auctions.findForUpdateByIdAndDeletedAtIsNull(id)
+                .orElseThrow(() -> new DomainException(AuctionErrorCode.AUCTION_NOT_FOUND));
+    }
+
+    private void requireOwner(Auction auction, CurrentUser actor) {
+        if (!auction.getSellerId().equals(actor.id())) {
+            throw new DomainException(AuctionErrorCode.AUCTION_FORBIDDEN);
+        }
     }
 
     @Transactional

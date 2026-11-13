@@ -59,4 +59,14 @@ public class ShipmentHistory extends AuditedEntity {
 
     @Column(name = "changed_by")
     private UUID changedBy;
+
+    public static ShipmentHistory system(Shipment shipment, String description) {
+        ShipmentHistory history = new ShipmentHistory();
+        history.id = UUID.randomUUID();
+        history.shipment = shipment;
+        history.shipmentStatus = shipment.getShipmentStatus();
+        history.description = description;
+        history.source = "SYSTEM";
+        return history;
+    }
 }

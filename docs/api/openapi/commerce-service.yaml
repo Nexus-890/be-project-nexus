@@ -25,6 +25,107 @@ security:
   -
     bearerAuth: []
 paths:
+  /internal/v1/orders/{id}/shipping-snapshot:
+    get:
+      tags:
+        - Orders
+      operationId: getOrderShippingSnapshot
+      summary: Read the trusted shipping snapshot of a paid order
+      description: >-
+        Direct commerce-service endpoint used by shipment-service for manual creation. The gateway does
+        not route /internal/v1. Requires SHIPPING.CREATE_SHIPMENT AND ADMIN or SUPPORT_STAFF; the caller's
+        bearer is forwarded and checked here. Reads one repeatable-read commerce transaction and accepts
+        only status PAID with a persisted paidAt. Returns persisted buyer/fee/recipient and items built
+        from order_items, not a caller-supplied address or price. Missing parcel/pickup data and legacy
+        addresses without verified locality codes may be returned for preparation; locality names are
+        never promoted to codes. No inventory/shipment/payment database is read. The response represents
+        state at the read and does not establish an atomic cross-service cancellation boundary.
+      security:
+        - bearerAuth: []
+      x-required-privileges:
+        - SHIPPING.CREATE_SHIPMENT
+      x-required-roles:
+        - ADMIN
+        - SUPPORT_STAFF
+      x-ownership: Operational manual shipment preparation; buyerId comes from the stored order. Roles are ANY-of.
+      x-error-codes:
+        '400': [INVALID_PARAMETER]
+        '401': [UNAUTHENTICATED]
+        '403': [FORBIDDEN]
+        '404': [COMMERCE_ORDER_NOT_FOUND]
+        '409': [COMMERCE_ORDER_NOT_PAID, COMMERCE_INVALID_SHIPPING_SNAPSHOT]
+        '500': [INTERNAL_ERROR]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Canonical seller order UUID, not the order-group UUID.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Authoritative paid-order snapshot for shipment creation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderShippingSnapshotEnvelope'
+        '400':
+          description: Invalid UUID path parameter; INVALID_PARAMETER.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing or invalid bearer; UNAUTHENTICATED.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Caller lacks the required privilege or operational role; FORBIDDEN.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Order does not exist; COMMERCE_ORDER_NOT_FOUND.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Order is not PAID or its stored snapshot cannot support shipment creation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                notPaid:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: The order must be PAID before creating a shipment
+                    instance: /internal/v1/orders/00000000-0000-4000-8000-000000000001/shipping-snapshot
+                    code: COMMERCE_ORDER_NOT_PAID
+                invalidSnapshot:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: The paid order has incomplete or invalid shipping data
+                    instance: /internal/v1/orders/00000000-0000-4000-8000-000000000001/shipping-snapshot
+                    code: COMMERCE_INVALID_SHIPPING_SNAPSHOT
+        '500':
+          description: Unexpected internal failure; INTERNAL_ERROR.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+      servers:
+        - url: http://localhost:8083
+          description: Direct commerce-service; this internal path is not routed by the gateway.
   /api/v1/carts/me:
     get:
       tags:
@@ -2656,6 +2757,7 @@ paths:
                         orderType: STANDARD
                         createdAt: "2026-10-29T08:00:00Z"
                         status: "PENDING"
+                        canCancel: true
                         totalAmount: 300000
                         subtotal: 300000
                         shippingFee: 0
@@ -3060,6 +3162,7 @@ paths:
                           orderType: STANDARD
                           createdAt: "2026-10-29T08:00:00Z"
                           status: "PENDING"
+                          canCancel: true
                           totalAmount: 150000
                           subtotal: 150000
                           shippingFee: 0
@@ -3095,6 +3198,7 @@ paths:
                           orderType: STANDARD
                           createdAt: "2026-10-29T08:00:00Z"
                           status: "PENDING"
+                          canCancel: true
                           totalAmount: 150000
                           subtotal: 150000
                           shippingFee: 0
@@ -3762,6 +3866,7 @@ paths:
                         orderType: STANDARD
                         createdAt: "2026-11-03T08:00:00Z"
                         status: PENDING
+                        canCancel: true
                         totalAmount: 150000
                         subtotal: 150000
                         shippingFee: 0
@@ -3980,6 +4085,7 @@ paths:
                         orderType: STANDARD
                         createdAt: "2026-11-03T08:00:00Z"
                         status: PENDING
+                        canCancel: false
                         totalAmount: 150000
                         subtotal: 150000
                         shippingFee: 0
@@ -4173,6 +4279,7 @@ paths:
                       sellerId: "68000000-0000-4000-8000-000000000003"
                       orderType: STANDARD
                       status: PENDING
+                      canCancel: true
                       createdAt: "2026-11-11T08:00:00Z"
                       subtotal: 300000
                       shippingFee: 30000
@@ -4578,6 +4685,7 @@ paths:
                       orderType: STANDARD
                       createdAt: "2026-10-29T08:00:00Z"
                       status: "PENDING"
+                      canCancel: true
                       totalAmount: 300000
                       subtotal: 300000
                       shippingFee: 0
@@ -5421,6 +5529,7 @@ paths:
                       orderType: STANDARD
                       createdAt: "2026-10-29T08:00:00Z"
                       status: "PAID"
+                      canCancel: true
                       totalAmount: 150000
                       subtotal: 150000
                       shippingFee: 0
@@ -5925,6 +6034,7 @@ paths:
                           orderType: STANDARD
                           createdAt: "2026-10-30T08:00:00Z"
                           status: "CANCELED"
+                          canCancel: false
                           totalAmount: 150000
                           subtotal: 150000
                           shippingFee: 0
@@ -7888,6 +7998,53 @@ components:
       bearerFormat: "JWT"
       description: "RS256 access JWT, issuer user-service, audience nexus-services. privileges are exact SRS strings; roles are mapped as ROLE_<code>."
   schemas:
+    OrderShippingSnapshotEnvelope:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          example: 0
+        message:
+          type: string
+          example: response success
+        data:
+          $ref: '#/components/schemas/OrderShippingSnapshotResponse'
+    OrderShippingSnapshotResponse:
+      type: object
+      required: [orderId, buyerId, orderVersion, status, paidAt, warehouseId, shippingFee, shippingInfo]
+      properties:
+        orderId:
+          type: string
+          format: uuid
+        buyerId:
+          type: string
+          format: uuid
+        orderVersion:
+          type: integer
+          format: int64
+          minimum: 0
+        status:
+          type: string
+          enum: [PAID]
+        paidAt:
+          type: string
+          format: date-time
+        warehouseId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Trusted persisted warehouse selection when available. Manual creation can otherwise select a configured warehouse.
+        shippingFee:
+          type: number
+          minimum: 0
+          description: This seller order's persisted VND fee, never the order-group total or a caller override.
+        shippingInfo:
+          type: object
+          additionalProperties: true
+          description: >-
+            Stored recipient and optional parcel/pickup data, normalized without fabricating locality codes.
+            The items array is built from this order's persisted SKU IDs, product-name snapshots and quantities.
     UpdateCartItem:
       type: object
       required:
@@ -8433,6 +8590,7 @@ components:
         - "sellerId"
         - "orderType"
         - "status"
+        - "canCancel"
         - "createdAt"
         - "subtotal"
         - "shippingFee"
@@ -8470,6 +8628,9 @@ components:
           enum: [STANDARD, AUCTION]
         status:
           $ref: "#/components/schemas/OrderStatus"
+        canCancel:
+          type: boolean
+          description: "Cancellation eligibility for the current caller: ORDER.CANCEL and ownership (or ADMIN/SUPPORT_STAFF), and either PAID or PENDING in a PENDING group. This is a read-time snapshot; cancellation rechecks locked state and can return 409. Missing on older backends must be treated as false."
         createdAt:
           type: "string"
           format: "date-time"
@@ -8555,9 +8716,13 @@ components:
           $ref: "#/components/schemas/OrderStatus"
         reason:
           type: "string"
+          nullable: true
+          description: "May be unavailable for historical or system-generated history."
         changedBy:
           type: "string"
           format: "uuid"
+          nullable: true
+          description: "May be unavailable for historical or system-generated history."
         createdAt:
           type: "string"
           format: "date-time"

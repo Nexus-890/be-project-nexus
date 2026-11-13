@@ -24,7 +24,8 @@ public record OrderResponse(
         BigDecimal subtotal,
         BigDecimal shippingFee,
         BigDecimal discountAmount,
-        BigDecimal taxAmount) {
+        BigDecimal taxAmount,
+        boolean canCancel) {
 
     public OrderResponse {
         items = List.copyOf(items);

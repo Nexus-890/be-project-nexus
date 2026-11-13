@@ -54,6 +54,9 @@ public class Skus extends AuditedEntity {
     @Column(name = "price", nullable = false, precision = 19, scale = 2)
     private BigDecimal price;
 
+    @Column(name = "cost_price", precision = 19, scale = 2)
+    private BigDecimal costPrice;
+
     @Column(name = "shipping_weight_grams")
     private Integer shippingWeightGrams;
 
