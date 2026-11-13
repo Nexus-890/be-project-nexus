@@ -1,0 +1,199 @@
+/* Shared Nexus design values from fe-project-nexus/app/globals.css. */
+@font-face {
+  font-family: Geist;
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../fonts/Geist.ttf") format("truetype");
+}
+
+:root {
+  --nexus-primary: #ee4f22;
+  --nexus-primary-hover: #d2401a;
+  --nexus-primary-active: #b8360f;
+  --nexus-background: #ffffff;
+  --nexus-foreground: #171717;
+  --nexus-muted: #f7f7f7;
+  --nexus-muted-foreground: #767676;
+  --nexus-border: #e0e0e0;
+  --nexus-ring: #006bff;
+  --nexus-danger: #fc0035;
+  --pf-v5-global--FontFamily--text: Geist, Arial, sans-serif;
+  --pf-v5-global--FontFamily--heading: Geist, Arial, sans-serif;
+  --pf-v5-global--primary-color--100: var(--nexus-primary);
+  --pf-v5-global--primary-color--200: var(--nexus-primary-hover);
+  --pf-v5-global--link--Color: var(--nexus-primary-hover);
+  --pf-v5-global--link--Color--hover: var(--nexus-primary-active);
+  --pf-v5-global--BorderColor--100: var(--nexus-border);
+}
+
+html, body {
+  min-height: 100%;
+  font-family: Geist, Arial, sans-serif;
+  color: var(--nexus-foreground);
+  background: var(--nexus-muted);
+}
+
+body#keycloak-bg {
+  background: var(--nexus-muted);
+}
+
+.pf-v5-c-login {
+  min-height: 100dvh;
+  padding: 40px 24px;
+}
+
+.pf-v5-c-login__container {
+  width: min(100%, 480px);
+  margin: auto;
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 24px;
+}
+
+.pf-v5-c-login__header {
+  padding: 0;
+  justify-self: center;
+}
+
+#kc-header-wrapper {
+  width: 126px;
+  height: 32px;
+  padding: 0;
+  background: url("../img/nexus-logo.svg") center / contain no-repeat;
+  font-size: 0;
+}
+
+.pf-v5-c-login__main {
+  min-width: 0;
+  border: 1px solid var(--nexus-border);
+  border-radius: 12px;
+  background: var(--nexus-background);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 4%);
+}
+
+.pf-v5-c-login__main-header {
+  padding: 32px 32px 16px;
+}
+
+.pf-v5-c-login__main-body {
+  padding: 8px 32px 32px;
+}
+
+#kc-page-title {
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.pf-v5-c-form {
+  row-gap: 24px;
+}
+
+.pf-v5-c-form__label, .pf-v5-c-check__label {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+}
+
+.pf-v5-c-form-control {
+  min-height: 44px;
+  border-radius: 6px;
+  --pf-v5-c-form-control--after--BorderBottomWidth: 0;
+  --pf-v5-c-form-control--before--BorderColor: var(--nexus-border);
+}
+
+.pf-v5-c-form-control > input, .pf-v5-c-form-control > select {
+  font: inherit;
+  font-size: 14px;
+}
+
+.pf-v5-c-form-control::before {
+  border-radius: 6px;
+}
+
+.pf-v5-c-input-group .pf-v5-c-form-control {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+}
+
+.pf-v5-c-button {
+  min-height: 44px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.pf-v5-c-button::after {
+  border-radius: 6px;
+}
+
+.pf-v5-c-button.pf-m-primary {
+  color: var(--nexus-background);
+  background: var(--nexus-primary);
+}
+
+.pf-v5-c-button.pf-m-primary:hover {
+  background: var(--nexus-primary-hover);
+}
+
+.pf-v5-c-button.pf-m-primary:active {
+  background: var(--nexus-primary-active);
+}
+
+.pf-v5-c-button:disabled, .pf-v5-c-button[aria-disabled="true"] {
+  opacity: 0.5;
+}
+
+.pf-v5-c-button.pf-m-control {
+  border: 1px solid var(--nexus-border);
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+}
+
+a {
+  color: var(--nexus-primary-hover);
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  color: var(--nexus-primary-active);
+  text-decoration: underline;
+}
+
+:is(a, button, input, select):focus-visible {
+  outline: 2px solid var(--nexus-ring);
+  outline-offset: 2px;
+}
+
+.pf-v5-c-form-control:focus-within {
+  outline: 2px solid var(--nexus-ring);
+  outline-offset: 2px;
+}
+
+.pf-v5-c-alert {
+  border-radius: 6px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.kc-feedback-text.pf-m-error {
+  color: var(--nexus-danger);
+}
+
+.pf-v5-c-login__main-footer-band {
+  background: var(--nexus-muted);
+  font-size: 14px;
+}
+
+#kc-info-wrapper, #kc-registration {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .pf-v5-c-login { padding: 24px 16px; }
+  .pf-v5-c-login__main-header { padding: 24px 24px 16px; }
+  .pf-v5-c-login__main-body { padding: 8px 24px 24px; }
+}

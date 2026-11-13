@@ -11,6 +11,14 @@ docker compose up -d postgres auth-service
 .\keycloak\seed-users.ps1
 ```
 
+Account password pages (#219) additionally need `mailpit`: start it with
+`docker compose up -d mailpit auth-service`. The Nexus login theme is mounted
+read-only and selected on a fresh realm import; Forgot password sends reset
+email through Mailpit at `mailpit:1025`. Existing realms need the login theme,
+Forgot password and Email settings applied in the Admin Console because
+`--import-realm` skips a realm already in the database. See
+[password page setup and live verification](../../../../fe-project-nexus/docs/features/password-pages.md).
+
 Set `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `KEYCLOAK_PORT`,
 `KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD` and the three demo passwords before
 running these commands. Existing `.env` files created before Keycloak was added
