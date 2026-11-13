@@ -1,6 +1,7 @@
 package com.group5.auctionservice.auction;
 
 import com.group5.common_core.exception.DomainException;
+import com.group5.common_core.model.ApiResponse;
 import jakarta.servlet.Filter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -65,6 +66,7 @@ class AuctionScheduleIntegrationTest {
     @Autowired private AuctionRepository auctions;
     @Autowired private AuctionStateMachine stateMachine;
     @MockitoBean private JwtDecoder decoder;
+    @MockitoBean private CatalogClient catalog;
     private MockMvc client;
     private UUID auctionId;
 
@@ -84,10 +86,14 @@ class AuctionScheduleIntegrationTest {
         when(decoder.decode("admin")).thenReturn(token("admin", OWNER, "ADMIN", "AUCTION.UPDATE"));
         when(decoder.decode("no-update")).thenReturn(token("no-update", OWNER, "SELLER", "AUCTION.CREATE"));
         Instant start = Instant.now().plusSeconds(3600);
+        UUID productId = UUID.randomUUID();
+        UUID skuId = UUID.randomUUID();
+        when(catalog.getProduct(productId)).thenReturn(ApiResponse.of(new CatalogClient.Product(
+                OWNER, "Scheduled auction", List.of(new CatalogClient.Sku(skuId)), List.of())));
         String body = """
                 {"productId":"%s","skuId":"%s","title":"Scheduled auction","startingPrice":100000,
                  "startAt":"%s","endAt":"%s"}
-                """.formatted(UUID.randomUUID(), UUID.randomUUID(), start, start.plusSeconds(7200));
+                """.formatted(productId, skuId, start, start.plusSeconds(7200));
         String response = client.perform(post(PATH).header("Authorization", "Bearer owner")
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated())

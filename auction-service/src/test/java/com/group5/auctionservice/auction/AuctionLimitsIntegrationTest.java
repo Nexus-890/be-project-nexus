@@ -22,14 +22,17 @@ import org.springframework.web.context.WebApplicationContext;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -54,6 +57,9 @@ class AuctionLimitsIntegrationTest {
     @Autowired private WebApplicationContext context;
     @Autowired private JdbcTemplate jdbc;
     @MockitoBean private JwtDecoder decoder;
+    @MockitoBean private AuctionCatalog catalog;
+    private final Map<UUID, UUID> productIdsBySku = new ConcurrentHashMap<>();
+    private final Map<UUID, CatalogClient.Product> products = new ConcurrentHashMap<>();
     private MockMvc client;
     private UUID seller;
     private UUID otherSeller;
@@ -73,6 +79,7 @@ class AuctionLimitsIntegrationTest {
         otherSeller = UUID.randomUUID();
         when(decoder.decode("seller")).thenReturn(token("seller", seller));
         when(decoder.decode("other")).thenReturn(token("other", otherSeller));
+        when(catalog.requireProduct(any())).thenAnswer(call -> products.get(call.getArgument(0)));
     }
 
     @ParameterizedTest
@@ -90,9 +97,9 @@ class AuctionLimitsIntegrationTest {
     }
 
     @Test
-    void differentSellersCreatingTheSameSkuConcurrentlyLeaveOneRow() throws Exception {
+    void concurrentCreatesForTheSameSkuLeaveOneRow() throws Exception {
         UUID sku = UUID.randomUUID();
-        race(() -> create("seller", sku), () -> create("other", sku), "AUCTION_SKU_ALREADY_LIVE");
+        race(() -> create("seller", sku), () -> create("seller", sku), "AUCTION_SKU_ALREADY_LIVE");
         assertThat(countForSku(sku)).isEqualTo(1);
     }
 
@@ -113,7 +120,7 @@ class AuctionLimitsIntegrationTest {
                 .andExpect(jsonPath("$.detail").value("The seller has reached the live auction limit of 5"));
         assertThat(countForSku(nextSku)).isZero();
         assertThat(countLiveForSeller()).isEqualTo(5);
-        create("other", nextSku).andExpect(status().isCreated());
+        create("other", UUID.randomUUID()).andExpect(status().isCreated());
     }
 
     @Test
@@ -150,11 +157,15 @@ class AuctionLimitsIntegrationTest {
     }
 
     private ResultActions create(String token, UUID sku) throws Exception {
+        UUID productId = productIdsBySku.computeIfAbsent(sku, ignored -> UUID.randomUUID());
+        UUID owner = token.equals("seller") ? seller : otherSeller;
+        products.putIfAbsent(productId, new CatalogClient.Product(owner, "Catalog auction",
+                List.of(new CatalogClient.Sku(sku)), List.of()));
         Instant start = Instant.now().plusSeconds(3600);
         String body = """
                 {"productId":"%s","skuId":"%s","title":"Auction limits","startingPrice":100000,
                  "startAt":"%s","endAt":"%s"}
-                """.formatted(UUID.randomUUID(), sku, start, start.plusSeconds(7200));
+                """.formatted(productId, sku, start, start.plusSeconds(7200));
         return client.perform(post("/api/v1/auctions").header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON).content(body));
     }

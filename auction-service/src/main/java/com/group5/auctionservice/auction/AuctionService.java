@@ -12,13 +12,10 @@ import com.group5.common_events.EventEnvelopeFactory;
 import com.group5.common_events.Topics;
 import com.group5.common_outbox.OutboxWriter;
 import lombok.RequiredArgsConstructor;
-import org.hibernate.exception.ConstraintViolationException;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
-import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -33,12 +30,13 @@ import java.util.UUID;
 public class AuctionService {
 
     private static final Duration START_TIME_TOLERANCE = Duration.ofSeconds(5);
-    private static final String LIVE_SKU_INDEX = "uq_auctions_live_sku";
 
     private final AuctionRepository auctions;
     private final AuctionProperties properties;
     private final Clock clock;
     private final AuctionStateMachine stateMachine;
+    private final AuctionCatalog catalog;
+    private final AuctionCreation auctionCreation;
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
 
@@ -67,34 +65,22 @@ public class AuctionService {
                 .map(AuctionResponse::from);
     }
 
-    @Transactional(isolation = Isolation.READ_COMMITTED)
     public AuctionResponse create(CreateAuctionRequest request, CurrentUser seller) {
         validateWindow(request.startAt(), request.endAt());
-        // Count in a separate statement after acquiring the lock so it sees the previous create commit.
-        auctions.lockSellerForCreate(seller.id());
-        int sellerLimit = properties.getMaxActivePerSeller();
-        if (auctions.countLiveBySeller(seller.id()) >= sellerLimit) {
-            throw new DomainException(AuctionErrorCode.AUCTION_SELLER_LIMIT_REACHED,
-                    "The seller has reached the live auction limit of %d".formatted(sellerLimit));
+        CatalogClient.Product product = catalog.requireProduct(request.productId());
+        if (!seller.id().equals(product.sellerId())) {
+            throw new DomainException(AuctionErrorCode.AUCTION_FORBIDDEN, "The product belongs to another seller");
+        }
+        if (product.skus().stream().noneMatch(sku -> request.skuId().equals(sku.id()))) {
+            throw new DomainException(AuctionErrorCode.AUCTION_SKU_NOT_FOUND);
         }
 
         BigDecimal increment = request.bidIncrement() == null
                 ? properties.getDefaultBidIncrement()
                 : request.bidIncrement();
-        Auction auction = new Auction(request.productId(), request.skuId(), seller.id(), request.title(),
-                request.startingPrice(), increment, request.startAt(), request.endAt());
-        try {
-            return AuctionResponse.from(auctions.saveAndFlush(auction));
-        } catch (DataIntegrityViolationException failure) {
-            for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
-                if (cause instanceof ConstraintViolationException violation
-                        && "23505".equals(violation.getSQLState())
-                        && LIVE_SKU_INDEX.equals(violation.getConstraintName())) {
-                    throw new DomainException(AuctionErrorCode.AUCTION_SKU_ALREADY_LIVE);
-                }
-            }
-            throw failure;
-        }
+        Auction auction = new Auction(request.productId(), request.skuId(), seller.id(), product.name(),
+                product.firstImageUrl(), request.startingPrice(), increment, request.startAt(), request.endAt());
+        return AuctionResponse.from(auctionCreation.save(auction));
     }
 
     private void validateWindow(Instant startAt, Instant endAt) {

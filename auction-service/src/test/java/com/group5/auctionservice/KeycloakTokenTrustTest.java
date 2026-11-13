@@ -1,6 +1,8 @@
 package com.group5.auctionservice;
 
 import com.group5.auctionservice.auction.AuctionRepository;
+import com.group5.auctionservice.auction.CatalogClient;
+import com.group5.common_core.model.ApiResponse;
 import com.group5.auctionservice.bidding.Bid;
 import com.group5.auctionservice.bidding.BidRepository;
 import com.group5.common_outbox.OutboxWriter;
@@ -88,6 +90,7 @@ class KeycloakTokenTrustTest {
     private static final HttpServer JWKS = jwks();
     @Autowired private WebApplicationContext context;
     @MockitoBean private AuctionRepository auctions;
+    @MockitoBean private CatalogClient catalog;
     @MockitoBean private com.group5.auctionservice.bidding.MyBidQuery myBids;
     @MockitoBean private BidRepository bids;
     @MockitoBean private OutboxWriter outbox;
@@ -104,6 +107,10 @@ class KeycloakTokenTrustTest {
     @BeforeEach
     void client() {
         when(clock.instant()).thenReturn(Instant.parse("2026-11-05T10:00:00Z"));
+        when(catalog.getProduct(UUID.fromString("00000002-1111-4111-8111-111111111111")))
+                .thenReturn(ApiResponse.of(new CatalogClient.Product(UUID.fromString(SUBJECT), "Catalog camera",
+                        List.of(new CatalogClient.Sku(UUID.fromString("00000003-1111-4111-8111-111111111111"))),
+                        List.of())));
         client = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
     }
