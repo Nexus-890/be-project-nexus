@@ -10,13 +10,74 @@ tags:
 security:
   - bearerAuth: []
 paths:
+  /api/v1/auctions/mine:
+    get:
+      tags: [Auctions]
+      operationId: listMyAuctions
+      summary: List the seller's own auctions in any status
+      description: Reads the JWT seller only, including CREATED, CANCELLED and RESTRICTED auctions. Soft-deleted rows are excluded. Omitting status returns every status. Sorts by createdAt descending then id descending.
+      x-catalogue-id: AUC-10
+      x-required-roles: [SELLER]
+      x-required-privileges: [AUCTION.LIST]
+      x-ownership: sellerId equals the JWT subject; request parameters cannot override ownership.
+      parameters:
+        - name: status
+          in: query
+          description: Optional exact status filter; omitted means all statuses.
+          schema: {$ref: '#/components/schemas/AuctionStatus'}
+        - {$ref: '#/components/parameters/MinePage'}
+        - {$ref: '#/components/parameters/MineSize'}
+      responses:
+        '200':
+          description: Own auction snapshots with page metadata; empty/out-of-range pages retain the actual totals.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ListAuctionsResponse'}
+        '400': {$ref: '#/components/responses/MineInvalidQuery'}
+        '401': {$ref: '#/components/responses/MineUnauthorized'}
+        '403': {$ref: '#/components/responses/MineForbidden'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/UnexpectedError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/bids/mine:
+    get:
+      tags: [Auctions]
+      operationId: listMyBids
+      summary: List each auction the authenticated buyer has bid on once
+      description: >
+        Reads only bids belonging to the JWT subject. Groups by auction before pagination,
+        including restricted auctions and cancelled bid history but excluding soft-deleted auctions.
+        amount and placedAt come from the same latest personal bid (placedAt DESC, id DESC).
+        Results use that same stable order. leading is true only for ACTIVE/ENDED auctions where
+        the caller is leader_bidder_id and holds a non-CANCELLED bid matching current_price.
+        won is true only for WON/SETTLED/PAYMENT_TIMEOUT with winner_id equal to the caller;
+        a current leader is not assumed to have won. Counts and rows share a repeatable-read snapshot.
+      x-catalogue-id: BID-03
+      x-required-roles: [BUYER]
+      x-required-privileges: [AUCTION.VIEW_BID_HISTORY]
+      x-ownership: bidderId equals JWT subject; no other bidder identity is returned.
+      parameters:
+        - {$ref: '#/components/parameters/MinePage'}
+        - {$ref: '#/components/parameters/MineSize'}
+      responses:
+        '200':
+          description: One latest personal bid per auction; totals count distinct auctions.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ListMyBidsResponse'}
+        '400': {$ref: '#/components/responses/MineInvalidQuery'}
+        '401': {$ref: '#/components/responses/MineUnauthorized'}
+        '403': {$ref: '#/components/responses/MineForbidden'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/UnexpectedError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
   /api/v1/auctions:
     get:
       tags: [Auctions]
       operationId: listAuctions
       summary: List public auctions, ending soonest first
       description: >
-        Reads only auction-service tables. Excludes RESTRICTED and soft-deleted rows.
+        Reads only auction-service tables. Excludes RESTRICTED and soft-deleted rows. CREATED and CANCELLED are hidden even when explicitly requested by status.
         When status is omitted only ACTIVE public non-deleted auctions are included.
         Sorts by endAt ascending, then id ascending for ties; client sort overrides are not supported.
         A page beyond the end returns an empty data array with the actual totals.
@@ -784,7 +845,37 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 components:
+  parameters:
+    MinePage:
+      name: page
+      in: query
+      description: Zero-based page number.
+      schema: {type: integer, minimum: 0, default: 0}
+    MineSize:
+      name: size
+      in: query
+      description: Number of distinct result rows per page.
+      schema: {type: integer, minimum: 1, maximum: 100, default: 10}
   responses:
+    MineInvalidQuery:
+      description: INVALID_PARAMETER, VALIDATION_FAILED or INVALID_REQUEST_BODY; malformed query or paging bounds.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    MineUnauthorized:
+      description: UNAUTHENTICATED; valid bearer token required.
+      headers:
+        WWW-Authenticate:
+          description: Bearer challenge.
+          schema: {type: string}
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    MineForbidden:
+      description: FORBIDDEN; caller lacks the endpoint role or privilege.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
     InvalidBearer:
       description: 'UNAUTHENTICATED — No token is needed, but an invalid supplied token is rejected.'
       headers:
@@ -823,6 +914,35 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    MyBid:
+      type: object
+      additionalProperties: false
+      required: [auctionId, title, amount, placedAt, auctionStatus, leading, won]
+      properties:
+        auctionId: {type: string, format: uuid}
+        title: {type: string}
+        amount: {type: number, multipleOf: 0.01, description: Latest personal bid amount as a JSON number.}
+        placedAt: {type: string, format: date-time}
+        auctionStatus: {$ref: '#/components/schemas/AuctionStatus'}
+        leading: {type: boolean}
+        won: {type: boolean}
+    ListMyBidsResponse:
+      type: object
+      required: [code, message, data, page]
+      properties:
+        code: {type: integer, default: 0}
+        message: {type: string, default: response success}
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/MyBid'}
+        page:
+          type: object
+          required: [number, size, totalElements, totalPages]
+          properties:
+            number: {type: integer, minimum: 0}
+            size: {type: integer, minimum: 1, maximum: 100}
+            totalElements: {type: integer, format: int64, minimum: 0}
+            totalPages: {type: integer, minimum: 0}
     AuctionStatus:
       type: string
       enum: [CREATED, SCHEDULED, ACTIVE, ENDED, WON, SETTLED, FAILED, PAYMENT_TIMEOUT, CANCELLED]

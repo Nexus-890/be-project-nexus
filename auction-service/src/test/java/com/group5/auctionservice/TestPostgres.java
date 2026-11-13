@@ -18,7 +18,7 @@ public final class TestPostgres {
         if (url != null) return;
         adminUrl = System.getenv("TEST_POSTGRES_ADMIN_URL");
         if (adminUrl == null || adminUrl.isBlank()) {
-            container = new PostgreSQLContainer("postgres:18");
+            container = new PostgreSQLContainer("postgres:18").withUrlParam("options", "-c timezone=UTC");
             container.start();
             url = container.getJdbcUrl();
             username = container.getUsername();
@@ -28,7 +28,7 @@ public final class TestPostgres {
             password = System.getenv().getOrDefault("TEST_POSTGRES_PASSWORD", "");
             database = "auction_test_" + UUID.randomUUID().toString().replace("-", "");
             executeAdmin("CREATE DATABASE " + database);
-            url = adminUrl.substring(0, adminUrl.lastIndexOf('/') + 1) + database;
+            url = adminUrl.substring(0, adminUrl.lastIndexOf('/') + 1) + database + "?options=-c%20timezone%3DUTC";
         }
         Runtime.getRuntime().addShutdownHook(new Thread(this::stop));
     }

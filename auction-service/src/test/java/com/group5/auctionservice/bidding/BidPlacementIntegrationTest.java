@@ -44,7 +44,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
-import org.testcontainers.postgresql.PostgreSQLContainer;
+import com.group5.auctionservice.TestPostgres;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -80,7 +80,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringJUnitConfig(BidPlacementIntegrationTest.Config.class)
 @WebAppConfiguration
 class BidPlacementIntegrationTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final TestPostgres POSTGRES = new TestPostgres();
     private static final Instant NOW = Instant.parse("2026-11-08T03:00:00Z");
     private static final BigDecimal MINIMUM = new BigDecimal("1050000.00");
     static { POSTGRES.start(); }
