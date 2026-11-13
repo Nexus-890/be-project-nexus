@@ -189,7 +189,7 @@ class AuctionReadIntegrationTest {
                     '2026-11-05T12:00:00Z'::timestamptz + ? * interval '1 minute',
                     ?::auction_status, ?::auction_visibility,
                     CASE WHEN ? THEN now() ELSE NULL END)
-                """, PREFIX + id, PREFIX + "1", PREFIX + "2", PREFIX + "3", "Snapshot " + id,
+                """, PREFIX + id, PREFIX + "1", PREFIX + id, PREFIX + "3", "Snapshot " + id,
                 "https://cdn.example.com/" + id + ".jpg", endMinutes, endMinutes, status, visibility, deleted);
     }
 }

@@ -8,6 +8,8 @@ public enum AuctionErrorCode implements ErrorCode {
     AUCTION_INVALID_TIME_WINDOW(HttpStatus.BAD_REQUEST, "endAt must be after startAt"),
     AUCTION_DURATION_TOO_SHORT(HttpStatus.BAD_REQUEST, "Auction duration is below the configured minimum"),
     AUCTION_DURATION_TOO_LONG(HttpStatus.BAD_REQUEST, "Auction duration exceeds the configured maximum"),
+    AUCTION_SKU_ALREADY_LIVE(HttpStatus.CONFLICT, "This SKU already has a live auction"),
+    AUCTION_SELLER_LIMIT_REACHED(HttpStatus.CONFLICT, "The seller has reached the live auction limit"),
     AUCTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Auction not found"),
     AUCTION_FORBIDDEN(HttpStatus.FORBIDDEN, "This actor cannot perform the auction action"),
     AUCTION_ILLEGAL_TRANSITION(HttpStatus.CONFLICT, "The auction cannot move to this status from its current status"),

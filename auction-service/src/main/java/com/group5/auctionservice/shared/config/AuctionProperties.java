@@ -24,6 +24,9 @@ public class AuctionProperties {
     @Positive
     private int maxDurationHours = 168;
 
+    @Positive
+    private int maxActivePerSeller = 5;
+
     @NotNull
     @Positive
     @Digits(integer = 17, fraction = 2)

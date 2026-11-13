@@ -45,6 +45,7 @@ class AuctionPropertiesTest {
             assertThat(properties.getAntiSnipingMaxExtensionMinutes()).isEqualTo(30);
             assertThat(properties.getMinDurationMinutes()).isEqualTo(60);
             assertThat(properties.getMaxDurationHours()).isEqualTo(168);
+            assertThat(properties.getMaxActivePerSeller()).isEqualTo(5);
             assertThat(properties.getDefaultBidIncrement()).isEqualByComparingTo("10");
         });
     }
@@ -57,6 +58,7 @@ class AuctionPropertiesTest {
                 "nexus.auction.anti-sniping-max-extension-minutes=7",
                 "nexus.auction.min-duration-minutes=120",
                 "nexus.auction.max-duration-hours=24",
+                "nexus.auction.max-active-per-seller=2",
                 "nexus.auction.default-bid-increment=27.50")
                 .run(context -> {
                     assertThat(context).hasNotFailed();
@@ -66,6 +68,7 @@ class AuctionPropertiesTest {
                     assertThat(properties.getAntiSnipingMaxExtensionMinutes()).isEqualTo(7);
                     assertThat(properties.getMinDurationMinutes()).isEqualTo(120);
                     assertThat(properties.getMaxDurationHours()).isEqualTo(24);
+                    assertThat(properties.getMaxActivePerSeller()).isEqualTo(2);
                     assertThat(properties.getDefaultBidIncrement()).isEqualByComparingTo("27.50");
                 });
     }

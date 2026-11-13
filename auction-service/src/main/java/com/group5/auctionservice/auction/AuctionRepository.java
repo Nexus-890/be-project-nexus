@@ -17,6 +17,17 @@ import java.util.UUID;
 
 public interface AuctionRepository extends JpaRepository<Auction, UUID> {
 
+    @Query(value = "SELECT 1 FROM pg_advisory_xact_lock(hashtextextended('auction-create:' || CAST(:sellerId AS text), 0))",
+            nativeQuery = true)
+    int lockSellerForCreate(UUID sellerId);
+
+    @Query(value = """
+            SELECT count(*) FROM auctions
+            WHERE seller_id = :sellerId AND deleted_at IS NULL
+                AND status IN ('CREATED', 'SCHEDULED', 'ACTIVE')
+            """, nativeQuery = true)
+    long countLiveBySeller(UUID sellerId);
+
     @Modifying(clearAutomatically = true)
     @Query(value = """
             UPDATE auctions

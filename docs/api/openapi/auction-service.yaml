@@ -99,6 +99,8 @@ paths:
         Defaults are 60 minutes and 168 hours.
         startingPrice must be greater than zero. startAt must not be in the past,
         allowing up to 5 seconds of clock skew against server time.
+        A non-deleted auction in CREATED, SCHEDULED or ACTIVE is live.
+        A SKU can have one live auction, and each seller can have up to the configured limit (default 5).
       x-catalogue-id: AUC-01
       x-required-roles: [SELLER]
       x-required-privileges: [AUCTION.CREATE]
@@ -206,6 +208,19 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '409':
+          description: The SKU already has a live auction or the seller has reached the live auction limit.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Problem'
+                  - type: object
+                    properties:
+                      status:
+                        enum: [409]
+                      code:
+                        enum: [AUCTION_SKU_ALREADY_LIVE, AUCTION_SELLER_LIMIT_REACHED]
         '429':
           description: 'RATE_LIMITED — Gateway request limit exceeded.'
           headers:

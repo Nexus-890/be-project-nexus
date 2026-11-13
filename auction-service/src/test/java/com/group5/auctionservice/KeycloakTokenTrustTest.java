@@ -134,7 +134,7 @@ class KeycloakTokenTrustTest {
 
     @Test
     void sellerCreatesAuctionWithConfiguredIncrementAndJwtSubject() throws Exception {
-        when(auctions.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(auctions.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         client.perform(post(AUCTIONS).contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer " + auctionToken("SELLER", List.of("AUCTION.CREATE")))
@@ -169,7 +169,7 @@ class KeycloakTokenTrustTest {
     @ParameterizedTest
     @ValueSource(longs = {60, 10080})
     void exactDurationBoundsRemainAccepted(long minutes) throws Exception {
-        when(auctions.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(auctions.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
         String endAt = Instant.parse("2026-11-05T10:00:00Z").plusSeconds(minutes * 60).toString();
 
         client.perform(post(AUCTIONS).contentType(MediaType.APPLICATION_JSON)
@@ -296,7 +296,7 @@ class KeycloakTokenTrustTest {
     @CsvSource({"-86400, 400", "-6, 400", "-5, 201", "-3, 201", "0, 201", "60, 201"})
     void startTimeAllowsOnlyFiveSecondsOfClockSkew(long offsetSeconds, int expectedStatus) throws Exception {
         Instant start = Instant.parse("2026-11-05T10:00:00Z").plusSeconds(offsetSeconds);
-        when(auctions.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(auctions.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         var result = client.perform(post(AUCTIONS).contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer " + auctionToken("SELLER", List.of("AUCTION.CREATE")))
@@ -315,7 +315,7 @@ class KeycloakTokenTrustTest {
     @ParameterizedTest
     @CsvSource({"0, 400", "-0.01, 400", "0.01, 201"})
     void startingPriceMustBeStrictlyPositive(String price, int expectedStatus) throws Exception {
-        when(auctions.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(auctions.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         var result = client.perform(post(AUCTIONS).contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer " + auctionToken("SELLER", List.of("AUCTION.CREATE")))
