@@ -1,6 +1,6 @@
 package com.group5.auctionservice.bidding;
 
-import com.group5.common_test.PostgresIntegrationTest;
+import com.group5.auctionservice.AuctionPostgresIntegrationTest;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.RSASSASigner;
@@ -61,7 +61,7 @@ import static org.junit.jupiter.api.Assertions.assertAll;
         "nexus.outbox.relay.enabled=false", "management.tracing.export.enabled=false"
 })
 @Import(BidConcurrencyIT.TokenConfig.class)
-class BidConcurrencyIT extends PostgresIntegrationTest {
+class BidConcurrencyIT extends AuctionPostgresIntegrationTest {
     private static final int REQUESTS = 50;
     private static final int BIDDERS = 10;
     private static final BigDecimal START = new BigDecimal("1000000.00");

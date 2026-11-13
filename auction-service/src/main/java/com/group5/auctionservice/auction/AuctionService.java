@@ -49,7 +49,18 @@ public class AuctionService {
     @Transactional(readOnly = true)
     public Page<AuctionResponse> list(AuctionStatus status, int page, int size) {
         var pageable = PageRequest.of(page, size, Sort.by("endAt").ascending().and(Sort.by("id")));
+        if (status == AuctionStatus.CREATED || status == AuctionStatus.CANCELLED) {
+            return Page.empty(pageable);
+        }
         return auctions.findByVisibilityAndStatusAndDeletedAtIsNull(Auction.Visibility.PUBLIC, status, pageable)
+                .map(AuctionResponse::from);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<AuctionResponse> mine(AuctionStatus status, int page, int size, CurrentUser seller) {
+        var pageable = PageRequest.of(page, size, Sort.by("createdAt").descending().and(Sort.by("id").descending()));
+        return (status == null ? auctions.findBySellerIdAndDeletedAtIsNull(seller.id(), pageable)
+                : auctions.findBySellerIdAndStatusAndDeletedAtIsNull(seller.id(), status, pageable))
                 .map(AuctionResponse::from);
     }
 

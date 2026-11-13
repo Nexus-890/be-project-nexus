@@ -16,6 +16,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface AuctionRepository extends JpaRepository<Auction, UUID> {
+    Page<Auction> findBySellerIdAndDeletedAtIsNull(UUID sellerId, Pageable pageable);
+
+    Page<Auction> findBySellerIdAndStatusAndDeletedAtIsNull(UUID sellerId, AuctionStatus status, Pageable pageable);
 
     @Modifying(clearAutomatically = true)
     @Query(value = """
