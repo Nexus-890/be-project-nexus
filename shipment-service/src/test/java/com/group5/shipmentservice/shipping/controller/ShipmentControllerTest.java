@@ -7,6 +7,8 @@ import com.group5.shipmentservice.shared.exception.ShipmentExceptionHandler;
 import com.group5.shipmentservice.shared.exception.ShipmentSecurityProblemAdvice;
 import com.group5.shipmentservice.shipping.dto.request.CreateShipmentRequest;
 import com.group5.shipmentservice.shipping.dto.response.ShipmentResponse;
+import com.group5.shipmentservice.shipping.dto.response.ShipmentHistoryResponse;
+import com.group5.shipmentservice.shipping.dto.response.ShipmentTrackingResponse;
 import com.group5.shipmentservice.shipping.entity.Shipment;
 import com.group5.shipmentservice.shipping.enums.ShipmentStatus;
 import com.group5.shipmentservice.shipping.service.ShipmentCreationService;
@@ -143,6 +145,55 @@ class ShipmentControllerTest {
     }
 
     @Test
+    void trackingReturnsCarrierAndPersistedStatusHistoryInSingleResourceEnvelope() throws Exception {
+        OffsetDateTime created = OffsetDateTime.parse("2026-11-12T09:00:00Z");
+        when(reads.tracking(any(CurrentUser.class), eq(SHIPMENT)))
+                .thenReturn(new ShipmentTrackingResponse(SHIPMENT, ORDER, "GHN", "GHN123456",
+                        ShipmentStatus.IN_TRANSIT, List.of(new ShipmentHistoryResponse(SHIPMENT,
+                        ShipmentStatus.SHIPPED, null, created))));
+
+        mvc.perform(get(PATH + "/" + SHIPMENT + "/tracking").header("Authorization", "Bearer buyer"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.message").value("response success"))
+                .andExpect(jsonPath("$.data.shipmentId").value(SHIPMENT.toString()))
+                .andExpect(jsonPath("$.data.orderId").value(ORDER.toString()))
+                .andExpect(jsonPath("$.data.carrier").value("GHN"))
+                .andExpect(jsonPath("$.data.trackingCode").value("GHN123456"))
+                .andExpect(jsonPath("$.data.status").value("IN_TRANSIT"))
+                .andExpect(jsonPath("$.data.history.length()").value(1))
+                .andExpect(jsonPath("$.data.history[0].status").value("SHIPPED"))
+                .andExpect(jsonPath("$.data.history[0].description").isEmpty())
+                .andExpect(jsonPath("$.data.history[0].createdAt").value("2026-11-12T09:00:00Z"))
+                .andExpect(jsonPath("$.data.buyerId").doesNotExist())
+                .andExpect(jsonPath("$.data.shippingInfo").doesNotExist())
+                .andExpect(jsonPath("$.page").doesNotExist());
+    }
+
+    @Test
+    void trackingSupportsPendingWithoutCodeOrHistory() throws Exception {
+        when(reads.tracking(any(CurrentUser.class), eq(SHIPMENT)))
+                .thenReturn(new ShipmentTrackingResponse(SHIPMENT, ORDER, "GHN", null,
+                        ShipmentStatus.PENDING_TRACKING, List.of()));
+
+        mvc.perform(get(PATH + "/" + SHIPMENT + "/tracking").header("Authorization", "Bearer buyer"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.trackingCode").isEmpty())
+                .andExpect(jsonPath("$.data.history").isEmpty());
+    }
+
+    @Test
+    void hiddenTrackingReturnsSameNotFoundProblem() throws Exception {
+        when(reads.tracking(any(CurrentUser.class), eq(SHIPMENT)))
+                .thenThrow(new DomainException(ShipmentErrorCode.NOT_FOUND));
+
+        mvc.perform(get(PATH + "/" + SHIPMENT + "/tracking").header("Authorization", "Bearer buyer"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("SHIPMENT_NOT_FOUND"));
+    }
+
+    @Test
     void listReturnsArrayAndSiblingPageIncludingRequestedFilters() throws Exception {
         when(reads.list(any(CurrentUser.class), eq(ORDER), eq(ShipmentStatus.PENDING_TRACKING), eq(1), eq(5)))
                 .thenReturn(new PageImpl<>(List.of(response()), PageRequest.of(1, 5), 6));
@@ -235,7 +286,7 @@ class ShipmentControllerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/invalid-uuid", "?orderId=invalid-uuid", "?status=UNKNOWN"})
+    @ValueSource(strings = {"/invalid-uuid", "/invalid-uuid/tracking", "?orderId=invalid-uuid", "?status=UNKNOWN"})
     void malformedPathOrFiltersUseShipmentParameterProblem(String suffix) throws Exception {
         mvc.perform(get(PATH + suffix).header("Authorization", "Bearer buyer"))
                 .andExpect(status().isBadRequest())
@@ -249,6 +300,10 @@ class ShipmentControllerTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(header().string("WWW-Authenticate", "Bearer"))
                 .andExpect(jsonPath("$.code").value("SHIPMENT_UNAUTHENTICATED"));
+        mvc.perform(get(PATH + "/" + SHIPMENT + "/tracking"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", "Bearer"))
+                .andExpect(jsonPath("$.code").value("SHIPMENT_UNAUTHENTICATED"));
         mvc.perform(post(PATH).header("Idempotency-Key", "manual-202")
                         .contentType(MediaType.APPLICATION_JSON).content(CREATE_BODY))
                 .andExpect(status().isUnauthorized())
@@ -259,6 +314,10 @@ class ShipmentControllerTest {
     @Test
     void adminRoleWithoutPrivilegeCannotReadOrCreate() throws Exception {
         mvc.perform(get(PATH).header("Authorization", "Bearer admin-no-privilege"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SHIPMENT_FORBIDDEN"));
+        mvc.perform(get(PATH + "/" + SHIPMENT + "/tracking")
+                        .header("Authorization", "Bearer admin-no-privilege"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("SHIPMENT_FORBIDDEN"));
         mvc.perform(post(PATH).header("Authorization", "Bearer admin-no-privilege")

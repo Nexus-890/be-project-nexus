@@ -132,6 +132,21 @@ class GhnAdapterTest {
     }
 
     @Test
+    void previewLeavesBuyerStreetLineOutSoItCannotConflictWithChosenWard() {
+        response = request -> previewResponse();
+        CarrierQuoteRequest base = quoteRequest();
+        CarrierQuoteRequest conflicting = new CarrierQuoteRequest(base.pickup(),
+                new CarrierAddress("Hồ Chí Minh", "Phường Sài Gòn", "12 Lê Lợi, Phường Bến Thành, Quận 1, Hà Nội"),
+                base.parcel(), base.insuranceValue(), base.recipientName(), base.recipientPhone(), base.content());
+        adapter(3000, 3).quote(conflicting, deadline());
+        assertThat(requests).singleElement().satisfies(request -> {
+            JsonNode body = mapper.readTree(request.body());
+            assertThat(body.path("to_address").asString()).isEqualTo("Phường Sài Gòn, Hồ Chí Minh");
+            assertThat(request.body()).doesNotContain("Lê Lợi", "Bến Thành", "Hà Nội");
+        });
+    }
+
+    @Test
     void previewQuotesNewAddressWithoutDistrictFieldsOrOrderCreation() {
         response = request -> previewResponse();
         var quotes = adapter(3000, 3).quote(quoteRequest(), deadline());
@@ -152,7 +167,7 @@ class GhnAdapterTest {
             assertThat(body.path("is_new_to_address").booleanValue()).isTrue();
             assertThat(body.path("to_province_name").asString()).isEqualTo("Hồ Chí Minh");
             assertThat(body.path("to_ward_name").asString()).isEqualTo("Phường Sài Gòn");
-            assertThat(body.path("to_address").asString()).isEqualTo("Địa chỉ giao hàng, Phường Sài Gòn, Hồ Chí Minh");
+            assertThat(body.path("to_address").asString()).isEqualTo("Phường Sài Gòn, Hồ Chí Minh");
             assertThat(body.path("to_name").asString()).isEqualTo("Nguyễn Văn An");
             assertThat(body.path("to_phone").asString()).isEqualTo("0901234567");
             assertThat(body.path("payment_type_id").intValue()).isEqualTo(1);

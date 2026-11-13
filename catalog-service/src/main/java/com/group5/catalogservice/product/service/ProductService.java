@@ -127,7 +127,7 @@ public class ProductService {
                 .orElseThrow(() ->
                         new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND));
 
-        return toDetailResponse(product);
+        return toDetailResponse(product, false);
     }
 
     @Transactional(readOnly = true)
@@ -142,7 +142,7 @@ public class ProductService {
             throw new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND);
         }
         // The public read remains ACTIVE-only; an owner's editor also needs drafts.
-        return toDetailResponse(product);
+        return toDetailResponse(product, true);
     }
 
     @Transactional(readOnly = true)
@@ -266,7 +266,7 @@ public class ProductService {
         );
     }
     //detail ( cái này lúc click vô từng món xem kĩ ) -sẽ có 1 list lấy ra full product của issue khác
-    private ProductDetailResponse toDetailResponse(Product product) {
+    private ProductDetailResponse toDetailResponse(Product product, boolean owner) {
         var skus = product.getSkuses().stream()
                 .sorted(Comparator.comparing(Skus::getId))
                 .map(sku -> new SkuResponse(
@@ -279,7 +279,8 @@ public class ProductService {
                         sku.getStatus(),
                         sku.getShippingWeightGrams() == null ? null : new ShippingParcel(
                                 sku.getShippingWeightGrams(), sku.getShippingLengthCm(),
-                                sku.getShippingWidthCm(), sku.getShippingHeightCm())
+                                sku.getShippingWidthCm(), sku.getShippingHeightCm()),
+                        owner ? sku.getCostPrice() : null
                 ))
                 .toList();
 

@@ -54,7 +54,7 @@ class OrderResponseContractTest {
     @Test void orderOperationsWrapResultsAndPreserveCreationReplayAndListSemantics() throws Exception {
         var order = new OrderResponse(id, "NX-TEST", user.id(), user.id(), OrderType.STANDARD,
                 OrderStatus.PENDING, OffsetDateTime.now(), BigDecimal.TEN, List.of(), null, null,
-                id, BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+                id, BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false);
         var group = new OrderGroupResponse(id, "PENDING", BigDecimal.TEN, "VND", OffsetDateTime.now(), List.of(order));
         when(service.create(eq(user), eq("key-1"), any())).thenReturn(
                 new OrderService.CreationResult(true, group), new OrderService.CreationResult(false, group));
@@ -86,13 +86,27 @@ class OrderResponseContractTest {
                 .andExpect(jsonPath("$.data.hasOrders").value(true)).andExpect(jsonPath("$.code").value(0));
     }
 
+    @Test void historyPreservesNullableHistoricalReasonAndActor() throws Exception {
+        var entry = new OrderStatusHistoryResponse(id, null, OrderStatus.PENDING, null, null,
+                OffsetDateTime.parse("2026-11-12T01:00:00Z"));
+        when(service.statusHistory(user, id)).thenReturn(List.of(entry));
+
+        mvc.perform(get("/api/v1/orders/{id}/history", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].newStatus").value("PENDING"))
+                .andExpect(jsonPath("$.data[0].reason").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data[0].changedBy").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data[0].createdAt").value("2026-11-12T01:00:00Z"));
+    }
+
     @Test void orderReadsWrapTheOrderAndPutThePageBesideTheList() throws Exception {
         var order = new OrderResponse(id, "NX-TEST", user.id(), user.id(), OrderType.STANDARD,
                 OrderStatus.PENDING, OffsetDateTime.now(), BigDecimal.TEN, List.of(), null, null,
-                id, BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+                id, BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, true);
         when(service.getOrder(user, id)).thenReturn(order);
         mvc.perform(get("/api/v1/orders/{id}", id)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0)).andExpect(jsonPath("$.data.orderId").value(id.toString()))
+                .andExpect(jsonPath("$.data.canCancel").value(true))
                 .andExpect(jsonPath("$.page").doesNotExist());
         when(service.listOwn(user, OrderStatus.PENDING, 1, 2))
                 .thenReturn(new PageImpl<>(List.of(order), PageRequest.of(1, 2), 3));
@@ -105,6 +119,13 @@ class OrderResponseContractTest {
         when(service.getOrder(user, id)).thenThrow(new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
         mvc.perform(get("/api/v1/orders/{id}", id))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("COMMERCE_ORDER_NOT_FOUND"));
+        doThrow(new DomainException(CommerceErrorCode.FORBIDDEN)).when(service).getOrder(user, id);
+        mvc.perform(get("/api/v1/orders/{id}", id))
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("COMMERCE_FORBIDDEN"))
+                .andExpect(jsonPath("$.detail").value("You do not have permission"))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     @Test void managementRouteBindsEveryFilterAndKeepsPageBesideData() throws Exception {
@@ -115,7 +136,7 @@ class OrderResponseContractTest {
         OffsetDateTime createdAt = OffsetDateTime.parse("2026-11-02T08:15:30Z");
         var order = new OrderResponse(id, "NX-MANAGE", buyerId, sellerId, OrderType.AUCTION, OrderStatus.PAID,
                 createdAt, new BigDecimal("150000.00"), List.of(), null, null,
-                id, new BigDecimal("150000.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+                id, new BigDecimal("150000.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false);
         when(service.listManaged(user, buyerId, sellerId, OrderStatus.PAID, OrderType.AUCTION, from, to, 1, 2))
                 .thenReturn(new PageImpl<>(List.of(order), PageRequest.of(1, 2), 3));
 
@@ -146,7 +167,7 @@ class OrderResponseContractTest {
         OffsetDateTime createdAt = OffsetDateTime.parse("2026-11-02T08:15:30Z");
         var order = new OrderResponse(id, "NX-SALES", buyerId, user.id(), OrderType.STANDARD, OrderStatus.PENDING,
                 createdAt, new BigDecimal("150000.00"), List.of(), "Snapshot Buyer", "0901234567",
-                id, new BigDecimal("150000.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+                id, new BigDecimal("150000.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false);
         when(service.listSales(user, OrderStatus.PENDING, from, to, 0, 5))
                 .thenReturn(new PageImpl<>(List.of(order), PageRequest.of(0, 5), 1));
 
@@ -230,22 +251,25 @@ class OrderResponseContractTest {
     @Test void cancellationWrapsTheGroupAndNamesItsFailures() throws Exception {
         var order = new OrderResponse(id, "NX-TEST", user.id(), user.id(), OrderType.STANDARD,
                 OrderStatus.CANCELED, OffsetDateTime.now(), BigDecimal.TEN, List.of(), null, null,
-                id, BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+                id, BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false);
         var group = new OrderGroupResponse(id, "CANCELED", BigDecimal.TEN, "VND", OffsetDateTime.now(), List.of(order));
         when(service.cancel(eq(user), eq(id), any())).thenReturn(group);
         mvc.perform(post("/api/v1/orders/{id}/cancel", id).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"Changed my mind\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.status").value("CANCELED"))
-                .andExpect(jsonPath("$.data.orders[0].status").value("CANCELED"));
+                .andExpect(jsonPath("$.data.orders[0].status").value("CANCELED"))
+                .andExpect(jsonPath("$.data.orders[0].canCancel").value(false));
         mvc.perform(post("/api/v1/orders/{id}/cancel", id).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\" \"}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
         when(service.cancel(eq(user), eq(id), any()))
-                .thenThrow(new DomainException(CommerceErrorCode.ORDER_NOT_CANCELLABLE));
+                .thenThrow(new DomainException(CommerceErrorCode.ORDER_NOT_CANCELLABLE,
+                        "NX-TEST is SHIPPED and can no longer be cancelled"));
         mvc.perform(post("/api/v1/orders/{id}/cancel", id).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"Changed my mind\"}"))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("COMMERCE_ORDER_NOT_CANCELLABLE"));
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("COMMERCE_ORDER_NOT_CANCELLABLE"))
+                .andExpect(jsonPath("$.detail").value("NX-TEST is SHIPPED and can no longer be cancelled"));
     }
 
     // Không gọi service khi mã địa giới bắt buộc thiếu, tránh tạo đơn trước bước validation.

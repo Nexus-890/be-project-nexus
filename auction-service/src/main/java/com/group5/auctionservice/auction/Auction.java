@@ -68,7 +68,7 @@ public class Auction extends AuditedEntity {
     @Column(nullable = false)
     private Instant endAt;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false)
     private Instant originalEndAt;
 
     @Column(nullable = false)
@@ -90,6 +90,16 @@ public class Auction extends AuditedEntity {
     private BigDecimal finalPrice;
 
     private Instant paymentDueAt;
+
+    @Column(length = 20)
+    private String cancelledBy;
+
+    @Column(length = 255)
+    private String cancelledReason;
+
+    private UUID cancelledActorId;
+
+    private Instant cancelledAt;
 
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
@@ -121,6 +131,23 @@ public class Auction extends AuditedEntity {
 
     void setStatus(AuctionStatus status) {
         this.status = status;
+    }
+
+    void configure(BigDecimal startingPrice, BigDecimal bidIncrement, Instant startAt, Instant endAt) {
+        this.startingPrice = startingPrice;
+        this.currentPrice = startingPrice;
+        this.bidIncrement = bidIncrement;
+        this.startAt = startAt;
+        this.endAt = endAt;
+        // Configuration changes the baseline; bidding extensions never call this method.
+        this.originalEndAt = endAt;
+    }
+
+    void recordCancellation(String cancelledBy, UUID actorId, String reason, Instant cancelledAt) {
+        this.cancelledBy = cancelledBy;
+        this.cancelledActorId = actorId;
+        this.cancelledReason = reason;
+        this.cancelledAt = cancelledAt;
     }
 
     public enum Visibility {

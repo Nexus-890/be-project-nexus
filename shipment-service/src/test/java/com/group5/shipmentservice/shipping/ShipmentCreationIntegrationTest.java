@@ -5,6 +5,7 @@ import com.group5.shipmentservice.shipping.event.payload.OrderPaidSnapshot;
 
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_core.model.ApiResponse;
+import com.group5.common_security.CurrentUser;
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.EventEnvelopeFactory;
 import com.group5.common_events.Topics;
@@ -22,6 +23,7 @@ import com.group5.shipmentservice.shipping.repository.ShipmentRepository;
 import com.group5.shipmentservice.shipping.resilience.ShippingDeadline;
 import com.group5.shipmentservice.shipping.resilience.CarrierExecutor;
 import com.group5.shipmentservice.shipping.service.ShipmentCreationService;
+import com.group5.shipmentservice.shipping.service.ShipmentReadService;
 import com.group5.shipmentservice.shipping.service.PaidOrderSnapshotService;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import feign.Request;
@@ -55,6 +57,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -104,6 +107,7 @@ class ShipmentCreationIntegrationTest {
     @Autowired JsonMapper mapper;
     @Autowired OrderPaidShipmentConsumer consumer;
     @Autowired ShipmentCreationService creation;
+    @Autowired ShipmentReadService reads;
     @Autowired TestCarrier carrier;
     @Autowired CarrierExecutor carrierExecutor;
     @Autowired IdempotentConsumer idempotency;
@@ -145,6 +149,39 @@ class ShipmentCreationIntegrationTest {
         assertThat(published.path("payload").path("status").asString()).isEqualTo("PENDING_TRACKING");
         assertThat(published.path("payload").path("trackingCode").isNull()).isTrue();
         assertThat(jdbc.queryForObject("SELECT topic FROM outbox", String.class)).isEqualTo(Topics.SHIPMENT);
+    }
+
+    @Test
+    void trackingReadsOnlyOwnedPersistedHistoryInChronologicalOrderWithStableTies() {
+        var event = event(UUID.randomUUID(), true);
+        receive(event);
+        UUID shipmentId = jdbc.queryForObject("SELECT id FROM shipments", UUID.class);
+        UUID buyerId = jdbc.queryForObject("SELECT buyer_id FROM shipments", UUID.class);
+        UUID first = UUID.fromString("00000000-0000-4000-8000-000000000010");
+        UUID second = UUID.fromString("00000000-0000-4000-8000-000000000020");
+        UUID third = UUID.fromString("00000000-0000-4000-8000-000000000030");
+        jdbc.update("UPDATE shipment_history SET created_at = '2026-11-12T00:00:00Z' WHERE shipment_id = ?", shipmentId);
+        // Deliberately insert the tied IDs in reverse order; the read must order by timestamp and ID.
+        jdbc.update("""
+                INSERT INTO shipment_history (id, shipment_id, shipment_status, description, created_at, source)
+                VALUES (?, ?, 'IN_TRANSIT', NULL, '2026-11-13T02:00:00Z', 'SYSTEM'),
+                       (?, ?, 'SHIPPED', 'Handed to carrier', '2026-11-13T01:00:00Z', 'SYSTEM'),
+                       (?, ?, 'OUT_FOR_DELIVERY', 'Delivery started', '2026-11-13T02:00:00Z', 'SYSTEM')
+                """, third, shipmentId, first, shipmentId, second, shipmentId);
+        CurrentUser buyer = new CurrentUser(buyerId, Set.of("BUYER"), Set.of("SHIPPING.VIEW_SHIPMENT"));
+
+        var tracking = reads.tracking(buyer, shipmentId);
+
+        assertThat(tracking.shipmentId()).isEqualTo(shipmentId);
+        assertThat(tracking.trackingCode()).isEqualTo("FAKE-" + shipmentId);
+        assertThat(tracking.history()).hasSize(5);
+        assertThat(tracking.history().stream().map(history -> history.id()).toList())
+                .endsWith(first, second, third);
+        assertThat(tracking.history().getLast().description()).isNull();
+        assertThatThrownBy(() -> reads.tracking(new CurrentUser(UUID.randomUUID(), Set.of("BUYER"),
+                Set.of("SHIPPING.VIEW_SHIPMENT")), shipmentId))
+                .isInstanceOfSatisfying(DomainException.class,
+                        failure -> assertThat(failure.getErrorCode()).isEqualTo("SHIPMENT_NOT_FOUND"));
     }
 
     @Test

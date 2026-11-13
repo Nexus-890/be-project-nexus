@@ -63,9 +63,10 @@ public class SkuService {
         sku.setColor(request.getColor().trim());
         sku.setSize(request.getSize().trim());
         sku.setPrice(request.getPrice());
+        applyCostPrice(sku, request.getCostPrice());
         applyShippingParcel(sku, request.getShippingParcel());
 
-        return toResponse(saveSku(sku));
+        return toOwnerResponse(saveSku(sku));
     }
 
     // Cập nhật một SKU sau khi xác thực quyền truy cập và dữ liệu đầu vào.
@@ -87,9 +88,10 @@ public class SkuService {
         sku.setColor(request.getColor().trim());
         sku.setSize(request.getSize().trim());
         sku.setPrice(request.getPrice());
+        applyCostPrice(sku, request.getCostPrice());
         applyShippingParcel(sku, request.getShippingParcel());
 
-        return toResponse(saveSku(sku));
+        return toOwnerResponse(saveSku(sku));
     }
 
     // Chỉ đọc vì thao tác này không làm thay đổi dữ liệu.
@@ -213,6 +215,18 @@ public class SkuService {
         sku.setShippingLengthCm(parcel.lengthCm());
         sku.setShippingWidthCm(parcel.widthCm());
         sku.setShippingHeightCm(parcel.heightCm());
+    }
+
+    private void applyCostPrice(Skus sku, BigDecimal costPrice) {
+        if (costPrice != null) {
+            sku.setCostPrice(costPrice);
+        }
+    }
+
+    private SkuResponse toOwnerResponse(Skus sku) {
+        SkuResponse response = toResponse(sku);
+        response.setCostPrice(sku.getCostPrice());
+        return response;
     }
 
     private SkuResponse toResponse(Skus sku) {

@@ -6,6 +6,8 @@ import com.group5.commerceservice.order.entity.OrderItem;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
@@ -16,10 +18,17 @@ import java.util.UUID;
 
 public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecificationExecutor<Order> {
 
+    // Cancellation eligibility reads the group's status; fetch this to-one association with the page.
+    @EntityGraph(attributePaths = "orderGroup")
     Page<Order> findByUserIdOrderByCreatedAtDescOrderNumberDesc(UUID userId, Pageable pageable);
 
+    @EntityGraph(attributePaths = "orderGroup")
     Page<Order> findByUserIdAndStatusOrderByCreatedAtDescOrderNumberDesc(UUID userId, OrderStatus status,
             Pageable pageable);
+
+    @Override
+    @EntityGraph(attributePaths = "orderGroup")
+    Page<Order> findAll(Specification<Order> spec, Pageable pageable);
 
     @Query(value = "SELECT nextval('order_number_seq')", nativeQuery = true)
     long nextOrderSequence();
