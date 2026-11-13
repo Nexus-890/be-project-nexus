@@ -7,11 +7,15 @@ import com.group5.paymentservice.shared.config.SepayProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 public class PaymentMatcher {
+    private static final String MEMO_PREFIX = "NX";
+    private static final int MEMO_MAX_LENGTH = 27;
     private final PaymentSessionRepository sessions;
     private final String contentPrefix;
 
@@ -42,8 +46,28 @@ public class PaymentMatcher {
         //kiểm tra xem exact hiện đã correct chưa -> nếu có thì return luôn, chưa thì tiếp tục tìm bằng cách bỏ...
         if (exact.isPresent() || !normalize(request.code()).isEmpty()) return exact;
         // bỏ phần contentPrefix ( cấu hình trong properties )
-        return !contentPrefix.isEmpty() && memo.startsWith(contentPrefix)
-                ? match(memo.substring(contentPrefix.length())) : Optional.empty();
+        Set<String> candidates = new LinkedHashSet<>();
+        if (!contentPrefix.isEmpty() && memo.startsWith(contentPrefix)) {
+            candidates.add(memo.substring(contentPrefix.length()));
+        }
+        candidates.addAll(memoCandidatesIn(request.content()));
+        candidates.remove(memo);
+        for (String candidate : candidates) {
+            Optional<PaymentSession> found = match(candidate);
+            if (found.isPresent()) return found;
+        }
+        return Optional.empty();
+    }
+
+    private static Set<String> memoCandidatesIn(String content) {
+        Set<String> candidates = new LinkedHashSet<>();
+        if (content == null) return candidates;
+        for (String token : content.toUpperCase(Locale.ROOT).split("[^A-Z0-9]+")) {
+            for (int i = token.indexOf(MEMO_PREFIX); i >= 0; i = token.indexOf(MEMO_PREFIX, i + 1)) {
+                candidates.add(token.substring(i, Math.min(token.length(), i + MEMO_MAX_LENGTH)));
+            }
+        }
+        return candidates;
     }
 
     //
