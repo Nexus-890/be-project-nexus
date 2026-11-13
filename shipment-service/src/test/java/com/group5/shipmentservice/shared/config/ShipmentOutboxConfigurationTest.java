@@ -45,12 +45,14 @@ class ShipmentOutboxConfigurationTest {
     private final PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
     private final OutboxEventKeyResolver resolver = new ShipmentOutboxConfiguration().shipmentOutboxEventKeyResolver();
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(strings = {"ShipmentCreated", "ShipmentPickedUp", "ShipmentInTransit", "ShipmentDelivered",
+            "ShipmentFailed", "ShipmentReturned", "ShipmentCancelled", "ShipmentStatusUpdated"})
     @SuppressWarnings("unchecked")
-    void autoConfiguredRelayPublishesByOrderIdWhilePreservingShipmentAggregateAndWireEnvelope() {
+    void autoConfiguredRelayPublishesByOrderIdWhilePreservingShipmentAggregateAndWireEnvelope(String eventType) {
         UUID shipmentId = UUID.randomUUID();
         UUID orderId = UUID.randomUUID();
-        EventEnvelope<?> event = new EventEnvelope<>(UUID.randomUUID(), "ShipmentCreated", shipmentId.toString(),
+        EventEnvelope<?> event = new EventEnvelope<>(UUID.randomUUID(), eventType, shipmentId.toString(),
                 Instant.parse("2026-11-11T00:00:00Z"), "trace-1", Map.of("orderId", orderId.toString()));
         OutboxEntry entry = entry(Topics.SHIPMENT, event);
         when(transactions.getTransaction(any())).thenReturn(new SimpleTransactionStatus());

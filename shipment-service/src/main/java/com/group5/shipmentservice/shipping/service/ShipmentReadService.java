@@ -43,7 +43,8 @@ public class ShipmentReadService {
         requireUser(user);
         Shipment shipment = shipments.findById(id)
                 .orElseThrow(() -> new DomainException(ShipmentErrorCode.NOT_FOUND));
-        if (!canManage(user) && !user.id().equals(shipment.getBuyerId())) {
+        if (!canManage(user) && !user.id().equals(shipment.getBuyerId())
+                && !(user.hasRole("SELLER") && user.id().equals(shipment.getSellerId()))) {
             throw new DomainException(ShipmentErrorCode.NOT_FOUND);
         }
         return shipment;
@@ -56,7 +57,10 @@ public class ShipmentReadService {
         }
         Specification<Shipment> scope = (root, query, criteria) -> criteria.conjunction();
         if (!canManage(user)) {
-            scope = scope.and((root, query, criteria) -> criteria.equal(root.get("buyerId"), user.id()));
+            scope = scope.and((root, query, criteria) -> user.hasRole("SELLER")
+                    ? criteria.or(criteria.equal(root.get("buyerId"), user.id()),
+                            criteria.equal(root.get("sellerId"), user.id()))
+                    : criteria.equal(root.get("buyerId"), user.id()));
         }
         if (orderId != null) {
             scope = scope.and((root, query, criteria) -> criteria.equal(root.get("orderId"), orderId));

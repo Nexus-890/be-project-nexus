@@ -76,7 +76,7 @@ class ShipmentEventConsumerTest {
 
     @Test
     void shipmentEventsWithoutAnOrderTransitionAreIgnoredWithoutParsingThePayload() {
-        for (String type : new String[]{"ShipmentCreated", "ShipmentInTransit", "ShipmentFailed", "ShipmentReturned"}) {
+        for (String type : new String[]{"ShipmentCreated", "ShipmentCancelled"}) {
             consumer.receive(new ConsumerRecord<>(Topics.SHIPMENT, 0, 0, "unused",
                     envelope(type, UUID.randomUUID(), JsonMapper.shared().valueToTree(Map.of("unknown", true)))));
         }

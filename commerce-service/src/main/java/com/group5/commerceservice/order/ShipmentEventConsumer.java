@@ -25,7 +25,10 @@ public class ShipmentEventConsumer {
             containerFactory = EventKafka.LISTENER_CONTAINER_FACTORY)
     public void receive(ConsumerRecord<String, EventEnvelope<JsonNode>> record) {
         EventEnvelope<JsonNode> event = record.value();
-        if (!"ShipmentPickedUp".equals(event.eventType()) && !"ShipmentDelivered".equals(event.eventType())) {
+        if (!ShipmentStatusHandler.supports(event.eventType())
+                || ("ShipmentStatusUpdated".equals(event.eventType())
+                    && java.util.Set.of("PENDING_TRACKING", "CREATED", "PICKING", "PACKED", "READY_TO_SHIP")
+                        .contains(event.payload().path("status").asString()))) {
             log.debug("Shipment event has no order transition: eventId={}, eventType={}",
                     event.eventId(), event.eventType());
             return;

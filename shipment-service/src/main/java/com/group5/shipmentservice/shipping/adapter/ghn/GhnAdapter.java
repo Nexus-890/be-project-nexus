@@ -5,13 +5,17 @@ import com.group5.shipmentservice.shared.config.GhnProperties;
 import com.group5.shipmentservice.shared.config.ShippingProperties;
 import com.group5.shipmentservice.shared.exception.ShipmentErrorCode;
 import com.group5.shipmentservice.shipping.adapter.CarrierAdapter;
+import com.group5.shipmentservice.shipping.adapter.CarrierTrackingPayload;
+import com.group5.shipmentservice.shipping.adapter.CarrierWebhookAuthentication;
 import com.group5.shipmentservice.shipping.adapter.model.CarrierAddress;
 import com.group5.shipmentservice.shipping.adapter.model.CarrierQuoteRequest;
+import com.group5.shipmentservice.shipping.adapter.model.CarrierTrackingUpdate;
 import com.group5.shipmentservice.shipping.adapter.ghn.dto.request.GhnParcelItemRequest;
 import com.group5.shipmentservice.shipping.adapter.ghn.dto.request.GhnPreviewRequest;
 import com.group5.shipmentservice.shipping.dto.response.LocalityResponse;
 import com.group5.shipmentservice.shipping.dto.response.ShippingQuoteResponse;
 import com.group5.shipmentservice.shipping.enums.ShippingServiceType;
+import com.group5.shipmentservice.shipping.enums.ShipmentStatus;
 import com.group5.shipmentservice.shipping.resilience.ShippingDeadline;
 import org.springframework.core.env.Environment;
 import tools.jackson.databind.JsonNode;
@@ -19,6 +23,8 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -26,15 +32,20 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 public class GhnAdapter implements CarrierAdapter {
     private static final String MASTER_DATA = "/shiip/public-api/v3/master-data/";
     private static final String PREVIEW_ORDER = "/shiip/public-api/v2/shipping-order/preview";
+    private static final String TRACK_ORDER = "/shiip/public-api/v2/shipping-order/detail?order_code=";
+    private static final String CANCEL_ORDER = "/shiip/public-api/v2/switch-status/cancel";
 
     private final GhnHttpClient client;
     private final GhnProperties properties;
+    private final ObjectMapper mapper;
+    private final String webhookSecret;
     private final Map<String, CachedLocalities> masterData = new ConcurrentHashMap<>();
 
     public GhnAdapter(GhnProperties properties, ShippingProperties shipping,
@@ -46,6 +57,8 @@ public class GhnAdapter implements CarrierAdapter {
             throw new IllegalStateException("Cần cấu hình GHN_TOKEN, GHN_SHOP_ID và địa chỉ API GHN hợp lệ");
         }
         this.properties = properties;
+        this.mapper = mapper;
+        this.webhookSecret = environment.getProperty("GHN_WEBHOOK_SECRET");
         this.client = new GhnHttpClient(properties, shipping, token, mapper);
     }
 
@@ -57,6 +70,67 @@ public class GhnAdapter implements CarrierAdapter {
     @Override
     public String name() {
         return "Giao Hàng Nhanh";
+    }
+
+    @Override
+    public CarrierTrackingUpdate track(String trackingCode, ShippingDeadline deadline) {
+        requireTrackingCode(trackingCode);
+        JsonNode data = client.get(TRACK_ORDER + URLEncoder.encode(trackingCode, StandardCharsets.UTF_8), deadline);
+        String returnedCode = CarrierTrackingPayload.trackingCode(data, "order_code", ShipmentErrorCode.INVALID_CARRIER_RESPONSE);
+        if (!trackingCode.equals(returnedCode)) throw invalidResponse();
+        String status = CarrierTrackingPayload.requiredText(data, "status", ShipmentErrorCode.INVALID_CARRIER_RESPONSE);
+        OffsetDateTime changedAt = CarrierTrackingPayload.timestamp(data, "updated_date", ShipmentErrorCode.INVALID_CARRIER_RESPONSE);
+        return new CarrierTrackingUpdate(returnedCode, GhnStatusMapper.map(status),
+                CarrierTrackingPayload.identity(code(), returnedCode, "poll:" + status, changedAt), changedAt, status);
+    }
+
+    @Override
+    public void cancelShipment(String trackingCode, UUID requestId, ShippingDeadline deadline) {
+        requireTrackingCode(trackingCode);
+        if (requestId == null) throw new DomainException(ShipmentErrorCode.INVALID_PARAMETER);
+        JsonNode data = client.post(CANCEL_ORDER, Map.of("order_codes", List.of(trackingCode),
+                "reason_code", "GHN-CANCEL-OTHER", "reason", "Order cancelled"), deadline);
+        if (!data.isArray() || data.size() != 1) throw invalidResponse();
+        JsonNode result = data.get(0);
+        if (!trackingCode.equals(result.path("order_code").asString()) || !result.path("result").isBoolean()) {
+            throw invalidResponse();
+        }
+        if (!result.path("result").asBoolean()) {
+            if (track(trackingCode, deadline).status() == ShipmentStatus.CANCELLED) return;
+            throw new DomainException(ShipmentErrorCode.CARRIER_CANCELLATION_REJECTED);
+        }
+    }
+
+    @Override
+    public void verifyWebhook(byte[] body, String signature) {
+        CarrierWebhookAuthentication.verify(webhookSecret, signature);
+    }
+
+    @Override
+    public CarrierTrackingUpdate parseWebhook(byte[] body) {
+        JsonNode data;
+        try {
+            data = mapper.readTree(body);
+        } catch (RuntimeException error) {
+            throw new DomainException(ShipmentErrorCode.INVALID_WEBHOOK);
+        }
+        if (data == null || !data.isObject() || !data.path("ShopID").isIntegralNumber()
+                || !data.path("ShopID").canConvertToInt() || data.path("ShopID").intValue() != properties.shopId()) {
+            throw new DomainException(ShipmentErrorCode.INVALID_WEBHOOK);
+        }
+        String trackingCode = CarrierTrackingPayload.trackingCode(data, "OrderCode", ShipmentErrorCode.INVALID_WEBHOOK);
+        String type = CarrierTrackingPayload.webhookType(data);
+        String status = CarrierTrackingPayload.requiredText(data, "Status", ShipmentErrorCode.INVALID_WEBHOOK);
+        OffsetDateTime changedAt = CarrierTrackingPayload.timestamp(data, "Time", ShipmentErrorCode.INVALID_WEBHOOK);
+        return new CarrierTrackingUpdate(trackingCode, GhnStatusMapper.map(status),
+                CarrierTrackingPayload.identity(code(), trackingCode, type + ":" + status, changedAt), changedAt,
+                CarrierTrackingPayload.description(data));
+    }
+
+    private void requireTrackingCode(String trackingCode) {
+        if (trackingCode == null || trackingCode.length() > 80 || !trackingCode.matches("[A-Za-z0-9_-]+")) {
+            throw new DomainException(ShipmentErrorCode.INVALID_PARAMETER);
+        }
     }
 
     @Override

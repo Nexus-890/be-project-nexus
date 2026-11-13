@@ -8,14 +8,15 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import tools.jackson.databind.ObjectMapper;
+import java.time.Clock;
 
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({ShippingProperties.class, GhnProperties.class})
 public class ShippingConfiguration {
     @Bean
     @ConditionalOnProperty(prefix = "nexus.shipping", name = "carrier", havingValue = "FAKE")
-    public FakeCarrierAdapter fakeCarrierAdapter() {
-        return new FakeCarrierAdapter();
+    public FakeCarrierAdapter fakeCarrierAdapter(Environment environment) {
+        return new FakeCarrierAdapter(Clock.systemUTC(), environment.getProperty("FAKE_WEBHOOK_SECRET"));
     }
 
     @Bean

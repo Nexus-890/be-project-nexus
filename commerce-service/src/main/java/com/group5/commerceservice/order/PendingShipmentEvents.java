@@ -33,9 +33,7 @@ public class PendingShipmentEvents {
         return jdbc.queryForList("""
                 SELECT p.event_id FROM pending_order_shipment_events p
                 JOIN orders o ON o.id = CAST(p.envelope->'payload'->>'orderId' AS uuid)
-                WHERE (p.envelope->>'eventType' = 'ShipmentPickedUp' AND o.status <> 'PENDING')
-                   OR (p.envelope->>'eventType' = 'ShipmentDelivered'
-                       AND o.status IN ('SHIPPED', 'DELIVERED', 'COMPLETED', 'CANCELED', 'REFUND_REQUESTED', 'REFUNDED'))
+                WHERE o.status <> 'PENDING'
                 ORDER BY p.created_at, p.event_id LIMIT 100
                 """, UUID.class);
     }

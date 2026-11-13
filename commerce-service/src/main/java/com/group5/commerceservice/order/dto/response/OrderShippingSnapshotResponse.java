@@ -14,5 +14,6 @@ public record OrderShippingSnapshotResponse(
         OffsetDateTime paidAt,
         UUID warehouseId,
         BigDecimal shippingFee,
-        Map<String, Object> shippingInfo) {
+        Map<String, Object> shippingInfo,
+        UUID sellerId) {
 }

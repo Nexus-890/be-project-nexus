@@ -115,6 +115,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/shipments` | POST | SHIPPING.CREATE_SHIPMENT | #202 — shipment-service; manual creation additionally requires ADMIN or SUPPORT_STAFF downstream |
 | `/api/v1/shipments` | GET | SHIPPING.VIEW_SHIPMENT | #202 — shipment-service; own-order visibility enforced downstream |
 | `/api/v1/shipments/{id}` | GET | SHIPPING.VIEW_SHIPMENT | #202 — shipment-service; own-order visibility enforced downstream |
+| `/api/v1/shipments/{id}/history` | GET | SHIPPING.VIEW_SHIPMENT | #203 — paginated tracking audit; buyer/seller ownership enforced downstream |
 | `/api/v1/shipments/{id}/tracking` | GET | SHIPPING.VIEW_SHIPMENT | #206 / #203 — shipment-service; persisted tracking/history read delivered for the buyer order page; own-order visibility enforced downstream |
 | `/api/v1/shipments/{id}/status` | PATCH | SHIPPING.UPDATE_STATUS | #203 — shipment-service |
 | `/api/v1/shipments/{id}/override` | POST | SHIPPING.MANUAL_OVERRIDE | #203 — shipment-service; reason required downstream |

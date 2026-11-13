@@ -16,11 +16,16 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class ShipmentStatusHandler {
     public static final String CONSUMER = "commerce-order-shipment";
+    private static final Set<String> PROGRESS_EVENTS = Set.of("ShipmentPickedUp", "ShipmentInTransit",
+            "ShipmentDelivered", "ShipmentFailed", "ShipmentReturned", "ShipmentStatusUpdated");
+
+    static boolean supports(String eventType) { return PROGRESS_EVENTS.contains(eventType); }
 
     private final IdempotentConsumer consumer;
     private final OrderRepository orders;
@@ -48,9 +53,17 @@ public class ShipmentStatusHandler {
         ShipmentStatusChanged shipment = event.payload();
         require(validator.validate(shipment).isEmpty(), "Invalid shipment transition payload");
         require(event.aggregateId().equals(shipment.shipmentId().toString()), "Shipment and aggregate must match");
-        boolean delivered = "ShipmentDelivered".equals(event.eventType());
-        require(delivered || "ShipmentPickedUp".equals(event.eventType()), "Unsupported shipment transition");
-        require((delivered ? "DELIVERED" : "SHIPPED").equals(shipment.status()), "Shipment status and event type must match");
+        String expected = switch (event.eventType()) {
+            case "ShipmentPickedUp" -> "SHIPPED";
+            case "ShipmentInTransit" -> "IN_TRANSIT";
+            case "ShipmentDelivered" -> "DELIVERED";
+            case "ShipmentFailed" -> "DELIVERY_FAILED";
+            case "ShipmentReturned" -> "RETURNED";
+            case "ShipmentStatusUpdated" -> Set.of("OUT_FOR_DELIVERY", "RETURNING").contains(shipment.status())
+                    ? shipment.status() : "";
+            default -> "";
+        };
+        require(expected.equals(shipment.status()), "Shipment status and event type must match");
         Instant.parse(shipment.changedAt());
         require(!"MANUAL".equals(shipment.source()) || shipment.reason() != null,
                 "A manual shipment transition must have a reason");
@@ -66,7 +79,7 @@ public class ShipmentStatusHandler {
                 || current == OrderStatus.REFUND_REQUESTED || current == OrderStatus.REFUNDED) {
             return true;
         }
-        String reason = delivered ? "Shipment delivered" : "Shipment picked up";
+        String reason = delivered ? "Shipment delivered" : "Shipment pickup confirmed by carrier progress";
         if (!delivered) {
             if (current == OrderStatus.PAID) {
                 stateMachine.move(order.getId(), OrderStatus.SHIPPED, shipment.actorId(), reason);
@@ -74,6 +87,11 @@ public class ShipmentStatusHandler {
                 return false;
             }
             return true;
+        }
+        if (current == OrderStatus.PAID) {
+            stateMachine.move(order.getId(), OrderStatus.SHIPPED, shipment.actorId(),
+                    "Shipment pickup confirmed by delivery");
+            current = OrderStatus.SHIPPED;
         }
         if (current == OrderStatus.SHIPPED) {
             stateMachine.move(order.getId(), OrderStatus.DELIVERED, shipment.actorId(), reason);

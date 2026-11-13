@@ -76,7 +76,7 @@ class OrderShippingSnapshotControllerTest {
     void authorizedStaffReceiveTheCommerceOwnedSnapshotInAnEnvelope(String token) throws Exception {
         when(snapshots.get(ORDER)).thenReturn(new OrderShippingSnapshotResponse(ORDER, BUYER, 4, "PAID",
                 OffsetDateTime.parse("2026-11-11T03:00:00Z"), null, new BigDecimal("15000.00"),
-                Map.of("recipient", Map.of("name", "Buyer"))));
+                Map.of("recipient", Map.of("name", "Buyer")), UUID.randomUUID()));
 
         mvc.perform(get(PATH).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())

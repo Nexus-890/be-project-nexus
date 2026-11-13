@@ -74,7 +74,7 @@ class GhnHttpClient {
                 }
                 JsonNode envelope = parse(response.body());
                 if (status >= 400) {
-                    throw providerError(status, envelope);
+                    throw providerError(path, status, envelope);
                 }
                 if (status != 200 || envelope == null || !envelope.isObject()) {
                     throw invalidResponse();
@@ -89,7 +89,7 @@ class GhnHttpClient {
                     continue;
                 }
                 if (providerStatus != 200) {
-                    throw providerError(providerStatus, envelope);
+                    throw providerError(path, providerStatus, envelope);
                 }
                 JsonNode data = envelope.path("data");
                 if (data.isNull() && path.startsWith("/shiip/public-api/v3/master-data/ward/all-by-province-id?")) {
@@ -175,10 +175,16 @@ class GhnHttpClient {
         }
     }
 
-    private DomainException providerError(int status, JsonNode envelope) {
+    private DomainException providerError(String path, int status, JsonNode envelope) {
         String code = envelope.path("code_message").asString("");
         if (status == 401 || status == 403 || code.startsWith("CLIENT_") || code.contains("TOKEN")) {
             return new DomainException(ShipmentErrorCode.CARRIER_CONFIGURATION_ERROR);
+        }
+        if (path.equals("/shiip/public-api/v2/switch-status/cancel")) {
+            return new DomainException(ShipmentErrorCode.CARRIER_CANCELLATION_REJECTED);
+        }
+        if (path.startsWith("/shiip/public-api/v2/shipping-order/detail?")) {
+            return invalidResponse();
         }
         if (List.of("ROUTE_NOT_FOUND_SERVICE", "SERVICE_NOT_FOUND_CONFIG_FEE").contains(code)
                 || envelope.path("message").asString("").toLowerCase(java.util.Locale.ROOT).contains("route not found service")) {

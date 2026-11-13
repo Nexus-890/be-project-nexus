@@ -1,0 +1,1113 @@
+{
+  "requestCount": 102,
+  "folders": [
+    {
+      "name": "00 Setup | Reset only issue203 fixtures",
+      "requests": [
+        "SETUP-01 | Companion and infrastructure health",
+        "SETUP-02 | Seed and reset deterministic issue203 data"
+      ]
+    },
+    {
+      "name": "01 AC1 | All 23 GHN status mappings and one history/event",
+      "requests": [
+        "AC1-M01 | ready_to_pick -> CREATED",
+        "AC1-M01-E | One CREATED history and ShipmentStatusUpdated",
+        "AC1-M02 | picking -> PICKING",
+        "AC1-M02-E | One PICKING history and ShipmentStatusUpdated",
+        "AC1-M03 | money_collect_picking -> PICKING",
+        "AC1-M03-E | One PICKING history and ShipmentStatusUpdated",
+        "AC1-M04 | picked -> SHIPPED",
+        "AC1-M04-E | One SHIPPED history and ShipmentPickedUp",
+        "AC1-M05 | storing -> IN_TRANSIT",
+        "AC1-M05-E | One IN_TRANSIT history and ShipmentInTransit",
+        "AC1-M06 | sorting -> IN_TRANSIT",
+        "AC1-M06-E | One IN_TRANSIT history and ShipmentInTransit",
+        "AC1-M07 | transporting -> IN_TRANSIT",
+        "AC1-M07-E | One IN_TRANSIT history and ShipmentInTransit",
+        "AC1-M08 | delivering -> OUT_FOR_DELIVERY",
+        "AC1-M08-E | One OUT_FOR_DELIVERY history and ShipmentStatusUpdated",
+        "AC1-M09 | money_collect_delivering -> OUT_FOR_DELIVERY",
+        "AC1-M09-E | One OUT_FOR_DELIVERY history and ShipmentStatusUpdated",
+        "AC1-M10 | delivered -> DELIVERED",
+        "AC1-M10-E | One DELIVERED history and ShipmentDelivered",
+        "AC1-M11 | delivery_fail -> DELIVERY_FAILED",
+        "AC1-M11-E | One DELIVERY_FAILED history and ShipmentFailed",
+        "AC1-M12 | exception -> DELIVERY_FAILED",
+        "AC1-M12-E | One DELIVERY_FAILED history and ShipmentFailed",
+        "AC1-M13 | lost -> DELIVERY_FAILED",
+        "AC1-M13-E | One DELIVERY_FAILED history and ShipmentFailed",
+        "AC1-M14 | damage -> DELIVERY_FAILED",
+        "AC1-M14-E | One DELIVERY_FAILED history and ShipmentFailed",
+        "AC1-M15 | scrap -> DELIVERY_FAILED",
+        "AC1-M15-E | One DELIVERY_FAILED history and ShipmentFailed",
+        "AC1-M16 | waiting_to_return -> RETURNING",
+        "AC1-M16-E | One RETURNING history and ShipmentStatusUpdated",
+        "AC1-M17 | return -> RETURNING",
+        "AC1-M17-E | One RETURNING history and ShipmentStatusUpdated",
+        "AC1-M18 | return_transporting -> RETURNING",
+        "AC1-M18-E | One RETURNING history and ShipmentStatusUpdated",
+        "AC1-M19 | return_sorting -> RETURNING",
+        "AC1-M19-E | One RETURNING history and ShipmentStatusUpdated",
+        "AC1-M20 | returning -> RETURNING",
+        "AC1-M20-E | One RETURNING history and ShipmentStatusUpdated",
+        "AC1-M21 | return_fail -> RETURNING",
+        "AC1-M21-E | One RETURNING history and ShipmentStatusUpdated",
+        "AC1-M22 | returned -> RETURNED",
+        "AC1-M22-E | One RETURNED history and ShipmentReturned",
+        "AC1-M23 | cancel -> CANCELLED",
+        "AC1-M23-E | One CANCELLED history and ShipmentCancelled"
+      ]
+    },
+    {
+      "name": "02 AC2 | Invalid signature never changes data",
+      "requests": [
+        "AC2-01 | Wrong signature returns 401",
+        "AC2-02 | Missing signature returns 401",
+        "AC2-03 | Bad signature is checked before malformed JSON",
+        "AC2-04-E | Unchanged status/version and zero effects"
+      ]
+    },
+    {
+      "name": "03 AC3 | Duplicate webhook accepted 200 exactly once",
+      "requests": [
+        "AC3-01 | First delivery accepted",
+        "AC3-02 | Same provider delivery accepted again",
+        "AC3-03 | Equivalent timestamp and changed Reason remain duplicate",
+        "AC3-04-E | One status transition, one history/event/receipt"
+      ]
+    },
+    {
+      "name": "04 AC4 | Backward transition rejected 409",
+      "requests": [
+        "AC4-01 | DELIVERED -> IN_TRANSIT is rejected",
+        "AC4-02-E | DELIVERED and version remain unchanged"
+      ]
+    },
+    {
+      "name": "05 AC5-AC7 | Real OrderCancelled Kafka consumer",
+      "requests": [
+        "AC5-01 | OrderCancelled before pickup",
+        "AC5-02 | Redeliver same cancellation event twice",
+        "AC5-03-E | Carrier cancelled once and one cancellation history/event",
+        "AC6-01 | OrderCancelled after pickup",
+        "AC6-02 | Redelivery after pickup is idempotent",
+        "AC6-03-E | No shipment effects and exactly one Support WARN",
+        "AC7-01 | OrderCancelled with no shipment",
+        "AC7-02 | No-shipment event redelivery",
+        "AC7-03-E | No error, one marker/tombstone, no shipment",
+        "CANCEL-NOBOOK-01 | Cancel pending shipment without a carrier booking",
+        "CANCEL-NOBOOK-02-E | Local cancellation without carrier call"
+      ]
+    },
+    {
+      "name": "06 AC8 | R1 cancellation documentation and event route",
+      "requests": [
+        "AC8-01 | Flow 4 contains R1 rule without handover request"
+      ]
+    },
+    {
+      "name": "07 Manual status, override, tracking and access | Login required",
+      "requests": [
+        "AUTH-01 | Anonymous cannot update status",
+        "AUTH-02 | Buyer cannot update status",
+        "MANUAL-01 | Support Staff updates status",
+        "MANUAL-02 | Admin can repeat current state without another effect",
+        "MANUAL-03-E | One MANUAL change with authenticated Support actor",
+        "OVERRIDE-01 | Missing reason rejected",
+        "OVERRIDE-02 | Blank reason rejected",
+        "OVERRIDE-03 | Buyer cannot override",
+        "OVERRIDE-04 | Admin override with reason",
+        "OVERRIDE-05 | Support can repeat authorized override without another effect",
+        "OVERRIDE-06-E | One override history/event and authenticated Admin reason",
+        "AC4-03 | Admin PATCH cannot move DELIVERED backwards",
+        "AC4-04 | Support PATCH cannot move DELIVERED backwards",
+        "AC4-05 | Override reason cannot bypass backward transition rule",
+        "PENDING-01 | Manual progress without tracking rejected",
+        "PENDING-02-E | Pending tracking remains unchanged",
+        "TRACK-01 | Admin reads paged manual history",
+        "TRACK-02 | Support reads tracking",
+        "TRACK-03 | Owning buyer reads empty tracking",
+        "TRACK-04 | Another buyer cannot see tracking",
+        "TRACK-05 | Invalid pagination rejected",
+        "TRACK-06 | Beyond last page returns empty array and actual totals",
+        "TRACK-SUMMARY | Tracking summary keeps the develop FE contract",
+        "TRACK-07 | Tracking requires login"
+      ]
+    },
+    {
+      "name": "08 Tracking poller | Repair a missed callback",
+      "requests": [
+        "POLL-01 | Arm external GHN transporting state and due poll",
+        "POLL-02-E | Scheduled poller writes one IN_TRANSIT history/event",
+        "POLL-03 | Unknown GHN status rejected without effects",
+        "POLL-04 | Wrong GHN shop rejected without effects",
+        "POLL-05 | Malformed authenticated callback rejected",
+        "POLL-06-E | Rejected payloads preserve original fixture"
+      ]
+    },
+    {
+      "name": "09 Carrier cancellation failure | Login required",
+      "requests": [
+        "CANCEL-FAIL-01 | Carrier rejects manual cancellation",
+        "CANCEL-FAIL-02-E | Failure commits no status/history/outbox/marker"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "id": "SETUP-01",
+      "title": "Companion and infrastructure health",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/health",
+      "ac": [],
+      "name": "SETUP-01 | Companion and infrastructure health"
+    },
+    {
+      "id": "SETUP-02",
+      "title": "Seed and reset deterministic issue203 data",
+      "method": "POST",
+      "url": "{{helperBaseUrl}}/__test/seed",
+      "ac": [],
+      "name": "SETUP-02 | Seed and reset deterministic issue203 data"
+    },
+    {
+      "id": "AC1-M01",
+      "title": "ready_to_pick -> CREATED",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M01 | ready_to_pick -> CREATED"
+    },
+    {
+      "id": "AC1-M01-E",
+      "title": "One CREATED history and ShipmentStatusUpdated",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/1?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M01-E | One CREATED history and ShipmentStatusUpdated"
+    },
+    {
+      "id": "AC1-M02",
+      "title": "picking -> PICKING",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M02 | picking -> PICKING"
+    },
+    {
+      "id": "AC1-M02-E",
+      "title": "One PICKING history and ShipmentStatusUpdated",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/2?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M02-E | One PICKING history and ShipmentStatusUpdated"
+    },
+    {
+      "id": "AC1-M03",
+      "title": "money_collect_picking -> PICKING",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M03 | money_collect_picking -> PICKING"
+    },
+    {
+      "id": "AC1-M03-E",
+      "title": "One PICKING history and ShipmentStatusUpdated",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/3?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M03-E | One PICKING history and ShipmentStatusUpdated"
+    },
+    {
+      "id": "AC1-M04",
+      "title": "picked -> SHIPPED",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M04 | picked -> SHIPPED"
+    },
+    {
+      "id": "AC1-M04-E",
+      "title": "One SHIPPED history and ShipmentPickedUp",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/4?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M04-E | One SHIPPED history and ShipmentPickedUp"
+    },
+    {
+      "id": "AC1-M05",
+      "title": "storing -> IN_TRANSIT",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M05 | storing -> IN_TRANSIT"
+    },
+    {
+      "id": "AC1-M05-E",
+      "title": "One IN_TRANSIT history and ShipmentInTransit",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/5?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M05-E | One IN_TRANSIT history and ShipmentInTransit"
+    },
+    {
+      "id": "AC1-M06",
+      "title": "sorting -> IN_TRANSIT",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M06 | sorting -> IN_TRANSIT"
+    },
+    {
+      "id": "AC1-M06-E",
+      "title": "One IN_TRANSIT history and ShipmentInTransit",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/6?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M06-E | One IN_TRANSIT history and ShipmentInTransit"
+    },
+    {
+      "id": "AC1-M07",
+      "title": "transporting -> IN_TRANSIT",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M07 | transporting -> IN_TRANSIT"
+    },
+    {
+      "id": "AC1-M07-E",
+      "title": "One IN_TRANSIT history and ShipmentInTransit",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/7?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M07-E | One IN_TRANSIT history and ShipmentInTransit"
+    },
+    {
+      "id": "AC1-M08",
+      "title": "delivering -> OUT_FOR_DELIVERY",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M08 | delivering -> OUT_FOR_DELIVERY"
+    },
+    {
+      "id": "AC1-M08-E",
+      "title": "One OUT_FOR_DELIVERY history and ShipmentStatusUpdated",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/8?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M08-E | One OUT_FOR_DELIVERY history and ShipmentStatusUpdated"
+    },
+    {
+      "id": "AC1-M09",
+      "title": "money_collect_delivering -> OUT_FOR_DELIVERY",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M09 | money_collect_delivering -> OUT_FOR_DELIVERY"
+    },
+    {
+      "id": "AC1-M09-E",
+      "title": "One OUT_FOR_DELIVERY history and ShipmentStatusUpdated",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/9?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M09-E | One OUT_FOR_DELIVERY history and ShipmentStatusUpdated"
+    },
+    {
+      "id": "AC1-M10",
+      "title": "delivered -> DELIVERED",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M10 | delivered -> DELIVERED"
+    },
+    {
+      "id": "AC1-M10-E",
+      "title": "One DELIVERED history and ShipmentDelivered",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/10?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M10-E | One DELIVERED history and ShipmentDelivered"
+    },
+    {
+      "id": "AC1-M11",
+      "title": "delivery_fail -> DELIVERY_FAILED",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M11 | delivery_fail -> DELIVERY_FAILED"
+    },
+    {
+      "id": "AC1-M11-E",
+      "title": "One DELIVERY_FAILED history and ShipmentFailed",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/11?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M11-E | One DELIVERY_FAILED history and ShipmentFailed"
+    },
+    {
+      "id": "AC1-M12",
+      "title": "exception -> DELIVERY_FAILED",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M12 | exception -> DELIVERY_FAILED"
+    },
+    {
+      "id": "AC1-M12-E",
+      "title": "One DELIVERY_FAILED history and ShipmentFailed",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/12?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M12-E | One DELIVERY_FAILED history and ShipmentFailed"
+    },
+    {
+      "id": "AC1-M13",
+      "title": "lost -> DELIVERY_FAILED",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M13 | lost -> DELIVERY_FAILED"
+    },
+    {
+      "id": "AC1-M13-E",
+      "title": "One DELIVERY_FAILED history and ShipmentFailed",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/13?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M13-E | One DELIVERY_FAILED history and ShipmentFailed"
+    },
+    {
+      "id": "AC1-M14",
+      "title": "damage -> DELIVERY_FAILED",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M14 | damage -> DELIVERY_FAILED"
+    },
+    {
+      "id": "AC1-M14-E",
+      "title": "One DELIVERY_FAILED history and ShipmentFailed",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/14?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M14-E | One DELIVERY_FAILED history and ShipmentFailed"
+    },
+    {
+      "id": "AC1-M15",
+      "title": "scrap -> DELIVERY_FAILED",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M15 | scrap -> DELIVERY_FAILED"
+    },
+    {
+      "id": "AC1-M15-E",
+      "title": "One DELIVERY_FAILED history and ShipmentFailed",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/15?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M15-E | One DELIVERY_FAILED history and ShipmentFailed"
+    },
+    {
+      "id": "AC1-M16",
+      "title": "waiting_to_return -> RETURNING",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M16 | waiting_to_return -> RETURNING"
+    },
+    {
+      "id": "AC1-M16-E",
+      "title": "One RETURNING history and ShipmentStatusUpdated",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/16?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M16-E | One RETURNING history and ShipmentStatusUpdated"
+    },
+    {
+      "id": "AC1-M17",
+      "title": "return -> RETURNING",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M17 | return -> RETURNING"
+    },
+    {
+      "id": "AC1-M17-E",
+      "title": "One RETURNING history and ShipmentStatusUpdated",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/17?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M17-E | One RETURNING history and ShipmentStatusUpdated"
+    },
+    {
+      "id": "AC1-M18",
+      "title": "return_transporting -> RETURNING",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M18 | return_transporting -> RETURNING"
+    },
+    {
+      "id": "AC1-M18-E",
+      "title": "One RETURNING history and ShipmentStatusUpdated",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/18?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M18-E | One RETURNING history and ShipmentStatusUpdated"
+    },
+    {
+      "id": "AC1-M19",
+      "title": "return_sorting -> RETURNING",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M19 | return_sorting -> RETURNING"
+    },
+    {
+      "id": "AC1-M19-E",
+      "title": "One RETURNING history and ShipmentStatusUpdated",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/19?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M19-E | One RETURNING history and ShipmentStatusUpdated"
+    },
+    {
+      "id": "AC1-M20",
+      "title": "returning -> RETURNING",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M20 | returning -> RETURNING"
+    },
+    {
+      "id": "AC1-M20-E",
+      "title": "One RETURNING history and ShipmentStatusUpdated",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/20?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M20-E | One RETURNING history and ShipmentStatusUpdated"
+    },
+    {
+      "id": "AC1-M21",
+      "title": "return_fail -> RETURNING",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M21 | return_fail -> RETURNING"
+    },
+    {
+      "id": "AC1-M21-E",
+      "title": "One RETURNING history and ShipmentStatusUpdated",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/21?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M21-E | One RETURNING history and ShipmentStatusUpdated"
+    },
+    {
+      "id": "AC1-M22",
+      "title": "returned -> RETURNED",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M22 | returned -> RETURNED"
+    },
+    {
+      "id": "AC1-M22-E",
+      "title": "One RETURNED history and ShipmentReturned",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/22?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M22-E | One RETURNED history and ShipmentReturned"
+    },
+    {
+      "id": "AC1-M23",
+      "title": "cancel -> CANCELLED",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M23 | cancel -> CANCELLED"
+    },
+    {
+      "id": "AC1-M23-E",
+      "title": "One CANCELLED history and ShipmentCancelled",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/23?wait=true",
+      "ac": [
+        "AC1"
+      ],
+      "name": "AC1-M23-E | One CANCELLED history and ShipmentCancelled"
+    },
+    {
+      "id": "AC2-01",
+      "title": "Wrong signature returns 401",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC2"
+      ],
+      "name": "AC2-01 | Wrong signature returns 401"
+    },
+    {
+      "id": "AC2-02",
+      "title": "Missing signature returns 401",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC2"
+      ],
+      "name": "AC2-02 | Missing signature returns 401"
+    },
+    {
+      "id": "AC2-03",
+      "title": "Bad signature is checked before malformed JSON",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC2"
+      ],
+      "name": "AC2-03 | Bad signature is checked before malformed JSON"
+    },
+    {
+      "id": "AC2-04-E",
+      "title": "Unchanged status/version and zero effects",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/101?wait=true",
+      "ac": [
+        "AC2"
+      ],
+      "name": "AC2-04-E | Unchanged status/version and zero effects"
+    },
+    {
+      "id": "AC3-01",
+      "title": "First delivery accepted",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC3"
+      ],
+      "name": "AC3-01 | First delivery accepted"
+    },
+    {
+      "id": "AC3-02",
+      "title": "Same provider delivery accepted again",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC3"
+      ],
+      "name": "AC3-02 | Same provider delivery accepted again"
+    },
+    {
+      "id": "AC3-03",
+      "title": "Equivalent timestamp and changed Reason remain duplicate",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC3"
+      ],
+      "name": "AC3-03 | Equivalent timestamp and changed Reason remain duplicate"
+    },
+    {
+      "id": "AC3-04-E",
+      "title": "One status transition, one history/event/receipt",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/102?wait=true",
+      "ac": [
+        "AC3"
+      ],
+      "name": "AC3-04-E | One status transition, one history/event/receipt"
+    },
+    {
+      "id": "AC4-01",
+      "title": "DELIVERED -> IN_TRANSIT is rejected",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [
+        "AC4"
+      ],
+      "name": "AC4-01 | DELIVERED -> IN_TRANSIT is rejected"
+    },
+    {
+      "id": "AC4-02-E",
+      "title": "DELIVERED and version remain unchanged",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/103?wait=true",
+      "ac": [
+        "AC4"
+      ],
+      "name": "AC4-02-E | DELIVERED and version remain unchanged"
+    },
+    {
+      "id": "AC5-01",
+      "title": "OrderCancelled before pickup",
+      "method": "POST",
+      "url": "{{helperBaseUrl}}/__test/publish-cancellation",
+      "ac": [
+        "AC5"
+      ],
+      "name": "AC5-01 | OrderCancelled before pickup"
+    },
+    {
+      "id": "AC5-02",
+      "title": "Redeliver same cancellation event twice",
+      "method": "POST",
+      "url": "{{helperBaseUrl}}/__test/publish-cancellation",
+      "ac": [
+        "AC5"
+      ],
+      "name": "AC5-02 | Redeliver same cancellation event twice"
+    },
+    {
+      "id": "AC5-03-E",
+      "title": "Carrier cancelled once and one cancellation history/event",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/104?wait=true",
+      "ac": [
+        "AC5"
+      ],
+      "name": "AC5-03-E | Carrier cancelled once and one cancellation history/event"
+    },
+    {
+      "id": "AC6-01",
+      "title": "OrderCancelled after pickup",
+      "method": "POST",
+      "url": "{{helperBaseUrl}}/__test/publish-cancellation",
+      "ac": [
+        "AC6"
+      ],
+      "name": "AC6-01 | OrderCancelled after pickup"
+    },
+    {
+      "id": "AC6-02",
+      "title": "Redelivery after pickup is idempotent",
+      "method": "POST",
+      "url": "{{helperBaseUrl}}/__test/publish-cancellation",
+      "ac": [
+        "AC6"
+      ],
+      "name": "AC6-02 | Redelivery after pickup is idempotent"
+    },
+    {
+      "id": "AC6-03-E",
+      "title": "No shipment effects and exactly one Support WARN",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/105?wait=true",
+      "ac": [
+        "AC6"
+      ],
+      "name": "AC6-03-E | No shipment effects and exactly one Support WARN"
+    },
+    {
+      "id": "AC7-01",
+      "title": "OrderCancelled with no shipment",
+      "method": "POST",
+      "url": "{{helperBaseUrl}}/__test/publish-cancellation",
+      "ac": [
+        "AC7"
+      ],
+      "name": "AC7-01 | OrderCancelled with no shipment"
+    },
+    {
+      "id": "AC7-02",
+      "title": "No-shipment event redelivery",
+      "method": "POST",
+      "url": "{{helperBaseUrl}}/__test/publish-cancellation",
+      "ac": [
+        "AC7"
+      ],
+      "name": "AC7-02 | No-shipment event redelivery"
+    },
+    {
+      "id": "AC7-03-E",
+      "title": "No error, one marker/tombstone, no shipment",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/106?wait=true",
+      "ac": [
+        "AC7"
+      ],
+      "name": "AC7-03-E | No error, one marker/tombstone, no shipment"
+    },
+    {
+      "id": "CANCEL-NOBOOK-01",
+      "title": "Cancel pending shipment without a carrier booking",
+      "method": "POST",
+      "url": "{{helperBaseUrl}}/__test/publish-cancellation",
+      "ac": [],
+      "name": "CANCEL-NOBOOK-01 | Cancel pending shipment without a carrier booking"
+    },
+    {
+      "id": "CANCEL-NOBOOK-02-E",
+      "title": "Local cancellation without carrier call",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/113?wait=true",
+      "ac": [],
+      "name": "CANCEL-NOBOOK-02-E | Local cancellation without carrier call"
+    },
+    {
+      "id": "AC8-01",
+      "title": "Flow 4 contains R1 rule without handover request",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/contract",
+      "ac": [
+        "AC8"
+      ],
+      "name": "AC8-01 | Flow 4 contains R1 rule without handover request"
+    },
+    {
+      "id": "AUTH-01",
+      "title": "Anonymous cannot update status",
+      "method": "PATCH",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000107/status",
+      "ac": [],
+      "name": "AUTH-01 | Anonymous cannot update status"
+    },
+    {
+      "id": "AUTH-02",
+      "title": "Buyer cannot update status",
+      "method": "PATCH",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000107/status",
+      "ac": [],
+      "name": "AUTH-02 | Buyer cannot update status"
+    },
+    {
+      "id": "MANUAL-01",
+      "title": "Support Staff updates status",
+      "method": "PATCH",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000107/status",
+      "ac": [],
+      "name": "MANUAL-01 | Support Staff updates status"
+    },
+    {
+      "id": "MANUAL-02",
+      "title": "Admin can repeat current state without another effect",
+      "method": "PATCH",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000107/status",
+      "ac": [],
+      "name": "MANUAL-02 | Admin can repeat current state without another effect"
+    },
+    {
+      "id": "MANUAL-03-E",
+      "title": "One MANUAL change with authenticated Support actor",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/107?wait=true",
+      "ac": [],
+      "name": "MANUAL-03-E | One MANUAL change with authenticated Support actor"
+    },
+    {
+      "id": "OVERRIDE-01",
+      "title": "Missing reason rejected",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000108/override",
+      "ac": [],
+      "name": "OVERRIDE-01 | Missing reason rejected"
+    },
+    {
+      "id": "OVERRIDE-02",
+      "title": "Blank reason rejected",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000108/override",
+      "ac": [],
+      "name": "OVERRIDE-02 | Blank reason rejected"
+    },
+    {
+      "id": "OVERRIDE-03",
+      "title": "Buyer cannot override",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000108/override",
+      "ac": [],
+      "name": "OVERRIDE-03 | Buyer cannot override"
+    },
+    {
+      "id": "OVERRIDE-04",
+      "title": "Admin override with reason",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000108/override",
+      "ac": [],
+      "name": "OVERRIDE-04 | Admin override with reason"
+    },
+    {
+      "id": "OVERRIDE-05",
+      "title": "Support can repeat authorized override without another effect",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000108/override",
+      "ac": [],
+      "name": "OVERRIDE-05 | Support can repeat authorized override without another effect"
+    },
+    {
+      "id": "OVERRIDE-06-E",
+      "title": "One override history/event and authenticated Admin reason",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/108?wait=true",
+      "ac": [],
+      "name": "OVERRIDE-06-E | One override history/event and authenticated Admin reason"
+    },
+    {
+      "id": "AC4-03",
+      "title": "Admin PATCH cannot move DELIVERED backwards",
+      "method": "PATCH",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000103/status",
+      "ac": [
+        "AC4"
+      ],
+      "name": "AC4-03 | Admin PATCH cannot move DELIVERED backwards"
+    },
+    {
+      "id": "AC4-04",
+      "title": "Support PATCH cannot move DELIVERED backwards",
+      "method": "PATCH",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000103/status",
+      "ac": [
+        "AC4"
+      ],
+      "name": "AC4-04 | Support PATCH cannot move DELIVERED backwards"
+    },
+    {
+      "id": "AC4-05",
+      "title": "Override reason cannot bypass backward transition rule",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000103/override",
+      "ac": [
+        "AC4"
+      ],
+      "name": "AC4-05 | Override reason cannot bypass backward transition rule"
+    },
+    {
+      "id": "PENDING-01",
+      "title": "Manual progress without tracking rejected",
+      "method": "PATCH",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000111/status",
+      "ac": [],
+      "name": "PENDING-01 | Manual progress without tracking rejected"
+    },
+    {
+      "id": "PENDING-02-E",
+      "title": "Pending tracking remains unchanged",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/111?wait=true",
+      "ac": [],
+      "name": "PENDING-02-E | Pending tracking remains unchanged"
+    },
+    {
+      "id": "TRACK-01",
+      "title": "Admin reads paged manual history",
+      "method": "GET",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000107/history?page=0&size=1",
+      "ac": [],
+      "name": "TRACK-01 | Admin reads paged manual history"
+    },
+    {
+      "id": "TRACK-02",
+      "title": "Support reads tracking",
+      "method": "GET",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000108/history",
+      "ac": [],
+      "name": "TRACK-02 | Support reads tracking"
+    },
+    {
+      "id": "TRACK-03",
+      "title": "Owning buyer reads empty tracking",
+      "method": "GET",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000110/history",
+      "ac": [],
+      "name": "TRACK-03 | Owning buyer reads empty tracking"
+    },
+    {
+      "id": "TRACK-04",
+      "title": "Another buyer cannot see tracking",
+      "method": "GET",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000110/history",
+      "ac": [],
+      "name": "TRACK-04 | Another buyer cannot see tracking"
+    },
+    {
+      "id": "TRACK-05",
+      "title": "Invalid pagination rejected",
+      "method": "GET",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000110/history?page=-1&size=101",
+      "ac": [],
+      "name": "TRACK-05 | Invalid pagination rejected"
+    },
+    {
+      "id": "TRACK-06",
+      "title": "Beyond last page returns empty array and actual totals",
+      "method": "GET",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000107/history?page=5&size=1",
+      "ac": [],
+      "name": "TRACK-06 | Beyond last page returns empty array and actual totals"
+    },
+    {
+      "id": "TRACK-SUMMARY",
+      "title": "Tracking summary keeps the develop FE contract",
+      "method": "GET",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000107/tracking",
+      "ac": [],
+      "name": "TRACK-SUMMARY | Tracking summary keeps the develop FE contract"
+    },
+    {
+      "id": "TRACK-07",
+      "title": "Tracking requires login",
+      "method": "GET",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000110/history",
+      "ac": [],
+      "name": "TRACK-07 | Tracking requires login"
+    },
+    {
+      "id": "POLL-01",
+      "title": "Arm external GHN transporting state and due poll",
+      "method": "POST",
+      "url": "{{helperBaseUrl}}/__test/arm-poll",
+      "ac": [],
+      "name": "POLL-01 | Arm external GHN transporting state and due poll"
+    },
+    {
+      "id": "POLL-02-E",
+      "title": "Scheduled poller writes one IN_TRANSIT history/event",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/109?wait=true",
+      "ac": [],
+      "name": "POLL-02-E | Scheduled poller writes one IN_TRANSIT history/event"
+    },
+    {
+      "id": "POLL-03",
+      "title": "Unknown GHN status rejected without effects",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [],
+      "name": "POLL-03 | Unknown GHN status rejected without effects"
+    },
+    {
+      "id": "POLL-04",
+      "title": "Wrong GHN shop rejected without effects",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [],
+      "name": "POLL-04 | Wrong GHN shop rejected without effects"
+    },
+    {
+      "id": "POLL-05",
+      "title": "Malformed authenticated callback rejected",
+      "method": "POST",
+      "url": "{{baseUrl}}/api/v1/webhooks/carriers/ghn",
+      "ac": [],
+      "name": "POLL-05 | Malformed authenticated callback rejected"
+    },
+    {
+      "id": "POLL-06-E",
+      "title": "Rejected payloads preserve original fixture",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/101?wait=true",
+      "ac": [],
+      "name": "POLL-06-E | Rejected payloads preserve original fixture"
+    },
+    {
+      "id": "CANCEL-FAIL-01",
+      "title": "Carrier rejects manual cancellation",
+      "method": "PATCH",
+      "url": "{{baseUrl}}/api/v1/shipments/20300000-0000-4000-8000-000000000112/status",
+      "ac": [],
+      "name": "CANCEL-FAIL-01 | Carrier rejects manual cancellation"
+    },
+    {
+      "id": "CANCEL-FAIL-02-E",
+      "title": "Failure commits no status/history/outbox/marker",
+      "method": "GET",
+      "url": "{{helperBaseUrl}}/__test/evidence/112?wait=true",
+      "ac": [],
+      "name": "CANCEL-FAIL-02-E | Failure commits no status/history/outbox/marker"
+    }
+  ]
+}

@@ -4,6 +4,12 @@ import com.group5.common_core.constant.ErrorCode;
 import org.springframework.http.HttpStatus;
 
 public enum ShipmentErrorCode implements ErrorCode {
+    INVALID_SIGNATURE(HttpStatus.UNAUTHORIZED, "Chữ ký webhook không hợp lệ"),
+    INVALID_WEBHOOK(HttpStatus.BAD_REQUEST, "Nội dung webhook không hợp lệ"),
+    CARRIER_CANCELLATION_REJECTED(HttpStatus.CONFLICT, "Nhà vận chuyển từ chối hủy vận đơn"),
+    INVALID_TRANSITION(HttpStatus.CONFLICT, "Không thể chuyển sang trạng thái vận chuyển được yêu cầu"),
+    UNSUPPORTED_CARRIER(HttpStatus.BAD_REQUEST, "Nhà vận chuyển không được hỗ trợ"),
+    INVALID_CARRIER_STATUS(HttpStatus.UNPROCESSABLE_ENTITY, "Trạng thái nhà vận chuyển không được hỗ trợ"),
     IDEMPOTENCY_KEY_REQUIRED(HttpStatus.BAD_REQUEST, "Cần có Idempotency-Key"),
     IDEMPOTENCY_CONFLICT(HttpStatus.CONFLICT, "Khóa hoặc yêu cầu tạo vận đơn đã được dùng với nội dung khác"),
     ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "Không tìm thấy đơn hàng để tạo vận đơn"),

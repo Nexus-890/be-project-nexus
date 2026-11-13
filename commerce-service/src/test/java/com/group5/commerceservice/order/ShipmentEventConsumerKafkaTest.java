@@ -57,8 +57,9 @@ class ShipmentEventConsumerKafkaTest {
     @Autowired private Tracer tracer;
     @Autowired @Qualifier(EventKafka.TEMPLATE) private KafkaTemplate<String, EventEnvelope<?>> kafka;
 
-    @Test
-    void untracedKafkaDeliveryCompletesTheOrderAndReplayDoesNotDuplicateEffects() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void untracedKafkaDeliveryCompletesTheOrderAndReplayDoesNotDuplicateEffects(boolean missingPickup) throws Exception {
         UUID buyer = UUID.randomUUID();
         UUID shipment = UUID.randomUUID();
         UUID group = jdbc.queryForObject("""
@@ -79,9 +80,11 @@ class ShipmentEventConsumerKafkaTest {
         var pickup = event(order, buyer, shipment, false);
         var delivery = event(order, buyer, shipment, true);
         assertThat(tracer.currentSpan()).isNull();
-        publish(order, pickup);
-        await().atMost(Duration.ofSeconds(15)).untilAsserted(() ->
-                assertThat(status(order)).isEqualTo("SHIPPED"));
+        if (!missingPickup) {
+            publish(order, pickup);
+            await().atMost(Duration.ofSeconds(15)).untilAsserted(() ->
+                    assertThat(status(order)).isEqualTo("SHIPPED"));
+        }
         publish(order, delivery);
         await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> {
             assertThat(status(order)).isEqualTo("COMPLETED");
