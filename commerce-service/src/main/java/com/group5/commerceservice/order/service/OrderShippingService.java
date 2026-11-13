@@ -35,13 +35,27 @@ public class OrderShippingService {
 
     /** Chốt kiện từ Catalog, gửi địa chỉ hai cấp và nhận giá/loại dịch vụ đã kiểm tra từ Shipping. */
     public Quote quote(ShippingAddress address, List<Line> lines) {
+        return quote(address, lines, null);
+    }
+
+    public Quote quote(ShippingAddress address, List<Line> lines, UUID warehouseId) {
+        return quote(address, lines, warehouseId, null);
+    }
+
+    /** Shipment trả phí carrier gốc; Commerce dùng giá đấu thắng để xét miễn phí. */
+    public Quote quoteAuction(ShippingAddress address, List<Line> lines, UUID warehouseId) {
+        return quote(address, lines, warehouseId, false);
+    }
+
+    private Quote quote(ShippingAddress address, List<Line> lines, UUID warehouseId, Boolean applyFreeShipping) {
         Parcel parcel = pack(lines);
         var destination = new ShippingQuoteHttpClient.Address(address.provinceCode(), address.wardCode(),
                 address.addressLine(), address.recipientName(), address.phoneNumber());
         // Trước reserve chưa có warehouseId. Shipment dùng default đã cấu hình cùng kho Inventory;
         // Commerce không giữ mã kho và chỉ lưu UUID thật khi reservation trả về.
         var request = new ShippingQuoteHttpClient.Request(destination,
-                lines.stream().map(line -> new ShippingQuoteHttpClient.Item(line.skuId(), line.quantity())).toList(), parcel, null);
+                lines.stream().map(line -> new ShippingQuoteHttpClient.Item(line.skuId(), line.quantity())).toList(),
+                parcel, warehouseId, applyFreeShipping);
         return executor.execute("shipping", CommerceErrorCode.SHIPPING_UNAVAILABLE, () -> {
             try {
                 var response = http.quote(request);

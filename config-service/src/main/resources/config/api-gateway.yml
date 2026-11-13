@@ -173,6 +173,9 @@ nexus:
       - method: POST
         path: /api/v1/orders
         privilege: ORDER.CREATE
+      - method: POST
+        path: /api/v1/orders/{id}/shipping-confirmation
+        privilege: CHECKOUT.START
       - method: GET
         path: /api/v1/orders/{id}/history
         privilege: ORDER.VIEW

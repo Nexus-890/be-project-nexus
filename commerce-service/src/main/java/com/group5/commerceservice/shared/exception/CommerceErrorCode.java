@@ -40,7 +40,9 @@ public enum CommerceErrorCode implements ErrorCode {
     SHIPPING_NOT_AVAILABLE(HttpStatus.UNPROCESSABLE_ENTITY, "No shipping service is available for this order"),
     INVALID_ORDER_AMOUNT(HttpStatus.CONFLICT, "An item price or order total cannot be represented as numeric(19,2)"),
     ORDER_NOT_CANCELLABLE(HttpStatus.CONFLICT, "The order can no longer be cancelled"),
-    RESERVED_CANCEL_REASON(HttpStatus.BAD_REQUEST, "This cancellation reason is reserved for payment expiry");
+    RESERVED_CANCEL_REASON(HttpStatus.BAD_REQUEST, "This cancellation reason is reserved for payment expiry"),
+    AUCTION_SHIPPING_CONFLICT(HttpStatus.CONFLICT, "The auction order cannot confirm this shipping address"),
+    AUCTION_HOLD_NOT_LINKED(HttpStatus.CONFLICT, "The auction hold is not linked to this order yet");
 
     private final HttpStatus status;
     private final String message;
