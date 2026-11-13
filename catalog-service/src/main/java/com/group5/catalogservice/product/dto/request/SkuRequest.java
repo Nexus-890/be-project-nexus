@@ -29,6 +29,11 @@ public class SkuRequest {
             message = "Price must have at most 17 integer digits and 2 decimal places")
     private BigDecimal price;
 
+    @DecimalMin(value = "0.00", message = "Cost price cannot be negative")
+    @Digits(integer = 17, fraction = 2,
+            message = "Cost price must have at most 17 integer digits and 2 decimal places")
+    private BigDecimal costPrice;
+
     @Valid
     private ShippingParcel shippingParcel;
 }
