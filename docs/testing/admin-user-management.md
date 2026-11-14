@@ -151,3 +151,28 @@ projects/databases. No production realm or developer database was reset.
 OpenAPI user/config lint passes with no warnings, and check-contract matches
 111 delivered operations. Execution logs are under D:\GitLab\log\admin211-*.
 These are local results; no remote CI pass is implied.
+
+
+## Primary local project verification
+
+The implementation and tests are also installed in the developer project
+`D:\GitLab\hcm26_cpl_java_11_group_5`. This is the source checkout used for
+local development and IntelliJ runs. The initial isolated publication did not
+populate this checkout; the follow-up applied only #211 changes, preserved
+existing issue work, and reran the checks in this exact local directory.
+
+Primary verification on 14 November 2026: user-service clean compilation and
+verify 227 PASS; config-service verify 36 PASS; gateway verify 83 PASS; notification retry/HMAC/HTTP
+refresh 11 PASS and actual Kafka/PostgreSQL event-log integration 10 PASS.
+Docker was initially stopped; those setup failures were superseded by the
+successful runs after starting Docker Desktop. No developer database, Docker
+image or volume was reset.
+
+Logs: admin211-primary-user-verify-docker.log, admin211-local-config-verify.log,
+admin211-local-notification-unit-http.log and admin211-local-notification-eventlog.log
+under `D:\GitLab\log`. Local contract inventory has 97 delivered operations
+because this integration checkout carries its existing service scope.
+
+Workflow: make changes and run tests in this primary local project first, then
+publish only the changes belonging to the exact issue MR branch. Preserve
+other issues and their staging when shared files need updates.
