@@ -110,7 +110,8 @@ class RealmContractTest(unittest.TestCase):
         self.assertEqual(self.realm["refreshTokenMaxReuse"], 0)
 
     def test_standard_policy_matches_documented_baseline(self):
-        self.assertEqual(self.realm["passwordPolicy"], r"length(8) and regexPattern((?s).*\S.*)")
+        # Chính sách giữ lịch sử để Admin không đặt lại đúng mật khẩu hiện tại.
+        self.assertEqual(self.realm["passwordPolicy"], r"length(8) and passwordHistory(1) and regexPattern((?s).*\S.*)")
 
     def test_session_idle_timeout_covers_access_token_lifetime(self):
         self.assertGreaterEqual(self.realm["ssoSessionIdleTimeout"], self.realm["accessTokenLifespan"])

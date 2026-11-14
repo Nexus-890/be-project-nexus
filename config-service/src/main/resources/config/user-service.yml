@@ -4,6 +4,7 @@ nexus:
   iam:
     default-user-role: BUYER
     allow-self-registration: true
+    user-soft-delete: ${USER_SOFT_DELETE:true}
   keycloak:
     server-url: ${KEYCLOAK_SERVER_URL:http://localhost:18080}
     realm: nexus

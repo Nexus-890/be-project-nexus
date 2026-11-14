@@ -2,6 +2,7 @@ package com.group5.apigateway.config;
 
 import com.group5.apigateway.ratelimit.RedisWindowRateLimiter;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.ratelimit.KeyResolver;
 import org.springframework.cloud.gateway.route.RouteLocator;
 import org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;
@@ -12,10 +13,12 @@ import org.springframework.context.annotation.Configuration;
 public class RouteConfig {
 
     @Bean
+    // Định tuyến API tới service sở hữu và áp dụng giới hạn tần suất tại gateway.
     public RouteLocator routes(
             RouteLocatorBuilder builder,
             RedisWindowRateLimiter limiter,
-            @Qualifier("clientIpKeyResolver") KeyResolver resolver) {
+            @Qualifier("clientIpKeyResolver") KeyResolver resolver,
+            @Value("${nexus.services.config-url:http://localhost:8888}") String configUrl) {
         // Chỉ giới hạn các route nghiệp vụ, không áp dụng cho Actuator/Swagger.
         // throwOnLimit chuyển 429 sang GatewayErrorHandler để trả JSON và Retry-After.
         return builder.routes()
@@ -24,12 +27,19 @@ public class RouteConfig {
                         .path(
                                 "/api/v1/auth/**",
                                 "/api/v1/users/**",
+                                "/api/v1/roles", "/api/v1/roles/**", "/api/v1/permissions",
                                 "/.well-known/**")
                         .filters(filters -> filters.requestRateLimiter(config ->
                                 config.setRateLimiter(limiter)
                                         .setKeyResolver(resolver)
                                         .setThrowOnLimit(true)))
                         .uri("lb://user-service"))
+
+                .route("system-config-service", route -> route
+                        .path("/api/v1/system/configs", "/api/v1/system/configs/**")
+                        .filters(filters -> filters.requestRateLimiter(config ->
+                                config.setRateLimiter(limiter).setKeyResolver(resolver).setThrowOnLimit(true)))
+                        .uri(configUrl))
 
                 .route("catalog-service", route -> route
                         .path(

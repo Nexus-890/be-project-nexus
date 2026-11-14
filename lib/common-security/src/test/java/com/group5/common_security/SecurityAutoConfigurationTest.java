@@ -61,7 +61,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                 "nexus.security.jwt.issuer=http://localhost:18080/realms/nexus",
                 "nexus.security.jwt.audience=nexus-services",
                 "nexus.security.public-endpoints[0].method=GET",
-                "nexus.security.public-endpoints[0].path=/test/public"
+                "nexus.security.public-endpoints[0].path=/test/public",
+                "nexus.security.public-endpoints[1].method=POST",
+                "nexus.security.public-endpoints[1].path=/actuator/refresh"
         })
 class SecurityAutoConfigurationTest {
 
@@ -204,6 +206,44 @@ class SecurityAutoConfigurationTest {
         assertThat(status).isNotIn(401, 403);
     }
 
+    /** Refresh luôn yêu cầu xác thực dù endpoint bị khai báo public trong cấu hình deployment. */
+    @Test
+    void refreshCannotBeMadeAnonymousByPublicEndpointConfiguration() throws Exception {
+        perform(post("/actuator/refresh"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+    /** Buyer và Support không được refresh dù token chứa privilege cập nhật cấu hình. */
+    @Test
+    void refreshRejectsOtherRolesEvenWithConfigurationPrivilege() throws Exception {
+        for (String role : List.of("BUYER", "SELLER", "SUPPORT_STAFF")) {
+            perform(withToken(post("/actuator/refresh"), token(SIGNING_KEY, claims -> claims
+                    .claim("roles", List.of(role)).claim("privileges", List.of("SYSTEM.CONFIG.UPDATE")))))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        }
+    }
+
+    /** Admin thiếu privilege chính xác cũng không được thay đổi cấu hình runtime. */
+    @Test
+    void refreshRequiresConfigurationPrivilegeInAdditionToAdminRole() throws Exception {
+        perform(withToken(post("/actuator/refresh"), token(SIGNING_KEY, claims -> claims
+                .claim("roles", List.of("ADMIN")).claim("privileges", List.of("SYSTEM.CONFIG.VIEW")))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    /** Admin có SYSTEM.CONFIG.UPDATE được gọi refresh để facade áp dụng cấu hình cho owner. */
+    @Test
+    void refreshAcceptsAdminWithExactConfigurationPrivilege() throws Exception {
+        perform(withToken(post("/actuator/refresh"), token(SIGNING_KEY, claims -> claims
+                .claim("roles", List.of("ADMIN")).claim("privileges", List.of("SYSTEM.CONFIG.UPDATE")))))
+                .andExpect(status().isOk())
+                .andExpect(content().string("refreshed"));
+    }
+
     @Test
     void aMissingSettingStopsTheApplicationAndNamesTheProperty() {
         NexusSecurityProperties properties = new NexusSecurityProperties();
@@ -296,6 +336,12 @@ class SecurityAutoConfigurationTest {
 
     @RestController
     public static class TestController {
+
+        /** Endpoint fixture chỉ cho biết filter đã cho request refresh hợp lệ đi qua. */
+        @PostMapping("/actuator/refresh")
+        public String refresh() {
+            return "refreshed";
+        }
 
         @GetMapping("/test/me")
         public Map<String, Object> me(CurrentUser user) {

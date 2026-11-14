@@ -60,7 +60,7 @@ The group-payment requirements in #113/#118/#121/#240/#250 also require **Checko
 
 The #203 update on 2026-11-11 adds ShipmentStatusUpdated and ShipmentCancelled as R1 contracts for accepted intermediate and cancellation transitions. These two names are additional to the #186 expansion set. Duplicate/no-op updates publish neither event.
 
-**CheckoutPaymentConfirmed is the authoritative payment confirmation event for R1**, using one immutable session per order group under #250. **PaymentConfirmed is deferred to R2 and must not be published or consumed as an alternative payment-state event during R1.** Its schema, example and historical #186 ownership references are retained only for traceability, not as an R1 compatibility publication. UserPasswordChanged, UserPasswordReset and UserLoggedIn remain R2 here; Keycloak owns their authentication events (#210/ADR-009).
+**CheckoutPaymentConfirmed is the authoritative payment confirmation event for R1**, using one immutable session per order group under #250. **PaymentConfirmed is deferred to R2 and must not be published or consumed as an alternative payment-state event during R1.** Its schema, example and historical #186 ownership references are retained only for traceability, not as an R1 compatibility publication. UserPasswordReset and UserLoggedIn remain R2 here; Keycloak owns authentication events (#210/ADR-009). #211 publishes UserRegistered, UserPasswordChanged and UserUnlocked for administrative actions only, without credentials.
 
 | Source | Use in this revision |
 | --- | --- |
@@ -167,7 +167,7 @@ Complete group manifest envelope example for a hand-published contract test (syn
 - Kafka keys are explicit per contract. A shared key only orders one partition/topic; it does not order commerce versus payment/shipment/auction topics. Version/business membership checks remain necessary. Event schema version, orderVersion, groupVersion, sessionVersion and instructionVersion are distinct concepts.
 - All properties listed in a schema are required; null is allowed only explicitly. Draft 7, `additionalProperties=true`, UUID strings and UTC ISO-8601 timestamps ending in Z follow #103. Consumers dispatch by envelope.eventType and validate before effects. Breaking new required snapshots need coordinated producer/consumer rollout and historical replay/backfill; additive-property tolerance alone does not make missing required fields compatible.
 - All money fields use JSON decimal strings with exactly two fractional digits and pattern `^\d+\.\d{2}$`, matching the commerce OpenAPI convention (for example, `"1500000.00"`). This includes BidPlaced.amount and AuctionWon.finalPrice; neither event has a publisher yet per MR !82 review. Parse with BigDecimal/Decimal; never calculate money through float/double. The wire pattern does not restrict integer length or leading zeros; producers and consumers must still enforce numeric(19,2) storage bounds and business amount rules. Amounts, membership, chronology, actor authority and state transitions also need semantic checks beyond JSON Schema.
-- **Non-Kafka records:** NotificationCreated/Sent/Failed and the four health transitions have topic `none`. #191/#193 create EventEnvelope records via the #192 in-process recorder, without a Kafka outbox row or extra topic; local effects/logs can share notification_db transactions. A broker outage must not prevent its own health failure/recovery log. Redis health state and PostgreSQL logs still need durable handoff/retry; they are not one atomic transaction. The `none` topic on SystemConfigUpdated requires a separate durable internal handoff from the #217 owner to #192, explicitly pending review below.
+- **Non-Kafka records:** NotificationCreated/Sent/Failed and the four health transitions have topic `none`. #191/#193 create EventEnvelope records via the #192 in-process recorder, without a Kafka outbox row or extra topic; local effects/logs can share notification_db transactions. A broker outage must not prevent its own health failure/recovery log. Redis health state and PostgreSQL logs still need durable handoff/retry; they are not one atomic transaction. SystemConfigUpdated retains topic `none`; #211 implements the durable signed internal handoff from config-service to the #192 recorder described below.
 - #192 stores the original logical envelope payload once by eventId; JSONB is not byte-for-byte HTTP evidence. Derive operator_id from payload.actorId for user/role/refund/config audit and derive aggregate type/producer from this catalogue. Never overwrite a duplicate eventId with different content. Actor IDs describe the original action, not the viewer or technical recorder. Passwords/tokens/provider keys and full notification bodies/addresses are excluded from these audit/delivery contracts.
 
 ## Event inventory
@@ -178,10 +178,10 @@ The contract cell contains only `R2` for out-of-scope names. Each R1 link resolv
 
 | # | Event | Contract |
 | --- | --- | --- |
-| 1 | `UserRegistered` | R2 |
+| 1 | `UserRegistered` | R1 — #211 administrative creation |
 | 2 | `UserUpdated` | [R1 — payload](#userupdated) |
 | 3 | `UserDeleted` | [R1 — payload](#userdeleted) |
-| 4 | `UserPasswordChanged` | R2 |
+| 4 | `UserPasswordChanged` | R1 — #211 administrative password update |
 | 5 | `UserPasswordReset` | R2 |
 | 6 | `UserLoggedIn` | R2 |
 | 7 | `UserLoggedOut` | R2 |
@@ -302,7 +302,7 @@ Issue numbers identify implementation ownership, not completed runtime behavior.
 | `ReputationScoreUpdated` | `nexus.rating.events` | [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `ReputationPenaltyApplied` | `nexus.rating.events` | [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `TrustLevelChanged` | `nexus.rating.events` | [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
-| `SystemConfigUpdated` | `none` | [#217](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/217) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): audit through the proposed durable internal handoff; delivery/owner review below |
+| `SystemConfigUpdated` | `none` | [#217](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/217) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): audit through the durable HMAC-signed internal handoff in #211 |
 | `SystemHealthCheckFailed` | `none` | [#193](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/193) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log; no Kafka dependency |
 | `SystemHealthCheckRecovered` | `none` | [#193](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/193) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log; no Kafka dependency |
 | `MessageBrokerUnavailable` | `none` | [#193](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/193) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log; no Kafka dependency |
@@ -5203,7 +5203,7 @@ The payload uses the same history/version/source/actor fields as ShipmentPickedU
 - Publisher: [#217](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/217).
 - Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): audit through the proposed durable internal handoff; delivery/owner review below.
 - Envelope aggregateId: `configKey`; Kafka key: `none` (non-Kafka recording).
-- Review status: Record shape specified; #217 owner and durable non-Kafka delivery to #192 require lane sign-off (ADR-009 open question).
+- Implementation #211: config-service persists configuration plus pending audit, retries a signed `POST /internal/v1/system-config-audit`, and removes the pending envelope only after notification-service commits and returns 204. The gateway does not route this internal endpoint.
 
 | Payload field | Meaning |
 | --- | --- |
@@ -5285,7 +5285,7 @@ The payload uses the same history/version/source/actor fields as ShipmentPickedU
 }
 ```
 
-#217 requires old/new values and actor for #192 audit. Reject unknown keys/wrong types before changing configuration. Topic is none under ADR-009/#186, so do not assign a ninth topic or assume the recorder shares config-service's DB. Proposed delivery is an authenticated internal handoff to the #192 recorder with stable eventId and durable retry; the #217 service owner/route and durability boundary must be confirmed by both lanes. Do not acknowledge successful audit delivery until persisted, and do not claim a cross-service SQL transaction or an existing internal endpoint. This contract defines the record shape; the owning implementation supplies the durable handoff.
+#211 requires typed old/new values and actor for #192 audit. Topic remains `none`; the Config Server state file stores the same pending eventId across retry/restart. The internal receiver verifies HMAC-SHA256 using CONFIG_AUDIT_SHARED_SECRET, requires SystemConfigUpdated, and writes through EventLogRecorder with source_topic null. The existing event_id unique constraint deduplicates a lost ACK/replay. Configuration and a remote recorder are not one SQL transaction. See [the runbook](../testing/admin-user-management.md) for persistent disk, refresh, crash recovery and deployment requirements.
 
 ### SystemHealthCheckFailed
 
@@ -6414,3 +6414,8 @@ The local checks read this Markdown directly, parsed every JSON block with Decim
 - [ ] Both backend lanes approve the merge request; record the actual GitLab approvals before checking this item.
 
 These document/schema checks provide evidence for the examples and inventory. They do not complete the unchecked review decisions or assert that any Java publisher/consumer, carrier call, refund transfer or migration is implemented.
+
+
+### Administrative identity events added by #211
+
+UserRegistered, UserPasswordChanged and UserUnlocked use `nexus.user.events`, aggregateId/Kafka key `userId`, and the standard EventEnvelope. Their payloads contain UUID `userId`, UUID `actorId` and a UTC timestamp: `registeredAt`, `changedAt` or `unlockedAt`, respectively. UserRegistered additionally contains the assigned fixed `roles` array. The user-service common-outbox write shares the profile transaction. These are administrative audit records; password values, hashes, reset tokens and complete profile/contact data are excluded. All three are included in the notification audit view through a new migration; previous authentication event deferrals do not suppress these administrative actions.

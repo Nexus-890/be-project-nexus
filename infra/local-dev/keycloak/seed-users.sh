@@ -65,8 +65,14 @@ done
 for i in "${!names[@]}"; do
   key="${keys[$i]}"
   # Keep the password inside a value= argument, including when it starts with '-'.
-  kc update "users/${ids[$i]}/reset-password" -r nexus \
-    -s type=password -s "value=${!key}" -s temporary=false -n
+  # Policy history(1) từ chối đúng mật khẩu hiện tại; đây là trạng thái seed đã hoàn tất khi chạy lại.
+  if ! kc update "users/${ids[$i]}/reset-password" -r nexus \
+      -s type=password -s "value=${!key}" -s temporary=false -n 2>"$CONFIG_DIR/password-error"; then
+    if ! grep -Eq 'invalidPasswordHistoryMessage|must not be equal to any of last 1 passwords' "$CONFIG_DIR/password-error"; then
+      echo "ERROR: cannot set demo credential; check Keycloak password policy and connectivity" >&2
+      exit 1
+    fi
+  fi
   echo "Seeded ${names[$i]}@nexus.local (${ids[$i]})"
 done
 
@@ -82,7 +88,8 @@ if [ -z "$client" ]; then
 fi
 kc update "clients/$client" -r nexus -s "secret=$KEYCLOAK_USER_SERVICE_CLIENT_SECRET" -n
 kc add-roles -r nexus --uusername service-account-user-service --cclientid realm-management \
-  --rolename manage-users --rolename view-users --rolename query-users --rolename view-realm
+  --rolename manage-users --rolename view-users --rolename query-users --rolename view-realm \
+  --rolename query-clients --rolename view-clients
 echo "Seeded client user-service ($client)"
 
 # CLIENT RIÊNG CHO notification-service: CHỈ ĐƯỢC ĐỌC USER (view-users) ĐỂ LẤY EMAIL NGƯỜI NHẬN (#191)

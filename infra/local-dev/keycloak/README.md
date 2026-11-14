@@ -63,9 +63,16 @@ The seed command also creates the confidential `user-service` client (#238) when
 is missing and sets its secret from `KEYCLOAK_USER_SERVICE_CLIENT_SECRET`. Only its
 service account is enabled; browser, implicit and password grants are off. The
 service account holds the `realm-management` roles `manage-users`, `view-users`,
-`query-users` and `view-realm`, which user-service needs to create accounts,
-assign the registration role and read role mappings. The client is not in
+`query-users`, `view-realm`, `query-clients` and `view-clients`, which user-service
+needs to administer accounts, read fixed realm roles and read client-role privileges
+for #211. The seed leaves other client service accounts unchanged. The client is not in
 `realm-nexus.json`, so an existing realm gets it on the next seed run.
+
+The imported password policy includes `passwordHistory(1)` so admin password reset
+rejects reuse of the current password. Existing realms require the same policy update
+in Keycloak before rollout; importing source again does not update an existing realm.
+Repeated demo seeding treats only Keycloak's explicit current-password history
+rejection as an already completed reset; other policy and transport failures stop seed.
 
 When `KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET` is set, the seed command also
 creates the confidential `notification-service` client (#191). Its service account
