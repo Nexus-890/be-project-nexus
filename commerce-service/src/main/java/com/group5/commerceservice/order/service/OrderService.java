@@ -626,7 +626,7 @@ public class OrderService {
                 order.getOrderType(), order.getStatus(), order.getCreatedAt(), order.getTotalAmount(), items,
                 shippingSnapshotText(order, "name", "recipientName"), shippingSnapshotText(order, "phone", "phoneNumber"),
                 order.getOrderGroup().getId(), order.getSubtotal(), order.getShippingFee(),
-                order.getDiscountAmount(), order.getTaxAmount(), canCancel(order, user));
+                order.getDiscountAmount(), order.getTaxAmount(), canCancel(order, user), order.getPaymentNote());
     }
 
     // This is a snapshot for the UI; cancel() rechecks the locked state and may still return 409.

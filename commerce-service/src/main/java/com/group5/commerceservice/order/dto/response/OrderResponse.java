@@ -25,7 +25,8 @@ public record OrderResponse(
         BigDecimal shippingFee,
         BigDecimal discountAmount,
         BigDecimal taxAmount,
-        boolean canCancel) {
+        boolean canCancel,
+        String paymentNote) {
 
     public OrderResponse {
         items = List.copyOf(items);

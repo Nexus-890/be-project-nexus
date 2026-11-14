@@ -54,7 +54,7 @@ class OrderResponseContractTest {
     @Test void orderOperationsWrapResultsAndPreserveCreationReplayAndListSemantics() throws Exception {
         var order = new OrderResponse(id, "NX-TEST", user.id(), user.id(), OrderType.STANDARD,
                 OrderStatus.PENDING, OffsetDateTime.now(), BigDecimal.TEN, List.of(), null, null,
-                id, BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false);
+                id, BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null);
         var group = new OrderGroupResponse(id, "PENDING", BigDecimal.TEN, "VND", OffsetDateTime.now(), List.of(order));
         when(service.create(eq(user), eq("key-1"), any())).thenReturn(
                 new OrderService.CreationResult(true, group), new OrderService.CreationResult(false, group));
@@ -102,11 +102,14 @@ class OrderResponseContractTest {
     @Test void orderReadsWrapTheOrderAndPutThePageBesideTheList() throws Exception {
         var order = new OrderResponse(id, "NX-TEST", user.id(), user.id(), OrderType.STANDARD,
                 OrderStatus.PENDING, OffsetDateTime.now(), BigDecimal.TEN, List.of(), null, null,
-                id, BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, true);
+                id, BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, true,
+                "Payment arrived after the payment deadline. Support will contact you about a refund.");
         when(service.getOrder(user, id)).thenReturn(order);
         mvc.perform(get("/api/v1/orders/{id}", id)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0)).andExpect(jsonPath("$.data.orderId").value(id.toString()))
                 .andExpect(jsonPath("$.data.canCancel").value(true))
+                .andExpect(jsonPath("$.data.paymentNote").value(
+                        "Payment arrived after the payment deadline. Support will contact you about a refund."))
                 .andExpect(jsonPath("$.page").doesNotExist());
         when(service.listOwn(user, OrderStatus.PENDING, 1, 2))
                 .thenReturn(new PageImpl<>(List.of(order), PageRequest.of(1, 2), 3));
@@ -136,7 +139,7 @@ class OrderResponseContractTest {
         OffsetDateTime createdAt = OffsetDateTime.parse("2026-11-02T08:15:30Z");
         var order = new OrderResponse(id, "NX-MANAGE", buyerId, sellerId, OrderType.AUCTION, OrderStatus.PAID,
                 createdAt, new BigDecimal("150000.00"), List.of(), null, null,
-                id, new BigDecimal("150000.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false);
+                id, new BigDecimal("150000.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null);
         when(service.listManaged(user, buyerId, sellerId, OrderStatus.PAID, OrderType.AUCTION, from, to, 1, 2))
                 .thenReturn(new PageImpl<>(List.of(order), PageRequest.of(1, 2), 3));
 
@@ -167,7 +170,7 @@ class OrderResponseContractTest {
         OffsetDateTime createdAt = OffsetDateTime.parse("2026-11-02T08:15:30Z");
         var order = new OrderResponse(id, "NX-SALES", buyerId, user.id(), OrderType.STANDARD, OrderStatus.PENDING,
                 createdAt, new BigDecimal("150000.00"), List.of(), "Snapshot Buyer", "0901234567",
-                id, new BigDecimal("150000.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false);
+                id, new BigDecimal("150000.00"), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null);
         when(service.listSales(user, OrderStatus.PENDING, from, to, 0, 5))
                 .thenReturn(new PageImpl<>(List.of(order), PageRequest.of(0, 5), 1));
 
@@ -251,7 +254,7 @@ class OrderResponseContractTest {
     @Test void cancellationWrapsTheGroupAndNamesItsFailures() throws Exception {
         var order = new OrderResponse(id, "NX-TEST", user.id(), user.id(), OrderType.STANDARD,
                 OrderStatus.CANCELED, OffsetDateTime.now(), BigDecimal.TEN, List.of(), null, null,
-                id, BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false);
+                id, BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null);
         var group = new OrderGroupResponse(id, "CANCELED", BigDecimal.TEN, "VND", OffsetDateTime.now(), List.of(order));
         when(service.cancel(eq(user), eq(id), any())).thenReturn(group);
         mvc.perform(post("/api/v1/orders/{id}/cancel", id).contentType(MediaType.APPLICATION_JSON)
