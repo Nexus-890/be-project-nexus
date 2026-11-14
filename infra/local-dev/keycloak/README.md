@@ -112,6 +112,35 @@ It uses `kcadm update users/<id>/reset-password`, so demo passwords starting
 with `-` are accepted as credential values. Access-token lifetime and SSO
 session idle timeout are both 3600 seconds; the session maximum is 36000 seconds.
 
+## Password reset, email verification and mail (#210)
+
+Changing and resetting a password use Keycloak's own pages; user-service has no
+password endpoint. The realm turns on "Forgot password" (`resetPasswordAllowed`)
+and "Verify email" (`verifyEmail`), so a new account cannot sign in until the
+link in the verification email is opened. The reset link is valid for 15 minutes
+(`actionTokenGeneratedByUserLifespan: 900`); the verification email that
+user-service asks for after registration is valid for 12 hours
+(`actionTokenGeneratedByAdminLifespan: 43200`). Each link works once. After a
+password change or reset Keycloak offers "Sign out from other devices", which
+ends the other sessions.
+
+Keycloak sends mail through `smtpServer`, which reads `NEXUS_SMTP_HOST`,
+`NEXUS_SMTP_PORT` and `NEXUS_SMTP_FROM` (defaults `mailpit`, `1025`,
+`no-reply@nexus.local`, no login). Compose fills them from `KEYCLOAK_SMTP_*` in
+`.env`. Locally every email lands in Mailpit at http://localhost:8025.
+
+Password, reset, verification, execute-action, logout and failed-login events are
+stored for 30 days (`eventsExpiration: 2592000`) and written to the Keycloak log;
+admin events are stored without request bodies. Admin console: Realm settings,
+then Events.
+
+Realm import skips a realm that already exists. On an existing local stack run
+the seed script once more; it applies the same settings with `kcadm`:
+
+```powershell
+.\keycloak\seed-users.ps1
+```
+
 ## Repeatable verification
 
 Requires Python 3 and Docker Compose. No extra Python packages or OpenSSL.

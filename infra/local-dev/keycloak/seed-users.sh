@@ -74,6 +74,20 @@ done
 kc update realms/nexus -s revokeRefreshToken=true -s refreshTokenMaxReuse=0
 echo "Refresh token rotation is on"
 
+event_types='["UPDATE_PASSWORD","UPDATE_PASSWORD_ERROR","UPDATE_CREDENTIAL","UPDATE_CREDENTIAL_ERROR",'
+event_types+='"RESET_PASSWORD","RESET_PASSWORD_ERROR","SEND_RESET_PASSWORD","SEND_RESET_PASSWORD_ERROR",'
+event_types+='"VERIFY_EMAIL","VERIFY_EMAIL_ERROR","SEND_VERIFY_EMAIL","SEND_VERIFY_EMAIL_ERROR",'
+event_types+='"EXECUTE_ACTIONS","EXECUTE_ACTIONS_ERROR","EXECUTE_ACTION_TOKEN","EXECUTE_ACTION_TOKEN_ERROR",'
+event_types+='"LOGOUT","LOGIN_ERROR"]'
+kc update realms/nexus -s resetPasswordAllowed=true -s verifyEmail=true \
+  -s actionTokenGeneratedByUserLifespan=900 -s actionTokenGeneratedByAdminLifespan=43200 \
+  -s "smtpServer.host=${KEYCLOAK_SMTP_HOST:-mailpit}" -s "smtpServer.port=${KEYCLOAK_SMTP_PORT:-1025}" \
+  -s "smtpServer.from=${KEYCLOAK_SMTP_FROM:-no-reply@nexus.local}" -s "smtpServer.fromDisplayName=Project Nexus" \
+  -s smtpServer.auth=false -s smtpServer.ssl=false -s smtpServer.starttls=false \
+  -s eventsEnabled=true -s eventsExpiration=2592000 -s 'eventsListeners=["jboss-logging"]' \
+  -s "enabledEventTypes=$event_types" -s adminEventsEnabled=true -s adminEventsDetailsEnabled=false
+echo "Password reset, email verification, SMTP and events are on"
+
 client="$(kc get clients -r nexus -q clientId=user-service --fields id --format csv --noquotes)"
 if [ -z "$client" ]; then
   client="$(kc create clients -r nexus -s clientId=user-service -s enabled=true -s publicClient=false \
