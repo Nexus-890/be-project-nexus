@@ -174,6 +174,13 @@ public class UserService {
         if (request.email() != null) {
             user.setEmail(request.email());
         }
+        if (request.phone() != null && !request.phone().equals(user.getPhone())) {
+            if (userRepository.existsByPhoneAndIdNot(request.phone(), userId)) {
+                throw duplicate("phone");
+            }
+            user.setPhone(request.phone());
+            user.setPhoneVerifiedAt(null);
+        }
 
         User saved = userRepository.saveAndFlush(user);
         if (request.email() != null && !request.email().equals(previousEmail)) {

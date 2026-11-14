@@ -112,6 +112,12 @@ nexus:
         path: /api/v1/users/me
         privilege: PROFILE.UPDATE
       - method: POST
+        path: /api/v1/users/me/phone/verification
+        privilege: PROFILE.UPDATE
+      - method: POST
+        path: /api/v1/users/me/phone/verification/confirm
+        privilege: PROFILE.UPDATE
+      - method: POST
         path: /api/v1/products
         privilege: PRODUCT.CREATE
       - method: GET

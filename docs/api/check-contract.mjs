@@ -12,6 +12,7 @@ const services = {
   'user-service': [
     'src/main/java/com/group5/userservice/iam/AuthController.java',
     'src/main/java/com/group5/userservice/iam/UserController.java',
+    'src/main/java/com/group5/userservice/phone/PhoneVerificationController.java',
   ],
   'catalog-service': [
     'src/main/java/com/group5/catalogservice/category/CategoryController.java',

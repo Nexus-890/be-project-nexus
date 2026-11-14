@@ -61,6 +61,8 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/skus/{id}` | GET | Public | #86 / #100 — SKU reads and product visibility           |
 | `/api/v1/users/me` | GET | PROFILE.VIEW | #75 — Own profile: read and update                      |
 | `/api/v1/users/me` | PUT | PROFILE.UPDATE | #75 — Own profile: read and update                      |
+| `/api/v1/users/me/phone/verification` | POST | PROFILE.UPDATE | #210 / #263 — Send a phone verification code |
+| `/api/v1/users/me/phone/verification/confirm` | POST | PROFILE.UPDATE | #210 / #263 — Confirm the phone verification code |
 | `/api/v1/users` | GET | USER.LIST | #76 — Admin user list and user by id                    |
 | `/api/v1/products` | POST | PRODUCT.CREATE | #83 — Product create, update and read                   |
 | `/api/v1/products/mine` | GET | PRODUCT.LIST | #99 — Product lists                                     |

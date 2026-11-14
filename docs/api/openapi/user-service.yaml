@@ -14,7 +14,7 @@ tags:
     description: "Public registration. Sign-in goes through Keycloak."
   -
     name: "Users"
-    description: "Own profile and privileged user reads."
+    description: "Own profile, phone verification and privileged user reads."
 security:
   -
     bearerAuth: []
@@ -25,7 +25,7 @@ paths:
         - "Authentication"
       operationId: "register"
       summary: "Register with the configured default role"
-      description: "Requires self-registration to be enabled. Identity values are normalized before uniqueness checks. Creates the Keycloak account with the password and the configured realm role, then stores the profile under the Keycloak user id; the Keycloak account is removed when the profile cannot be stored. Sign-in goes through Keycloak; user-service issues no tokens. Access: public (a supplied invalid bearer token is rejected). Ownership/business restriction: None."
+      description: "Requires self-registration to be enabled. Identity values are normalized before uniqueness checks. Creates the Keycloak account with the password and the configured realm role, then stores the profile under the Keycloak user id; the Keycloak account is removed when the profile cannot be stored. Keycloak then emails a verification link; the account cannot sign in until the link is opened. When that email cannot be sent the account is kept, 502 USER_VERIFICATION_EMAIL_FAILED is returned and POST /api/v1/auth/verification-email sends it again. Sign-in goes through Keycloak; user-service issues no tokens. Access: public (a supplied invalid bearer token is rejected). Ownership/business restriction: None."
       security: []
       x-required-privileges: []
       x-required-roles: []
@@ -54,6 +54,8 @@ paths:
           - "RATE_LIMITED"
         "500":
           - "INTERNAL_ERROR"
+        "502":
+          - "USER_VERIFICATION_EMAIL_FAILED"
         "503":
           - "SERVICE_UNAVAILABLE"
           - "USER_REGISTRATION_ROLE_UNAVAILABLE"
@@ -445,6 +447,35 @@ paths:
                     detail: "An unexpected error occurred"
                     instance: "/api/v1/auth/register"
                     code: "INTERNAL_ERROR"
+        "502":
+          description: "Bad Gateway. Codes: `USER_VERIFICATION_EMAIL_FAILED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 502
+                      code:
+                        type: "string"
+                        enum:
+                          - "USER_VERIFICATION_EMAIL_FAILED"
+              examples:
+                USER_VERIFICATION_EMAIL_FAILED:
+                  summary: "USER_VERIFICATION_EMAIL_FAILED"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Gateway"
+                    status: 502
+                    detail: "The verification email could not be sent; the account is kept, ask for a new email"
+                    instance: "/api/v1/auth/register"
+                    code: "USER_VERIFICATION_EMAIL_FAILED"
         "503":
           description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`, `USER_REGISTRATION_ROLE_UNAVAILABLE`, `USER_IDENTITY_PROVIDER_UNAVAILABLE`."
           content:
@@ -908,7 +939,7 @@ paths:
         - "Users"
       operationId: "updateOwnProfile"
       summary: "Update editable fields of the current profile"
-      description: "Preserves existing partial-update behavior even though the delivered method is PUT: omitted/null properties retain stored values. A changed email is also set on the Keycloak account; an email another Keycloak account holds returns 409. Access: requires PROFILE.UPDATE. Ownership/business restriction: JWT subject only."
+      description: "Preserves existing partial-update behavior even though the delivered method is PUT: omitted/null properties retain stored values. A changed email is also set on the Keycloak account and must be verified again before the next sign-in; an email another Keycloak account holds returns 409. A changed phone clears phoneVerifiedAt. Access: requires PROFILE.UPDATE. Ownership/business restriction: JWT subject only."
       security:
         -
           bearerAuth: []
@@ -2275,6 +2306,1168 @@ paths:
                     detail: "The service did not answer in time"
                     instance: "/api/v1/users"
                     code: "GATEWAY_TIMEOUT"
+  /api/v1/auth/verification-email:
+    post:
+      tags:
+        - "Authentication"
+      operationId: "resendVerificationEmail"
+      summary: "Send the email verification link again"
+      description: "Keycloak emails a new verification link (valid 12 hours) when the address belongs to an account whose email is not verified yet. An unknown or already verified address gets the same 204 and no email, so the endpoint does not reveal which accounts exist. One email per address per minute, counted for unknown addresses too. Access: public (a supplied invalid bearer token is rejected). Ownership/business restriction: None."
+      security: []
+      x-required-privileges: []
+      x-required-roles: []
+      x-ownership: "None."
+      x-error-codes:
+        "400":
+          - "INVALID_PARAMETER"
+          - "VALIDATION_FAILED"
+          - "INVALID_REQUEST_BODY"
+        "401":
+          - "UNAUTHENTICATED"
+        "405":
+          - "METHOD_NOT_ALLOWED"
+        "406":
+          - "NOT_ACCEPTABLE"
+        "415":
+          - "UNSUPPORTED_MEDIA_TYPE"
+        "429":
+          - "RATE_LIMITED"
+          - "USER_VERIFICATION_EMAIL_RATE_LIMITED"
+        "500":
+          - "INTERNAL_ERROR"
+        "502":
+          - "USER_VERIFICATION_EMAIL_FAILED"
+        "503":
+          - "SERVICE_UNAVAILABLE"
+        "504":
+          - "GATEWAY_TIMEOUT"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/VerificationEmail"
+            example:
+              email: "new-buyer@example.com"
+      responses:
+        "204":
+          description: "Accepted; nothing to return."
+          headers:
+            Cache-Control:
+              description: "Must not be cached."
+              schema:
+                type: "string"
+                enum:
+                  - "no-store"
+        "400":
+          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 400
+                      code:
+                        type: "string"
+                        enum:
+                          - "INVALID_PARAMETER"
+                          - "VALIDATION_FAILED"
+                          - "INVALID_REQUEST_BODY"
+              examples:
+                INVALID_PARAMETER:
+                  summary: "INVALID_PARAMETER"
+                  value:
+                    type: "urn:problem:invalid-parameter"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "A request parameter is invalid"
+                    instance: "/api/v1/auth/verification-email"
+                    code: "INVALID_PARAMETER"
+                VALIDATION_FAILED:
+                  summary: "VALIDATION_FAILED"
+                  value:
+                    type: "urn:problem:validation-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "The request data is invalid"
+                    instance: "/api/v1/auth/verification-email"
+                    code: "VALIDATION_FAILED"
+                INVALID_REQUEST_BODY:
+                  summary: "INVALID_REQUEST_BODY"
+                  value:
+                    type: "urn:problem:invalid-request-body"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "The request body is invalid or malformed"
+                    instance: "/api/v1/auth/verification-email"
+                    code: "INVALID_REQUEST_BODY"
+        "401":
+          description: "Unauthorized. Codes: `UNAUTHENTICATED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 401
+                      code:
+                        type: "string"
+                        enum:
+                          - "UNAUTHENTICATED"
+              examples:
+                UNAUTHENTICATED:
+                  summary: "UNAUTHENTICATED"
+                  value:
+                    type: "urn:problem:unauthorized"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "A valid access token is required to access this resource"
+                    instance: "/api/v1/auth/verification-email"
+                    code: "UNAUTHENTICATED"
+        "405":
+          description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 405
+                      code:
+                        type: "string"
+                        enum:
+                          - "METHOD_NOT_ALLOWED"
+              examples:
+                METHOD_NOT_ALLOWED:
+                  summary: "METHOD_NOT_ALLOWED"
+                  value:
+                    type: "urn:problem:method-not-allowed"
+                    title: "Method Not Allowed"
+                    status: 405
+                    detail: "The HTTP method is not supported for this endpoint"
+                    instance: "/api/v1/auth/verification-email"
+                    code: "METHOD_NOT_ALLOWED"
+        "406":
+          description: "Not Acceptable. Codes: `NOT_ACCEPTABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 406
+                      code:
+                        type: "string"
+                        enum:
+                          - "NOT_ACCEPTABLE"
+              examples:
+                NOT_ACCEPTABLE:
+                  summary: "NOT_ACCEPTABLE"
+                  value:
+                    type: "urn:problem:not-acceptable"
+                    title: "Not Acceptable"
+                    status: 406
+                    detail: "The requested response format is not supported"
+                    instance: "/api/v1/auth/verification-email"
+                    code: "NOT_ACCEPTABLE"
+        "415":
+          description: "Unsupported Media Type. Codes: `UNSUPPORTED_MEDIA_TYPE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 415
+                      code:
+                        type: "string"
+                        enum:
+                          - "UNSUPPORTED_MEDIA_TYPE"
+              examples:
+                UNSUPPORTED_MEDIA_TYPE:
+                  summary: "UNSUPPORTED_MEDIA_TYPE"
+                  value:
+                    type: "urn:problem:unsupported-media-type"
+                    title: "Unsupported Media Type"
+                    status: 415
+                    detail: "The request content type is not supported"
+                    instance: "/api/v1/auth/verification-email"
+                    code: "UNSUPPORTED_MEDIA_TYPE"
+        "429":
+          description: "Too Many Requests. Codes: `RATE_LIMITED`, `USER_VERIFICATION_EMAIL_RATE_LIMITED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 429
+                      code:
+                        type: "string"
+                        enum:
+                          - "RATE_LIMITED"
+                          - "USER_VERIFICATION_EMAIL_RATE_LIMITED"
+              examples:
+                RATE_LIMITED:
+                  summary: "RATE_LIMITED"
+                  value:
+                    type: "https://nexus/errors/too-many-requests"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many requests; retry after the indicated delay"
+                    instance: "/api/v1/auth/verification-email"
+                    code: "RATE_LIMITED"
+                USER_VERIFICATION_EMAIL_RATE_LIMITED:
+                  summary: "USER_VERIFICATION_EMAIL_RATE_LIMITED"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Wait one minute before asking for another verification email"
+                    instance: "/api/v1/auth/verification-email"
+                    code: "USER_VERIFICATION_EMAIL_RATE_LIMITED"
+        "500":
+          description: "Internal Server Error. Codes: `INTERNAL_ERROR`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 500
+                      code:
+                        type: "string"
+                        enum:
+                          - "INTERNAL_ERROR"
+              examples:
+                INTERNAL_ERROR:
+                  summary: "INTERNAL_ERROR"
+                  value:
+                    type: "urn:problem:internal-server-error"
+                    title: "Internal Server Error"
+                    status: 500
+                    detail: "An unexpected error occurred"
+                    instance: "/api/v1/auth/verification-email"
+                    code: "INTERNAL_ERROR"
+        "502":
+          description: "Bad Gateway. Codes: `USER_VERIFICATION_EMAIL_FAILED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 502
+                      code:
+                        type: "string"
+                        enum:
+                          - "USER_VERIFICATION_EMAIL_FAILED"
+              examples:
+                USER_VERIFICATION_EMAIL_FAILED:
+                  summary: "USER_VERIFICATION_EMAIL_FAILED"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Gateway"
+                    status: 502
+                    detail: "The verification email could not be sent; the account is kept, ask for a new email"
+                    instance: "/api/v1/auth/verification-email"
+                    code: "USER_VERIFICATION_EMAIL_FAILED"
+        "503":
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 503
+                      code:
+                        type: "string"
+                        enum:
+                          - "SERVICE_UNAVAILABLE"
+              examples:
+                SERVICE_UNAVAILABLE:
+                  summary: "SERVICE_UNAVAILABLE"
+                  value:
+                    type: "https://nexus/errors/service-unavailable"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "A required service is unavailable"
+                    instance: "/api/v1/auth/verification-email"
+                    code: "SERVICE_UNAVAILABLE"
+        "504":
+          description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 504
+                      code:
+                        type: "string"
+                        enum:
+                          - "GATEWAY_TIMEOUT"
+              examples:
+                GATEWAY_TIMEOUT:
+                  summary: "GATEWAY_TIMEOUT"
+                  value:
+                    type: "https://nexus/errors/gateway-timeout"
+                    title: "Gateway Timeout"
+                    status: 504
+                    detail: "The service did not answer in time"
+                    instance: "/api/v1/auth/verification-email"
+                    code: "GATEWAY_TIMEOUT"
+  /api/v1/users/me/phone/verification:
+    post:
+      tags:
+        - "Users"
+      operationId: "sendPhoneVerificationCode"
+      summary: "Send a phone verification code"
+      description: "Sends a 6-digit code to the phone on the profile. The code is valid for 5 minutes and is stored only as a salted SHA-256 hash; a newer code replaces older ones. At most 3 codes per 15 minutes. Locally the fake SMS sender writes the code to the log and to Mailpit (to <phone>@sms.nexus.local). Access: requires PROFILE.UPDATE. Ownership/business restriction: JWT subject only."
+      security:
+        -
+          bearerAuth: []
+      x-required-privileges:
+        - "PROFILE.UPDATE"
+      x-gateway-privilege: "PROFILE.UPDATE"
+      x-required-roles: []
+      x-ownership: "JWT subject only."
+      x-error-codes:
+        "400":
+          - "INVALID_PARAMETER"
+        "401":
+          - "UNAUTHENTICATED"
+        "403":
+          - "FORBIDDEN"
+        "404":
+          - "USER_NOT_FOUND"
+        "405":
+          - "METHOD_NOT_ALLOWED"
+        "406":
+          - "NOT_ACCEPTABLE"
+        "429":
+          - "RATE_LIMITED"
+          - "PHONE_CODE_RATE_LIMITED"
+        "500":
+          - "INTERNAL_ERROR"
+        "503":
+          - "SERVICE_UNAVAILABLE"
+        "504":
+          - "GATEWAY_TIMEOUT"
+      responses:
+        "202":
+          description: "Accepted; the code was sent."
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/PhoneCodeSentResponse"
+              examples:
+                success:
+                  summary: "Success"
+                  value:
+                    code: 0
+                    message: "response success"
+                    data:
+                      phone: "+84901234567"
+                      expiresAt: "2026-11-14T08:05:00Z"
+        "400":
+          description: "Bad Request. Codes: `INVALID_PARAMETER`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 400
+                      code:
+                        type: "string"
+                        enum:
+                          - "INVALID_PARAMETER"
+              examples:
+                INVALID_PARAMETER:
+                  summary: "INVALID_PARAMETER"
+                  value:
+                    type: "urn:problem:invalid-parameter"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "A request parameter is invalid"
+                    instance: "/api/v1/users/me/phone/verification"
+                    code: "INVALID_PARAMETER"
+        "401":
+          description: "Unauthorized. Codes: `UNAUTHENTICATED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 401
+                      code:
+                        type: "string"
+                        enum:
+                          - "UNAUTHENTICATED"
+              examples:
+                UNAUTHENTICATED:
+                  summary: "UNAUTHENTICATED"
+                  value:
+                    type: "urn:problem:unauthorized"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "A valid access token is required to access this resource"
+                    instance: "/api/v1/users/me/phone/verification"
+                    code: "UNAUTHENTICATED"
+        "403":
+          description: "Forbidden. Codes: `FORBIDDEN`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 403
+                      code:
+                        type: "string"
+                        enum:
+                          - "FORBIDDEN"
+              examples:
+                FORBIDDEN:
+                  summary: "FORBIDDEN"
+                  value:
+                    type: "urn:problem:forbidden"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission to access this resource"
+                    instance: "/api/v1/users/me/phone/verification"
+                    code: "FORBIDDEN"
+        "404":
+          description: "Not Found. Codes: `USER_NOT_FOUND`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 404
+                      code:
+                        type: "string"
+                        enum:
+                          - "USER_NOT_FOUND"
+              examples:
+                USER_NOT_FOUND:
+                  summary: "USER_NOT_FOUND"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Not Found"
+                    status: 404
+                    detail: "User not found"
+                    instance: "/api/v1/users/me/phone/verification"
+                    code: "USER_NOT_FOUND"
+        "405":
+          description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 405
+                      code:
+                        type: "string"
+                        enum:
+                          - "METHOD_NOT_ALLOWED"
+              examples:
+                METHOD_NOT_ALLOWED:
+                  summary: "METHOD_NOT_ALLOWED"
+                  value:
+                    type: "urn:problem:method-not-allowed"
+                    title: "Method Not Allowed"
+                    status: 405
+                    detail: "The HTTP method is not supported for this endpoint"
+                    instance: "/api/v1/users/me/phone/verification"
+                    code: "METHOD_NOT_ALLOWED"
+        "406":
+          description: "Not Acceptable. Codes: `NOT_ACCEPTABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 406
+                      code:
+                        type: "string"
+                        enum:
+                          - "NOT_ACCEPTABLE"
+              examples:
+                NOT_ACCEPTABLE:
+                  summary: "NOT_ACCEPTABLE"
+                  value:
+                    type: "urn:problem:not-acceptable"
+                    title: "Not Acceptable"
+                    status: 406
+                    detail: "The requested response format is not supported"
+                    instance: "/api/v1/users/me/phone/verification"
+                    code: "NOT_ACCEPTABLE"
+        "429":
+          description: "Too Many Requests. Codes: `RATE_LIMITED`, `PHONE_CODE_RATE_LIMITED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 429
+                      code:
+                        type: "string"
+                        enum:
+                          - "RATE_LIMITED"
+                          - "PHONE_CODE_RATE_LIMITED"
+              examples:
+                RATE_LIMITED:
+                  summary: "RATE_LIMITED"
+                  value:
+                    type: "https://nexus/errors/too-many-requests"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many requests; retry after the indicated delay"
+                    instance: "/api/v1/users/me/phone/verification"
+                    code: "RATE_LIMITED"
+                PHONE_CODE_RATE_LIMITED:
+                  summary: "PHONE_CODE_RATE_LIMITED"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many codes or attempts; try again later"
+                    instance: "/api/v1/users/me/phone/verification"
+                    code: "PHONE_CODE_RATE_LIMITED"
+        "500":
+          description: "Internal Server Error. Codes: `INTERNAL_ERROR`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 500
+                      code:
+                        type: "string"
+                        enum:
+                          - "INTERNAL_ERROR"
+              examples:
+                INTERNAL_ERROR:
+                  summary: "INTERNAL_ERROR"
+                  value:
+                    type: "urn:problem:internal-server-error"
+                    title: "Internal Server Error"
+                    status: 500
+                    detail: "An unexpected error occurred"
+                    instance: "/api/v1/users/me/phone/verification"
+                    code: "INTERNAL_ERROR"
+        "503":
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 503
+                      code:
+                        type: "string"
+                        enum:
+                          - "SERVICE_UNAVAILABLE"
+              examples:
+                SERVICE_UNAVAILABLE:
+                  summary: "SERVICE_UNAVAILABLE"
+                  value:
+                    type: "https://nexus/errors/service-unavailable"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "A required service is unavailable"
+                    instance: "/api/v1/users/me/phone/verification"
+                    code: "SERVICE_UNAVAILABLE"
+        "504":
+          description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 504
+                      code:
+                        type: "string"
+                        enum:
+                          - "GATEWAY_TIMEOUT"
+              examples:
+                GATEWAY_TIMEOUT:
+                  summary: "GATEWAY_TIMEOUT"
+                  value:
+                    type: "https://nexus/errors/gateway-timeout"
+                    title: "Gateway Timeout"
+                    status: 504
+                    detail: "The service did not answer in time"
+                    instance: "/api/v1/users/me/phone/verification"
+                    code: "GATEWAY_TIMEOUT"
+  /api/v1/users/me/phone/verification/confirm:
+    post:
+      tags:
+        - "Users"
+      operationId: "confirmPhoneVerificationCode"
+      summary: "Confirm the phone verification code"
+      description: "Checks the newest code sent for the current phone. A wrong code counts an attempt; after 5 wrong attempts the code is locked and a new one must be requested. A code sent before the phone changed no longer matches. Access: requires PROFILE.UPDATE. Ownership/business restriction: JWT subject only."
+      security:
+        -
+          bearerAuth: []
+      x-required-privileges:
+        - "PROFILE.UPDATE"
+      x-gateway-privilege: "PROFILE.UPDATE"
+      x-required-roles: []
+      x-ownership: "JWT subject only."
+      x-error-codes:
+        "400":
+          - "INVALID_PARAMETER"
+          - "VALIDATION_FAILED"
+          - "INVALID_REQUEST_BODY"
+          - "PHONE_CODE_INVALID"
+          - "PHONE_CODE_EXPIRED"
+        "401":
+          - "UNAUTHENTICATED"
+        "403":
+          - "FORBIDDEN"
+        "404":
+          - "USER_NOT_FOUND"
+        "405":
+          - "METHOD_NOT_ALLOWED"
+        "406":
+          - "NOT_ACCEPTABLE"
+        "415":
+          - "UNSUPPORTED_MEDIA_TYPE"
+        "429":
+          - "RATE_LIMITED"
+          - "PHONE_CODE_RATE_LIMITED"
+        "500":
+          - "INTERNAL_ERROR"
+        "503":
+          - "SERVICE_UNAVAILABLE"
+        "504":
+          - "GATEWAY_TIMEOUT"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/ConfirmPhoneCode"
+            example:
+              code: "123456"
+      responses:
+        "200":
+          description: "The phone is verified."
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/PhoneVerifiedResponse"
+              examples:
+                success:
+                  summary: "Success"
+                  value:
+                    code: 0
+                    message: "response success"
+                    data:
+                      phone: "+84901234567"
+                      phoneVerifiedAt: "2026-11-14T08:01:00Z"
+        "400":
+          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `PHONE_CODE_INVALID`, `PHONE_CODE_EXPIRED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 400
+                      code:
+                        type: "string"
+                        enum:
+                          - "INVALID_PARAMETER"
+                          - "VALIDATION_FAILED"
+                          - "INVALID_REQUEST_BODY"
+                          - "PHONE_CODE_INVALID"
+                          - "PHONE_CODE_EXPIRED"
+              examples:
+                INVALID_PARAMETER:
+                  summary: "INVALID_PARAMETER"
+                  value:
+                    type: "urn:problem:invalid-parameter"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "A request parameter is invalid"
+                    instance: "/api/v1/users/me/phone/verification/confirm"
+                    code: "INVALID_PARAMETER"
+                VALIDATION_FAILED:
+                  summary: "VALIDATION_FAILED"
+                  value:
+                    type: "urn:problem:validation-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "The request data is invalid"
+                    instance: "/api/v1/users/me/phone/verification/confirm"
+                    code: "VALIDATION_FAILED"
+                INVALID_REQUEST_BODY:
+                  summary: "INVALID_REQUEST_BODY"
+                  value:
+                    type: "urn:problem:invalid-request-body"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "The request body is invalid or malformed"
+                    instance: "/api/v1/users/me/phone/verification/confirm"
+                    code: "INVALID_REQUEST_BODY"
+                PHONE_CODE_INVALID:
+                  summary: "PHONE_CODE_INVALID"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "The verification code is wrong"
+                    instance: "/api/v1/users/me/phone/verification/confirm"
+                    code: "PHONE_CODE_INVALID"
+                PHONE_CODE_EXPIRED:
+                  summary: "PHONE_CODE_EXPIRED"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "The verification code has expired; ask for a new one"
+                    instance: "/api/v1/users/me/phone/verification/confirm"
+                    code: "PHONE_CODE_EXPIRED"
+        "401":
+          description: "Unauthorized. Codes: `UNAUTHENTICATED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 401
+                      code:
+                        type: "string"
+                        enum:
+                          - "UNAUTHENTICATED"
+              examples:
+                UNAUTHENTICATED:
+                  summary: "UNAUTHENTICATED"
+                  value:
+                    type: "urn:problem:unauthorized"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "A valid access token is required to access this resource"
+                    instance: "/api/v1/users/me/phone/verification/confirm"
+                    code: "UNAUTHENTICATED"
+        "403":
+          description: "Forbidden. Codes: `FORBIDDEN`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 403
+                      code:
+                        type: "string"
+                        enum:
+                          - "FORBIDDEN"
+              examples:
+                FORBIDDEN:
+                  summary: "FORBIDDEN"
+                  value:
+                    type: "urn:problem:forbidden"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission to access this resource"
+                    instance: "/api/v1/users/me/phone/verification/confirm"
+                    code: "FORBIDDEN"
+        "404":
+          description: "Not Found. Codes: `USER_NOT_FOUND`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 404
+                      code:
+                        type: "string"
+                        enum:
+                          - "USER_NOT_FOUND"
+              examples:
+                USER_NOT_FOUND:
+                  summary: "USER_NOT_FOUND"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Not Found"
+                    status: 404
+                    detail: "User not found"
+                    instance: "/api/v1/users/me/phone/verification/confirm"
+                    code: "USER_NOT_FOUND"
+        "405":
+          description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 405
+                      code:
+                        type: "string"
+                        enum:
+                          - "METHOD_NOT_ALLOWED"
+              examples:
+                METHOD_NOT_ALLOWED:
+                  summary: "METHOD_NOT_ALLOWED"
+                  value:
+                    type: "urn:problem:method-not-allowed"
+                    title: "Method Not Allowed"
+                    status: 405
+                    detail: "The HTTP method is not supported for this endpoint"
+                    instance: "/api/v1/users/me/phone/verification/confirm"
+                    code: "METHOD_NOT_ALLOWED"
+        "406":
+          description: "Not Acceptable. Codes: `NOT_ACCEPTABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 406
+                      code:
+                        type: "string"
+                        enum:
+                          - "NOT_ACCEPTABLE"
+              examples:
+                NOT_ACCEPTABLE:
+                  summary: "NOT_ACCEPTABLE"
+                  value:
+                    type: "urn:problem:not-acceptable"
+                    title: "Not Acceptable"
+                    status: 406
+                    detail: "The requested response format is not supported"
+                    instance: "/api/v1/users/me/phone/verification/confirm"
+                    code: "NOT_ACCEPTABLE"
+        "415":
+          description: "Unsupported Media Type. Codes: `UNSUPPORTED_MEDIA_TYPE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 415
+                      code:
+                        type: "string"
+                        enum:
+                          - "UNSUPPORTED_MEDIA_TYPE"
+              examples:
+                UNSUPPORTED_MEDIA_TYPE:
+                  summary: "UNSUPPORTED_MEDIA_TYPE"
+                  value:
+                    type: "urn:problem:unsupported-media-type"
+                    title: "Unsupported Media Type"
+                    status: 415
+                    detail: "The request content type is not supported"
+                    instance: "/api/v1/users/me/phone/verification/confirm"
+                    code: "UNSUPPORTED_MEDIA_TYPE"
+        "429":
+          description: "Too Many Requests. Codes: `RATE_LIMITED`, `PHONE_CODE_RATE_LIMITED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 429
+                      code:
+                        type: "string"
+                        enum:
+                          - "RATE_LIMITED"
+                          - "PHONE_CODE_RATE_LIMITED"
+              examples:
+                RATE_LIMITED:
+                  summary: "RATE_LIMITED"
+                  value:
+                    type: "https://nexus/errors/too-many-requests"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many requests; retry after the indicated delay"
+                    instance: "/api/v1/users/me/phone/verification/confirm"
+                    code: "RATE_LIMITED"
+                PHONE_CODE_RATE_LIMITED:
+                  summary: "PHONE_CODE_RATE_LIMITED"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many codes or attempts; try again later"
+                    instance: "/api/v1/users/me/phone/verification/confirm"
+                    code: "PHONE_CODE_RATE_LIMITED"
+        "500":
+          description: "Internal Server Error. Codes: `INTERNAL_ERROR`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 500
+                      code:
+                        type: "string"
+                        enum:
+                          - "INTERNAL_ERROR"
+              examples:
+                INTERNAL_ERROR:
+                  summary: "INTERNAL_ERROR"
+                  value:
+                    type: "urn:problem:internal-server-error"
+                    title: "Internal Server Error"
+                    status: 500
+                    detail: "An unexpected error occurred"
+                    instance: "/api/v1/users/me/phone/verification/confirm"
+                    code: "INTERNAL_ERROR"
+        "503":
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 503
+                      code:
+                        type: "string"
+                        enum:
+                          - "SERVICE_UNAVAILABLE"
+              examples:
+                SERVICE_UNAVAILABLE:
+                  summary: "SERVICE_UNAVAILABLE"
+                  value:
+                    type: "https://nexus/errors/service-unavailable"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "A required service is unavailable"
+                    instance: "/api/v1/users/me/phone/verification/confirm"
+                    code: "SERVICE_UNAVAILABLE"
+        "504":
+          description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 504
+                      code:
+                        type: "string"
+                        enum:
+                          - "GATEWAY_TIMEOUT"
+              examples:
+                GATEWAY_TIMEOUT:
+                  summary: "GATEWAY_TIMEOUT"
+                  value:
+                    type: "https://nexus/errors/gateway-timeout"
+                    title: "Gateway Timeout"
+                    status: 504
+                    detail: "The service did not answer in time"
+                    instance: "/api/v1/users/me/phone/verification/confirm"
+                    code: "GATEWAY_TIMEOUT"
 components:
   securitySchemes:
     bearerAuth:
@@ -2370,6 +3563,7 @@ components:
         - "roles"
         - "status"
         - "createdAt"
+        - "phoneVerifiedAt"
       properties:
         id:
           type: "string"
@@ -2409,6 +3603,11 @@ components:
         createdAt:
           type: "string"
           format: "date-time"
+        phoneVerifiedAt:
+          type: "string"
+          format: "date-time"
+          nullable: true
+          description: "When the current phone was verified; null until verified and after the phone changes."
     Register:
       type: "object"
       required:
@@ -2497,7 +3696,12 @@ components:
           maxLength: 255
           description: "Trimmed and lowercased. Omitted/null retains current value."
           nullable: true
-      description: "Only listed editable fields are consumed. Unknown properties are ignored; callers cannot change roles, status, phone or identity number through this API."
+        phone:
+          type: "string"
+          pattern: "^\\+?[0-9]{7,15}$"
+          description: "Whitespace, parentheses and hyphens are removed before validation. A different phone clears phoneVerifiedAt. Omitted/null retains current value."
+          nullable: true
+      description: "Only listed editable fields are consumed. Unknown properties are ignored; callers cannot change roles, status or identity number through this API."
     RegisterResponse:
       type: "object"
       required:
@@ -2593,6 +3797,84 @@ components:
         page:
           $ref: "#/components/schemas/PageInfo"
       additionalProperties: false
+    VerificationEmail:
+      type: "object"
+      required:
+        - "email"
+      properties:
+        email:
+          type: "string"
+          pattern: "\\S"
+          format: "email"
+          minLength: 1
+          maxLength: 255
+          description: "Trimmed and normalized to lower case."
+    ConfirmPhoneCode:
+      type: "object"
+      required:
+        - "code"
+      properties:
+        code:
+          type: "string"
+          pattern: "^[0-9]{6}$"
+    PhoneCodeSent:
+      type: "object"
+      required:
+        - "phone"
+        - "expiresAt"
+      properties:
+        phone:
+          type: "string"
+        expiresAt:
+          type: "string"
+          format: "date-time"
+    PhoneVerified:
+      type: "object"
+      required:
+        - "phone"
+        - "phoneVerifiedAt"
+      properties:
+        phone:
+          type: "string"
+        phoneVerifiedAt:
+          type: "string"
+          format: "date-time"
+    PhoneCodeSentResponse:
+      type: "object"
+      required:
+        - "code"
+        - "message"
+        - "data"
+      properties:
+        code:
+          type: "integer"
+          default: 0
+          description: "Numeric success code; omitted or null values default to 0 during response construction. Explicit values are preserved."
+        message:
+          type: "string"
+          default: "response success"
+          description: "Omitted or null values default to response success during response construction. Explicit messages are preserved."
+        data:
+          $ref: "#/components/schemas/PhoneCodeSent"
+      additionalProperties: false
+    PhoneVerifiedResponse:
+      type: "object"
+      required:
+        - "code"
+        - "message"
+        - "data"
+      properties:
+        code:
+          type: "integer"
+          default: 0
+          description: "Numeric success code; omitted or null values default to 0 during response construction. Explicit values are preserved."
+        message:
+          type: "string"
+          default: "response success"
+          description: "Omitted or null values default to response success during response construction. Explicit messages are preserved."
+        data:
+          $ref: "#/components/schemas/PhoneVerified"
+      additionalProperties: false
 x-service: "user-service"
 x-business-error-codes:
   USER_REGISTRATION_DISABLED:
@@ -2622,3 +3904,18 @@ x-business-error-codes:
   USER_IDENTITY_PROVIDER_UNAVAILABLE:
     status: 503
     detail: "The identity provider is unavailable"
+  USER_VERIFICATION_EMAIL_FAILED:
+    status: 502
+    detail: "The verification email could not be sent; the account is kept, ask for a new email"
+  USER_VERIFICATION_EMAIL_RATE_LIMITED:
+    status: 429
+    detail: "Wait one minute before asking for another verification email"
+  PHONE_CODE_INVALID:
+    status: 400
+    detail: "The verification code is wrong"
+  PHONE_CODE_EXPIRED:
+    status: 400
+    detail: "The verification code has expired; ask for a new one"
+  PHONE_CODE_RATE_LIMITED:
+    status: 429
+    detail: "Too many codes or attempts; try again later"

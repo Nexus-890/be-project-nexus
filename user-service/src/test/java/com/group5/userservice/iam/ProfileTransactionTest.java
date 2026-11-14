@@ -158,6 +158,35 @@ class ProfileTransactionTest {
     }
 
     @Test
+    void changingThePhoneClearsItsVerification() {
+        jdbc.update("update users set phone_verified_at = now() where id = ?", firstId);
+
+        UserResponse same = userService.updateOwnProfile(firstId,
+                new UpdateProfileRequest(null, null, null, null, null, "0900000001"));
+        assertThat(same.phoneVerifiedAt()).isNotNull();
+
+        UserResponse changed = userService.updateOwnProfile(firstId,
+                new UpdateProfileRequest(null, null, null, null, null, "+84 (90) 999-0001"));
+
+        assertThat(changed.phone()).isEqualTo("+84909990001");
+        assertThat(changed.phoneVerifiedAt()).isNull();
+        assertThat(jdbc.queryForObject("select phone_verified_at is null from users where id = ?",
+                Boolean.class, firstId)).isTrue();
+    }
+
+    @Test
+    void aPhoneHeldByAnotherUserIsRefusedWith409() {
+        StoredProfile before = readCommittedProfile(firstId);
+
+        DomainException conflict = catchThrowableOfType(DomainException.class,
+                () -> userService.updateOwnProfile(firstId,
+                        new UpdateProfileRequest(null, null, null, null, null, "0900000002")));
+
+        assertThat(conflict.getErrorCode()).isEqualTo("USER_PHONE_ALREADY_USED");
+        assertThat(readCommittedProfile(firstId)).isEqualTo(before);
+    }
+
+    @Test
     void duplicatePrecheckReturns409AndRetainsTheWholeOriginalProfile() {
         StoredProfile before = readCommittedProfile(firstId);
 
@@ -304,7 +333,7 @@ class ProfileTransactionTest {
     }
 
     private UserService serviceUsing(UserRepository repository) {
-        return new UserService(repository, new IamProperties(), buyerKeycloak(), transactionManager);
+        return new UserService(repository, new IamProperties(), buyerKeycloak(), transactionManager, mock(EmailVerificationService.class));
     }
 
     private void assertConflict(Runnable action) {
@@ -373,7 +402,7 @@ class ProfileTransactionTest {
 
         @Bean
         UserService userService(UserRepository repository, PlatformTransactionManager manager) {
-            return new UserService(repository, new IamProperties(), buyerKeycloak(), manager);
+            return new UserService(repository, new IamProperties(), buyerKeycloak(), manager, mock(EmailVerificationService.class));
         }
     }
 }
