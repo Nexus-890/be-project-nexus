@@ -135,6 +135,9 @@ class BidPlacementIntegrationTest {
         JsonNode body = JsonMapper.shared().readTree(response.getResponse().getContentAsString());
         UUID bidId = UUID.fromString(body.get("data").get("bidId").asString());
         Map<String, Object> stored = assertAccepted(auction.id(), bidder, bidId);
+        assertThat(stored.get("bidder_name")).isEqualTo("N***A");
+        assertThat(jdbc.queryForObject("SELECT leader_bidder_name FROM auctions WHERE id = ?",
+                String.class, auction.id())).isEqualTo("N***A");
         assertThat(stored.get("status").toString()).isEqualTo("PLACED");
         assertThat(stored.get("idempotency_key").toString()).isNotBlank();
         Instant storedPlacedAt = jdbc.queryForObject("SELECT placed_at FROM bids WHERE id = ?",
@@ -209,7 +212,7 @@ class BidPlacementIntegrationTest {
             }
             Snapshot before = snapshot(auction.id());
 
-            assertThat(auctions.acceptBid(auction.id(), UUID.randomUUID(), MINIMUM)).isEqualTo(expectedUpdates);
+            assertThat(auctions.acceptBid(auction.id(), UUID.randomUUID(), MINIMUM, "***")).isEqualTo(expectedUpdates);
 
             if (!atStart) assertThat(snapshot(auction.id())).isEqualTo(before);
             // Chỉ kiểm tra UPDATE; rollback để không để lại auction tăng giá mà chưa có bid/outbox.
@@ -323,7 +326,7 @@ class BidPlacementIntegrationTest {
             Instant before = time(auction.id(), "end_at");
 
             // Giữ cùng DB now() để kiểm tra biên; service #147 mở REQUIRES_NEW transaction.
-            assertThat(auctions.acceptBid(auction.id(), bidder, MINIMUM)).isEqualTo(1);
+            assertThat(auctions.acceptBid(auction.id(), bidder, MINIMUM, "***")).isEqualTo(1);
             context.getBean(AntiSnipingPolicy.class).extendAcceptedBid(auction.id(), bidder);
 
             assertThat(time(auction.id(), "end_at"))
@@ -493,7 +496,7 @@ class BidPlacementIntegrationTest {
     @EnableJpaRepositories(basePackageClasses = {AuctionRepository.class, BidRepository.class})
     @EnableJpaAuditing(auditorAwareRef = "auditor")
     @ImportAutoConfiguration(SecurityAutoConfiguration.class)
-    @Import({BidService.class, BidController.class, AntiSnipingPolicy.class})
+    @Import({BidService.class, BidController.class, BidHistoryQuery.class, AntiSnipingPolicy.class})
     static class Config {
         @Bean
         DataSource dataSource() {
@@ -513,7 +516,8 @@ class BidPlacementIntegrationTest {
         @Bean JwtDecoder decoder() {
             return token -> Jwt.withTokenValue(token).header("alg", "RS256").subject(token)
                     .issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(300))
-                    .claim("roles", List.of("BUYER")).claim("privileges", List.of("AUCTION.BID")).build();
+                    .claim("name", "Nguyen Van A").claim("roles", List.of("BUYER"))
+                    .claim("privileges", List.of("AUCTION.BID")).build();
         }
         @Bean
         EventEnvelopeFactory envelopes(Clock clock) {

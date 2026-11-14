@@ -134,6 +134,8 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/auctions/{id}/admin-cancel` | POST | AUCTION.ADMIN_CANCEL | #197 — ADMIN; CREATED/SCHEDULED/ACTIVE/ENDED/WON only |
 | `/api/v1/auctions` | GET | Public | #143 — PUBLIC, non-deleted auctions; status defaults to ACTIVE, endAt ascending |
 | `/api/v1/auctions/{id}` | GET | Public | #143 — PUBLIC, non-deleted auction; hidden and missing rows return 404 |
+| `/api/v1/auctions/{id}/state` | GET | Public | #168 — One-second data cache and fresh server time. Public, non-deleted auction only |
+| `/api/v1/auctions/{id}/bids` | GET | Public | #168 — Paginated bids with masked names. Public, non-deleted auction only |
 | `/api/v1/inventory` | GET | Public | #132 — inventory-service; `skuIds` query, at most 100; returns `skuId` and `available` only |
 | `/api/v1/inventory/{id}` | GET | Public | #132 — inventory-service; `{id}` is the SKU id; a UUID only, so `/inventory/reservations` and other literal paths stay protected |
 | `/api/v1/event-logs` | GET | EVENT_LOG.VIEW | #192 — Event log consumer and audit log |

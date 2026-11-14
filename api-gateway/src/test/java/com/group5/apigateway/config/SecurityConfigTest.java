@@ -599,10 +599,24 @@ class SecurityConfigTest {
     }
 
     @Test
+    void auctionStateAndBidHistoryAreAnonymousButBidPlacementStillRequiresPrivilege() {
+        String auction = "/api/v1/auctions/" + ID;
+        client.get().uri(auction + "/state").exchange().expectStatus().isOk();
+        client.get().uri(auction + "/bids").exchange().expectStatus().isOk();
+        client.post().uri(auction + "/bids").exchange().expectStatus().isUnauthorized();
+        client.post().uri(auction + "/bids")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                        c -> c.claim("privileges", List.of("AUCTION.LIST"))))
+                .exchange().expectStatus().isForbidden();
+        assertThat(SERVICE_LOG).containsExactly("GET " + auction + "/state", "GET " + auction + "/bids");
+    }
+
+    @Test
     void literalRoutesSwaggerActuatorAndUnknownPathsAreNotPublic() {
         for (String path : List.of("/api/v1/products/mine", "/api/v1/products/search",
                 "/api/v1/products/discovery", "/api/v1/products/not-a-uuid",
-                "/api/v1/auctions/mine", "/api/v1/auctions/not-a-uuid", "/api/v1/auctions/" + ID + "/bids",
+                "/api/v1/auctions/mine", "/api/v1/auctions/not-a-uuid", "/api/v1/auctions/not-a-uuid/bids",
+                "/api/v1/auctions/not-a-uuid/state",
                 "/api/v1/categories", "/swagger-ui.html", "/actuator/health", "/unrouted")) {
             client.get().uri(path).exchange().expectStatus().isUnauthorized();
         }
