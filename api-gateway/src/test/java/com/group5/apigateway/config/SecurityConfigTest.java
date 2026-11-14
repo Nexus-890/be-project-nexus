@@ -59,7 +59,11 @@ import reactor.core.publisher.Mono;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest(classes = SecurityConfigTest.TestApplication.class,
@@ -114,6 +118,8 @@ class SecurityConfigTest {
     private SecurityConfig.GatewaySecurityProperties permissions;
     @Autowired
     private RouteLocator routeLocator;
+    @Autowired
+    private RedisWindowRateLimiter rateLimiter;
     private WebTestClient client;
 
     @DynamicPropertySource
@@ -129,6 +135,7 @@ class SecurityConfigTest {
 
     @BeforeEach
     void setUp() {
+        clearInvocations(rateLimiter);
         SERVICE_LOG.clear();
         FORWARDED_TOKENS.clear();
         DOMAIN_LOG.clear();
@@ -609,6 +616,8 @@ class SecurityConfigTest {
                         c -> c.claim("privileges", List.of("AUCTION.LIST"))))
                 .exchange().expectStatus().isForbidden();
         assertThat(SERVICE_LOG).containsExactly("GET " + auction + "/state", "GET " + auction + "/bids");
+        verify(rateLimiter, times(2)).isAllowed("auction-read", "gateway-test-client");
+        verify(rateLimiter, never()).isAllowed("auction-service", "gateway-test-client");
     }
 
     @Test

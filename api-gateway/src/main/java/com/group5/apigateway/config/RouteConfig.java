@@ -7,6 +7,9 @@ import org.springframework.cloud.gateway.route.RouteLocator;
 import org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+
+import static com.group5.apigateway.ratelimit.RedisWindowRateLimiter.AUCTION_READ_ROUTE_ID;
 
 @Configuration
 public class RouteConfig {
@@ -103,6 +106,16 @@ public class RouteConfig {
                                         .setKeyResolver(resolver)
                                         .setThrowOnLimit(true)))
                         .uri("lb://inventory-service"))
+
+                .route(AUCTION_READ_ROUTE_ID, route -> route
+                        .order(-1)
+                        .path("/api/v1/auctions/*/state", "/api/v1/auctions/*/bids")
+                        .and().method(HttpMethod.GET)
+                        .filters(filters -> filters.requestRateLimiter(config -> config
+                                .setRateLimiter(limiter)
+                                .setKeyResolver(resolver)
+                                .setThrowOnLimit(true)))
+                        .uri("lb://auction-service"))
 
                 .route("auction-service", route -> route
                         .path("/api/v1/auctions", "/api/v1/auctions/**", "/api/v1/bids", "/api/v1/bids/**")
