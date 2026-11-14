@@ -33,6 +33,7 @@ import com.group5.commerceservice.shared.pricing.PriceBreakdown;
 import com.group5.common_core.constant.CommonErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
+import com.group5.common_security.CurrentUserAuditor;
 import feign.FeignException;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.criteria.Predicate;
@@ -380,6 +381,25 @@ public class OrderService {
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
         publishCancellation(group, cancelled, current, user.id(), reason, cancelledAt.toInstant().toString());
         return toResponse(group, user);
+    }
+
+    @Transactional
+    public List<UUID> expire(UUID groupId) {
+        String groupStatus = groupRepository.lockStatus(groupId).orElse(null);
+        if (!"PENDING".equals(groupStatus) || !groupRepository.isOverdue(groupId)) {
+            return List.of();
+        }
+        orderRepository.lockGroupOrders(groupId);
+        UUID system = CurrentUserAuditor.SYSTEM_ID;
+        String cancelledAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS).toInstant().toString();
+        List<UUID> cancelled = cancelPendingGroup(groupId, groupStatus, system, PAYMENT_DEADLINE_EXPIRED);
+        entityManager.flush();
+        entityManager.clear();
+        OrderGroup group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
+        publishCancellation(group, cancelled, OrderStatus.PENDING, system, PAYMENT_DEADLINE_EXPIRED, cancelledAt);
+        log.info("Order group expired: groupId={}, cancelled={}", groupId, cancelled);
+        return cancelled;
     }
 
     private void returnToCart(UUID buyerId, List<UUID> orderIds, UUID actor) {

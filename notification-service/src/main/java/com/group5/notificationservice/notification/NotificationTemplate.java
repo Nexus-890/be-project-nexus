@@ -9,7 +9,8 @@ import java.util.UUID;
 public enum NotificationTemplate {
 
     ORDER_CREATED("OrderCreated", "buyerId", "Order placed", "Your order %s was placed", "orderNumber"),
-    ORDER_COMPLETED("OrderCompleted", "buyerId", "Order receipt", "Your order %s is complete. Your receipt is ready.", "orderNumber");
+    ORDER_COMPLETED("OrderCompleted", "buyerId", "Order receipt", "Your order %s is complete. Your receipt is ready.", "orderNumber"),
+    ORDER_CANCELLED("OrderCancelled", "buyerId", "Order cancelled", "Your order %s was cancelled", "orderNumber");
 
     private final String eventType;
     private final String recipientField;
