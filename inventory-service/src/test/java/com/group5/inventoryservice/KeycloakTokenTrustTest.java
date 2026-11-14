@@ -5,7 +5,9 @@ import com.group5.common_security.CurrentUser;
 import com.group5.inventoryservice.inventory.InventoryBalanceRepository;
 import com.group5.inventoryservice.inventory.InventoryMovementRepository;
 import com.group5.inventoryservice.warehouse.repository.WarehouseRepository;
+import com.group5.inventoryservice.reservation.ReservationExpiryJob;
 import com.group5.inventoryservice.reservation.repository.ReservationRepository;
+import net.javacrumbs.shedlock.core.LockProvider;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.RSASSASigner;
@@ -68,6 +70,8 @@ class KeycloakTokenTrustTest {
     @MockitoBean private WarehouseRepository warehouses;
     @MockitoBean private ReservationRepository reservations;
     @MockitoBean private IdempotentConsumer idempotentConsumer;
+    @MockitoBean private ReservationExpiryJob reservationExpiryJob;
+    @MockitoBean private LockProvider lockProvider;
     private MockMvc client;
 
     @DynamicPropertySource
