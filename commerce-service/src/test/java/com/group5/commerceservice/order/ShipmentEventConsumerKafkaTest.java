@@ -41,7 +41,7 @@ import static org.awaitility.Awaitility.await;
         "nexus.security.jwt.issuer=user-service", "nexus.security.jwt.audience=nexus-services",
         "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/.well-known/jwks.json"
 })
-@EmbeddedKafka(partitions = 1, topics = {Topics.PAYMENT, Topics.SHIPMENT},
+@EmbeddedKafka(partitions = 1, topics = {Topics.PAYMENT, Topics.SHIPMENT, Topics.INVENTORY},
         bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ShipmentEventConsumerKafkaTest {

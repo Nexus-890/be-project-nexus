@@ -33,6 +33,7 @@ import com.group5.commerceservice.shared.pricing.PriceBreakdown;
 import com.group5.common_core.constant.CommonErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
+import com.group5.common_security.CurrentUserAuditor;
 import feign.FeignException;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.criteria.Predicate;
@@ -88,6 +89,7 @@ public class OrderService {
     private final InventoryClient inventoryClient;
     private final PricingService pricingService;
     private static final String PAYMENT_DEADLINE_EXPIRED = "PAYMENT_DEADLINE_EXPIRED";
+    private static final String STOCK_UNAVAILABLE = "STOCK_UNAVAILABLE";
 
     private final OrderStateMachine stateMachine;
     private final OrderStatusHistoryRepository historyRepository;
@@ -349,7 +351,7 @@ public class OrderService {
             throw new DomainException(CommerceErrorCode.UNAUTHENTICATED);
         }
         String reason = request.reason().strip();
-        if (PAYMENT_DEADLINE_EXPIRED.equals(reason)) {
+        if (PAYMENT_DEADLINE_EXPIRED.equals(reason) || STOCK_UNAVAILABLE.equals(reason)) {
             throw new DomainException(CommerceErrorCode.RESERVED_CANCEL_REASON);
         }
         Order order = orderRepository.findById(orderId)
@@ -385,6 +387,52 @@ public class OrderService {
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
         publishCancellation(group, cancelled, current, user.id(), reason, cancelledAt.toInstant().toString());
         return toResponse(group, user);
+    }
+
+    @Transactional
+    public List<UUID> expire(UUID groupId) {
+        String groupStatus = groupRepository.lockStatus(groupId).orElse(null);
+        if (!"PENDING".equals(groupStatus) || !groupRepository.isOverdue(groupId)) {
+            return List.of();
+        }
+        orderRepository.lockGroupOrders(groupId);
+        UUID system = CurrentUserAuditor.SYSTEM_ID;
+        String cancelledAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS).toInstant().toString();
+        List<UUID> cancelled = cancelPendingGroup(groupId, groupStatus, system, PAYMENT_DEADLINE_EXPIRED);
+        entityManager.flush();
+        entityManager.clear();
+        OrderGroup group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
+        publishCancellation(group, cancelled, OrderStatus.PENDING, system, PAYMENT_DEADLINE_EXPIRED, cancelledAt);
+        log.info("Order group expired: groupId={}, cancelled={}", groupId, cancelled);
+        return cancelled;
+    }
+
+    @Transactional
+    public boolean cancelPaidForMissingStock(UUID orderId) {
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order == null) {
+            log.error("Stock unavailable for an unknown order: orderId={}", orderId);
+            return false;
+        }
+        UUID groupId = order.getOrderGroup().getId();
+        groupRepository.lockStatus(groupId);
+        orderRepository.lockGroupOrders(groupId);
+        OrderStatus current = orderRepository.findStatusById(orderId).orElseThrow();
+        if (current != OrderStatus.PAID) {
+            log.error("Stock unavailable but the order is not PAID: orderId={}, status={}", orderId, current);
+            return false;
+        }
+        UUID system = CurrentUserAuditor.SYSTEM_ID;
+        String cancelledAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS).toInstant().toString();
+        stateMachine.move(orderId, OrderStatus.CANCELED, system, STOCK_UNAVAILABLE);
+        entityManager.flush();
+        entityManager.clear();
+        OrderGroup group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
+        publishCancellation(group, List.of(orderId), OrderStatus.PAID, system, STOCK_UNAVAILABLE, cancelledAt);
+        log.warn("Paid order cancelled for missing stock: orderId={}, groupId={}", orderId, groupId);
+        return true;
     }
 
     private void returnToCart(UUID buyerId, List<UUID> orderIds, UUID actor) {
@@ -631,7 +679,7 @@ public class OrderService {
                 order.getOrderType(), order.getStatus(), order.getCreatedAt(), order.getTotalAmount(), items,
                 shippingSnapshotText(order, "name", "recipientName"), shippingSnapshotText(order, "phone", "phoneNumber"),
                 order.getOrderGroup().getId(), order.getSubtotal(), order.getShippingFee(),
-                order.getDiscountAmount(), order.getTaxAmount(), canCancel(order, user),
+                order.getDiscountAmount(), order.getTaxAmount(), canCancel(order, user), order.getPaymentNote(),
                 order.getDeliveredAt(), order.getAutoCompleteAt(), order.getReceiptIssueReason(), order.getReceiptIssueReportedAt());
     }
 

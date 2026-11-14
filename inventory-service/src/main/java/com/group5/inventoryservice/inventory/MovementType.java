@@ -5,5 +5,6 @@ public enum MovementType {
     RESERVE,
     RELEASE,
     COMMIT,
+    RETURN,
     ADJUSTMENT
 }

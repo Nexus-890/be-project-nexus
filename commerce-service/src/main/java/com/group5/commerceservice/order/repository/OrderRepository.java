@@ -69,6 +69,16 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
             nativeQuery = true)
     int recordPaidAt(UUID id, java.time.OffsetDateTime paidAt);
 
+    @Modifying
+    @Query(value = """
+            UPDATE orders
+            SET payment_note = :note, version = version + 1, updated_at = now(),
+                updated_by = '00000000-0000-0000-0000-000000000000'
+            WHERE order_group_id = :groupId AND id IN (:orderIds)
+              AND payment_note IS DISTINCT FROM :note
+            """, nativeQuery = true)
+    int recordPaymentNote(UUID groupId, List<UUID> orderIds, String note);
+
     @Query("select o.id from Order o where o.orderGroup.id = :groupId and o.status = :status order by o.id")
     List<UUID> findIdsByGroupAndStatus(UUID groupId, OrderStatus status);
 

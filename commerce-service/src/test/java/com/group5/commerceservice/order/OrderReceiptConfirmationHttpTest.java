@@ -55,7 +55,7 @@ class OrderReceiptConfirmationHttpTest {
         when(orders.getOrder(any(), eq(ID))).thenReturn(new OrderResponse(ID, "NX-RECEIPT-HTTP", BUYER,
                 UUID.randomUUID(), OrderType.STANDARD, OrderStatus.COMPLETED, delivered.minusDays(3),
                 BigDecimal.TEN, List.of(), null, null, UUID.randomUUID(), BigDecimal.TEN,
-                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, delivered, delivered.plusDays(7), null, null));
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null, delivered, delivered.plusDays(7), null, null));
     }
 
     @Test void buyerPostsNoBodyAndReceivesTheCompletedEnvelopeAndPersistedDates() throws Exception {

@@ -12,10 +12,10 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** Upgrade through the V13 shared with MR !171 before the #220 receipt migrations. */
+/** Upgrade the latest develop and the shared settlement index before the receipt migrations. */
 class ReceiptMigrationCompatibilityTest {
     @ParameterizedTest
-    @ValueSource(strings = {"12", "13"})
+    @ValueSource(strings = {"12", "13", "14"})
     void settlementAndReceiptMigrationsUpgradeTogetherWithoutLosingDeliveredOrders(String baseline) throws Exception {
         var database = new PostgresTestDatabase("postgres:18-alpine");
         database.start();
@@ -45,10 +45,10 @@ class ReceiptMigrationCompatibilityTest {
                     assertThat(migrated.getString("window")).isEqualTo("7 days");
                     assertThat(migrated.getObject("receipt_issue_reported_at")).isNull();
                 }
-                try (var versions = statement.executeQuery("SELECT version FROM flyway_schema_history WHERE version IN ('13','14','15') AND success ORDER BY installed_rank")) {
+                try (var versions = statement.executeQuery("SELECT version FROM flyway_schema_history WHERE version IN ('13','14','15','16') AND success ORDER BY installed_rank")) {
                     var found = new java.util.ArrayList<String>();
                     while (versions.next()) found.add(versions.getString(1));
-                    assertThat(found).containsExactly("13", "14", "15");
+                    assertThat(found).containsExactly("13", "14", "15", "16");
                 }
                 assertThatThrownBy(() -> statement.executeUpdate(insert + "('" + UUID.randomUUID() + "','" + group
                         + "','" + buyer + "','" + seller + "','NX-MIGRATION-DUPLICATE','AUCTION','" + auction

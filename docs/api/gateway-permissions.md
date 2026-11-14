@@ -698,8 +698,9 @@ A path with several roles in `x-required-roles` accepts any one of them.
   `inventory_movement_type` values plus `INTAKE` and `COMMIT`, which V6 adds (#131).
   #200 writes `ADJUSTMENT`. The schema document still names an `ADJUST` value that no
   issue writes.
-  As delivered, the `type` filter and `movementType` use only the five values the
-  service writes: `INTAKE`, `RESERVE`, `RELEASE`, `COMMIT` and `ADJUSTMENT`.
+  As delivered, the `type` filter and `movementType` use only the six values the
+  service writes: `INTAKE`, `RESERVE`, `RELEASE`, `COMMIT`, `ADJUSTMENT` and `RETURN`
+  (#161: stock of a paid order that is cancelled goes back to available).
 - **Money:** a JSON number, per ADR-008. It differs from the #88 decimal strings.
 - **Error codes:** the `AUCTION_*` and `INVENTORY_*` names under
   `x-business-error-codes` are proposals, except `AUCTION_BID_TOO_LOW` and

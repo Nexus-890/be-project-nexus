@@ -51,13 +51,19 @@ Test databases are retained for inspection until the disposable instance is
 removed. Never configure a shared or production database.
 
 Migration compatibility is additionally verified in commerce's
-`ReceiptMigrationCompatibilityTest`: both V12 and MR !171's V13 upgrade through
-V14 (receipt window) and V15 (receipt hold), preserving delivered data and the
-auction-reference uniqueness index. Existing deployments that applied the
-unmerged earlier #220 V13/V14 drafts need a fresh disposable development database;
+`ReceiptMigrationCompatibilityTest`: V12, latest develop V13 (payment note), and
+consolidated V14 (auction reference) upgrade through V15 (receipt window) and V16
+(receipt hold), preserving delivered data and the auction-reference uniqueness
+index. MR !171 must reuse V14 for its identical auction SQL when integrating;
+its old V13 version now conflicts with develop. Existing development databases
+that applied the unmerged earlier #220 V13/V14 drafts need a fresh disposable database;
 these tests do not rewrite applied Flyway checksums.
 
 On 2026-11-14 the module passed all five scenarios with native PostgreSQL 18.6:
 three receipt-email scenarios and two payout-eligibility scenarios. Commerce's
 clean verify passed 460 tests (five existing skips), payment verify passed 274
-(three existing skips), and both migration-upgrade baselines passed separately.
+(three existing skips), before the final synchronization with develop. The
+latest run additionally validates all three consolidated migration baselines.
+After synchronizing develop `a686c099`, all five acceptance scenarios passed
+again; commerce clean verify passed 475 tests and payment clean verify passed
+282, with the same five/three existing skips and no failures/errors.

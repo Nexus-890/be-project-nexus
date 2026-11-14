@@ -7,6 +7,8 @@ public enum PaymentErrorCode implements ErrorCode {
     UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "A valid buyer identity is required"),
     INVALID_WEBHOOK_REQUEST(HttpStatus.BAD_REQUEST, "The webhook body must be a valid SePay JSON object"),
     CHECKOUT_PRIVILEGE_REQUIRED(HttpStatus.FORBIDDEN, "CHECKOUT.START is required"),
+    REFUND_PRIVILEGE_REQUIRED(HttpStatus.FORBIDDEN, "ORDER.REFUND is required to list payments"),
+    ACCESS_DENIED(HttpStatus.FORBIDDEN, "These payments belong to another buyer"),
     ORDER_GROUP_ID_REQUIRED(HttpStatus.BAD_REQUEST, "orderGroupId is required"),
     SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "Payment session is not available"),
     SESSION_ACCESS_DENIED(HttpStatus.FORBIDDEN, "This payment session belongs to another buyer"),
