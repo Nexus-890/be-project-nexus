@@ -101,6 +101,7 @@ public class PaymentSessionEventHandler {
             instruction.setOrderId(order.orderId());
             instruction.setSession(storedSession);
             instruction.setBuyerId(manifest.buyerId());
+            instruction.setSellerId(order.sellerId());
             instruction.setAmount(order.amount());
             instruction.setCurrency(manifest.currency());
             instruction.setDueAt(order.paymentDueAt().atOffset(ZoneOffset.UTC));
@@ -131,6 +132,10 @@ public class PaymentSessionEventHandler {
                     && instruction.getCurrency().equals(manifest.currency())
                     && instruction.getDueAt().toInstant().equals(order.paymentDueAt()),
                     "Stored instruction differs from manifest");
+            require(instruction.getSellerId() == null || instruction.getSellerId().equals(order.sellerId()),
+                    "Stored instruction seller differs from manifest");
+            // A verified replay of the original immutable manifest can populate historical seller ownership.
+            if (instruction.getSellerId() == null) instruction.setSellerId(order.sellerId());
         }
         // A replay must not reopen a canceled, expired or paid plan or overwrite its funding/version.
     }

@@ -1477,6 +1477,13 @@ The STANDARD checkout publisher uses the existing `OrderEventPublisher` and tran
 
 ### OrderCompleted
 
+Buyer #220 / #258 now emits this event only after the receipt-confirmation or
+due-order completion transaction, never at shipment delivery. Payment-service
+also consumes it in the independent `payment-payout-eligibility` group to prepare
+funded [payout eligibility](../payment-payout-eligibility.md) for #261; this does
+not execute a bank transfer. Receipt/email and payout acceptance are covered by
+the [cross-service completion suite](../../infra/receipt-completion-acceptance/README.md).
+
 - Topic: `nexus.commerce.events`.
 - Publisher: [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204).
 - Consumer: rating-service [#242](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/242), [#212](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/212): persist rating_eligibility without calling commerce; rating-service [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213): update score and transaction counts; notification-service [#191](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/191): deliver the HTML receipt; [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
