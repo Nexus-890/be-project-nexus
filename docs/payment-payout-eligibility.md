@@ -37,3 +37,37 @@ refund/cancellation, identity/version mismatch and failed transactions block it;
 concurrent/conflicting replay and rollback retain atomicity. The
 [completion acceptance module](../infra/receipt-completion-acceptance/README.md)
 also feeds actual commerce outbox envelopes into this production consumer.
+
+
+## Recovering paid plans created before V5
+
+V5 deliberately leaves historical seller IDs empty instead of guessing them from
+a completion event. Recovery uses the complete original immutable
+CheckoutPaymentRequested envelope from the commerce outbox/archive, with its
+original eventId. Replay it through the existing commerce topic, keyed by
+orderGroupId. Do not delete the old payment-checkout-requested processed marker.
+
+An already processed checkout enters the separate
+payment-checkout-seller-backfill-v1 consumer transaction. It locks the payment
+group, requires the stored source event ID and V4 manifest digest to match, and
+checks the complete stored plan before filling only missing seller IDs. A
+conflicting seller or plan rolls back the entire recovery and its new marker.
+Session status, funding, refunds, business versions and financial events are
+unchanged. Repeated/concurrent replay repairs once. The existing payout retry
+job then rechecks completion and paid funding before qualifying the order.
+
+Kafka offsets that were already committed are not automatically rewound. Operators
+must explicitly replay retained original envelopes for affected groups. Missing
+source envelopes or mismatched evidence require reconciliation; never substitute
+seller IDs from OrderCompleted or hand-edit the original hash/processed markers.
+
+LegacySellerReplayUpgradeTest creates actual V4 PAID/funded rows with their
+original processed marker, migrates to V5, and replays that exact source envelope.
+It covers payout after upgrade, tampered ownership, atomic group rollback,
+concurrent replay, closed orders and unchanged financial state.
+
+Verification on 2026-11-14: payment-service mvnw.cmd verify completed with
+287 tests, zero failures/errors and three pre-existing skips on PostgreSQL 18.6.
+All five LegacySellerReplayUpgradeTest scenarios passed with actual Flyway
+V4-to-V5 migration and Hibernate ddl-auto=validate. Existing checkout replay
+and embedded Kafka payout tests also passed in that run.
