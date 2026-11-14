@@ -979,6 +979,22 @@ components:
         auctionStatus: {$ref: '#/components/schemas/AuctionStatus'}
         leading: {type: boolean}
         won: {type: boolean}
+        orderId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Recorded settlement order id, returned only to the recorded winner in WON/SETTLED/PAYMENT_TIMEOUT. Null before the OrderCreated projection is stored, for other bidders and for other statuses. Never inferred from a product or bid.
+        paymentDueAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Stored auction payment deadline, returned only to the recorded winner in WON/SETTLED/PAYMENT_TIMEOUT; otherwise null. This read never creates or extends the deadline.
+        finalPrice:
+          type: number
+          multipleOf: 0.01
+          minimum: 0
+          nullable: true
+          description: Stored final auction price as a JSON number, returned only to the recorded winner in WON/SETTLED/PAYMENT_TIMEOUT; otherwise null. Distinct from the caller's latest personal bid amount.
     ListMyBidsResponse:
       type: object
       required: [code, message, data, page]

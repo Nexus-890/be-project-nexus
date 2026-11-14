@@ -21,6 +21,15 @@ leadership. A stale leader after cancellation/failed completion or invalidation 
 it records the winner result, not payment success. A current top bidder is not assumed to
 have won. Without a recorded winner it is false. These are read semantics, not a settlement implementation.
 
+The private bidder response also projects nullable `orderId`, `paymentDueAt` and numeric
+`finalPrice` from the same auction row. They are returned only when `winner_id` matches
+the authenticated bidder and status is WON/SETTLED/PAYMENT_TIMEOUT; all three are null
+for other bidders and statuses, even if the database contains stale settlement fields.
+`orderId` remains null until the settlement consumer records the actual `OrderCreated`
+reference. These reads do not create an order, infer an id from product/SKU/title, extend
+the deadline or expose settlement references through public auction detail. An identical
+order id can then be used by the winner with #172's shipping confirmation contract.
+
 Both endpoints return ApiResponse with array data and sibling page metadata. Defaults are
 page0/size10, page>=0 and size1–100. Empty pages keep actual totals. Shared auth/binding/
 validation errors retain ADR-008 common Problem Details codes; no new domain error is needed.
@@ -77,6 +86,39 @@ SELECT id,auction_id,bidder_id,amount,status,placed_at FROM bids
 WHERE bidder_id=:bidder_id ORDER BY placed_at DESC,id DESC;
 SELECT id,current_price,leader_bidder_id,winner_id,status FROM auctions WHERE id=:auction_id;
 ```
+
+## Winner checkout projection verification — 2026-11-14
+
+On the Auction room review branch based on develop `09b3cf6f`, the focused
+`AuctionMineIntegrationTest` run passed **23 tests**, no failures/errors/skips, using
+Java 21.0.11 and a new disposable native PostgreSQL 18.6 cluster on loopback.
+The normal `TestPostgres` fixture created/dropped random databases; no application
+database or stored user credentials were used. Shared-library install with tests
+skipped and the delivered 100-operation API inventory check passed.
+
+The additional regression covers all nine auction statuses, the recorded winner
+versus another bidder, a caller attempting to override bidderId, explicit nullable
+reference/deadline/price values, WON waiting for its order and SETTLED returning a
+stored order id, public-detail non-disclosure and no read-generated outbox rows.
+Stored settlement data is seeded deliberately; these tests prove the private read
+contract, not an actual #170/#171/#172 Kafka settlement flow. The additive projection
+uses existing V1 columns and needs no migration or new gateway permission.
+
+The expanded selected verify run passed **268 Surefire + 10 Failsafe tests**
+(278 total), zero failures/errors/skips, in 2:36. It included private/public reads,
+security and architecture tests, the state machine and 10 bid concurrency repeats.
+The command from `be-project-nexus`, with the disposable PostgreSQL admin fixture,
+was:
+
+```powershell
+mvn -B -f auction-service/pom.xml '-Dtest=*Test,!AuctionCatalogIntegrationTest,!AntiSnipingRefreshIntegrationTest' verify
+```
+
+Exactly two existing Docker-only fixtures were excluded because the Docker daemon
+was unavailable: `AuctionCatalogIntegrationTest` and
+`AntiSnipingRefreshIntegrationTest`. Unfiltered verify is not claimed. The native
+PostgreSQL cluster was stopped after the run. Redocly 2.72 OpenAPI lint and the
+delivered 100-operation API inventory check also passed.
 
 ## Initial verification on 2026-11-12 (before develop advanced)
 
