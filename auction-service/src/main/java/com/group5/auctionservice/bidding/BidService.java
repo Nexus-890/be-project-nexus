@@ -76,7 +76,8 @@ public class BidService {
             return replay(auctionId, bidder, request.amount(), previous.get());
         }
         BigDecimal amount = request.amount().setScale(2);
-        if (auctions.acceptBid(auctionId, bidder.id(), amount) == 0) {
+        String bidderName = BidderNameMask.mask(bidder.displayName());
+        if (auctions.acceptBid(auctionId, bidder.id(), amount, bidderName) == 0) {
             // An equal-amount retry may have waited for the first bid's auction row lock.
             previous = bids.findByIdempotencyKey(key);
             if (previous.isPresent()) {
@@ -101,7 +102,7 @@ public class BidService {
         }
 
         Bid bid = bids.saveAndFlush(new Bid(auctionId, bidder.id(), amount,
-                Instant.now(clock).truncatedTo(ChronoUnit.MICROS), key));
+                Instant.now(clock).truncatedTo(ChronoUnit.MICROS), key, bidderName));
 
         // Cùng transaction và row lock với bid; lỗi sau đây rollback cả deadline lẫn bid.
         antiSnipingPolicy.extendAcceptedBid(auctionId, bidder.id());

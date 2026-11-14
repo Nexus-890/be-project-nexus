@@ -241,7 +241,7 @@ class KeycloakTokenTrustTest {
         when(accepted.getPlacedAt()).thenReturn(Instant.parse("2026-11-05T10:00:00Z"));
         when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         when(bids.findByIdempotencyKey(key)).thenReturn(Optional.empty(), Optional.of(accepted));
-        when(auctions.acceptBid(auctionId, UUID.fromString(SUBJECT), new BigDecimal("1050000.00"))).thenReturn(1);
+        when(auctions.acceptBid(auctionId, UUID.fromString(SUBJECT), new BigDecimal("1050000.00"), "***")).thenReturn(1);
         when(bids.saveAndFlush(any())).thenReturn(accepted);
         String token = auctionToken("BUYER", List.of("AUCTION.BID"));
 
@@ -258,7 +258,7 @@ class KeycloakTokenTrustTest {
                         .header("Idempotency-Key", key).content("{\"amount\":1050000.00}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(replay).isEqualTo(first);
-        verify(auctions, times(1)).acceptBid(any(), any(), any());
+        verify(auctions, times(1)).acceptBid(any(), any(), any(), any());
         verify(bids, times(1)).saveAndFlush(any());
         verify(outbox, times(1)).write(any(), any(), any());
     }

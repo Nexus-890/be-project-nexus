@@ -1,6 +1,7 @@
 package com.group5.auctionservice.auction;
 
 import com.group5.auctionservice.auction.dto.AuctionResponse;
+import com.group5.auctionservice.auction.dto.AuctionStateResponse;
 import com.group5.auctionservice.auction.dto.CreateAuctionRequest;
 import com.group5.auctionservice.auction.dto.UpdateAuctionRequest;
 import com.group5.auctionservice.auction.dto.CancelAuctionRequest;
@@ -32,6 +33,7 @@ import java.util.UUID;
 public class AuctionController {
 
     private final AuctionService auctions;
+    private final AuctionStateQuery auctionState;
 
     @GetMapping("/mine")
     @PreAuthorize("hasRole('SELLER') and hasAuthority('AUCTION.LIST')")
@@ -48,6 +50,11 @@ public class AuctionController {
     @GetMapping("/{id}")
     public ApiResponse<AuctionResponse> get(@PathVariable UUID id) {
         return ApiResponse.of(auctions.get(id));
+    }
+
+    @GetMapping("/{id}/state")
+    public ApiResponse<AuctionStateResponse> state(@PathVariable UUID id) {
+        return ApiResponse.of(auctionState.get(id));
     }
 
     @GetMapping

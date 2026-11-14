@@ -55,6 +55,10 @@ nexus:
         path: /api/v1/auctions
       - method: GET
         path: /api/v1/auctions/{id}
+      - method: GET
+        path: /api/v1/auctions/{id}/state
+      - method: GET
+        path: /api/v1/auctions/{id}/bids
     jwt:
       issuer: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
       audience: nexus-services
