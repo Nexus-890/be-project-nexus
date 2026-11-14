@@ -20,7 +20,9 @@ public enum UserErrorCode implements ErrorCode {
             "Wait one minute before asking for another verification email"),
     PHONE_CODE_INVALID(HttpStatus.BAD_REQUEST, "The verification code is wrong"),
     PHONE_CODE_EXPIRED(HttpStatus.BAD_REQUEST, "The verification code has expired; ask for a new one"),
-    PHONE_CODE_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Too many codes or attempts; try again later");
+    PHONE_CODE_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Too many codes or attempts; try again later"),
+    ADDRESS_LIMIT_REACHED(HttpStatus.CONFLICT, "An account keeps at most 10 addresses"),
+    ADDRESS_NOT_FOUND(HttpStatus.NOT_FOUND, "Address not found");
 
     private final HttpStatus status;
     private final String message;

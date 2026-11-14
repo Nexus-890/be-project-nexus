@@ -15,6 +15,9 @@ tags:
   -
     name: "Users"
     description: "Own profile, phone verification and privileged user reads."
+  -
+    name: "Addresses"
+    description: "The caller's own address book."
 security:
   -
     bearerAuth: []
@@ -3468,6 +3471,1934 @@ paths:
                     detail: "The service did not answer in time"
                     instance: "/api/v1/users/me/phone/verification/confirm"
                     code: "GATEWAY_TIMEOUT"
+  /api/v1/users/me/addresses:
+    get:
+      tags:
+        - "Addresses"
+      operationId: "listOwnAddresses"
+      summary: "List the saved addresses"
+      description: "Default address first, then by creation time. At most 10 addresses, so the list is not paged. Access: requires PROFILE.VIEW. Ownership/business restriction: JWT subject only."
+      security:
+        -
+          bearerAuth: []
+      x-required-privileges:
+        - "PROFILE.VIEW"
+      x-gateway-privilege: "PROFILE.VIEW"
+      x-required-roles: []
+      x-ownership: "JWT subject only."
+      x-error-codes:
+        "400":
+          - "INVALID_PARAMETER"
+        "401":
+          - "UNAUTHENTICATED"
+        "403":
+          - "FORBIDDEN"
+        "405":
+          - "METHOD_NOT_ALLOWED"
+        "406":
+          - "NOT_ACCEPTABLE"
+        "429":
+          - "RATE_LIMITED"
+        "500":
+          - "INTERNAL_ERROR"
+        "503":
+          - "SERVICE_UNAVAILABLE"
+        "504":
+          - "GATEWAY_TIMEOUT"
+      responses:
+        "200":
+          description: "Successful response."
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/AddressListResponse"
+              examples:
+                success:
+                  summary: "Success"
+                  value:
+                    code: 0
+                    message: "response success"
+                    data:
+                      -
+                        id: "68000000-0000-4000-8000-000000000101"
+                        recipientName: "Nguyen Van A"
+                        phone: "+84901234567"
+                        addressLine: "12 Le Loi"
+                        provinceCode: "79"
+                        provinceName: "Ho Chi Minh"
+                        wardCode: "26734"
+                        wardName: "Phuong Ben Thanh"
+                        isDefault: true
+                        createdAt: "2026-11-14T08:00:00Z"
+                        updatedAt: "2026-11-14T08:00:00Z"
+        "400":
+          description: "Bad Request. Codes: `INVALID_PARAMETER`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 400
+                      code:
+                        type: "string"
+                        enum:
+                          - "INVALID_PARAMETER"
+              examples:
+                INVALID_PARAMETER:
+                  summary: "INVALID_PARAMETER"
+                  value:
+                    type: "urn:problem:invalid-parameter"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "A request parameter is invalid"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "INVALID_PARAMETER"
+        "401":
+          description: "Unauthorized. Codes: `UNAUTHENTICATED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 401
+                      code:
+                        type: "string"
+                        enum:
+                          - "UNAUTHENTICATED"
+              examples:
+                UNAUTHENTICATED:
+                  summary: "UNAUTHENTICATED"
+                  value:
+                    type: "urn:problem:unauthorized"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "A valid access token is required to access this resource"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "UNAUTHENTICATED"
+        "403":
+          description: "Forbidden. Codes: `FORBIDDEN`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 403
+                      code:
+                        type: "string"
+                        enum:
+                          - "FORBIDDEN"
+              examples:
+                FORBIDDEN:
+                  summary: "FORBIDDEN"
+                  value:
+                    type: "urn:problem:forbidden"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission to access this resource"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "FORBIDDEN"
+        "405":
+          description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 405
+                      code:
+                        type: "string"
+                        enum:
+                          - "METHOD_NOT_ALLOWED"
+              examples:
+                METHOD_NOT_ALLOWED:
+                  summary: "METHOD_NOT_ALLOWED"
+                  value:
+                    type: "urn:problem:method-not-allowed"
+                    title: "Method Not Allowed"
+                    status: 405
+                    detail: "The HTTP method is not supported for this endpoint"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "METHOD_NOT_ALLOWED"
+        "406":
+          description: "Not Acceptable. Codes: `NOT_ACCEPTABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 406
+                      code:
+                        type: "string"
+                        enum:
+                          - "NOT_ACCEPTABLE"
+              examples:
+                NOT_ACCEPTABLE:
+                  summary: "NOT_ACCEPTABLE"
+                  value:
+                    type: "urn:problem:not-acceptable"
+                    title: "Not Acceptable"
+                    status: 406
+                    detail: "The requested response format is not supported"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "NOT_ACCEPTABLE"
+        "429":
+          description: "Too Many Requests. Codes: `RATE_LIMITED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 429
+                      code:
+                        type: "string"
+                        enum:
+                          - "RATE_LIMITED"
+              examples:
+                RATE_LIMITED:
+                  summary: "RATE_LIMITED"
+                  value:
+                    type: "https://nexus/errors/too-many-requests"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many requests; retry after the indicated delay"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "RATE_LIMITED"
+        "500":
+          description: "Internal Server Error. Codes: `INTERNAL_ERROR`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 500
+                      code:
+                        type: "string"
+                        enum:
+                          - "INTERNAL_ERROR"
+              examples:
+                INTERNAL_ERROR:
+                  summary: "INTERNAL_ERROR"
+                  value:
+                    type: "urn:problem:internal-server-error"
+                    title: "Internal Server Error"
+                    status: 500
+                    detail: "An unexpected error occurred"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "INTERNAL_ERROR"
+        "503":
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 503
+                      code:
+                        type: "string"
+                        enum:
+                          - "SERVICE_UNAVAILABLE"
+              examples:
+                SERVICE_UNAVAILABLE:
+                  summary: "SERVICE_UNAVAILABLE"
+                  value:
+                    type: "https://nexus/errors/service-unavailable"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "A required service is unavailable"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "SERVICE_UNAVAILABLE"
+        "504":
+          description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 504
+                      code:
+                        type: "string"
+                        enum:
+                          - "GATEWAY_TIMEOUT"
+              examples:
+                GATEWAY_TIMEOUT:
+                  summary: "GATEWAY_TIMEOUT"
+                  value:
+                    type: "https://nexus/errors/gateway-timeout"
+                    title: "Gateway Timeout"
+                    status: 504
+                    detail: "The service did not answer in time"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "GATEWAY_TIMEOUT"
+    post:
+      tags:
+        - "Addresses"
+      operationId: "createOwnAddress"
+      summary: "Save a new address"
+      description: "The first address becomes the default; isDefault true moves the default to the new address. An account keeps at most 10 addresses. Access: requires PROFILE.UPDATE. Ownership/business restriction: JWT subject only."
+      security:
+        -
+          bearerAuth: []
+      x-required-privileges:
+        - "PROFILE.UPDATE"
+      x-gateway-privilege: "PROFILE.UPDATE"
+      x-required-roles: []
+      x-ownership: "JWT subject only."
+      x-error-codes:
+        "400":
+          - "INVALID_PARAMETER"
+          - "VALIDATION_FAILED"
+          - "INVALID_REQUEST_BODY"
+        "401":
+          - "UNAUTHENTICATED"
+        "403":
+          - "FORBIDDEN"
+        "404":
+          - "USER_NOT_FOUND"
+        "405":
+          - "METHOD_NOT_ALLOWED"
+        "406":
+          - "NOT_ACCEPTABLE"
+        "409":
+          - "ADDRESS_LIMIT_REACHED"
+        "415":
+          - "UNSUPPORTED_MEDIA_TYPE"
+        "429":
+          - "RATE_LIMITED"
+        "500":
+          - "INTERNAL_ERROR"
+        "503":
+          - "SERVICE_UNAVAILABLE"
+        "504":
+          - "GATEWAY_TIMEOUT"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/AddressRequest"
+            example:
+              recipientName: "Nguyen Van A"
+              phone: "+84901234567"
+              addressLine: "12 Le Loi"
+              provinceCode: "79"
+              provinceName: "Ho Chi Minh"
+              wardCode: "26734"
+              wardName: "Phuong Ben Thanh"
+              isDefault: true
+      responses:
+        "201":
+          description: "Created."
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/AddressResponse"
+              examples:
+                success:
+                  summary: "Success"
+                  value:
+                    code: 0
+                    message: "response success"
+                    data:
+                      id: "68000000-0000-4000-8000-000000000101"
+                      recipientName: "Nguyen Van A"
+                      phone: "+84901234567"
+                      addressLine: "12 Le Loi"
+                      provinceCode: "79"
+                      provinceName: "Ho Chi Minh"
+                      wardCode: "26734"
+                      wardName: "Phuong Ben Thanh"
+                      isDefault: true
+                      createdAt: "2026-11-14T08:00:00Z"
+                      updatedAt: "2026-11-14T08:00:00Z"
+        "400":
+          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 400
+                      code:
+                        type: "string"
+                        enum:
+                          - "INVALID_PARAMETER"
+                          - "VALIDATION_FAILED"
+                          - "INVALID_REQUEST_BODY"
+              examples:
+                INVALID_PARAMETER:
+                  summary: "INVALID_PARAMETER"
+                  value:
+                    type: "urn:problem:invalid-parameter"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "A request parameter is invalid"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "INVALID_PARAMETER"
+                VALIDATION_FAILED:
+                  summary: "VALIDATION_FAILED"
+                  value:
+                    type: "urn:problem:validation-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "The request data is invalid"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "VALIDATION_FAILED"
+                INVALID_REQUEST_BODY:
+                  summary: "INVALID_REQUEST_BODY"
+                  value:
+                    type: "urn:problem:invalid-request-body"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "The request body is invalid or malformed"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "INVALID_REQUEST_BODY"
+        "401":
+          description: "Unauthorized. Codes: `UNAUTHENTICATED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 401
+                      code:
+                        type: "string"
+                        enum:
+                          - "UNAUTHENTICATED"
+              examples:
+                UNAUTHENTICATED:
+                  summary: "UNAUTHENTICATED"
+                  value:
+                    type: "urn:problem:unauthorized"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "A valid access token is required to access this resource"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "UNAUTHENTICATED"
+        "403":
+          description: "Forbidden. Codes: `FORBIDDEN`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 403
+                      code:
+                        type: "string"
+                        enum:
+                          - "FORBIDDEN"
+              examples:
+                FORBIDDEN:
+                  summary: "FORBIDDEN"
+                  value:
+                    type: "urn:problem:forbidden"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission to access this resource"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "FORBIDDEN"
+        "404":
+          description: "Not Found. Codes: `USER_NOT_FOUND`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 404
+                      code:
+                        type: "string"
+                        enum:
+                          - "USER_NOT_FOUND"
+              examples:
+                USER_NOT_FOUND:
+                  summary: "USER_NOT_FOUND"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Not Found"
+                    status: 404
+                    detail: "User not found"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "USER_NOT_FOUND"
+        "405":
+          description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 405
+                      code:
+                        type: "string"
+                        enum:
+                          - "METHOD_NOT_ALLOWED"
+              examples:
+                METHOD_NOT_ALLOWED:
+                  summary: "METHOD_NOT_ALLOWED"
+                  value:
+                    type: "urn:problem:method-not-allowed"
+                    title: "Method Not Allowed"
+                    status: 405
+                    detail: "The HTTP method is not supported for this endpoint"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "METHOD_NOT_ALLOWED"
+        "406":
+          description: "Not Acceptable. Codes: `NOT_ACCEPTABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 406
+                      code:
+                        type: "string"
+                        enum:
+                          - "NOT_ACCEPTABLE"
+              examples:
+                NOT_ACCEPTABLE:
+                  summary: "NOT_ACCEPTABLE"
+                  value:
+                    type: "urn:problem:not-acceptable"
+                    title: "Not Acceptable"
+                    status: 406
+                    detail: "The requested response format is not supported"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "NOT_ACCEPTABLE"
+        "409":
+          description: "Conflict. Codes: `ADDRESS_LIMIT_REACHED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 409
+                      code:
+                        type: "string"
+                        enum:
+                          - "ADDRESS_LIMIT_REACHED"
+              examples:
+                ADDRESS_LIMIT_REACHED:
+                  summary: "ADDRESS_LIMIT_REACHED"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Conflict"
+                    status: 409
+                    detail: "An account keeps at most 10 addresses"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "ADDRESS_LIMIT_REACHED"
+        "415":
+          description: "Unsupported Media Type. Codes: `UNSUPPORTED_MEDIA_TYPE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 415
+                      code:
+                        type: "string"
+                        enum:
+                          - "UNSUPPORTED_MEDIA_TYPE"
+              examples:
+                UNSUPPORTED_MEDIA_TYPE:
+                  summary: "UNSUPPORTED_MEDIA_TYPE"
+                  value:
+                    type: "urn:problem:unsupported-media-type"
+                    title: "Unsupported Media Type"
+                    status: 415
+                    detail: "The request content type is not supported"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "UNSUPPORTED_MEDIA_TYPE"
+        "429":
+          description: "Too Many Requests. Codes: `RATE_LIMITED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 429
+                      code:
+                        type: "string"
+                        enum:
+                          - "RATE_LIMITED"
+              examples:
+                RATE_LIMITED:
+                  summary: "RATE_LIMITED"
+                  value:
+                    type: "https://nexus/errors/too-many-requests"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many requests; retry after the indicated delay"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "RATE_LIMITED"
+        "500":
+          description: "Internal Server Error. Codes: `INTERNAL_ERROR`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 500
+                      code:
+                        type: "string"
+                        enum:
+                          - "INTERNAL_ERROR"
+              examples:
+                INTERNAL_ERROR:
+                  summary: "INTERNAL_ERROR"
+                  value:
+                    type: "urn:problem:internal-server-error"
+                    title: "Internal Server Error"
+                    status: 500
+                    detail: "An unexpected error occurred"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "INTERNAL_ERROR"
+        "503":
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 503
+                      code:
+                        type: "string"
+                        enum:
+                          - "SERVICE_UNAVAILABLE"
+              examples:
+                SERVICE_UNAVAILABLE:
+                  summary: "SERVICE_UNAVAILABLE"
+                  value:
+                    type: "https://nexus/errors/service-unavailable"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "A required service is unavailable"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "SERVICE_UNAVAILABLE"
+        "504":
+          description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 504
+                      code:
+                        type: "string"
+                        enum:
+                          - "GATEWAY_TIMEOUT"
+              examples:
+                GATEWAY_TIMEOUT:
+                  summary: "GATEWAY_TIMEOUT"
+                  value:
+                    type: "https://nexus/errors/gateway-timeout"
+                    title: "Gateway Timeout"
+                    status: 504
+                    detail: "The service did not answer in time"
+                    instance: "/api/v1/users/me/addresses"
+                    code: "GATEWAY_TIMEOUT"
+  /api/v1/users/me/addresses/{id}:
+    put:
+      tags:
+        - "Addresses"
+      operationId: "updateOwnAddress"
+      summary: "Replace a saved address"
+      description: "Replaces every field. isDefault true makes it the default; false or omitted keeps the current default unchanged. Access: requires PROFILE.UPDATE. Ownership/business restriction: JWT subject only."
+      security:
+        -
+          bearerAuth: []
+      x-required-privileges:
+        - "PROFILE.UPDATE"
+      x-gateway-privilege: "PROFILE.UPDATE"
+      x-required-roles: []
+      x-ownership: "JWT subject only."
+      x-error-codes:
+        "400":
+          - "INVALID_PARAMETER"
+          - "VALIDATION_FAILED"
+          - "INVALID_REQUEST_BODY"
+        "401":
+          - "UNAUTHENTICATED"
+        "403":
+          - "FORBIDDEN"
+        "404":
+          - "USER_NOT_FOUND"
+          - "ADDRESS_NOT_FOUND"
+        "405":
+          - "METHOD_NOT_ALLOWED"
+        "406":
+          - "NOT_ACCEPTABLE"
+        "415":
+          - "UNSUPPORTED_MEDIA_TYPE"
+        "429":
+          - "RATE_LIMITED"
+        "500":
+          - "INTERNAL_ERROR"
+        "503":
+          - "SERVICE_UNAVAILABLE"
+        "504":
+          - "GATEWAY_TIMEOUT"
+      parameters:
+        -
+          name: "id"
+          in: "path"
+          required: true
+          description: "Address id; an address of another account answers 404."
+          schema:
+            type: "string"
+            format: "uuid"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/AddressRequest"
+            example:
+              recipientName: "Nguyen Van A"
+              phone: "+84901234567"
+              addressLine: "12 Le Loi"
+              provinceCode: "79"
+              provinceName: "Ho Chi Minh"
+              wardCode: "26734"
+              wardName: "Phuong Ben Thanh"
+              isDefault: true
+      responses:
+        "200":
+          description: "Successful response."
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/AddressResponse"
+              examples:
+                success:
+                  summary: "Success"
+                  value:
+                    code: 0
+                    message: "response success"
+                    data:
+                      id: "68000000-0000-4000-8000-000000000101"
+                      recipientName: "Nguyen Van A"
+                      phone: "+84901234567"
+                      addressLine: "12 Le Loi"
+                      provinceCode: "79"
+                      provinceName: "Ho Chi Minh"
+                      wardCode: "26734"
+                      wardName: "Phuong Ben Thanh"
+                      isDefault: true
+                      createdAt: "2026-11-14T08:00:00Z"
+                      updatedAt: "2026-11-14T08:00:00Z"
+        "400":
+          description: "Bad Request. Codes: `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 400
+                      code:
+                        type: "string"
+                        enum:
+                          - "INVALID_PARAMETER"
+                          - "VALIDATION_FAILED"
+                          - "INVALID_REQUEST_BODY"
+              examples:
+                INVALID_PARAMETER:
+                  summary: "INVALID_PARAMETER"
+                  value:
+                    type: "urn:problem:invalid-parameter"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "A request parameter is invalid"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "INVALID_PARAMETER"
+                VALIDATION_FAILED:
+                  summary: "VALIDATION_FAILED"
+                  value:
+                    type: "urn:problem:validation-error"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "The request data is invalid"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "VALIDATION_FAILED"
+                INVALID_REQUEST_BODY:
+                  summary: "INVALID_REQUEST_BODY"
+                  value:
+                    type: "urn:problem:invalid-request-body"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "The request body is invalid or malformed"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "INVALID_REQUEST_BODY"
+        "401":
+          description: "Unauthorized. Codes: `UNAUTHENTICATED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 401
+                      code:
+                        type: "string"
+                        enum:
+                          - "UNAUTHENTICATED"
+              examples:
+                UNAUTHENTICATED:
+                  summary: "UNAUTHENTICATED"
+                  value:
+                    type: "urn:problem:unauthorized"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "A valid access token is required to access this resource"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "UNAUTHENTICATED"
+        "403":
+          description: "Forbidden. Codes: `FORBIDDEN`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 403
+                      code:
+                        type: "string"
+                        enum:
+                          - "FORBIDDEN"
+              examples:
+                FORBIDDEN:
+                  summary: "FORBIDDEN"
+                  value:
+                    type: "urn:problem:forbidden"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission to access this resource"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "FORBIDDEN"
+        "404":
+          description: "Not Found. Codes: `USER_NOT_FOUND`, `ADDRESS_NOT_FOUND`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 404
+                      code:
+                        type: "string"
+                        enum:
+                          - "USER_NOT_FOUND"
+                          - "ADDRESS_NOT_FOUND"
+              examples:
+                USER_NOT_FOUND:
+                  summary: "USER_NOT_FOUND"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Not Found"
+                    status: 404
+                    detail: "User not found"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "USER_NOT_FOUND"
+                ADDRESS_NOT_FOUND:
+                  summary: "ADDRESS_NOT_FOUND"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Not Found"
+                    status: 404
+                    detail: "Address not found"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "ADDRESS_NOT_FOUND"
+        "405":
+          description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 405
+                      code:
+                        type: "string"
+                        enum:
+                          - "METHOD_NOT_ALLOWED"
+              examples:
+                METHOD_NOT_ALLOWED:
+                  summary: "METHOD_NOT_ALLOWED"
+                  value:
+                    type: "urn:problem:method-not-allowed"
+                    title: "Method Not Allowed"
+                    status: 405
+                    detail: "The HTTP method is not supported for this endpoint"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "METHOD_NOT_ALLOWED"
+        "406":
+          description: "Not Acceptable. Codes: `NOT_ACCEPTABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 406
+                      code:
+                        type: "string"
+                        enum:
+                          - "NOT_ACCEPTABLE"
+              examples:
+                NOT_ACCEPTABLE:
+                  summary: "NOT_ACCEPTABLE"
+                  value:
+                    type: "urn:problem:not-acceptable"
+                    title: "Not Acceptable"
+                    status: 406
+                    detail: "The requested response format is not supported"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "NOT_ACCEPTABLE"
+        "415":
+          description: "Unsupported Media Type. Codes: `UNSUPPORTED_MEDIA_TYPE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 415
+                      code:
+                        type: "string"
+                        enum:
+                          - "UNSUPPORTED_MEDIA_TYPE"
+              examples:
+                UNSUPPORTED_MEDIA_TYPE:
+                  summary: "UNSUPPORTED_MEDIA_TYPE"
+                  value:
+                    type: "urn:problem:unsupported-media-type"
+                    title: "Unsupported Media Type"
+                    status: 415
+                    detail: "The request content type is not supported"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "UNSUPPORTED_MEDIA_TYPE"
+        "429":
+          description: "Too Many Requests. Codes: `RATE_LIMITED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 429
+                      code:
+                        type: "string"
+                        enum:
+                          - "RATE_LIMITED"
+              examples:
+                RATE_LIMITED:
+                  summary: "RATE_LIMITED"
+                  value:
+                    type: "https://nexus/errors/too-many-requests"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many requests; retry after the indicated delay"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "RATE_LIMITED"
+        "500":
+          description: "Internal Server Error. Codes: `INTERNAL_ERROR`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 500
+                      code:
+                        type: "string"
+                        enum:
+                          - "INTERNAL_ERROR"
+              examples:
+                INTERNAL_ERROR:
+                  summary: "INTERNAL_ERROR"
+                  value:
+                    type: "urn:problem:internal-server-error"
+                    title: "Internal Server Error"
+                    status: 500
+                    detail: "An unexpected error occurred"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "INTERNAL_ERROR"
+        "503":
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 503
+                      code:
+                        type: "string"
+                        enum:
+                          - "SERVICE_UNAVAILABLE"
+              examples:
+                SERVICE_UNAVAILABLE:
+                  summary: "SERVICE_UNAVAILABLE"
+                  value:
+                    type: "https://nexus/errors/service-unavailable"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "A required service is unavailable"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "SERVICE_UNAVAILABLE"
+        "504":
+          description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 504
+                      code:
+                        type: "string"
+                        enum:
+                          - "GATEWAY_TIMEOUT"
+              examples:
+                GATEWAY_TIMEOUT:
+                  summary: "GATEWAY_TIMEOUT"
+                  value:
+                    type: "https://nexus/errors/gateway-timeout"
+                    title: "Gateway Timeout"
+                    status: 504
+                    detail: "The service did not answer in time"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "GATEWAY_TIMEOUT"
+    delete:
+      tags:
+        - "Addresses"
+      operationId: "deleteOwnAddress"
+      summary: "Delete a saved address"
+      description: "Deleting the default promotes the most recently updated remaining address. Access: requires PROFILE.UPDATE. Ownership/business restriction: JWT subject only."
+      security:
+        -
+          bearerAuth: []
+      x-required-privileges:
+        - "PROFILE.UPDATE"
+      x-gateway-privilege: "PROFILE.UPDATE"
+      x-required-roles: []
+      x-ownership: "JWT subject only."
+      x-error-codes:
+        "400":
+          - "INVALID_PARAMETER"
+        "401":
+          - "UNAUTHENTICATED"
+        "403":
+          - "FORBIDDEN"
+        "404":
+          - "USER_NOT_FOUND"
+          - "ADDRESS_NOT_FOUND"
+        "405":
+          - "METHOD_NOT_ALLOWED"
+        "406":
+          - "NOT_ACCEPTABLE"
+        "429":
+          - "RATE_LIMITED"
+        "500":
+          - "INTERNAL_ERROR"
+        "503":
+          - "SERVICE_UNAVAILABLE"
+        "504":
+          - "GATEWAY_TIMEOUT"
+      parameters:
+        -
+          name: "id"
+          in: "path"
+          required: true
+          description: "Address id; an address of another account answers 404."
+          schema:
+            type: "string"
+            format: "uuid"
+      responses:
+        "204":
+          description: "Deleted; nothing to return."
+        "400":
+          description: "Bad Request. Codes: `INVALID_PARAMETER`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 400
+                      code:
+                        type: "string"
+                        enum:
+                          - "INVALID_PARAMETER"
+              examples:
+                INVALID_PARAMETER:
+                  summary: "INVALID_PARAMETER"
+                  value:
+                    type: "urn:problem:invalid-parameter"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "A request parameter is invalid"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "INVALID_PARAMETER"
+        "401":
+          description: "Unauthorized. Codes: `UNAUTHENTICATED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 401
+                      code:
+                        type: "string"
+                        enum:
+                          - "UNAUTHENTICATED"
+              examples:
+                UNAUTHENTICATED:
+                  summary: "UNAUTHENTICATED"
+                  value:
+                    type: "urn:problem:unauthorized"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "A valid access token is required to access this resource"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "UNAUTHENTICATED"
+        "403":
+          description: "Forbidden. Codes: `FORBIDDEN`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 403
+                      code:
+                        type: "string"
+                        enum:
+                          - "FORBIDDEN"
+              examples:
+                FORBIDDEN:
+                  summary: "FORBIDDEN"
+                  value:
+                    type: "urn:problem:forbidden"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission to access this resource"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "FORBIDDEN"
+        "404":
+          description: "Not Found. Codes: `USER_NOT_FOUND`, `ADDRESS_NOT_FOUND`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 404
+                      code:
+                        type: "string"
+                        enum:
+                          - "USER_NOT_FOUND"
+                          - "ADDRESS_NOT_FOUND"
+              examples:
+                USER_NOT_FOUND:
+                  summary: "USER_NOT_FOUND"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Not Found"
+                    status: 404
+                    detail: "User not found"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "USER_NOT_FOUND"
+                ADDRESS_NOT_FOUND:
+                  summary: "ADDRESS_NOT_FOUND"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Not Found"
+                    status: 404
+                    detail: "Address not found"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "ADDRESS_NOT_FOUND"
+        "405":
+          description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 405
+                      code:
+                        type: "string"
+                        enum:
+                          - "METHOD_NOT_ALLOWED"
+              examples:
+                METHOD_NOT_ALLOWED:
+                  summary: "METHOD_NOT_ALLOWED"
+                  value:
+                    type: "urn:problem:method-not-allowed"
+                    title: "Method Not Allowed"
+                    status: 405
+                    detail: "The HTTP method is not supported for this endpoint"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "METHOD_NOT_ALLOWED"
+        "406":
+          description: "Not Acceptable. Codes: `NOT_ACCEPTABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 406
+                      code:
+                        type: "string"
+                        enum:
+                          - "NOT_ACCEPTABLE"
+              examples:
+                NOT_ACCEPTABLE:
+                  summary: "NOT_ACCEPTABLE"
+                  value:
+                    type: "urn:problem:not-acceptable"
+                    title: "Not Acceptable"
+                    status: 406
+                    detail: "The requested response format is not supported"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "NOT_ACCEPTABLE"
+        "429":
+          description: "Too Many Requests. Codes: `RATE_LIMITED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 429
+                      code:
+                        type: "string"
+                        enum:
+                          - "RATE_LIMITED"
+              examples:
+                RATE_LIMITED:
+                  summary: "RATE_LIMITED"
+                  value:
+                    type: "https://nexus/errors/too-many-requests"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many requests; retry after the indicated delay"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "RATE_LIMITED"
+        "500":
+          description: "Internal Server Error. Codes: `INTERNAL_ERROR`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 500
+                      code:
+                        type: "string"
+                        enum:
+                          - "INTERNAL_ERROR"
+              examples:
+                INTERNAL_ERROR:
+                  summary: "INTERNAL_ERROR"
+                  value:
+                    type: "urn:problem:internal-server-error"
+                    title: "Internal Server Error"
+                    status: 500
+                    detail: "An unexpected error occurred"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "INTERNAL_ERROR"
+        "503":
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 503
+                      code:
+                        type: "string"
+                        enum:
+                          - "SERVICE_UNAVAILABLE"
+              examples:
+                SERVICE_UNAVAILABLE:
+                  summary: "SERVICE_UNAVAILABLE"
+                  value:
+                    type: "https://nexus/errors/service-unavailable"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "A required service is unavailable"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "SERVICE_UNAVAILABLE"
+        "504":
+          description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 504
+                      code:
+                        type: "string"
+                        enum:
+                          - "GATEWAY_TIMEOUT"
+              examples:
+                GATEWAY_TIMEOUT:
+                  summary: "GATEWAY_TIMEOUT"
+                  value:
+                    type: "https://nexus/errors/gateway-timeout"
+                    title: "Gateway Timeout"
+                    status: 504
+                    detail: "The service did not answer in time"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101"
+                    code: "GATEWAY_TIMEOUT"
+  /api/v1/users/me/addresses/{id}/default:
+    post:
+      tags:
+        - "Addresses"
+      operationId: "makeOwnAddressDefault"
+      summary: "Make a saved address the default"
+      description: "Exactly one address is the default; the previous default is cleared in the same transaction. Access: requires PROFILE.UPDATE. Ownership/business restriction: JWT subject only."
+      security:
+        -
+          bearerAuth: []
+      x-required-privileges:
+        - "PROFILE.UPDATE"
+      x-gateway-privilege: "PROFILE.UPDATE"
+      x-required-roles: []
+      x-ownership: "JWT subject only."
+      x-error-codes:
+        "400":
+          - "INVALID_PARAMETER"
+        "401":
+          - "UNAUTHENTICATED"
+        "403":
+          - "FORBIDDEN"
+        "404":
+          - "USER_NOT_FOUND"
+          - "ADDRESS_NOT_FOUND"
+        "405":
+          - "METHOD_NOT_ALLOWED"
+        "406":
+          - "NOT_ACCEPTABLE"
+        "429":
+          - "RATE_LIMITED"
+        "500":
+          - "INTERNAL_ERROR"
+        "503":
+          - "SERVICE_UNAVAILABLE"
+        "504":
+          - "GATEWAY_TIMEOUT"
+      parameters:
+        -
+          name: "id"
+          in: "path"
+          required: true
+          description: "Address id; an address of another account answers 404."
+          schema:
+            type: "string"
+            format: "uuid"
+      responses:
+        "200":
+          description: "Successful response."
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/AddressResponse"
+              examples:
+                success:
+                  summary: "Success"
+                  value:
+                    code: 0
+                    message: "response success"
+                    data:
+                      id: "68000000-0000-4000-8000-000000000101"
+                      recipientName: "Nguyen Van A"
+                      phone: "+84901234567"
+                      addressLine: "12 Le Loi"
+                      provinceCode: "79"
+                      provinceName: "Ho Chi Minh"
+                      wardCode: "26734"
+                      wardName: "Phuong Ben Thanh"
+                      isDefault: true
+                      createdAt: "2026-11-14T08:00:00Z"
+                      updatedAt: "2026-11-14T08:00:00Z"
+        "400":
+          description: "Bad Request. Codes: `INVALID_PARAMETER`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 400
+                      code:
+                        type: "string"
+                        enum:
+                          - "INVALID_PARAMETER"
+              examples:
+                INVALID_PARAMETER:
+                  summary: "INVALID_PARAMETER"
+                  value:
+                    type: "urn:problem:invalid-parameter"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "A request parameter is invalid"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101/default"
+                    code: "INVALID_PARAMETER"
+        "401":
+          description: "Unauthorized. Codes: `UNAUTHENTICATED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 401
+                      code:
+                        type: "string"
+                        enum:
+                          - "UNAUTHENTICATED"
+              examples:
+                UNAUTHENTICATED:
+                  summary: "UNAUTHENTICATED"
+                  value:
+                    type: "urn:problem:unauthorized"
+                    title: "Unauthorized"
+                    status: 401
+                    detail: "A valid access token is required to access this resource"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101/default"
+                    code: "UNAUTHENTICATED"
+        "403":
+          description: "Forbidden. Codes: `FORBIDDEN`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 403
+                      code:
+                        type: "string"
+                        enum:
+                          - "FORBIDDEN"
+              examples:
+                FORBIDDEN:
+                  summary: "FORBIDDEN"
+                  value:
+                    type: "urn:problem:forbidden"
+                    title: "Forbidden"
+                    status: 403
+                    detail: "You do not have permission to access this resource"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101/default"
+                    code: "FORBIDDEN"
+        "404":
+          description: "Not Found. Codes: `USER_NOT_FOUND`, `ADDRESS_NOT_FOUND`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 404
+                      code:
+                        type: "string"
+                        enum:
+                          - "USER_NOT_FOUND"
+                          - "ADDRESS_NOT_FOUND"
+              examples:
+                USER_NOT_FOUND:
+                  summary: "USER_NOT_FOUND"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Not Found"
+                    status: 404
+                    detail: "User not found"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101/default"
+                    code: "USER_NOT_FOUND"
+                ADDRESS_NOT_FOUND:
+                  summary: "ADDRESS_NOT_FOUND"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Not Found"
+                    status: 404
+                    detail: "Address not found"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101/default"
+                    code: "ADDRESS_NOT_FOUND"
+        "405":
+          description: "Method Not Allowed. Codes: `METHOD_NOT_ALLOWED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 405
+                      code:
+                        type: "string"
+                        enum:
+                          - "METHOD_NOT_ALLOWED"
+              examples:
+                METHOD_NOT_ALLOWED:
+                  summary: "METHOD_NOT_ALLOWED"
+                  value:
+                    type: "urn:problem:method-not-allowed"
+                    title: "Method Not Allowed"
+                    status: 405
+                    detail: "The HTTP method is not supported for this endpoint"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101/default"
+                    code: "METHOD_NOT_ALLOWED"
+        "406":
+          description: "Not Acceptable. Codes: `NOT_ACCEPTABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 406
+                      code:
+                        type: "string"
+                        enum:
+                          - "NOT_ACCEPTABLE"
+              examples:
+                NOT_ACCEPTABLE:
+                  summary: "NOT_ACCEPTABLE"
+                  value:
+                    type: "urn:problem:not-acceptable"
+                    title: "Not Acceptable"
+                    status: 406
+                    detail: "The requested response format is not supported"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101/default"
+                    code: "NOT_ACCEPTABLE"
+        "429":
+          description: "Too Many Requests. Codes: `RATE_LIMITED`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 429
+                      code:
+                        type: "string"
+                        enum:
+                          - "RATE_LIMITED"
+              examples:
+                RATE_LIMITED:
+                  summary: "RATE_LIMITED"
+                  value:
+                    type: "https://nexus/errors/too-many-requests"
+                    title: "Too Many Requests"
+                    status: 429
+                    detail: "Too many requests; retry after the indicated delay"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101/default"
+                    code: "RATE_LIMITED"
+        "500":
+          description: "Internal Server Error. Codes: `INTERNAL_ERROR`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 500
+                      code:
+                        type: "string"
+                        enum:
+                          - "INTERNAL_ERROR"
+              examples:
+                INTERNAL_ERROR:
+                  summary: "INTERNAL_ERROR"
+                  value:
+                    type: "urn:problem:internal-server-error"
+                    title: "Internal Server Error"
+                    status: 500
+                    detail: "An unexpected error occurred"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101/default"
+                    code: "INTERNAL_ERROR"
+        "503":
+          description: "Service Unavailable. Codes: `SERVICE_UNAVAILABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 503
+                      code:
+                        type: "string"
+                        enum:
+                          - "SERVICE_UNAVAILABLE"
+              examples:
+                SERVICE_UNAVAILABLE:
+                  summary: "SERVICE_UNAVAILABLE"
+                  value:
+                    type: "https://nexus/errors/service-unavailable"
+                    title: "Service Unavailable"
+                    status: 503
+                    detail: "A required service is unavailable"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101/default"
+                    code: "SERVICE_UNAVAILABLE"
+        "504":
+          description: "Gateway Timeout. Codes: `GATEWAY_TIMEOUT`."
+          content:
+            "application/problem+json":
+              schema:
+                allOf:
+                  -
+                    $ref: "#/components/schemas/Problem"
+                  -
+                    type: "object"
+                    properties:
+                      status:
+                        type: "integer"
+                        enum:
+                          - 504
+                      code:
+                        type: "string"
+                        enum:
+                          - "GATEWAY_TIMEOUT"
+              examples:
+                GATEWAY_TIMEOUT:
+                  summary: "GATEWAY_TIMEOUT"
+                  value:
+                    type: "https://nexus/errors/gateway-timeout"
+                    title: "Gateway Timeout"
+                    status: 504
+                    detail: "The service did not answer in time"
+                    instance: "/api/v1/users/me/addresses/68000000-0000-4000-8000-000000000101/default"
+                    code: "GATEWAY_TIMEOUT"
 components:
   securitySchemes:
     bearerAuth:
@@ -3839,6 +5770,95 @@ components:
         phoneVerifiedAt:
           type: "string"
           format: "date-time"
+    AddressRequest:
+      type: "object"
+      required:
+        - "recipientName"
+        - "phone"
+        - "addressLine"
+        - "provinceCode"
+        - "provinceName"
+        - "wardCode"
+        - "wardName"
+      properties:
+        recipientName:
+          type: "string"
+          pattern: "\\S"
+          minLength: 1
+          maxLength: 150
+          description: "Trimmed."
+        phone:
+          type: "string"
+          pattern: "^\\+?[0-9]{7,15}$"
+          description: "Whitespace, parentheses and hyphens are removed before validation."
+        addressLine:
+          type: "string"
+          pattern: "\\S"
+          minLength: 1
+          maxLength: 255
+          description: "House number and street. Trimmed."
+        provinceCode:
+          type: "string"
+          pattern: "^[1-9][0-9]{0,8}$"
+          description: "Province code from /api/v1/shipping/provinces."
+        provinceName:
+          type: "string"
+          pattern: "\\S"
+          minLength: 1
+          maxLength: 100
+        wardCode:
+          type: "string"
+          pattern: "^[1-9][0-9]{0,8}$"
+          description: "Ward code from /api/v1/shipping/wards."
+        wardName:
+          type: "string"
+          pattern: "\\S"
+          minLength: 1
+          maxLength: 100
+        isDefault:
+          type: "boolean"
+          nullable: true
+          description: "true makes this the default. The first address is always the default."
+    Address:
+      type: "object"
+      required:
+        - "id"
+        - "recipientName"
+        - "phone"
+        - "addressLine"
+        - "provinceCode"
+        - "provinceName"
+        - "wardCode"
+        - "wardName"
+        - "isDefault"
+        - "createdAt"
+        - "updatedAt"
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        recipientName:
+          type: "string"
+        phone:
+          type: "string"
+        addressLine:
+          type: "string"
+        provinceCode:
+          type: "string"
+        provinceName:
+          type: "string"
+        wardCode:
+          type: "string"
+        wardName:
+          type: "string"
+        isDefault:
+          type: "boolean"
+        createdAt:
+          type: "string"
+          format: "date-time"
+        updatedAt:
+          type: "string"
+          format: "date-time"
     PhoneCodeSentResponse:
       type: "object"
       required:
@@ -3874,6 +5894,48 @@ components:
           description: "Omitted or null values default to response success during response construction. Explicit messages are preserved."
         data:
           $ref: "#/components/schemas/PhoneVerified"
+      additionalProperties: false
+    AddressResponse:
+      type: "object"
+      required:
+        - "code"
+        - "message"
+        - "data"
+      properties:
+        code:
+          type: "integer"
+          default: 0
+          description: "Numeric success code; omitted or null values default to 0 during response construction. Explicit values are preserved."
+        message:
+          type: "string"
+          default: "response success"
+          description: "Omitted or null values default to response success during response construction. Explicit messages are preserved."
+        data:
+          $ref: "#/components/schemas/Address"
+      additionalProperties: false
+    AddressListResponse:
+      type: "object"
+      required:
+        - "code"
+        - "message"
+        - "data"
+        - "page"
+      properties:
+        code:
+          type: "integer"
+          default: 0
+          description: "Numeric success code; omitted or null values default to 0 during response construction. Explicit values are preserved."
+        message:
+          type: "string"
+          default: "response success"
+          description: "Omitted or null values default to response success during response construction. Explicit messages are preserved."
+        data:
+          type: "array"
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/Address"
+        page:
+          $ref: "#/components/schemas/PageInfo"
       additionalProperties: false
 x-service: "user-service"
 x-business-error-codes:
@@ -3919,3 +5981,9 @@ x-business-error-codes:
   PHONE_CODE_RATE_LIMITED:
     status: 429
     detail: "Too many codes or attempts; try again later"
+  ADDRESS_LIMIT_REACHED:
+    status: 409
+    detail: "An account keeps at most 10 addresses"
+  ADDRESS_NOT_FOUND:
+    status: 404
+    detail: "Address not found"
