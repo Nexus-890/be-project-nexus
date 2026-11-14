@@ -23,6 +23,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import com.group5.catalogservice.PostgresTestDatabase;
 import tools.jackson.databind.json.JsonMapper;
 
 import javax.imageio.ImageIO;
@@ -60,7 +61,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
         "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/jwks", "management.tracing.enabled=false"
 })
 class ProductImagePersistenceTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18");
+    private static final PostgreSQLContainer POSTGRES = new PostgresTestDatabase("postgres:18");
     private static final Map<String, byte[]> OBJECTS = new ConcurrentHashMap<>();
     private static final AtomicInteger UPLOADS = new AtomicInteger();
     private static final AtomicInteger DELETES = new AtomicInteger();

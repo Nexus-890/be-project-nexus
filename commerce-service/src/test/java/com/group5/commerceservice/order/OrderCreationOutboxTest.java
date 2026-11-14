@@ -67,7 +67,7 @@ import static org.mockito.Mockito.when;
 
 @SpringJUnitConfig(OrderCreationOutboxTest.JpaConfig.class)
 class OrderCreationOutboxTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     private static final CreateOrderRequest REQUEST = new CreateOrderRequest(new CreateOrderRequest.ShippingAddress(
             "Buyer", "0900000000", "1 Main Street", "1003646", "1000001", "VN"), "SEPAY");
 

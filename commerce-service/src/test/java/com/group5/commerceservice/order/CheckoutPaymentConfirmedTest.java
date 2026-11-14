@@ -92,7 +92,7 @@ import static org.mockito.Mockito.when;
 /** Kiểm thử PostgreSQL thật cho chuyển PAID, chống xử lý lặp, snapshot và rollback toàn nhóm đơn. */
 @SpringJUnitConfig(CheckoutPaymentConfirmedTest.JpaConfig.class)
 class CheckoutPaymentConfirmedTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     private static final AtomicInteger ORDER_NUMBERS = new AtomicInteger();
     private static final UUID SYSTEM = new UUID(0, 0);
     private static final String PAID_AT = "2026-11-10T03:00:00Z";

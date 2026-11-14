@@ -27,6 +27,7 @@ import com.group5.catalogservice.shared.exception.CatalogErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
 import java.util.UUID;
+import java.math.BigDecimal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import lombok.extern.slf4j.Slf4j;
@@ -146,25 +147,20 @@ public class ProductService {
     }
 
     @Transactional(readOnly = true)
-    public Page<ProductResponse> getProductsByCategory(UUID categoryId, int page, int size) {
-
+    public Page<ProductResponse> searchProducts(UUID categoryId, String q, String sort, String listingType,
+                                                BigDecimal maxPrice, int page, int size) {
         validatePagination(page, size);
-
-        Pageable pageable = PageRequest.of(page, size);
-
-
-        if (categoryId == null) {
-            return attachImages(productRepository.findProductResponsesByStatus(
-                    ProductStatus.ACTIVE,
-                    pageable
-            ));
+        String keyword = q == null ? "" : q.strip();
+        if (keyword.length() > 255 || !List.of("relevance", "createdAt,desc", "price,asc", "price,desc").contains(sort)
+                || !List.of("all", "buy-now", "auction").contains(listingType)
+                || (maxPrice != null && (maxPrice.signum() < 0
+                    || maxPrice.compareTo(new BigDecimal("99999999999999999.99")) > 0 || maxPrice.scale() > 2))
+                || (long) page * size > Integer.MAX_VALUE) {
+            throw new DomainException(CatalogErrorCode.DATA_INVALID, "Invalid product search parameters");
         }
-
-        return attachImages(productRepository.findProductResponsesByCategory(
-                categoryId,
-                ProductStatus.ACTIVE,
-                pageable
-        ));
+        Boolean auctionEnabled = listingType.equals("all") ? null : listingType.equals("auction");
+        return attachImages(productRepository.searchVisibleProducts(categoryId, keyword, sort, auctionEnabled,
+                maxPrice, PageRequest.of(page, size)));
     }
 
     @Transactional(readOnly = true)

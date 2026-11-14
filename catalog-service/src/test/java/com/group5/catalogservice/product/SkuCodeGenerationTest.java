@@ -17,6 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.context.WebApplicationContext;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import com.group5.catalogservice.PostgresTestDatabase;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
@@ -50,7 +51,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
         "nexus.storage.bucket=product-images"
 })
 class SkuCodeGenerationTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18");
+    private static final PostgreSQLContainer POSTGRES = new PostgresTestDatabase("postgres:18");
     private static final JsonMapper JSON = JsonMapper.shared();
     private static final UUID SELLER = UUID.randomUUID();
     static { POSTGRES.start(); }
