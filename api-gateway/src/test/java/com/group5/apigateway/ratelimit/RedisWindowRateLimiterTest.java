@@ -118,6 +118,23 @@ class RedisWindowRateLimiterTest {
     }
 
     @Test
+    void auctionReadsUseTheirOwnKeyAndRefreshableQuota() {
+        redisReturns(List.of(1L, 599L, 60_000L));
+        var response = limiter.isAllowed("auction-read", "127.0.0.1").block();
+        assertThat(response.getHeaders()).containsEntry("X-RateLimit-Limit", "600");
+
+        properties.setAuctionReadRequestsPerMinute(750);
+        limiter.isAllowed("auction-read", "127.0.0.1").block();
+        limiter.isAllowed("auction-service", "127.0.0.1").block();
+
+        var readKey = List.of("nexus:rate-limit:auction-read:ip:127.0.0.1");
+        verify(redis).execute(any(RedisScript.class), eq(readKey), eq("600"), eq("60000"));
+        verify(redis).execute(any(RedisScript.class), eq(readKey), eq("750"), eq("60000"));
+        verify(redis).execute(any(RedisScript.class), eq(List.of("nexus:rate-limit:ip:127.0.0.1")),
+                eq("100"), eq("60000"));
+    }
+
+    @Test
     void allowsRequestAndLogsWarnWhenRedisRaisesDataAccessException() {
         redisFailsWith(new DataAccessResourceFailureException("down"));
 

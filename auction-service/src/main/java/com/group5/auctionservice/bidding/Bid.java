@@ -34,6 +34,9 @@ public class Bid extends AuditedEntity {
     @Column(nullable = false, updatable = false)
     private UUID bidderId;
 
+    @Column(nullable = false, updatable = false)
+    private String bidderName;
+
     @Column(nullable = false, precision = 19, scale = 2, updatable = false)
     private BigDecimal amount;
 
@@ -48,12 +51,14 @@ public class Bid extends AuditedEntity {
     @Column(nullable = false, updatable = false)
     private Instant placedAt;
 
-    Bid(UUID auctionId, UUID bidderId, BigDecimal amount, Instant placedAt, String idempotencyKey) {
+    Bid(UUID auctionId, UUID bidderId, BigDecimal amount, Instant placedAt, String idempotencyKey,
+        String bidderName) {
         this.auctionId = auctionId;
         this.bidderId = bidderId;
         this.amount = amount;
         this.placedAt = placedAt;
         this.idempotencyKey = idempotencyKey;
+        this.bidderName = bidderName;
     }
 
     public enum Status {

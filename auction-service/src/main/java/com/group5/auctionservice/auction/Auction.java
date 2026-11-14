@@ -58,6 +58,8 @@ public class Auction extends AuditedEntity {
     @Column(nullable = false)
     private int bidCount;
 
+    private String leaderBidderName;
+
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(nullable = false, length = 3)
     private String currency = "VND";

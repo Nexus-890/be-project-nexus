@@ -1,6 +1,8 @@
 package com.group5.auctionservice.auction;
 
+import jakarta.persistence.EntityManagerFactory;
 import jakarta.servlet.Filter;
+import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -14,10 +16,17 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.context.WebApplicationContext;
 import com.group5.auctionservice.TestPostgres;
+import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -30,7 +39,8 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
         "spring.cloud.config.enabled=false", "spring.cloud.config.import-check.enabled=false",
         "spring.cloud.discovery.enabled=false", "eureka.client.enabled=false",
         "spring.kafka.listener.auto-startup=false", "spring.kafka.admin.auto-create=false",
-        "spring.jpa.open-in-view=false", "management.tracing.enabled=false",
+        "spring.jpa.open-in-view=false", "spring.jpa.properties.hibernate.generate_statistics=true",
+        "management.tracing.enabled=false",
         "nexus.auction.scheduler.enabled=false", "nexus.outbox.relay.enabled=false",
         "nexus.security.jwt.issuer=http://localhost:18080/realms/nexus",
         "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/certs"
@@ -43,6 +53,9 @@ class AuctionReadIntegrationTest {
     private static final String PREFIX = "00000000-0000-4000-8000-00000000000";
     @Autowired private WebApplicationContext context;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private EntityManagerFactory entityManagerFactory;
+    @Autowired private AuctionStateQuery auctionState;
+    @Autowired private Clock clock;
     private MockMvc client;
 
     @DynamicPropertySource
@@ -176,6 +189,114 @@ class AuctionReadIntegrationTest {
         client.perform(get(PATH).header("Authorization", "Bearer invalid"))
                 .andExpect(status().isUnauthorized());
         assertThat(jdbc.queryForList("SELECT * FROM auctions ORDER BY id")).isEqualTo(before);
+    }
+
+    @Test
+    void anonymousStateShowsMaskedLeaderAndFreshTimeFromCache() throws Exception {
+        String path = PATH + "/" + PREFIX + "7/state";
+        jdbc.update("UPDATE auctions SET leader_bidder_name = 'N***A', bid_count = 1 WHERE id = ?::uuid", PREFIX + "7");
+        var first = client.perform(get(path)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.auctionId").value(PREFIX + "7"))
+                .andExpect(jsonPath("$.data.currentPrice").value(125.25))
+                .andExpect(jsonPath("$.data.bidCount").value(1))
+                .andExpect(jsonPath("$.data.bidIncrement").value(10))
+                .andExpect(jsonPath("$.data.leaderBidderName").value("N***A"))
+                .andExpect(jsonPath("$.data.leaderBidderId").doesNotExist())
+                .andExpect(jsonPath("$.data.status").value("ENDED"))
+                .andReturn();
+        Thread.sleep(20);
+        var second = client.perform(get(path)).andExpect(status().isOk()).andReturn();
+        var firstData = JsonMapper.shared().readTree(first.getResponse().getContentAsString()).path("data");
+        var secondData = JsonMapper.shared().readTree(second.getResponse().getContentAsString()).path("data");
+        assertThat(OffsetDateTime.parse(secondData.path("endAt").asString()).toInstant())
+                .isEqualTo(Instant.parse("2026-11-05T11:00:00Z"));
+        Instant firstTime = OffsetDateTime.parse(firstData.path("serverTime").asString()).toInstant();
+        Instant secondTime = OffsetDateTime.parse(secondData.path("serverTime").asString()).toInstant();
+        assertThat(secondTime).isAfter(firstTime);
+        assertThat(Duration.between(secondTime, clock.instant()).abs()).isLessThan(Duration.ofSeconds(2));
+    }
+
+    @Test
+    void fiftyReadsWithinOneSecondExecuteOneStatementAndExpiryReloads() throws Exception {
+        var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        var id = UUID.fromString(PREFIX + "4");
+        statistics.clear();
+        long started = System.nanoTime();
+        var first = auctionState.get(id);
+        for (int index = 1; index < 50; index++) {
+            assertThat(auctionState.get(id).currentPrice()).isEqualByComparingTo(first.currentPrice());
+        }
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(1));
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
+
+        jdbc.update("UPDATE auctions SET current_price = 150 WHERE id = ?", id);
+        Thread.sleep(1100);
+        assertThat(auctionState.get(id).currentPrice()).isEqualByComparingTo("150");
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+    }
+
+    @Test
+    void bothReadsUsePublicVisibilityAndEmptyAuctionReturnsNullLeaderAndEmptyHistory() throws Exception {
+        for (int id : List.of(5, 6, 9)) {
+            for (String suffix : List.of("/state", "/bids")) {
+                client.perform(get(PATH + "/" + PREFIX + id + suffix))
+                        .andExpect(status().isNotFound())
+                        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                        .andExpect(jsonPath("$.code").value("AUCTION_NOT_FOUND"));
+            }
+        }
+        client.perform(get(PATH + "/" + PREFIX + "1/state")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.leaderBidderName").value(nullValue()));
+        client.perform(get(PATH + "/" + PREFIX + "1/bids")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0))
+                .andExpect(jsonPath("$.page.totalElements").value(0))
+                .andExpect(jsonPath("$.page.totalPages").value(0));
+        client.perform(post(PATH + "/" + PREFIX + "1/bids").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void bidHistoryReturnsNewestTenOfThirtyWithoutBidderIds() throws Exception {
+        String path = PATH + "/" + PREFIX + "2/bids";
+        seedBids(2, 30);
+        var result = client.perform(get(path).param("page", "0").param("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(10))
+                .andExpect(jsonPath("$.page.number").value(0))
+                .andExpect(jsonPath("$.page.size").value(10))
+                .andExpect(jsonPath("$.page.totalElements").value(30))
+                .andExpect(jsonPath("$.page.totalPages").value(3)).andReturn();
+        var rows = JsonMapper.shared().readTree(result.getResponse().getContentAsString()).path("data");
+        for (int index = 0; index < rows.size(); index++) {
+            var row = rows.get(index);
+            assertThat(row.size()).isEqualTo(3);
+            assertThat(row.path("bidderName").asString()).isEqualTo("N***A");
+            assertThat(row.path("amount").asInt()).isEqualTo(130 - index);
+            assertThat(OffsetDateTime.parse(row.path("placedAt").asString()).toInstant())
+                    .isEqualTo(Instant.parse("2026-11-05T11:00:00Z").plusSeconds(30 - index));
+        }
+    }
+
+    @Test
+    void postgresUsesExistingAmountIndexForHistoryPageWithFiveThousandBids() {
+        seedBids(3, 5000);
+        jdbc.execute("ANALYZE bids");
+        List<String> plan = jdbc.queryForList("""
+                EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF)
+                SELECT amount, bidder_name, placed_at FROM bids
+                WHERE auction_id = ?::uuid ORDER BY amount DESC, placed_at DESC, id DESC LIMIT 10
+                """, String.class, PREFIX + "3");
+        assertThat(String.join("\n", plan)).contains("idx_bids_auction_amount");
+        System.out.println(String.join("\n", plan));
+    }
+
+    private void seedBids(int auction, int count) {
+        jdbc.update("""
+                INSERT INTO bids (auction_id, bidder_id, amount, bidder_name, idempotency_key, placed_at)
+                SELECT ?::uuid, uuidv7(), 100 + n, 'N***A', uuidv7()::text,
+                       '2026-11-05T11:00:00Z'::timestamptz + n * interval '1 second'
+                FROM generate_series(1, ?) n
+                """, PREFIX + auction, count);
     }
 
     private void seed(int id, String status, String visibility, int endMinutes, boolean deleted) {
