@@ -1,9 +1,11 @@
 package com.group5.inventoryservice.reservation.repository;
 
 import com.group5.inventoryservice.reservation.entity.InventoryReservation;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -17,6 +19,10 @@ public interface ReservationRepository extends JpaRepository<InventoryReservatio
     List<InventoryReservation> findByOrderIdInAndWarehouseId(Collection<UUID> orderIds, UUID warehouseId);
 
     List<InventoryReservation> findByOrderIdOrderBySkuIdAscIdAsc(UUID orderId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM InventoryReservation r WHERE r.orderId = :orderId ORDER BY r.skuId, r.id")
+    List<InventoryReservation> lockByOrderId(@Param("orderId") UUID orderId);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(nativeQuery = true, value = """
@@ -36,6 +42,26 @@ public interface ReservationRepository extends JpaRepository<InventoryReservatio
             WHERE id = :id AND status = 'HELD'
             """)
     int releaseHeld(@Param("id") UUID id, @Param("actor") UUID actor);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(nativeQuery = true, value = """
+            UPDATE inventory_reservations
+            SET status      = 'RELEASED',
+                released_at = now(),
+                updated_by  = :actor
+            WHERE id = :id AND status = 'CONFIRMED'
+            """)
+    int returnConfirmed(@Param("id") UUID id, @Param("actor") UUID actor);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(nativeQuery = true, value = """
+            UPDATE inventory_reservations
+            SET status      = 'CONFIRMED',
+                released_at = NULL,
+                updated_by  = :actor
+            WHERE id = :id AND status = 'EXPIRED'
+            """)
+    int confirmExpired(@Param("id") UUID id, @Param("actor") UUID actor);
 
     @Query("""
             SELECT r FROM InventoryReservation r

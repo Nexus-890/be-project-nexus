@@ -1,12 +1,16 @@
 package com.group5.inventoryservice.reservation.service;
 
 import com.group5.common_core.exception.DomainException;
+import com.group5.common_events.EventEnvelopeFactory;
+import com.group5.common_events.Topics;
+import com.group5.common_outbox.OutboxWriter;
 import com.group5.common_security.CurrentUser;
 import com.group5.inventoryservice.inventory.InventoryBalance;
 import com.group5.inventoryservice.inventory.InventoryBalanceRepository;
 import com.group5.inventoryservice.inventory.InventoryMovementRepository;
 import com.group5.inventoryservice.inventory.MovementType;
 import com.group5.inventoryservice.inventory.WarehouseResolver;
+import com.group5.inventoryservice.reservation.InventoryStockUnavailable;
 import com.group5.inventoryservice.reservation.ReservationStatus;
 import com.group5.inventoryservice.reservation.dto.request.ReserveRequest;
 import com.group5.inventoryservice.reservation.dto.response.ReservationResponse;
@@ -20,9 +24,12 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -45,6 +52,8 @@ public class ReservationService {
     private final ReservationRepository reservations;
     private final WarehouseResolver warehouses;
     private final ReservationTimeout reservationTimeout;
+    private final OutboxWriter outbox;
+    private final EventEnvelopeFactory envelopes;
 
     @Transactional
     public ReservationResponse reserve(ReserveRequest request, CurrentUser currentUser) {
@@ -84,10 +93,73 @@ public class ReservationService {
     }
 
     @Transactional
-    public int confirmOrder(UUID orderId) {
-        List<InventoryReservation> held = reservations.findByOrderIdOrderBySkuIdAscIdAsc(orderId);
-        held.forEach(reservation -> confirmAs(reservation.getId(), SYSTEM_ACTOR));
-        return held.size();
+    public OrderConfirmation confirmOrder(UUID orderId) {
+        List<InventoryReservation> locked = reservations.lockByOrderId(orderId);
+        if (locked.stream().anyMatch(reservation -> reservation.getStatus() == ReservationStatus.RELEASED)) {
+            throw new DomainException(InventoryErrorCode.ILLEGAL_TRANSITION);
+        }
+        List<InventoryStockUnavailable.Line> missing = missingStock(locked);
+        if (!missing.isEmpty()) {
+            outbox.write("Order", Topics.INVENTORY, envelopes.create("InventoryStockUnavailable", orderId.toString(),
+                    new InventoryStockUnavailable(orderId, missing, Instant.now().toString())));
+            return new OrderConfirmation(locked.size(), List.of(),
+                    missing.stream().map(InventoryStockUnavailable.Line::reservationId).toList());
+        }
+        List<UUID> reclaimed = new ArrayList<>();
+        for (InventoryReservation reservation : locked) {
+            switch (reservation.getStatus()) {
+                case HELD -> confirmAs(reservation.getId(), SYSTEM_ACTOR);
+                case EXPIRED -> {
+                    reclaim(reservation);
+                    reclaimed.add(reservation.getId());
+                }
+                default -> {
+                }
+            }
+        }
+        return new OrderConfirmation(locked.size(), List.copyOf(reclaimed), List.of());
+    }
+
+    private List<InventoryStockUnavailable.Line> missingStock(List<InventoryReservation> locked) {
+        List<InventoryReservation> expired = locked.stream()
+                .filter(reservation -> reservation.getStatus() == ReservationStatus.EXPIRED)
+                .toList();
+        if (expired.isEmpty()) {
+            return List.of();
+        }
+        Map<BalanceKey, Integer> needed = expired.stream().collect(Collectors.toMap(BalanceKey::of,
+                InventoryReservation::getQuantity, Math::addExact));
+        SortedMap<BalanceKey, Integer> available = new TreeMap<>(BalanceKey.LOCK_ORDER);
+        locked.forEach(reservation -> available.put(BalanceKey.of(reservation), 0));
+        available.replaceAll((key, ignored) -> balances.lockAvailable(key.skuId(), key.warehouseId()).orElse(0));
+        return expired.stream()
+                .filter(reservation -> needed.get(BalanceKey.of(reservation)) > available.get(BalanceKey.of(reservation)))
+                .map(reservation -> new InventoryStockUnavailable.Line(reservation.getId(), reservation.getSkuId(),
+                        reservation.getWarehouseId(), reservation.getQuantity(),
+                        available.get(BalanceKey.of(reservation))))
+                .toList();
+    }
+
+    private void reclaim(InventoryReservation reservation) {
+        requireMoved(balances.commitAvailable(reservation.getSkuId(), reservation.getWarehouseId(),
+                reservation.getQuantity(), SYSTEM_ACTOR), reservation);
+        if (reservations.confirmExpired(reservation.getId(), SYSTEM_ACTOR) == 0) {
+            throw new IllegalStateException("Reservation " + reservation.getId() + " is no longer EXPIRED");
+        }
+        movements.record(reservation.getSkuId(), reservation.getWarehouseId(), MovementType.COMMIT,
+                reservation.getQuantity(), reservation.getId(), SYSTEM_ACTOR);
+    }
+
+    private record BalanceKey(UUID skuId, UUID warehouseId) {
+        static final Comparator<BalanceKey> LOCK_ORDER = Comparator.comparing(BalanceKey::skuId, UuidOrder.DATABASE)
+                .thenComparing(BalanceKey::warehouseId, UuidOrder.DATABASE);
+
+        static BalanceKey of(InventoryReservation reservation) {
+            return new BalanceKey(reservation.getSkuId(), reservation.getWarehouseId());
+        }
+    }
+
+    public record OrderConfirmation(int reservations, List<UUID> reclaimed, List<UUID> lost) {
     }
 
     private void confirmAs(UUID reservationId, UUID actor) {
@@ -114,6 +186,32 @@ public class ReservationService {
                 reservation.getQuantity(), actor), reservation);
         movements.record(reservation.getSkuId(), reservation.getWarehouseId(), MovementType.RELEASE,
                 reservation.getQuantity(), reservation.getId(), actor);
+    }
+
+    @Transactional
+    public OrderRelease releaseOrder(UUID orderId) {
+        int released = 0;
+        int returned = 0;
+        for (InventoryReservation reservation : reservations.findByOrderIdOrderBySkuIdAscIdAsc(orderId)) {
+            UUID id = reservation.getId();
+            if (reservations.releaseHeld(id, SYSTEM_ACTOR) == 1) {
+                requireMoved(balances.releaseReserved(reservation.getSkuId(), reservation.getWarehouseId(),
+                        reservation.getQuantity(), SYSTEM_ACTOR), reservation);
+                movements.record(reservation.getSkuId(), reservation.getWarehouseId(), MovementType.RELEASE,
+                        reservation.getQuantity(), id, SYSTEM_ACTOR);
+                released++;
+            } else if (reservations.returnConfirmed(id, SYSTEM_ACTOR) == 1) {
+                requireMoved(balances.returnCommitted(reservation.getSkuId(), reservation.getWarehouseId(),
+                        reservation.getQuantity(), SYSTEM_ACTOR), reservation);
+                movements.record(reservation.getSkuId(), reservation.getWarehouseId(), MovementType.RETURN,
+                        reservation.getQuantity(), id, SYSTEM_ACTOR);
+                returned++;
+            }
+        }
+        return new OrderRelease(released, returned);
+    }
+
+    public record OrderRelease(int released, int returned) {
     }
 
     private void requireAlready(UUID reservationId, Set<ReservationStatus> done) {

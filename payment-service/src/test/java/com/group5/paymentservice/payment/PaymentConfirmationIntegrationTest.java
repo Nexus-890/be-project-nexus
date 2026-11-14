@@ -174,6 +174,7 @@ class PaymentConfirmationIntegrationTest extends PaymentDatabaseTestSupport {
         assertThat(transactionStatus(group, "156003")).isEqualTo("UNRECONCILED");
         assertThat(jdbc.queryForObject("SELECT amount FROM payment_transactions WHERE session_id = ?",
                 BigDecimal.class, group.sessionId())).isEqualByComparingTo("300000.00");
+        assertUnreconciledEvent(group, "156003", "300000.00", "AMOUNT_MISMATCH");
     }
 
     /** Khoản tiền về mới sau khi đã PAID cần đối soát và không được thay receipt đã cấp tiền. */
@@ -225,9 +226,22 @@ class PaymentConfirmationIntegrationTest extends PaymentDatabaseTestSupport {
         }
 
         assertAcknowledged(send(body(156007L, "350000", group.memo())));
+        assertAcknowledged(send(body(156007L, "350000", group.memo())));
 
         assertUnfunded(group, status.equals("PAST_DEADLINE") ? "PENDING" : status);
+        assertThat(receipts(group)).isEqualTo(1);
         assertThat(transactionStatus(group, "156007")).isEqualTo("UNRECONCILED");
+        assertUnreconciledEvent(group, "156007", "350000.00",
+                status.equals("CANCELED") ? "CANCELLED_ORDER_GROUP" : "LATE_PAYMENT");
+    }
+
+    /** Một lần chuyển tiền thứ hai sau khi đã PAID phát PaymentUnreconciled với lý do ALREADY_PAID. */
+    @Test
+    void aSecondTransferAfterPaymentPublishesAlreadyPaid() throws Exception {
+        assertAcknowledged(send(body(156010L, "350000", group.memo())));
+        assertAcknowledged(send(body(156011L, "350000", group.memo())));
+
+        assertUnreconciledEvent(group, "156011", "350000.00", "ALREADY_PAID");
     }
 
     /** Tổng session khớp chưa đủ: các instruction đã lưu cũng phải tạo thành kế hoạch nhất quán. */
@@ -457,6 +471,30 @@ class PaymentConfirmationIntegrationTest extends PaymentDatabaseTestSupport {
     private String transactionStatus(Group stored, String providerId) {
         return jdbc.queryForObject("SELECT status::text FROM payment_transactions WHERE session_id = ? AND txn_reference = ?",
                 String.class, stored.sessionId(), providerId);
+    }
+
+    private void assertUnreconciledEvent(Group stored, String providerId, String amount, String reasonCode) {
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+                SELECT topic, payload::text AS payload FROM outbox
+                WHERE event_type = 'PaymentUnreconciled' AND aggregate_id = ?
+                """, stored.sessionId().toString());
+        assertThat(rows).hasSize(1);
+        assertThat(rows.getFirst().get("topic")).isEqualTo("nexus.payment.events");
+        JsonNode payload = json.readTree((String) rows.getFirst().get("payload")).get("payload");
+        assertThat(payload.get("sessionId").asString()).isEqualTo(stored.sessionId().toString());
+        assertThat(payload.get("orderGroupId").asString()).isEqualTo(stored.id().toString());
+        assertThat(payload.get("transactionId").asString()).isEqualTo(transactionId(stored, providerId).toString());
+        assertThat(payload.get("providerTransactionId").asString()).isEqualTo(providerId);
+        assertThat(payload.get("buyerId").asString()).isEqualTo(stored.buyerId().toString());
+        assertThat(payload.get("amount").asString()).isEqualTo(amount);
+        assertThat(payload.get("currency").asString()).isEqualTo("VND");
+        assertThat(payload.get("reasonCode").asString()).isEqualTo(reasonCode);
+        assertThat(payload.get("reason").asString()).isNotBlank();
+        assertThat(payload.get("receivedAt").asString()).endsWith("Z");
+        assertThat(payload.get("providerOccurredAt").isNull()).isTrue();
+        List<String> affected = new java.util.ArrayList<>();
+        payload.get("affectedOrderIds").forEach(id -> affected.add(id.asString()));
+        assertThat(affected).containsExactlyInAnyOrder(stored.firstOrder().toString(), stored.secondOrder().toString());
     }
 
     private JsonNode confirmationEvent(Group stored) {

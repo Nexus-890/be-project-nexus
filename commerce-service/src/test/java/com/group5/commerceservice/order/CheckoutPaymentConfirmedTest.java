@@ -559,7 +559,7 @@ class CheckoutPaymentConfirmedTest {
     @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses = {OrderRepository.class, CartRepository.class})
     @EnableJpaAuditing(auditorAwareRef = "auditor")
-    @Import({OrderStateMachine.class, CheckoutPaymentConfirmedConsumer.class, PaymentEventConsumer.class,
+    @Import({OrderStateMachine.class, CheckoutPaymentConfirmedConsumer.class, PaymentUnreconciledConsumer.class, PaymentEventConsumer.class,
             RefundStatusHandler.class, OrderService.class, PricingService.class})
     /** Flyway/JPA/outbox thật trên PostgreSQL; mock tracer và các biên Catalog/Inventory/Shipping, spy publisher để gây lỗi. */
     static class JpaConfig {
