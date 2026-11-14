@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -84,10 +85,30 @@ public class ReservationService {
     }
 
     @Transactional
-    public int confirmOrder(UUID orderId) {
-        List<InventoryReservation> held = reservations.findByOrderIdOrderBySkuIdAscIdAsc(orderId);
-        held.forEach(reservation -> confirmAs(reservation.getId(), SYSTEM_ACTOR));
-        return held.size();
+    public OrderConfirmation confirmOrder(UUID orderId) {
+        List<InventoryReservation> found = reservations.findByOrderIdOrderBySkuIdAscIdAsc(orderId);
+        List<UUID> reclaimed = new ArrayList<>();
+        List<UUID> lost = new ArrayList<>();
+        for (InventoryReservation reservation : found) {
+            UUID id = reservation.getId();
+            if (reservation.getStatus() != ReservationStatus.EXPIRED) {
+                confirmAs(id, SYSTEM_ACTOR);
+            } else if (balances.commitAvailable(reservation.getSkuId(), reservation.getWarehouseId(),
+                    reservation.getQuantity(), SYSTEM_ACTOR) == 0) {
+                lost.add(id);
+            } else {
+                if (reservations.confirmExpired(id, SYSTEM_ACTOR) == 0) {
+                    throw new IllegalStateException("Reservation " + id + " left EXPIRED while it was reclaimed");
+                }
+                movements.record(reservation.getSkuId(), reservation.getWarehouseId(), MovementType.COMMIT,
+                        reservation.getQuantity(), id, SYSTEM_ACTOR);
+                reclaimed.add(id);
+            }
+        }
+        return new OrderConfirmation(found.size(), List.copyOf(reclaimed), List.copyOf(lost));
+    }
+
+    public record OrderConfirmation(int reservations, List<UUID> reclaimed, List<UUID> lost) {
     }
 
     private void confirmAs(UUID reservationId, UUID actor) {

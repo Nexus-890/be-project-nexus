@@ -2,6 +2,7 @@ package com.group5.inventoryservice.inventory;
 
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.Topics;
+import com.group5.inventoryservice.reservation.ReservationExpiryJob;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,6 +49,7 @@ class OrderPaidConsumerIntegrationTest {
     private static final UUID SYSTEM_ACTOR = new UUID(0, 0);
     private static final JsonMapper JSON = JsonMapper.shared();
     @Autowired private OrderEventConsumer consumer;
+    @Autowired private ReservationExpiryJob expiryJob;
     @Autowired private JdbcTemplate jdbc;
     @MockitoBean private JwtDecoder decoder;
     private UUID warehouse;
@@ -169,6 +171,53 @@ class OrderPaidConsumerIntegrationTest {
     }
 
     @Test
+    void orderPaidArrivingAfterTheJobExpiredTheHoldTakesTheStockBackAndConfirmsIt(CapturedOutput output) {
+        UUID order = UUID.randomUUID();
+        UUID sku = heldStock(sku("10"), 10, 2);
+        UUID reservation = hold(order, sku, 2, OffsetDateTime.now().minusMinutes(11));
+        expiryJob.runOnce();
+        assertThat(status(reservation)).isEqualTo("EXPIRED");
+        assertBalance(sku, 10, 10, 0, 0);
+        UUID eventId = UUID.randomUUID();
+
+        consumer.receive(orderPaid(eventId, order, "STANDARD"));
+
+        assertBalance(sku, 10, 8, 0, 2);
+        assertThat(status(reservation)).isEqualTo("CONFIRMED");
+        assertThat(jdbc.queryForObject("SELECT released_at IS NULL FROM inventory_reservations WHERE id = ?",
+                Boolean.class, reservation)).isTrue();
+        assertThat(movements(sku, "RELEASE")).hasSize(1);
+        assertThat(movements(sku, "COMMIT")).containsExactly(Map.of("quantity", 2,
+                "reference_id", reservation, "created_by", SYSTEM_ACTOR));
+        assertThat(processed(eventId)).isEqualTo(1);
+        assertThat(output.getAll().lines().filter(line -> line.contains("ORDER_PAID_EXPIRED_STOCK_RECLAIMED")))
+                .singleElement().asString().contains(" WARN ").contains(reservation.toString());
+    }
+
+    @Test
+    void orderPaidArrivingAfterTheExpiredStockWasSoldAgainLogsAnErrorAndIsNotRetried(CapturedOutput output) {
+        UUID order = UUID.randomUUID();
+        UUID sku = heldStock(sku("10"), 2, 2);
+        UUID reservation = hold(order, sku, 2, OffsetDateTime.now().minusMinutes(11));
+        expiryJob.runOnce();
+        assertThat(status(reservation)).isEqualTo("EXPIRED");
+        hold(UUID.randomUUID(), sku, 2);
+        jdbc.update("UPDATE inventory_balances SET available_quantity = 0, reserved_quantity = 2 WHERE sku_id = ?",
+                sku);
+        UUID eventId = UUID.randomUUID();
+
+        consumer.receive(orderPaid(eventId, order, "STANDARD"));
+
+        assertBalance(sku, 2, 0, 2, 0);
+        assertThat(status(reservation)).isEqualTo("EXPIRED");
+        assertThat(movements(sku, "COMMIT")).isEmpty();
+        assertThat(processed(eventId)).isEqualTo(1);
+        assertThat(output.getAll().lines().filter(line -> line.contains("ORDER_PAID_STOCK_LOST")))
+                .singleElement().asString().contains(" ERROR ").contains("orderId=" + order)
+                .contains(reservation.toString());
+    }
+
+    @Test
     void anOrderPaidWithoutOrderIdConfirmsNoReservationAndIsNotMarkedProcessed() {
         UUID first = heldStock(sku("10"), 10, 2);
         UUID second = heldStock(sku("20"), 5, 1);
@@ -239,10 +288,14 @@ class OrderPaidConsumerIntegrationTest {
     }
 
     private UUID hold(UUID order, UUID sku, int quantity) {
+        return hold(order, sku, quantity, OffsetDateTime.now().plusMinutes(15));
+    }
+
+    private UUID hold(UUID order, UUID sku, int quantity, OffsetDateTime expiresAt) {
         return jdbc.queryForObject("""
                 INSERT INTO inventory_reservations (sku_id, warehouse_id, order_id, quantity, status, expires_at)
                 VALUES (?, ?, ?, ?, 'HELD', ?) RETURNING id
-                """, UUID.class, sku, warehouse, order, quantity, OffsetDateTime.now().plusMinutes(15));
+                """, UUID.class, sku, warehouse, order, quantity, expiresAt);
     }
 
     private void assertBalance(UUID sku, int total, int available, int reserved, int unavailable) {

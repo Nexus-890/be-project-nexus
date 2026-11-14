@@ -16,6 +16,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
@@ -31,7 +32,7 @@ public class ReservationExpiryJob {
                 SET status = 'EXPIRED', released_at = now(), updated_by = ?
                 WHERE id IN (
                     SELECT id FROM inventory_reservations
-                    WHERE status = 'HELD' AND auction_id IS NULL AND expires_at < now()
+                    WHERE status = 'HELD' AND auction_id IS NULL AND expires_at < now() - make_interval(secs => ?)
                     ORDER BY expires_at
                     LIMIT ?
                     FOR UPDATE SKIP LOCKED)
@@ -64,6 +65,9 @@ public class ReservationExpiryJob {
     @Value("${nexus.inventory.reservation-expiry-batch-size:500}")
     private int batchSize = 500;
 
+    @Value("${nexus.inventory.reservation-expiry-grace:10m}")
+    private Duration grace = Duration.ofMinutes(10);
+
     public ReservationExpiryJob(JdbcTemplate jdbc, OutboxWriter outbox, EventEnvelopeFactory envelopes,
                                 PlatformTransactionManager transactions, Tracer tracer) {
         this.jdbc = jdbc;
@@ -85,7 +89,8 @@ public class ReservationExpiryJob {
         try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
             Integer expired = transaction.execute(status -> {
                 List<InventoryReservationExpired> rows = jdbc.query(EXPIRE, ReservationExpiryJob::expired,
-                        SYSTEM_ACTOR, batchSize, SYSTEM_ACTOR, SYSTEM_ACTOR, SYSTEM_ACTOR);
+                        SYSTEM_ACTOR, (double) grace.toSeconds(), batchSize, SYSTEM_ACTOR, SYSTEM_ACTOR,
+                        SYSTEM_ACTOR);
                 rows.forEach(row -> outbox.write("InventoryReservation", Topics.INVENTORY,
                         envelopes.create("InventoryReservationExpired", row.reservationId().toString(), row)));
                 return rows.size();

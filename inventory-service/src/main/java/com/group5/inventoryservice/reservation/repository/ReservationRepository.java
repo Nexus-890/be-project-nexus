@@ -47,6 +47,16 @@ public interface ReservationRepository extends JpaRepository<InventoryReservatio
             """)
     int returnConfirmed(@Param("id") UUID id, @Param("actor") UUID actor);
 
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(nativeQuery = true, value = """
+            UPDATE inventory_reservations
+            SET status      = 'CONFIRMED',
+                released_at = NULL,
+                updated_by  = :actor
+            WHERE id = :id AND status = 'EXPIRED'
+            """)
+    int confirmExpired(@Param("id") UUID id, @Param("actor") UUID actor);
+
     @Query("""
             SELECT r FROM InventoryReservation r
             WHERE (:orderId IS NULL OR r.orderId = :orderId)

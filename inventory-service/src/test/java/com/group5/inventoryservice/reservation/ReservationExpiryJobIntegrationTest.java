@@ -63,7 +63,7 @@ class ReservationExpiryJobIntegrationTest {
     void aHeldReservationOfTwoPastItsDeadlineIsExpiredAndTheTwoUnitsAreAvailableAgain() {
         UUID order = UUID.randomUUID();
         UUID sku = stock(10, 8, 2, 0);
-        UUID reservation = reservation(order, null, sku, 2, "HELD", "-1 minute");
+        UUID reservation = reservation(order, null, sku, 2, "HELD", "-11 minutes");
 
         assertThat(job.runOnce()).isEqualTo(1);
 
@@ -87,7 +87,7 @@ class ReservationExpiryJobIntegrationTest {
     @Test
     void aConfirmedReservationPastItsDeadlineIsUntouched() {
         UUID sku = stock(10, 8, 0, 2);
-        UUID reservation = reservation(UUID.randomUUID(), null, sku, 2, "CONFIRMED", "-1 minute");
+        UUID reservation = reservation(UUID.randomUUID(), null, sku, 2, "CONFIRMED", "-11 minutes");
 
         assertThat(job.runOnce()).isZero();
 
@@ -99,7 +99,7 @@ class ReservationExpiryJobIntegrationTest {
     @Test
     void aHeldAuctionReservationPastItsDeadlineIsUntouched() {
         UUID sku = stock(1, 0, 1, 0);
-        UUID reservation = reservation(null, UUID.randomUUID(), sku, 1, "HELD", "-1 minute");
+        UUID reservation = reservation(null, UUID.randomUUID(), sku, 1, "HELD", "-11 minutes");
 
         assertThat(job.runOnce()).isZero();
 
@@ -120,10 +120,23 @@ class ReservationExpiryJobIntegrationTest {
     }
 
     @Test
+    void aHeldReservationPastItsDeadlineButInsideTheTenMinuteGraceIsUntouched() {
+        UUID sku = stock(10, 8, 2, 0);
+        UUID reservation = reservation(UUID.randomUUID(), null, sku, 2, "HELD", "-9 minutes");
+
+        assertThat(job.runOnce()).isZero();
+
+        assertThat(status(reservation)).isEqualTo("HELD");
+        assertBalance(sku, 10, 8, 2, 0);
+        assertThat(movements(sku)).isEmpty();
+        assertThat(events(reservation)).isEmpty();
+    }
+
+    @Test
     void aSecondRunChangesNothingAndDoesNotRaiseAvailableAgain() {
         UUID sku = stock(10, 6, 4, 0);
-        reservation(UUID.randomUUID(), null, sku, 2, "HELD", "-1 minute");
-        reservation(UUID.randomUUID(), null, sku, 2, "HELD", "-2 minutes");
+        reservation(UUID.randomUUID(), null, sku, 2, "HELD", "-11 minutes");
+        reservation(UUID.randomUUID(), null, sku, 2, "HELD", "-12 minutes");
 
         assertThat(job.runOnce()).isEqualTo(2);
         assertThat(job.runOnce()).isZero();
@@ -143,13 +156,13 @@ class ReservationExpiryJobIntegrationTest {
                 FROM generate_series(1, 9997) g
                 """, sku, warehouse);
         for (int i = 0; i < 3; i++) {
-            reservation(UUID.randomUUID(), null, sku, 1, "HELD", "-1 minute");
+            reservation(UUID.randomUUID(), null, sku, 1, "HELD", "-11 minutes");
         }
         jdbc.execute("ANALYZE inventory_reservations");
 
         String plan = String.join("\n", jdbc.queryForList("""
                 EXPLAIN SELECT id FROM inventory_reservations
-                WHERE status = 'HELD' AND auction_id IS NULL AND expires_at < now()
+                WHERE status = 'HELD' AND auction_id IS NULL AND expires_at < now() - make_interval(secs => 600)
                 ORDER BY expires_at LIMIT 500 FOR UPDATE SKIP LOCKED
                 """, String.class));
 

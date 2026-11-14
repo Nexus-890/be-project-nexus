@@ -47,14 +47,23 @@ public class OrderEventConsumer {
 
     private void orderPaid(EventEnvelope<OrderPaid> event) {
         OrderPaid paid = event.payload();
-        int confirmed = reservations.confirmOrder(paid.orderId());
-        if (confirmed == 0) {
+        ReservationService.OrderConfirmation result = reservations.confirmOrder(paid.orderId());
+        if (result.reservations() == 0) {
             log.info("ORDER_PAID_NO_RESERVATION eventId={} orderId={} orderType={}",
                     event.eventId(), paid.orderId(), paid.orderType());
             return;
         }
+        if (!result.reclaimed().isEmpty()) {
+            log.warn("ORDER_PAID_EXPIRED_STOCK_RECLAIMED eventId={} orderId={} reservations={}",
+                    event.eventId(), paid.orderId(), result.reclaimed());
+        }
+        if (!result.lost().isEmpty()) {
+            log.error("ORDER_PAID_STOCK_LOST eventId={} orderId={} orderType={} reservations={}",
+                    event.eventId(), paid.orderId(), paid.orderType(), result.lost());
+        }
         log.info("ORDER_PAID_STOCK_CONFIRMED eventId={} orderId={} orderType={} reservations={}",
-                event.eventId(), paid.orderId(), paid.orderType(), confirmed);
+                event.eventId(), paid.orderId(), paid.orderType(),
+                result.reservations() - result.lost().size());
     }
 
     private void orderCancelled(EventEnvelope<OrderCancelled> event) {
