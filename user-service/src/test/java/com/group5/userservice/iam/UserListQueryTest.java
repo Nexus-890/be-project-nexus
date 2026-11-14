@@ -187,7 +187,7 @@ class UserListQueryTest {
         @Bean
         UserService userService(UserRepository repository, KeycloakAdminClient keycloak,
                                 PlatformTransactionManager manager) {
-            return new UserService(repository, new IamProperties(), keycloak, manager);
+            return new UserService(repository, new IamProperties(), keycloak, manager, mock(EmailVerificationService.class));
         }
     }
 }

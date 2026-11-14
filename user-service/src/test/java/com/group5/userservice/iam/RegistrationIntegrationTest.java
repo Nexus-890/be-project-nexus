@@ -42,6 +42,7 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 
 /**
  * HTTP tests against disposable PostgreSQL 18 and Keycloak 26.7 Testcontainers instances.
@@ -62,6 +63,8 @@ import static org.mockito.Mockito.doAnswer;
         "nexus.security.public-endpoints[0].path=/api/v1/auth/register",
         "nexus.security.public-endpoints[1].method=POST",
         "nexus.security.public-endpoints[1].path=/actuator/refresh",
+        "nexus.security.public-endpoints[2].method=POST",
+        "nexus.security.public-endpoints[2].path=/api/v1/auth/verification-email",
         "management.endpoints.web.exposure.include=health,refresh",
         "management.tracing.enabled=false",
         "spring.jpa.properties.hibernate.session_factory.statement_inspector="
@@ -69,6 +72,7 @@ import static org.mockito.Mockito.doAnswer;
 })
 class RegistrationIntegrationTest {
     private static final String REGISTER = "/api/v1/auth/register";
+    private static final String RESEND = "/api/v1/auth/verification-email";
     private static final String PASSWORD = "registered-password-123!";
     private static final Path TEMP = createTestFiles();
     private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -96,8 +100,12 @@ class RegistrationIntegrationTest {
     @BeforeEach
     void prepareFixtures() {
         // These rows exist only in the disposable Testcontainers database.
+        jdbc.update("delete from user_addresses");
+        jdbc.update("delete from phone_verifications");
+        jdbc.update("delete from verification_email_sends");
         jdbc.update("delete from users");
         KeycloakTestServer.deleteRegisteredUsers();
+        KeycloakTestServer.deleteAllMail();
         SqlCapture.STATEMENTS.clear();
     }
 
@@ -145,6 +153,7 @@ class RegistrationIntegrationTest {
     void newAccountSignsInThroughKeycloakAndReadsItsOwnProfile() throws Exception {
         assertThat(post(REGISTER, request("login@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
         UUID keycloakId = KeycloakTestServer.userIdByEmail("login@nexus.test").orElseThrow();
+        KeycloakTestServer.markEmailVerified(keycloakId);
 
         String token = KeycloakTestServer.signIn("LOGIN@NEXUS.TEST", PASSWORD);
         HttpResponse<String> profile = get("/api/v1/users/me", token);
@@ -158,9 +167,75 @@ class RegistrationIntegrationTest {
     }
 
     @Test
+    void newAccountSignsInOnlyAfterTheEmailedLinkIsOpenedAndTheLinkWorksOnce() throws Exception {
+        assertThat(post(REGISTER, request("verify@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+        UUID keycloakId = KeycloakTestServer.userIdByEmail("verify@nexus.test").orElseThrow();
+
+        assertThat(KeycloakTestServer.emailVerified(keycloakId)).isFalse();
+        assertThatThrownBy(() -> KeycloakTestServer.signIn("verify@nexus.test", PASSWORD))
+                .isInstanceOf(IllegalStateException.class);
+        List<String> mail = KeycloakTestServer.mailTo("verify@nexus.test");
+        assertThat(mail).hasSize(1);
+        String link = KeycloakTestServer.actionLink(mail.getFirst());
+
+        KeycloakTestServer.openActionLink(link);
+
+        assertThat(KeycloakTestServer.emailVerified(keycloakId)).isTrue();
+        assertThat(KeycloakTestServer.signIn("verify@nexus.test", PASSWORD)).isNotBlank();
+        assertThat(KeycloakTestServer.openActionLink(link).toLowerCase(java.util.Locale.ROOT))
+                .containsAnyOf("no longer valid", "expired", "already been used");
+    }
+
+    @Test
+    void resendIsLimitedToOneEmailPerMinute() throws Exception {
+        assertThat(post(REGISTER, request("resend@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+
+        HttpResponse<String> tooSoon = post(RESEND, Map.of("email", "Resend@Nexus.Test"));
+        assertThat(tooSoon.statusCode()).isEqualTo(429);
+        assertThat(JSON.readTree(tooSoon.body()).get("code").asString())
+                .isEqualTo("USER_VERIFICATION_EMAIL_RATE_LIMITED");
+        assertThat(KeycloakTestServer.mailTo("resend@nexus.test")).hasSize(1);
+
+        jdbc.update("update verification_email_sends set sent_at = sent_at - interval '61 seconds'");
+        HttpResponse<String> resent = post(RESEND, Map.of("email", "resend@nexus.test"));
+
+        assertThat(resent.statusCode()).isEqualTo(204);
+        assertThat(resent.body()).isEmpty();
+        assertThat(KeycloakTestServer.mailTo("resend@nexus.test")).hasSize(2);
+        assertThat(post(RESEND, Map.of("email", "resend@nexus.test")).statusCode()).isEqualTo(429);
+    }
+
+    @Test
+    void resendForAnUnknownOrVerifiedEmailAnswersTheSameAndSendsNothing() throws Exception {
+        assertThat(post(RESEND, Map.of("email", "nobody@nexus.test")).statusCode()).isEqualTo(204);
+        assertThat(post(REGISTER, request("done@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+        KeycloakTestServer.markEmailVerified(KeycloakTestServer.userIdByEmail("done@nexus.test").orElseThrow());
+        jdbc.update("update verification_email_sends set sent_at = sent_at - interval '61 seconds'");
+
+        assertThat(post(RESEND, Map.of("email", "done@nexus.test")).statusCode()).isEqualTo(204);
+
+        assertThat(KeycloakTestServer.mailTo("nobody@nexus.test")).isEmpty();
+        assertThat(KeycloakTestServer.mailTo("done@nexus.test")).hasSize(1);
+    }
+
+    @Test
+    void failedVerificationEmailReturns502AndKeepsTheAccountForResend() throws Exception {
+        doThrow(new DomainException(UserErrorCode.USER_VERIFICATION_EMAIL_FAILED))
+                .when(keycloak).sendVerifyEmail(org.mockito.ArgumentMatchers.any());
+
+        HttpResponse<String> response = post(REGISTER, request("unsent@nexus.test", "0901234567", "001234"));
+
+        assertThat(response.statusCode()).isEqualTo(502);
+        assertThat(JSON.readTree(response.body()).get("code").asString()).isEqualTo("USER_VERIFICATION_EMAIL_FAILED");
+        assertThat(KeycloakTestServer.userIdByEmail("unsent@nexus.test")).isPresent();
+        assertThat(jdbc.queryForObject("select email from users", String.class)).isEqualTo("unsent@nexus.test");
+    }
+
+    @Test
     void profileEmailChangeMovesTheKeycloakSignIn() throws Exception {
         assertThat(post(REGISTER, request("before@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
         UUID keycloakId = KeycloakTestServer.userIdByEmail("before@nexus.test").orElseThrow();
+        KeycloakTestServer.markEmailVerified(keycloakId);
         String token = KeycloakTestServer.signIn("before@nexus.test", PASSWORD);
 
         HttpResponse<String> updated = put("/api/v1/users/me", Map.of("email", "After@Nexus.Test"), token);
@@ -169,6 +244,10 @@ class RegistrationIntegrationTest {
         assertThat(JSON.readTree(updated.body()).get("data").get("email").asString()).isEqualTo("after@nexus.test");
         assertThat(KeycloakTestServer.userIdByEmail("after@nexus.test")).contains(keycloakId);
         assertThat(KeycloakTestServer.userIdByEmail("before@nexus.test")).isEmpty();
+        assertThat(KeycloakTestServer.emailVerified(keycloakId)).isFalse();
+        assertThatThrownBy(() -> KeycloakTestServer.signIn("after@nexus.test", PASSWORD))
+                .isInstanceOf(IllegalStateException.class);
+        KeycloakTestServer.markEmailVerified(keycloakId);
         assertThat(KeycloakTestServer.signIn("after@nexus.test", PASSWORD)).isNotBlank();
     }
 
@@ -176,6 +255,7 @@ class RegistrationIntegrationTest {
     void emailChangeKeepsATemporaryKeycloakLockout() throws Exception {
         assertThat(post(REGISTER, request("locked@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
         UUID keycloakId = KeycloakTestServer.userIdByEmail("locked@nexus.test").orElseThrow();
+        KeycloakTestServer.markEmailVerified(keycloakId);
         String token = KeycloakTestServer.signIn("locked@nexus.test", PASSWORD);
         for (int attempt = 0; attempt < 5; attempt++) {
             KeycloakTestServer.failSignIn("locked@nexus.test");
@@ -217,6 +297,7 @@ class RegistrationIntegrationTest {
     void profileEmailHeldByAnotherKeycloakAccountReturns409AndKeepsBothRecords() throws Exception {
         assertThat(post(REGISTER, request("keep@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
         UUID keycloakId = KeycloakTestServer.userIdByEmail("keep@nexus.test").orElseThrow();
+        KeycloakTestServer.markEmailVerified(keycloakId);
         String token = KeycloakTestServer.signIn("keep@nexus.test", PASSWORD);
 
         HttpResponse<String> rejected = put("/api/v1/users/me", Map.of("email", KeycloakTestServer.DEMO_ADMIN), token);

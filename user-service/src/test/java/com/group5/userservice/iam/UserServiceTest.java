@@ -47,6 +47,10 @@ class UserServiceTest {
     private KeycloakAdminClient keycloak;
 
     @Mock
+
+    private EmailVerificationService emailVerification;
+
+    @Mock
     private PlatformTransactionManager transactionManager;
 
     @Mock
@@ -59,7 +63,7 @@ class UserServiceTest {
     @BeforeEach
     void setUp() {
         lenient().when(transactionManager.getTransaction(any(TransactionDefinition.class))).thenReturn(transactionStatus);
-        userService = new UserService(userRepository, iamProperties, keycloak, transactionManager);
+        userService = new UserService(userRepository, iamProperties, keycloak, transactionManager, emailVerification);
     }
 
     @Test
@@ -75,7 +79,7 @@ class UserServiceTest {
     @Test
     void registerDefaultsToBuyerAndAllowSelfRegistrationWhenPropertiesAreAbsent() {
         UserService serviceWithAbsentProperties =
-                new UserService(userRepository, new IamProperties(), keycloak, transactionManager);
+                new UserService(userRepository, new IamProperties(), keycloak, transactionManager, emailVerification);
         givenRegistrationCanSave();
 
         UserResponse response = serviceWithAbsentProperties.register(validRequest());

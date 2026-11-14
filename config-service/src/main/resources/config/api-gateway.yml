@@ -82,6 +82,8 @@ nexus:
       - method: POST
         path: /api/v1/auth/logout
       - method: POST
+        path: /api/v1/auth/verification-email
+      - method: POST
         path: /api/v1/webhooks/sepay
       - method: POST
         path: /api/v1/webhooks/carriers/ghn

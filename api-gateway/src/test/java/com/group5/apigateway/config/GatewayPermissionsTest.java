@@ -30,6 +30,7 @@ class GatewayPermissionsTest {
             new Row("/api/v1/inventory/{id}", "GET", "Public"),
             new Row("/api/v1/carts/guest", "POST", "Public"),
             new Row("/api/v1/auth/register", "POST", "Public"),
+            new Row("/api/v1/auth/verification-email", "POST", "Public"),
             new Row("/api/v1/auth/session", "POST", "Public"),
             new Row("/api/v1/auth/refresh", "POST", "Public"),
             new Row("/api/v1/auth/logout", "POST", "Public"),

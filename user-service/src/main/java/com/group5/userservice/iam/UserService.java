@@ -38,12 +38,15 @@ public class UserService {
     private final IamProperties iamProperties;
     private final KeycloakAdminClient keycloak;
     private final TransactionTemplate transaction;
+    private final EmailVerificationService emailVerification;
 
     public UserService(UserRepository userRepository, IamProperties iamProperties,
-                       KeycloakAdminClient keycloak, PlatformTransactionManager transactionManager) {
+                       KeycloakAdminClient keycloak, PlatformTransactionManager transactionManager,
+                       EmailVerificationService emailVerification) {
         this.userRepository = userRepository;
         this.iamProperties = iamProperties;
         this.keycloak = keycloak;
+        this.emailVerification = emailVerification;
         this.transaction = new TransactionTemplate(transactionManager);
         this.transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
@@ -58,9 +61,10 @@ public class UserService {
                 .orElseThrow(() -> new DomainException(UserErrorCode.USER_REGISTRATION_ROLE_UNAVAILABLE));
         transaction.executeWithoutResult(status -> rejectDuplicates(request));
         UUID userId = keycloak.createUser(request.email(), request.password(), request.fullName());
+        UserResponse created;
         try {
             keycloak.assignRealmRole(userId, role);
-            return transaction.execute(status -> createUser(userId, request, roleCode));
+            created = transaction.execute(status -> createUser(userId, request, roleCode));
         } catch (RuntimeException exception) {
             // execute() has already rolled back, including failures at commit.
             String field = duplicateField(exception);
@@ -68,6 +72,8 @@ public class UserService {
             compensate(() -> keycloak.deleteUser(userId), failure);
             throw failure;
         }
+        emailVerification.sendAfterRegistration(userId, created.email());
+        return created;
     }
 
     public UserResponse getOwnProfile(UUID userId) {

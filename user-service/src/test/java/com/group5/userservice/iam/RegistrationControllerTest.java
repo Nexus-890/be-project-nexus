@@ -31,9 +31,10 @@ class RegistrationControllerTest {
     private static final String REGISTER = "/api/v1/auth/register";
 
     private final UserService userService = mock(UserService.class);
+    private final EmailVerificationService emailVerification = mock(EmailVerificationService.class);
 
     private final MockMvc mockMvc = MockMvcBuilders
-            .standaloneSetup(new AuthController(userService))
+            .standaloneSetup(new AuthController(userService, emailVerification))
             .setControllerAdvice(new GlobalExceptionHandler(null))
             .build();
 

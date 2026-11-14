@@ -225,6 +225,23 @@ public class KeycloakAdminClient {
         }
     }
 
+    public void sendVerifyEmail(UUID userId) {
+        try {
+            withToken(token -> client.put()
+                    .uri("/admin/realms/{realm}/users/{id}/execute-actions-email?client_id={client}&redirect_uri={redirect}",
+                            properties.getRealm(), userId, properties.getVerifyEmailClientId(),
+                            properties.getVerifyEmailRedirectUri())
+                    .headers(headers -> headers.setBearerAuth(token))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(List.of("VERIFY_EMAIL"))
+                    .retrieve()
+                    .toBodilessEntity());
+        } catch (RestClientException exception) {
+            log.error("Keycloak could not send the verification email of user {}", userId, exception);
+            throw new DomainException(UserErrorCode.USER_VERIFICATION_EMAIL_FAILED);
+        }
+    }
+
     public void deleteUser(UUID userId) {
         try {
             withToken(token -> client.delete()

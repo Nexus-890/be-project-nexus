@@ -29,6 +29,8 @@ public interface UserRepository extends JpaRepository<User, UUID>, JpaSpecificat
 
     Optional<User> findByIdAndDeletedAtIsNull(UUID id);
 
+    Optional<User> findByEmailAndDeletedAtIsNull(String email);
+
     boolean existsByEmailAndIdNot(String email, UUID id);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

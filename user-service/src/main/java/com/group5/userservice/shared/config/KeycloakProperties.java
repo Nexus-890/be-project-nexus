@@ -29,4 +29,10 @@ public class KeycloakProperties {
 
     @NotNull
     private Duration timeout = Duration.ofSeconds(5);
+
+    @NotBlank
+    private String verifyEmailClientId = "nexus-web";
+
+    @NotBlank
+    private String verifyEmailRedirectUri = "http://localhost:3000/";
 }

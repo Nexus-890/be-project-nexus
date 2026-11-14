@@ -13,7 +13,11 @@ public enum UserErrorCode implements ErrorCode {
     USER_PROFILE_CONFLICT(HttpStatus.CONFLICT, "Email or phone is already used"),
     USER_REGISTRATION_ROLE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Default registration role is unavailable"),
     USER_IDENTITY_REJECTED(HttpStatus.BAD_REQUEST, "The identity provider rejected the account details"),
-    USER_IDENTITY_PROVIDER_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "The identity provider is unavailable");
+    USER_IDENTITY_PROVIDER_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "The identity provider is unavailable"),
+    USER_VERIFICATION_EMAIL_FAILED(HttpStatus.BAD_GATEWAY,
+            "The verification email could not be sent; the account is kept, ask for a new email"),
+    USER_VERIFICATION_EMAIL_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS,
+            "Wait one minute before asking for another verification email");
 
     private final HttpStatus status;
     private final String message;

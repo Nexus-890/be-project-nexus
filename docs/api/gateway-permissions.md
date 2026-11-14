@@ -49,6 +49,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | Path | Method | Public or required privilege | Owning issue                                            |
 |---|---|---|---------------------------------------------------------|
 | `/api/v1/auth/register` | POST | Public | #74 — User registration with a default role             |
+| `/api/v1/auth/verification-email` | POST | Public | #210 / #262 — Resend the email verification link (one per address per minute, same answer for unknown addresses) |
 | `/api/v1/auth/session` | POST | Public | #252 — HttpOnly refresh cookie: sign-in exchange |
 | `/api/v1/auth/refresh` | POST | Public | #252 — HttpOnly refresh cookie: renew the access token |
 | `/api/v1/auth/logout` | POST | Public | #252 — HttpOnly refresh cookie: sign out |
