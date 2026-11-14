@@ -128,7 +128,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/auctions/{id}/bids` | POST | AUCTION.BID | #146/#147 — Place a bid as BUYER; the bidder cannot be the auction seller. Required UUID `Idempotency-Key`; replay requires the original bidder, auction and numeric amount; a different amount returns 409 |
 | `/api/v1/auctions/{id}/schedule` | POST | AUCTION.UPDATE | #144 — Owner with SELLER role publishes a CREATED auction |
 | `/api/v1/auctions/mine` | GET | AUCTION.LIST | #198 |
-| `/api/v1/bids/mine` | GET | AUCTION.VIEW_BID_HISTORY | #198 |
+| `/api/v1/bids/mine` | GET | AUCTION.VIEW_BID_HISTORY | #198; nullable orderId/paymentDueAt/finalPrice are visible only to the recorded winner in WON/SETTLED/PAYMENT_TIMEOUT |
 | `/api/v1/auctions/{id}` | PUT | AUCTION.UPDATE | #197 — SELLER/ADMIN owner, CREATED/SCHEDULED before startAt |
 | `/api/v1/auctions/{id}/cancel` | POST | AUCTION.CANCEL | #197 — SELLER owner with no valid bids |
 | `/api/v1/auctions/{id}/admin-cancel` | POST | AUCTION.ADMIN_CANCEL | #197 — ADMIN; CREATED/SCHEDULED/ACTIVE/ENDED/WON only |
@@ -661,7 +661,7 @@ A path with several roles in `x-required-roles` accepts any one of them.
 | GET | `/api/v1/auctions/mine` | SELLER | AUCTION.LIST | AUCTION.LIST | Own auctions only | #198 |
 | POST | `/api/v1/auctions/{id}/bids` | BUYER | AUCTION.BID | AUCTION.BID | Not the auction's seller; globally unique UUID key replays only for the original bidder, auction and numeric amount; a different amount returns 409 | #146, #147 |
 | GET | `/api/v1/auctions/{id}/bids` | public | public | none (public) |  | #169 |
-| GET | `/api/v1/bids/mine` | BUYER | AUCTION.VIEW_BID_HISTORY | AUCTION.VIEW_BID_HISTORY | Own bids only | #198 |
+| GET | `/api/v1/bids/mine` | BUYER | AUCTION.VIEW_BID_HISTORY | AUCTION.VIEW_BID_HISTORY | Own bids only; settlement references are null for other bidders/statuses | #198; winner checkout projection |
 
 ### Scope and draft decisions
 

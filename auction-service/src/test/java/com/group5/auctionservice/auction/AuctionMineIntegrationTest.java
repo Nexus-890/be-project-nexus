@@ -140,17 +140,57 @@ class AuctionMineIntegrationTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data").isEmpty()).andExpect(jsonPath("$.page.totalElements").value(2));
     }
     @ParameterizedTest
-    @ValueSource(strings = {"ACTIVE", "ENDED", "WON", "SETTLED", "PAYMENT_TIMEOUT", "CANCELLED", "FAILED"})
+    @ValueSource(strings = {"CREATED", "SCHEDULED", "ACTIVE", "ENDED", "WON", "SETTLED", "PAYMENT_TIMEOUT", "CANCELLED", "FAILED"})
     void leadingAndWonFollowValidTopBidAndRecordedWinner(String state) throws Exception {
         auction(1, SELLER, state, "PUBLIC"); bid(11, 1, BUYER, 120, "PLACED", 1); leader(1, BUYER, 120);
-        jdbc.update("UPDATE auctions SET winner_id=? WHERE id=?", BUYER, id(1));
+        jdbc.update("UPDATE auctions SET winner_id=?,order_id=?,payment_due_at='2031-01-02T00:00:00Z',final_price=125.50 WHERE id=?",
+                BUYER, id(80), id(1));
+        boolean won = List.of("WON", "SETTLED", "PAYMENT_TIMEOUT").contains(state);
         http.perform(get("/api/v1/bids/mine").header("Authorization", "Bearer buyer"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].auctionStatus").value(state))
                 .andExpect(jsonPath("$.data[0].leading").value(List.of("ACTIVE", "ENDED").contains(state)))
-                .andExpect(jsonPath("$.data[0].won").value(List.of("WON", "SETTLED", "PAYMENT_TIMEOUT").contains(state)));
+                .andExpect(jsonPath("$.data[0].won").value(won))
+                .andExpect(jsonPath("$.data[0].orderId").value(won ? id(80).toString() : null))
+                .andExpect(jsonPath("$.data[0].paymentDueAt").value(won ? "2031-01-02T00:00:00Z" : null))
+                .andExpect(jsonPath("$.data[0].finalPrice").value(won ? 125.50 : null));
         jdbc.update("UPDATE auctions SET winner_id=? WHERE id=?", RIVAL, id(1));
         http.perform(get("/api/v1/bids/mine").header("Authorization", "Bearer buyer"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].won").value(false));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].won").value(false))
+                .andExpect(jsonPath("$.data[0].orderId").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data[0].paymentDueAt").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data[0].finalPrice").value(org.hamcrest.Matchers.nullValue()));
+    }
+    @Test
+    void recordedWinnerWaitsForActualOrderProjectionAndReferencesStayPrivate() throws Exception {
+        auction(1, SELLER, "WON", "PUBLIC");
+        bid(11, 1, BUYER, 120, "PLACED", 1); bid(12, 1, RIVAL, 110, "PLACED", 2);
+        jdbc.update("UPDATE auctions SET winner_id=?,payment_due_at='2031-01-02T00:00:00Z',final_price=120 WHERE id=?", BUYER, id(1));
+        http.perform(get("/api/v1/bids/mine").header("Authorization", "Bearer buyer"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].won").value(true))
+                .andExpect(jsonPath("$.data[0].orderId").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data[0].finalPrice").value(120));
+
+        // #172 stores this real OrderCreated reference; this read never fabricates one.
+        jdbc.update("UPDATE auctions SET status='SETTLED',order_id=? WHERE id=?", id(80), id(1));
+        http.perform(get("/api/v1/bids/mine").header("Authorization", "Bearer buyer"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].orderId").value(id(80).toString()))
+                .andExpect(jsonPath("$.data[0].paymentDueAt").value("2031-01-02T00:00:00Z"));
+        http.perform(get("/api/v1/bids/mine").header("Authorization", "Bearer rival").param("bidderId", BUYER.toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].won").value(false))
+                .andExpect(jsonPath("$.data[0].orderId").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data[0].paymentDueAt").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data[0].finalPrice").value(org.hamcrest.Matchers.nullValue()));
+        http.perform(get("/api/v1/auctions/" + id(1)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.orderId").doesNotExist())
+                .andExpect(jsonPath("$.data.paymentDueAt").doesNotExist())
+                .andExpect(jsonPath("$.data.finalPrice").doesNotExist());
+        jdbc.update("UPDATE auctions SET winner_id=NULL WHERE id=?", id(1));
+        http.perform(get("/api/v1/bids/mine").header("Authorization", "Bearer buyer"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].won").value(false))
+                .andExpect(jsonPath("$.data[0].orderId").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data[0].paymentDueAt").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data[0].finalPrice").value(org.hamcrest.Matchers.nullValue()));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox", Integer.class)).isZero();
     }
     @Test
     void invalidatedBidRemainsHistoryButCannotMakeStaleLeaderTrue() throws Exception {
