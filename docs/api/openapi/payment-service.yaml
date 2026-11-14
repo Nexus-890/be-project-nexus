@@ -237,6 +237,97 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+    get:
+      tags: [Payments]
+      operationId: listPayments
+      summary: List payment attempts for support or for one order
+      description: >-
+        With orderId, returns every payment attempt of the order's payment group, oldest first,
+        without paging; the buyer who owns the order, Admin and Support Staff may read it.
+        Without orderId, returns a page of all payment attempts, newest first, optionally
+        filtered by status (for example UNRECONCILED); this needs ORDER.REFUND. The provider
+        reference is masked to its last four characters; idempotency keys and raw provider
+        payloads are never returned.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [BUYER, ADMIN, SUPPORT_STAFF]
+      x-required-privileges: [ORDER.REFUND]
+      parameters:
+        - in: query
+          name: orderId
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: status
+          required: false
+          schema:
+            $ref: '#/components/schemas/PaymentTransactionStatus'
+        - in: query
+          name: page
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - in: query
+          name: size
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Payment attempts; with orderId all attempts come in a single page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentListApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  - transactionId: 4f0c8a52-55d5-4c2e-9a39-0b3f8b1b2a10
+                    orderGroupId: 9a7d1c3e-1f2b-4c5d-8e9f-0a1b2c3d4e5f
+                    provider: SEPAY
+                    providerReference: '****8877'
+                    amount: 500000.00
+                    currency: VND
+                    type: NORMAL
+                    status: UNRECONCILED
+                    receivedAt: '2026-11-14T03:20:00Z'
+                page:
+                  number: 0
+                  size: 20
+                  totalElements: 1
+                  totalPages: 1
+        '400':
+          description: Malformed orderId or status, or page/size out of range (INVALID_PARAMETER)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing/invalid bearer token (UNAUTHENTICATED)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: List without ORDER.REFUND (PAYMENT_REFUND_PRIVILEGE_REQUIRED), or the order belongs to another buyer (PAYMENT_ACCESS_DENIED)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: No payment exists for this order (PAYMENT_ORDER_NOT_FOUND)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/refunds:
     post:
       tags: [Refunds]
@@ -624,6 +715,68 @@ components:
           maxItems: 1
           items:
             $ref: '#/components/schemas/Refund'
+        page:
+          type: object
+          required: [number, size, totalElements, totalPages]
+          properties:
+            number:
+              type: integer
+            size:
+              type: integer
+            totalElements:
+              type: integer
+              format: int64
+            totalPages:
+              type: integer
+    PaymentTransactionStatus:
+      type: string
+      enum: [PENDING, SUCCESS, FAILED, UNRECONCILED]
+    PaymentView:
+      type: object
+      required: [transactionId, orderGroupId, provider, providerReference, amount, currency, type, status, receivedAt]
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+        orderGroupId:
+          type: string
+          format: uuid
+        provider:
+          type: string
+          example: SEPAY
+        providerReference:
+          type: string
+          nullable: true
+          description: Provider transaction reference masked to its last four characters
+          example: '****8877'
+        amount:
+          type: number
+          example: 500000.00
+        currency:
+          type: string
+          example: VND
+        type:
+          type: string
+          enum: [NORMAL, REFUND]
+        status:
+          $ref: '#/components/schemas/PaymentTransactionStatus'
+        receivedAt:
+          type: string
+          format: date-time
+    PaymentListApiResponse:
+      type: object
+      required: [code, message, data, page]
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentView'
         page:
           type: object
           required: [number, size, totalElements, totalPages]

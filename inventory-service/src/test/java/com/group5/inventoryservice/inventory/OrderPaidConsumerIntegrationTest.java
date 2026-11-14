@@ -2,6 +2,7 @@ package com.group5.inventoryservice.inventory;
 
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.Topics;
+import com.group5.inventoryservice.reservation.ReservationExpiryJob;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,18 +16,27 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 @SpringBootTest(properties = {
         "spring.config.location=optional:classpath:/inventory-order-paid-test.properties",
@@ -48,7 +58,9 @@ class OrderPaidConsumerIntegrationTest {
     private static final UUID SYSTEM_ACTOR = new UUID(0, 0);
     private static final JsonMapper JSON = JsonMapper.shared();
     @Autowired private OrderEventConsumer consumer;
+    @Autowired private ReservationExpiryJob expiryJob;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactions;
     @MockitoBean private JwtDecoder decoder;
     private UUID warehouse;
 
@@ -62,6 +74,7 @@ class OrderPaidConsumerIntegrationTest {
     @BeforeEach
     void setup() {
         jdbc.update("DELETE FROM processed_events");
+        jdbc.update("DELETE FROM outbox");
         jdbc.update("DELETE FROM inventory_movements");
         jdbc.update("DELETE FROM inventory_reservations");
         jdbc.update("DELETE FROM inventory_balances");
@@ -169,6 +182,131 @@ class OrderPaidConsumerIntegrationTest {
     }
 
     @Test
+    void orderPaidArrivingAfterTheJobExpiredTheHoldTakesTheStockBackAndConfirmsIt(CapturedOutput output) {
+        UUID order = UUID.randomUUID();
+        UUID sku = heldStock(sku("10"), 10, 2);
+        UUID reservation = hold(order, sku, 2, OffsetDateTime.now().minusMinutes(11));
+        expiryJob.runOnce();
+        assertThat(status(reservation)).isEqualTo("EXPIRED");
+        assertBalance(sku, 10, 10, 0, 0);
+        UUID eventId = UUID.randomUUID();
+
+        consumer.receive(orderPaid(eventId, order, "STANDARD"));
+
+        assertBalance(sku, 10, 8, 0, 2);
+        assertThat(status(reservation)).isEqualTo("CONFIRMED");
+        assertThat(jdbc.queryForObject("SELECT released_at IS NULL FROM inventory_reservations WHERE id = ?",
+                Boolean.class, reservation)).isTrue();
+        assertThat(movements(sku, "RELEASE")).hasSize(1);
+        assertThat(movements(sku, "COMMIT")).containsExactly(Map.of("quantity", 2,
+                "reference_id", reservation, "created_by", SYSTEM_ACTOR));
+        assertThat(processed(eventId)).isEqualTo(1);
+        assertThat(output.getAll().lines().filter(line -> line.contains("ORDER_PAID_EXPIRED_STOCK_RECLAIMED")))
+                .singleElement().asString().contains(" WARN ").contains(reservation.toString());
+    }
+
+    @Test
+    void orderPaidArrivingAfterTheExpiredStockWasReservedAgainPublishesStockUnavailableAndIsNotRetried(
+            CapturedOutput output) {
+        UUID order = UUID.randomUUID();
+        UUID sku = heldStock(sku("10"), 2, 2);
+        UUID reservation = hold(order, sku, 2, OffsetDateTime.now().minusMinutes(11));
+        expiryJob.runOnce();
+        assertThat(status(reservation)).isEqualTo("EXPIRED");
+        hold(UUID.randomUUID(), sku, 2);
+        jdbc.update("UPDATE inventory_balances SET available_quantity = 0, reserved_quantity = 2 WHERE sku_id = ?",
+                sku);
+        UUID eventId = UUID.randomUUID();
+
+        consumer.receive(orderPaid(eventId, order, "STANDARD"));
+
+        assertBalance(sku, 2, 0, 2, 0);
+        assertThat(status(reservation)).isEqualTo("EXPIRED");
+        assertThat(movements(sku, "COMMIT")).isEmpty();
+        assertThat(processed(eventId)).isEqualTo(1);
+        List<JsonNode> unavailable = stockUnavailable(order);
+        assertThat(unavailable).hasSize(1);
+        JsonNode line = unavailable.getFirst().get("payload").get("reservations").get(0);
+        assertThat(line.get("reservationId").asString()).isEqualTo(reservation.toString());
+        assertThat(line.get("quantity").asInt()).isEqualTo(2);
+        assertThat(line.get("availableQuantity").asInt()).isZero();
+        assertThat(output.getAll().lines().filter(row -> row.contains("ORDER_PAID_STOCK_UNAVAILABLE")))
+                .singleElement().asString().contains(" WARN ").contains("orderId=" + order)
+                .contains(reservation.toString());
+    }
+
+    @Test
+    void aTwoLineOrderWhoseExpiredLineHasNoStockLeftConfirmsNeitherLine() {
+        UUID order = UUID.randomUUID();
+        UUID first = heldStock(sku("10"), 10, 2);
+        UUID second = heldStock(sku("20"), 1, 0);
+        UUID firstHold = hold(order, first, 2);
+        UUID secondHold = jdbc.queryForObject("""
+                INSERT INTO inventory_reservations (sku_id, warehouse_id, order_id, quantity, status, expires_at,
+                                                    released_at)
+                VALUES (?, ?, ?, 2, 'EXPIRED', ?, now()) RETURNING id
+                """, UUID.class, second, warehouse, order, OffsetDateTime.now().minusMinutes(20));
+        Map<String, Object> firstBefore = balance(first);
+        Map<String, Object> secondBefore = balance(second);
+        UUID eventId = UUID.randomUUID();
+
+        consumer.receive(orderPaid(eventId, order, "STANDARD"));
+
+        assertThat(balance(first)).isEqualTo(firstBefore);
+        assertThat(balance(second)).isEqualTo(secondBefore);
+        assertThat(status(firstHold)).isEqualTo("HELD");
+        assertThat(status(secondHold)).isEqualTo("EXPIRED");
+        assertThat(movementCount()).isZero();
+        assertThat(processed(eventId)).isEqualTo(1);
+        JsonNode lines = stockUnavailable(order).getFirst().get("payload").get("reservations");
+        assertThat(lines).hasSize(1);
+        assertThat(lines.get(0).get("reservationId").asString()).isEqualTo(secondHold.toString());
+    }
+
+    @Test
+    void theExpiryCommittingWhileOrderPaidWaitsOnTheReservationStillEndsConfirmed() throws Exception {
+        UUID order = UUID.randomUUID();
+        UUID sku = heldStock(sku("10"), 10, 2);
+        UUID reservation = hold(order, sku, 2);
+        CountDownLatch expiredInOpenTransaction = new CountDownLatch(1);
+        CountDownLatch commitExpiry = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> expiry = pool.submit(() -> new TransactionTemplate(transactions).executeWithoutResult(tx -> {
+                jdbc.update("""
+                        UPDATE inventory_reservations SET status = 'EXPIRED', released_at = now()
+                        WHERE id = ? AND status = 'HELD'
+                        """, reservation);
+                jdbc.update("""
+                        UPDATE inventory_balances
+                        SET reserved_quantity = reserved_quantity - 2, available_quantity = available_quantity + 2
+                        WHERE sku_id = ?
+                        """, sku);
+                expiredInOpenTransaction.countDown();
+                awaitLatch(commitExpiry);
+            }));
+            assertThat(expiredInOpenTransaction.await(10, TimeUnit.SECONDS)).isTrue();
+            UUID eventId = UUID.randomUUID();
+            Future<?> paid = pool.submit(() -> consumer.receive(orderPaid(eventId, order, "STANDARD")));
+            await().atMost(Duration.ofSeconds(10)).until(() -> jdbc.queryForObject("""
+                    SELECT count(*) FROM pg_stat_activity
+                    WHERE wait_event_type = 'Lock' AND datname = current_database()
+                    """, Integer.class) > 0);
+            commitExpiry.countDown();
+            expiry.get(10, TimeUnit.SECONDS);
+            paid.get(10, TimeUnit.SECONDS);
+
+            assertBalance(sku, 10, 8, 0, 2);
+            assertThat(status(reservation)).isEqualTo("CONFIRMED");
+            assertThat(movements(sku, "COMMIT")).hasSize(1);
+            assertThat(processed(eventId)).isEqualTo(1);
+        } finally {
+            commitExpiry.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
     void anOrderPaidWithoutOrderIdConfirmsNoReservationAndIsNotMarkedProcessed() {
         UUID first = heldStock(sku("10"), 10, 2);
         UUID second = heldStock(sku("20"), 5, 1);
@@ -239,10 +377,14 @@ class OrderPaidConsumerIntegrationTest {
     }
 
     private UUID hold(UUID order, UUID sku, int quantity) {
+        return hold(order, sku, quantity, OffsetDateTime.now().plusMinutes(15));
+    }
+
+    private UUID hold(UUID order, UUID sku, int quantity, OffsetDateTime expiresAt) {
         return jdbc.queryForObject("""
                 INSERT INTO inventory_reservations (sku_id, warehouse_id, order_id, quantity, status, expires_at)
                 VALUES (?, ?, ?, ?, 'HELD', ?) RETURNING id
-                """, UUID.class, sku, warehouse, order, quantity, OffsetDateTime.now().plusMinutes(15));
+                """, UUID.class, sku, warehouse, order, quantity, expiresAt);
     }
 
     private void assertBalance(UUID sku, int total, int available, int reserved, int unavailable) {
@@ -270,6 +412,27 @@ class OrderPaidConsumerIntegrationTest {
     private int processed(UUID eventId) {
         return jdbc.queryForObject("SELECT count(*) FROM processed_events WHERE event_id = ? AND consumer = ?",
                 Integer.class, eventId, OrderEventConsumer.ORDER_PAID_CONSUMER);
+    }
+
+    private List<JsonNode> stockUnavailable(UUID order) {
+        return jdbc.queryForList("""
+                        SELECT payload::text FROM outbox
+                        WHERE event_type = 'InventoryStockUnavailable' AND aggregate_id = ?
+                          AND topic = 'nexus.inventory.events'
+                        """, String.class, order.toString()).stream()
+                .map(JSON::readTree)
+                .toList();
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try {
+            if (!latch.await(20, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("latch timed out");
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(interrupted);
+        }
     }
 
     private int movementCount() {

@@ -23,6 +23,17 @@ public interface OrderGroupRepository extends JpaRepository<OrderGroup, UUID> {
     @Query(value = "SELECT status FROM order_groups WHERE id = :id FOR UPDATE", nativeQuery = true)
     Optional<String> lockStatus(@Param("id") UUID id);
 
+    @Query(value = """
+            SELECT id FROM order_groups
+            WHERE status = 'PENDING' AND due_at < now()
+            ORDER BY due_at, id
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<UUID> findOverdueIds(@Param("limit") int limit);
+
+    @Query(value = "SELECT due_at < now() FROM order_groups WHERE id = :id", nativeQuery = true)
+    boolean isOverdue(@Param("id") UUID id);
+
     @Modifying
     @Query(value = """
             UPDATE order_groups

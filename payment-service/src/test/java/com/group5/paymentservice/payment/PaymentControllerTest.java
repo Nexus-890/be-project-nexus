@@ -13,6 +13,8 @@ import com.group5.paymentservice.payment.provider.PaymentProviderRegistry;
 import com.group5.paymentservice.payment.provider.sepay.SepayPaymentProvider;
 import com.group5.paymentservice.payment.repository.PaymentInstructionRepository;
 import com.group5.paymentservice.payment.repository.PaymentSessionRepository;
+import com.group5.paymentservice.payment.repository.PaymentTransactionRepository;
+import com.group5.paymentservice.payment.service.PaymentQueryService;
 import com.group5.paymentservice.payment.service.PaymentService;
 import com.group5.paymentservice.shared.config.PaymentProperties;
 import com.group5.paymentservice.shared.config.SepayProperties;
@@ -250,10 +252,11 @@ class PaymentControllerTest {
             KafkaAutoConfiguration.class, EventsAutoConfiguration.class,
             IdempotentConsumerAutoConfiguration.class, OutboxAutoConfiguration.class})
     @EnableConfigurationProperties({PaymentProperties.class, SepayProperties.class})
-    @Import({PaymentController.class, PaymentService.class, PaymentProviderRegistry.class, SepayPaymentProvider.class})
+    @Import({PaymentController.class, PaymentService.class, PaymentQueryService.class, PaymentProviderRegistry.class, SepayPaymentProvider.class})
     static class TestApplication {
         @Bean PaymentSessionRepository sessions() { return mock(PaymentSessionRepository.class); }
         @Bean PaymentInstructionRepository instructions() { return mock(PaymentInstructionRepository.class); }
+        @Bean PaymentTransactionRepository transactions() { return mock(PaymentTransactionRepository.class); }
         @Bean Clock clock() { return mock(Clock.class); }
         @Bean JwtDecoder jwtDecoder() {
             return token -> {
