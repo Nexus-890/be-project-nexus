@@ -1,9 +1,11 @@
 package com.group5.inventoryservice.reservation.repository;
 
 import com.group5.inventoryservice.reservation.entity.InventoryReservation;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -17,6 +19,10 @@ public interface ReservationRepository extends JpaRepository<InventoryReservatio
     List<InventoryReservation> findByOrderIdInAndWarehouseId(Collection<UUID> orderIds, UUID warehouseId);
 
     List<InventoryReservation> findByOrderIdOrderBySkuIdAscIdAsc(UUID orderId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM InventoryReservation r WHERE r.orderId = :orderId ORDER BY r.skuId, r.id")
+    List<InventoryReservation> lockByOrderId(@Param("orderId") UUID orderId);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(nativeQuery = true, value = """

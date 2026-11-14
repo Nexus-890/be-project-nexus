@@ -60,6 +60,8 @@ The group-payment requirements in #113/#118/#121/#240/#250 also require **Checko
 
 The #203 update on 2026-11-11 adds ShipmentStatusUpdated and ShipmentCancelled as R1 contracts for accepted intermediate and cancellation transitions. These two names are additional to the #186 expansion set. Duplicate/no-op updates publish neither event.
 
+The #157 update on 2026-11-14 adds InventoryStockUnavailable as an R1 contract: inventory publishes it when a late OrderPaid finds an expired hold whose stock is no longer available, and commerce cancels and refunds that paid order.
+
 **CheckoutPaymentConfirmed is the authoritative payment confirmation event for R1**, using one immutable session per order group under #250. **PaymentConfirmed is deferred to R2 and must not be published or consumed as an alternative payment-state event during R1.** Its schema, example and historical #186 ownership references are retained only for traceability, not as an R1 compatibility publication. UserPasswordChanged, UserPasswordReset and UserLoggedIn remain R2 here; Keycloak owns their authentication events (#210/ADR-009).
 
 | Source | Use in this revision |
@@ -255,6 +257,7 @@ The contract cell contains only `R2` for out-of-scope names. Each R1 link resolv
 
 | `ShipmentStatusUpdated` | #203 shipment status standardization | [R1 — payload](#shipmentstatusupdated) |
 | `ShipmentCancelled` | #203 R1 pre-pickup cancellation | [R1 — payload](#shipmentcancelled) |
+| `InventoryStockUnavailable` | #157 late OrderPaid recovery | [R1 — payload](#inventorystockunavailable) |
 
 ## Publishers and consumers
 
@@ -287,6 +290,7 @@ Issue numbers identify implementation ownership, not completed runtime behavior.
 | `InventoryReleased` | `nexus.inventory.events` | [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log only; stock was already changed by inventory |
 | `InventoryCommitted` | `nexus.inventory.events` | [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log only; stock was already changed by inventory |
 | `InventoryReservationExpired` | `nexus.inventory.events` | [#175](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/175) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `InventoryStockUnavailable` | `nexus.inventory.events` | [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157) | commerce-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157): cancel the PAID order with reason STOCK_UNAVAILABLE and publish OrderCancelled with paidAmount, which payment-service refunds |
 | `ShipmentCreated` | `nexus.shipment.events` | [#202](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/202) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log creation; no order-state move; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `ShipmentPickedUp` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): PAID -> SHIPPED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `ShipmentInTransit` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): confirm PAID -> SHIPPED if the pickup event was missed; no new order state is introduced; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
@@ -3120,6 +3124,108 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 ```
 
 #175 batch-expires overdue HELD reservations, returns quantity to available stock, writes a RELEASE movement and writes the outbox row in the same transaction. releasedAt must be at or after expiresAt. Publish one event per changed reservation; repeated runs change neither stock nor event count. R1 reservations carry orderId and do not use cart_id under #134; warehouseId is the UUID resolved from the warehouse code. InventoryReleased is now specified for #209 auction releases; #175 does not add an extra publication merely from this reclassification. #161 consumes OrderCancelled and skips EXPIRED reservations; stock must not be released again in response to this expiry event.
+
+### InventoryStockUnavailable
+
+- Topic: `nexus.inventory.events`.
+- Publisher: inventory-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157).
+- Consumer: commerce-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157): cancel the PAID order and publish OrderCancelled for the refund.
+- Envelope aggregateId: `orderId`; Kafka key: `orderId`.
+
+| Payload field | Meaning |
+| --- | --- |
+| `orderId` | UUID of the paid order whose stock is missing; envelope aggregateId. |
+| `reservations` | The EXPIRED reservations of the order that available stock can no longer cover. |
+| `reservations[].reservationId` | UUID of the expired reservation. |
+| `reservations[].skuId` | UUID of the SKU. |
+| `reservations[].warehouseId` | Warehouse UUID. |
+| `reservations[].quantity` | Quantity the order needs back. |
+| `reservations[].availableQuantity` | Available stock of that SKU and warehouse when OrderPaid was handled. |
+| `detectedAt` | Time inventory handled the late OrderPaid. |
+
+**Payload schema**
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InventoryStockUnavailablePayload",
+  "type": "object",
+  "properties": {
+    "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "reservations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "reservationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "skuId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "warehouseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "availableQuantity": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "reservationId",
+          "skuId",
+          "warehouseId",
+          "quantity",
+          "availableQuantity"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "detectedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "orderId",
+    "reservations",
+    "detectedAt"
+  ],
+  "additionalProperties": true
+}
+```
+
+**Payload example**
+
+```json
+{
+  "orderId": "00000000-0000-4000-8000-000000000001",
+  "reservations": [
+    {
+      "reservationId": "00000000-0000-4000-8000-000000000009",
+      "skuId": "00000000-0000-4000-8000-000000000005",
+      "warehouseId": "00000000-0000-4000-8000-000000000010",
+      "quantity": 2,
+      "availableQuantity": 0
+    }
+  ],
+  "detectedAt": "2026-11-20T10:12:00Z"
+}
+```
+
+Inventory handles OrderPaid with the order's reservation rows locked. When an EXPIRED hold can be covered by available stock it takes that stock back; when any expired line cannot be covered, no line of the order is confirmed or moved, this event is written to the outbox in the same transaction and the OrderPaid is marked processed. Commerce cancels the order only while it is still PAID (reason STOCK_UNAVAILABLE, which buyers cannot send), so the OrderCancelled it publishes carries paidAmount and payment-service refunds it; #161 then releases any line still HELD. A duplicate event changes nothing; an order that is no longer PAID is logged and left for support.
 
 ### ShipmentCreated
 

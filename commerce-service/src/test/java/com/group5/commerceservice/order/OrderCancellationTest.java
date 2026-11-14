@@ -239,12 +239,15 @@ class OrderCancellationTest {
     }
 
     @Test
-    void theExpiryReasonIsReservedAndAnUnknownOrderIs404() {
+    void theSystemReasonsAreReservedAndAnUnknownOrderIs404() {
         CurrentUser buyer = buyer();
         UUID groupId = insertGroup(buyer.id(), "PENDING");
         UUID orderId = insertOrder(groupId, buyer.id(), OrderStatus.PENDING, "150000.00");
 
         assertThatThrownBy(() -> orderService.cancel(buyer, orderId, new CancelOrderRequest("PAYMENT_DEADLINE_EXPIRED")))
+                .isInstanceOf(DomainException.class)
+                .extracting("code", "errorCode").containsExactly(400, "COMMERCE_RESERVED_CANCEL_REASON");
+        assertThatThrownBy(() -> orderService.cancel(buyer, orderId, new CancelOrderRequest("STOCK_UNAVAILABLE")))
                 .isInstanceOf(DomainException.class)
                 .extracting("code", "errorCode").containsExactly(400, "COMMERCE_RESERVED_CANCEL_REASON");
         assertThatThrownBy(() -> orderService.cancel(buyer, UUID.randomUUID(), CHANGED_MIND))

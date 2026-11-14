@@ -5,6 +5,8 @@ import com.group5.common_events.EventKafka;
 import com.group5.common_events.Topics;
 import com.group5.common_outbox.IdempotentConsumer;
 import com.group5.inventoryservice.reservation.service.ReservationService;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -29,6 +31,7 @@ public class OrderEventConsumer {
     private final IdempotentConsumer idempotent;
     private final ReservationService reservations;
     private final JsonMapper mapper;
+    private final Tracer tracer;
 
     @KafkaListener(id = LISTENER_ID, topics = Topics.COMMERCE,
             groupId = "${nexus.inventory.consumer-group:inventory-order-events}",
@@ -36,12 +39,24 @@ public class OrderEventConsumer {
     public void receive(ConsumerRecord<String, EventEnvelope<JsonNode>> record) {
         EventEnvelope<JsonNode> event = record.value();
         switch (event.eventType()) {
-            case "OrderPaid" -> idempotent.handle(ORDER_PAID_CONSUMER,
-                    payloadOf(event, OrderPaid.class, OrderPaid::orderId), this::orderPaid);
+            case "OrderPaid" -> traced("inventory-order-paid", () -> idempotent.handle(ORDER_PAID_CONSUMER,
+                    payloadOf(event, OrderPaid.class, OrderPaid::orderId), this::orderPaid));
             case "OrderCancelled" -> idempotent.handle(ORDER_CANCELLED_CONSUMER,
                     payloadOf(event, OrderCancelled.class, OrderCancelled::orderId), this::orderCancelled);
             default -> {
             }
+        }
+    }
+
+    private void traced(String name, Runnable work) {
+        Span span = tracer.nextSpan().name(name).start();
+        try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
+            work.run();
+        } catch (RuntimeException failure) {
+            span.error(failure);
+            throw failure;
+        } finally {
+            span.end();
         }
     }
 
@@ -58,12 +73,13 @@ public class OrderEventConsumer {
                     event.eventId(), paid.orderId(), result.reclaimed());
         }
         if (!result.lost().isEmpty()) {
-            log.error("ORDER_PAID_STOCK_LOST eventId={} orderId={} orderType={} reservations={}",
+            log.warn("ORDER_PAID_STOCK_UNAVAILABLE eventId={} orderId={} orderType={} missing={} "
+                            + "published=InventoryStockUnavailable",
                     event.eventId(), paid.orderId(), paid.orderType(), result.lost());
+            return;
         }
         log.info("ORDER_PAID_STOCK_CONFIRMED eventId={} orderId={} orderType={} reservations={}",
-                event.eventId(), paid.orderId(), paid.orderType(),
-                result.reservations() - result.lost().size());
+                event.eventId(), paid.orderId(), paid.orderType(), result.reservations());
     }
 
     private void orderCancelled(EventEnvelope<OrderCancelled> event) {

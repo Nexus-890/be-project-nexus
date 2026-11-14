@@ -82,6 +82,13 @@ public interface InventoryBalanceRepository extends JpaRepository<InventoryBalan
     int commitAvailable(@Param("skuId") UUID skuId, @Param("warehouseId") UUID warehouseId,
                         @Param("quantity") int quantity, @Param("actor") UUID actor);
 
+    @Query(nativeQuery = true, value = """
+            SELECT available_quantity FROM inventory_balances
+            WHERE sku_id = :skuId AND warehouse_id = :warehouseId
+            FOR UPDATE
+            """)
+    Optional<Integer> lockAvailable(@Param("skuId") UUID skuId, @Param("warehouseId") UUID warehouseId);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(nativeQuery = true, value = """
             UPDATE inventory_balances
