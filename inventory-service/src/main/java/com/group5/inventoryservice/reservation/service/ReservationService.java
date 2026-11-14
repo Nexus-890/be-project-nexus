@@ -116,6 +116,32 @@ public class ReservationService {
                 reservation.getQuantity(), reservation.getId(), actor);
     }
 
+    @Transactional
+    public OrderRelease releaseOrder(UUID orderId) {
+        int released = 0;
+        int returned = 0;
+        for (InventoryReservation reservation : reservations.findByOrderIdOrderBySkuIdAscIdAsc(orderId)) {
+            UUID id = reservation.getId();
+            if (reservations.releaseHeld(id, SYSTEM_ACTOR) == 1) {
+                requireMoved(balances.releaseReserved(reservation.getSkuId(), reservation.getWarehouseId(),
+                        reservation.getQuantity(), SYSTEM_ACTOR), reservation);
+                movements.record(reservation.getSkuId(), reservation.getWarehouseId(), MovementType.RELEASE,
+                        reservation.getQuantity(), id, SYSTEM_ACTOR);
+                released++;
+            } else if (reservations.returnConfirmed(id, SYSTEM_ACTOR) == 1) {
+                requireMoved(balances.returnCommitted(reservation.getSkuId(), reservation.getWarehouseId(),
+                        reservation.getQuantity(), SYSTEM_ACTOR), reservation);
+                movements.record(reservation.getSkuId(), reservation.getWarehouseId(), MovementType.RETURN,
+                        reservation.getQuantity(), id, SYSTEM_ACTOR);
+                returned++;
+            }
+        }
+        return new OrderRelease(released, returned);
+    }
+
+    public record OrderRelease(int released, int returned) {
+    }
+
     private void requireAlready(UUID reservationId, Set<ReservationStatus> done) {
         if (!done.contains(find(reservationId).getStatus())) {
             throw new DomainException(InventoryErrorCode.ILLEGAL_TRANSITION);

@@ -14,6 +14,9 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.util.UUID;
+import java.util.function.Function;
+
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -21,6 +24,7 @@ public class OrderEventConsumer {
 
     public static final String LISTENER_ID = "inventory-order-events";
     static final String ORDER_PAID_CONSUMER = "inventory-order-paid";
+    static final String ORDER_CANCELLED_CONSUMER = "inventory-order-cancelled";
 
     private final IdempotentConsumer idempotent;
     private final ReservationService reservations;
@@ -31,8 +35,13 @@ public class OrderEventConsumer {
             containerFactory = EventKafka.LISTENER_CONTAINER_FACTORY)
     public void receive(ConsumerRecord<String, EventEnvelope<JsonNode>> record) {
         EventEnvelope<JsonNode> event = record.value();
-        if ("OrderPaid".equals(event.eventType())) {
-            idempotent.handle(ORDER_PAID_CONSUMER, orderPaidOf(event), this::orderPaid);
+        switch (event.eventType()) {
+            case "OrderPaid" -> idempotent.handle(ORDER_PAID_CONSUMER,
+                    payloadOf(event, OrderPaid.class, OrderPaid::orderId), this::orderPaid);
+            case "OrderCancelled" -> idempotent.handle(ORDER_CANCELLED_CONSUMER,
+                    payloadOf(event, OrderCancelled.class, OrderCancelled::orderId), this::orderCancelled);
+            default -> {
+            }
         }
     }
 
@@ -48,21 +57,30 @@ public class OrderEventConsumer {
                 event.eventId(), paid.orderId(), paid.orderType(), confirmed);
     }
 
-    private EventEnvelope<OrderPaid> orderPaidOf(EventEnvelope<JsonNode> event) {
-        OrderPaid paid;
+    private void orderCancelled(EventEnvelope<OrderCancelled> event) {
+        OrderCancelled cancelled = event.payload();
+        ReservationService.OrderRelease result = reservations.releaseOrder(cancelled.orderId());
+        log.info("ORDER_CANCELLED_STOCK_RELEASED eventId={} orderId={} orderType={} reason={} released={} returned={}",
+                event.eventId(), cancelled.orderId(), cancelled.orderType(), cancelled.reason(),
+                result.released(), result.returned());
+    }
+
+    private <T> EventEnvelope<T> payloadOf(EventEnvelope<JsonNode> event, Class<T> type, Function<T, UUID> orderId) {
+        String name = type.getSimpleName();
+        T payload;
         try {
-            paid = mapper.convertValue(event.payload(), OrderPaid.class);
+            payload = mapper.convertValue(event.payload(), type);
         } catch (IllegalArgumentException | JacksonException error) {
-            throw new InvalidOrderEventException("Invalid OrderPaid payload in event " + event.eventId(), error);
+            throw new InvalidOrderEventException("Invalid " + name + " payload in event " + event.eventId(), error);
         }
-        if (paid == null) {
-            throw new InvalidOrderEventException("OrderPaid event " + event.eventId() + " has no payload");
+        if (payload == null) {
+            throw new InvalidOrderEventException(name + " event " + event.eventId() + " has no payload");
         }
-        if (!paid.orderId().toString().equals(event.aggregateId())) {
-            throw new InvalidOrderEventException("OrderPaid event " + event.eventId() + " has aggregateId "
-                    + event.aggregateId() + " but orderId " + paid.orderId());
+        if (!orderId.apply(payload).toString().equals(event.aggregateId())) {
+            throw new InvalidOrderEventException(name + " event " + event.eventId() + " has aggregateId "
+                    + event.aggregateId() + " but orderId " + orderId.apply(payload));
         }
         return new EventEnvelope<>(event.eventId(), event.eventType(), event.aggregateId(), event.occurredAt(),
-                event.traceId(), paid);
+                event.traceId(), payload);
     }
 }
