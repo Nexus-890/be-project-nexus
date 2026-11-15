@@ -164,7 +164,7 @@ class AuctionLimitsIntegrationTest {
         UUID productId = productIdsBySku.computeIfAbsent(sku, ignored -> UUID.randomUUID());
         UUID owner = token.equals("seller") ? seller : otherSeller;
         products.putIfAbsent(productId, new CatalogClient.Product(owner, "Catalog auction",
-                List.of(new CatalogClient.Sku(sku)), List.of()));
+                List.of(new CatalogClient.Sku(sku)), List.of(new CatalogClient.Image("https://example.com/auction.png"))));
         Instant start = Instant.now().plusSeconds(3600);
         String body = """
                 {"productId":"%s","skuId":"%s","title":"Auction limits","startingPrice":100000,

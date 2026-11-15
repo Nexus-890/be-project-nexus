@@ -57,6 +57,7 @@ class AuctionCatalogIntegrationTest {
     private static final String IMAGE = "https://example.com/first.jpg";
     private static final AtomicInteger CALLS = new AtomicInteger();
     private static final AtomicInteger AVAILABLE = new AtomicInteger();
+    private static final AtomicInteger STOCK_CALLS = new AtomicInteger();
     private static final AtomicReference<CatalogReply> REPLY = new AtomicReference<>();
     private static final ExecutorService HTTP_THREADS = Executors.newVirtualThreadPerTaskExecutor();
     private static final HttpServer CATALOG = startCatalog();
@@ -87,6 +88,7 @@ class AuctionCatalogIntegrationTest {
         jdbc.update("DELETE FROM outbox");
         CALLS.set(0);
         AVAILABLE.set(5);
+        STOCK_CALLS.set(0);
         REPLY.set(new CatalogReply(200, productJson("""
                 [{"imageUrl":"%s","sortOrder":0},{"imageUrl":"https://example.com/second.jpg","sortOrder":1}]
                 """.formatted(IMAGE)), 0));
@@ -127,11 +129,12 @@ class AuctionCatalogIntegrationTest {
     }
 
     @Test
-    void allowsOmittedTitleAndStoresNullWhenProductHasNoImages() throws Exception {
+    void refusesProductWithoutImageBeforeCallingInventoryOrWritingAuctionAndEvent() throws Exception {
         REPLY.set(new CatalogReply(200, productJson("[]"), 0));
-        create("owner", SKU, "").andExpect(status().isCreated());
-        assertThat(jdbc.queryForMap("SELECT title, image_url FROM auctions"))
-                .containsEntry("title", "Catalog product").containsEntry("image_url", null);
+        expectProblem(create("owner", SKU, ""), 409, "AUCTION_IMAGE_REQUIRED");
+        assertThat(STOCK_CALLS.get()).isZero();
+        assertThat(rowCount()).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox", Integer.class)).isZero();
     }
 
     @Test
@@ -209,6 +212,7 @@ class AuctionCatalogIntegrationTest {
             server.setExecutor(HTTP_THREADS);
             server.createContext("/api/v1/inventory/" + SKU, exchange -> {
                 try (exchange) {
+                    STOCK_CALLS.incrementAndGet();
                     byte[] bytes = """
                             {"code":0,"message":"success","data":{"skuId":"%s","available":%d}}
                             """.formatted(SKU, AVAILABLE.get()).getBytes(StandardCharsets.UTF_8);

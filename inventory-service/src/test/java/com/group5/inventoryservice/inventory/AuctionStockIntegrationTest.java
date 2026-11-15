@@ -29,7 +29,6 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -157,24 +156,32 @@ class AuctionStockIntegrationTest {
     }
 
     @Test
-    void failedHoldRollsBackReservationAndProcessedMarkerSoItCanRetry() {
+    void stockLostAfterPrecheckPublishesOneRejectionAndProcessesTheEvent() {
         Fixture fixture = seed();
         jdbc.update("""
                 UPDATE inventory_balances SET available_quantity = 0, unavailable_quantity = 5 WHERE sku_id = ?
                 """, fixture.sku());
         var created = created(fixture);
-        assertThatThrownBy(() -> auctionEvents.receive(created)).isInstanceOf(RuntimeException.class);
+        auctionEvents.receive(created);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM inventory_reservations WHERE auction_id = ?",
                 Integer.class, fixture.auction())).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM processed_events WHERE event_id = ?", Integer.class,
-                created.eventId())).isZero();
+                created.eventId())).isEqualTo(1);
         assertThat(movements(fixture)).isEmpty();
-        assertThat(inventoryEvents(fixture)).isEmpty();
+        assertThat(inventoryEvents(fixture)).containsExactly("AuctionStockRejected");
+        assertThat(jdbc.queryForMap("""
+                SELECT aggregate_id, topic, payload->'payload'->>'skuId' AS sku_id,
+                       payload->'payload'->>'reason' AS reason
+                FROM outbox WHERE event_type = 'AuctionStockRejected' AND aggregate_id = ?
+                """, fixture.auction().toString())).containsEntry("topic", Topics.INVENTORY)
+                .containsEntry("aggregate_id", fixture.auction().toString())
+                .containsEntry("sku_id", fixture.sku().toString()).containsEntry("reason", "OUT_OF_STOCK");
         jdbc.update("""
                 UPDATE inventory_balances SET available_quantity = 5, unavailable_quantity = 0 WHERE sku_id = ?
                 """, fixture.sku());
         auctionEvents.receive(created);
-        assertBalance(fixture, 4, 1, 0);
+        assertBalance(fixture, 5, 0, 0);
+        assertThat(inventoryEvents(fixture)).containsExactly("AuctionStockRejected");
     }
 
     private Fixture seed() {

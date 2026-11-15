@@ -311,7 +311,7 @@ paths:
                     instance: /api/v1/auctions
                     code: AUCTION_SKU_NOT_FOUND
         '409':
-          description: The selected SKU is out of stock, already has a live auction, or the seller has reached the live auction limit.
+          description: The product lacks a valid image, the SKU is out of stock or has a live auction, or the seller has reached the live auction limit.
           content:
             application/problem+json:
               schema:
@@ -322,7 +322,7 @@ paths:
                       status:
                         enum: [409]
                       code:
-                        enum: [AUCTION_SKU_ALREADY_LIVE, AUCTION_SELLER_LIMIT_REACHED, AUCTION_STOCK_UNAVAILABLE]
+                        enum: [AUCTION_IMAGE_REQUIRED, AUCTION_SKU_ALREADY_LIVE, AUCTION_SELLER_LIMIT_REACHED, AUCTION_STOCK_UNAVAILABLE]
         '429':
           description: 'RATE_LIMITED — Gateway request limit exceeded.'
           headers:
@@ -1327,7 +1327,7 @@ components:
         cancelledBy:
           type: string
           nullable: true
-          enum: [SELLER, ADMIN]
+          enum: [SELLER, ADMIN, SYSTEM]
         cancelledReason:
           type: string
           nullable: true

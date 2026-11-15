@@ -2,11 +2,15 @@ package com.group5.auctionservice.settlement;
 
 import com.group5.auctionservice.TestPostgres;
 import com.group5.auctionservice.auction.AuctionRepository;
+import com.group5.auctionservice.auction.AuctionStockRejectedConsumer;
+import com.group5.common_events.EventEnvelope;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import jakarta.servlet.Filter;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -19,11 +23,14 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.JsonNode;
 
 import java.time.OffsetDateTime;
+import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -51,6 +58,7 @@ class SettlementIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired AuctionRepository auctions;
     @Autowired SettlementService settlement;
+    @Autowired AuctionStockRejectedConsumer stockRejections;
     @Autowired PlatformTransactionManager transactionManager;
     @Autowired Tracer tracer;
     @Autowired WebApplicationContext context;
@@ -157,6 +165,46 @@ class SettlementIntegrationTest {
             mvc.perform(post("/actuator/refresh").header("Authorization", "Bearer settlement-admin"))
                     .andExpect(status().isOk());
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"CREATED", "SCHEDULED", "ACTIVE"})
+    void outOfStockCancelsOpenAuctionAndPublishesOnce(String status) {
+        UUID id = endedAuction();
+        jdbc.update("UPDATE auctions SET status = ?::auction_status, end_at = now() + interval '1 hour' WHERE id = ?",
+                status, id);
+        var event = rejection(id);
+        stockRejections.receive(event);
+        var row = jdbc.queryForMap("SELECT * FROM auctions WHERE id = ?", id);
+        assertThat(row).containsEntry("cancelled_by", "SYSTEM")
+                .containsEntry("cancelled_reason", "STOCK_UNAVAILABLE");
+        assertThat(auctions.findById(id).orElseThrow().getStatus().name()).isEqualTo("CANCELLED");
+        var payload = JsonMapper.shared().readTree(outbox(id, "AuctionCancelled")).required("payload");
+        assertThat(payload.required("reason").asString()).isEqualTo("STOCK_UNAVAILABLE");
+        assertThat(payload.required("actorId").asString()).isEqualTo(new UUID(0, 0).toString());
+        stockRejections.receive(event);
+        stockRejections.receive(rejection(id));
+        assertThat(jdbc.queryForMap("SELECT * FROM auctions WHERE id = ?", id)).isEqualTo(row);
+        assertThat(eventCount(id)).isEqualTo(1);
+    }
+
+    @Test
+    void outOfStockDoesNotChangeAnAuctionWithAResult() {
+        UUID id = endedAuction();
+        bid(id, UUID.randomUUID(), 1_500_000, END.minusSeconds(1), "PLACED");
+        settle(id);
+        var row = jdbc.queryForMap("SELECT * FROM auctions WHERE id = ?", id);
+        stockRejections.receive(rejection(id));
+        assertThat(jdbc.queryForMap("SELECT * FROM auctions WHERE id = ?", id)).isEqualTo(row);
+        assertThat(eventCount(id)).isEqualTo(1);
+    }
+
+    private EventEnvelope<JsonNode> rejection(UUID id) {
+        UUID sku = auctions.findById(id).orElseThrow().getSkuId();
+        JsonNode payload = JsonMapper.shared().valueToTree(Map.of(
+                "auctionId", id, "skuId", sku, "reason", "OUT_OF_STOCK"));
+        return new EventEnvelope<>(UUID.randomUUID(), "AuctionStockRejected", id.toString(),
+                Instant.now(), "8f30a3a71d670bc4", payload);
     }
 
     private void settle(UUID auctionId) {

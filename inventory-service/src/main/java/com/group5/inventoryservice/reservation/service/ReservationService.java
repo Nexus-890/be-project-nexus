@@ -61,12 +61,14 @@ public class ReservationService {
             return;
         }
         UUID warehouseId = warehouses.defaultWarehouseId();
+        if (balances.reserve(skuId, warehouseId, 1, SYSTEM_ACTOR) == 0) {
+            outbox.write("Auction", Topics.INVENTORY, envelopes.create("AuctionStockRejected", auctionId.toString(),
+                    Map.of("auctionId", auctionId, "skuId", skuId, "reason", "OUT_OF_STOCK")));
+            return;
+        }
         OffsetDateTime createdAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
         InventoryReservation hold = reservations.saveAndFlush(InventoryReservation.heldForAuction(
                 auctionId, skuId, warehouseId, createdAt, endAt.atOffset(ZoneOffset.UTC)));
-        if (balances.reserve(skuId, warehouseId, 1, SYSTEM_ACTOR) == 0) {
-            throw insufficientStock(skuId, warehouseId, 1);
-        }
         movements.record(skuId, warehouseId, MovementType.RESERVE, 1, hold.getId(), SYSTEM_ACTOR);
         outbox.write("InventoryReservation", Topics.INVENTORY, envelopes.create("InventoryReserved", hold.getId().toString(),
                 new AuctionStockReserved(hold.getId(), auctionId, null, skuId, warehouseId, 1,

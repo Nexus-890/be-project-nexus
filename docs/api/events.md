@@ -258,6 +258,7 @@ The contract cell contains only `R2` for out-of-scope names. Each R1 link resolv
 | `ShipmentStatusUpdated` | #203 shipment status standardization | [R1 — payload](#shipmentstatusupdated) |
 | `ShipmentCancelled` | #203 R1 pre-pickup cancellation | [R1 — payload](#shipmentcancelled) |
 | `InventoryStockUnavailable` | #157 late OrderPaid recovery | [R1 — payload](#inventorystockunavailable) |
+| `AuctionStockRejected` | #170 auction hold rejection | [R1 — payload](#auctionstockrejected) |
 
 ## Publishers and consumers
 
@@ -291,6 +292,7 @@ Issue numbers identify implementation ownership, not completed runtime behavior.
 | `InventoryCommitted` | `nexus.inventory.events` | [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log only; stock was already changed by inventory |
 | `InventoryReservationExpired` | `nexus.inventory.events` | [#175](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/175) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `InventoryStockUnavailable` | `nexus.inventory.events` | [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157) | commerce-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157): cancel the PAID order with reason STOCK_UNAVAILABLE and publish OrderCancelled with paidAmount, which payment-service refunds |
+| `AuctionStockRejected` | `nexus.inventory.events` | inventory-service #170 | auction-service #170 cancels an open auction with reason STOCK_UNAVAILABLE |
 | `ShipmentCreated` | `nexus.shipment.events` | [#202](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/202) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log creation; no order-state move; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `ShipmentPickedUp` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): PAID -> SHIPPED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `ShipmentInTransit` | `nexus.shipment.events` | [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203) | commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): confirm PAID -> SHIPPED if the pickup event was missed; no new order state is introduced; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
@@ -323,7 +325,7 @@ Issue numbers identify implementation ownership, not completed runtime behavior.
 2. **Delivery/completion:** #202 consumes per-order OrderPaid with the trusted buyer/warehouse/shipping snapshot. #203 publishes normalized Shipment* changes. #204 applies ShipmentPickedUp -> SHIPPED and ShipmentDelivered -> DELIVERED -> COMPLETED, then emits OrderCompleted. Post-pickup progress (IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERY_FAILED, RETURNING, RETURNED) also confirms PAID -> SHIPPED if pickup was missed. Delivery received while PAID atomically records PAID -> SHIPPED -> DELIVERED -> COMPLETED; missing orders or PENDING payment remain durably pending. No new order enum is introduced. #242/#212 populate eligibility; #213 applies the unique canonical outcome and later UserRated inputs.
 3. **Unpaid cancellation:** #189/#159 cancel the complete group and its still-PENDING children atomically in commerce, publishing OrderGroupCancelled and OrderCancelled per child. Payment closes the immutable unpaid session/instructions. A raced successful receipt remains successful financial evidence; a late confirmation cannot resurrect cancelled orders, and #247 compensates each funded cancelled child's own share.
 4. **Paid child cancellation/refund:** R1 allows a PAID seller order to be cancelled until ShipmentPickedUp, with no handover request or request/ACK protocol. #189 publishes the final OrderCancelled; #203 consumes it idempotently. Before pickup, cancel any existing carrier booking through CarrierAdapter, then commit CANCELLED, one history row, one ShipmentCancelled outbox event and the processed marker. After pickup, change nothing and log one WARN for Support for the handled event. A missing shipment completes without error after recording a durable cancellation tombstone, so a later OrderPaid cannot create or book a cancelled order; manual creation then returns 409 SHIPMENT_ORDER_NOT_PAID. Validate the nonblank OrderCancelled reason, at most 500 characters, before any carrier cancellation. Preserve the valid reason in the tombstone and sanitize/truncate to 255 characters for tracking/outbox audit. Carrier cancellation failure remains retryable and must not be marked processed. OrderRefundRequested/Completed identify one child/instruction/refund; never refund the entire multi-seller receipt for each child.
-5. **Auction stock and settlement:** #209 AuctionCreated -> inventory hold/InventoryReserved; AuctionFailed/AuctionCancelled -> release/InventoryReleased; AuctionSettled -> link orderId without a stock movement; OrderPaid (#160) -> commit/InventoryCommitted; OrderCancelled (#161) -> release or return stock. #171 AuctionWon -> #172 singleton group/AUCTION order -> OrderCreated -> #173 AuctionSettled. The hold remains HELD until the order payment or cancellation outcome. #208 consumes only AUCTION OrderCancelled with PAYMENT_DEADLINE_EXPIRED and emits AuctionPaymentTimeout for #213's winner-only penalty.
+5. **Auction stock and settlement:** #209 AuctionCreated -> inventory hold/InventoryReserved. If the last unit is taken after the create precheck, Inventory writes AuctionStockRejected and Auction cancels the open auction with STOCK_UNAVAILABLE. AuctionFailed/AuctionCancelled -> release any existing hold/InventoryReleased; AuctionSettled -> link orderId without a stock movement; OrderPaid (#160) -> commit/InventoryCommitted; OrderCancelled (#161) -> release or return stock. #171 AuctionWon -> #172 singleton group/AUCTION order -> OrderCreated -> #173 AuctionSettled. The hold remains HELD until the order payment or cancellation outcome. #208 consumes only AUCTION OrderCancelled with PAYMENT_DEADLINE_EXPIRED and emits AuctionPaymentTimeout for #213's winner-only penalty.
 6. **Logging/audit:** #192 independently consumes all eight domain topics and records the seven local notification/health types. #217's config audit delivery is a proposed durable internal handoff with no Kafka topic. Local logging does not subscribe to itself or create recursive notification events.
 
 The existing AuctionWon -> order snapshot mapping remains: winnerId -> buyer, sellerId -> seller, productId/skuId/title/imageUrl/quantity/finalPrice -> immutable order item, referenceId=auctionId, and paymentDueAt is preserved. #172 also creates the singleton group/manifest required by the new payment model. The shared AuctionWon payload validates the copied image and the fixed quantity of one before publication.
@@ -2190,7 +2192,7 @@ failed effects leave the persisted fact available for another attempt.
 | `productId` | Stored product context. |
 | `skuId` | Stored SKU context. |
 | `actorId` | Authenticated action actor UUID, or the fixed system UUID for a job/consumer; never a viewer-supplied actor. |
-| `cancelledBy` | Business role of the actor, separate from actorId. |
+| `cancelledBy` | SELLER or ADMIN for manual cancellation, SYSTEM for automatic stock rejection. |
 | `reason` | Stored cancellation reason. |
 | `auctionVersion` | Committed auction version. |
 | `cancelledAt` | Accepted transition time to CANCELLED. |
@@ -2227,7 +2229,8 @@ failed effects leave the persisted fact available for another attempt.
       "type": "string",
       "enum": [
         "SELLER",
-        "ADMIN"
+        "ADMIN",
+        "SYSTEM"
       ]
     },
     "reason": {
@@ -2503,7 +2506,7 @@ failed effects leave the persisted fact available for another attempt.
 
 Commerce generates order/group/item IDs, an AUC-prefixed order number, initial PENDING state and its own idempotency key/history locally; these are not missing auction fields. Nullable order_items.sku_code can remain null: skuId is the SKU identity. AuctionWon carries no recipient/address, warehouseId or shipping quote. #172 obtains the linked hold's warehouse under #209 and calculates shipping on the later confirmation step, without a call back into auction-service. It does not invent address data or start a payment session before that step.
 
-**Image and quantity:** #141 copies the first Catalog image when available. #170 publishes a quantity of one and requires a valid non-null imageUrl from the stored snapshot. With a missing or invalid snapshot, the settlement transaction rolls back and the auction stays ENDED for repair and retry.
+**Image and quantity:** #170 requires a valid first Catalog image at creation and copies it into the auction row. AuctionWon publishes that stored URL and a quantity of one. For older auctions with a missing or invalid snapshot, settlement rolls back and the auction stays ENDED for repair and retry.
 
 #172 commits the order and OrderCreated without a payment manifest or a new reservation. #173 settles after OrderCreated, not after payment.
 
@@ -3124,6 +3127,29 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 ```
 
 #175 batch-expires overdue HELD reservations, returns quantity to available stock, writes a RELEASE movement and writes the outbox row in the same transaction. releasedAt must be at or after expiresAt. Publish one event per changed reservation; repeated runs change neither stock nor event count. R1 reservations carry orderId and do not use cart_id under #134; warehouseId is the UUID resolved from the warehouse code. InventoryReleased is now specified for #209 auction releases; #175 does not add an extra publication merely from this reclassification. #161 consumes OrderCancelled and skips EXPIRED reservations; stock must not be released again in response to this expiry event.
+
+### AuctionStockRejected
+
+- Topic: `nexus.inventory.events`.
+- Publisher: inventory-service #170, when the conditional auction hold finds no available stock.
+- Consumer: auction-service #170.
+- Envelope aggregateId and Kafka key: `auctionId`.
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AuctionStockRejectedPayload",
+  "type": "object",
+  "properties": {
+    "auctionId": { "type": "string", "format": "uuid" },
+    "skuId": { "type": "string", "format": "uuid" },
+    "reason": { "const": "OUT_OF_STOCK" }
+  },
+  "required": ["auctionId", "skuId", "reason"]
+}
+```
+
+Inventory commits the processed AuctionCreated marker and rejection outbox row together, without a hold or movement. Auction locks the matching auction and SKU and cancels only CREATED, SCHEDULED or ACTIVE. It records `cancelledBy=SYSTEM`, the all-zero system actor UUID and reason `STOCK_UNAVAILABLE`, then writes AuctionCancelled in the same transaction as the processed marker. Replays leave the cancellation and stock unchanged.
 
 ### InventoryStockUnavailable
 
@@ -6484,7 +6510,7 @@ The file is ready for contract review, with these remaining decisions explicitly
 | #217 / #192, both backend lanes | Confirm config write owner/route (ADR-009 leaves it open) and durable authenticated non-Kafka audit handoff. `none` cannot mean sending Kafka to a literal topic named none or using a nonexistent in-process shared DB. |
 | #202 / #203 / #241 | Approve trusted OrderPaid shippingInfo/warehouse and status mappings, preparation of missing parcel/pickup details, and ShipmentCreated's PENDING_TRACKING creation case. Historical messages need coordinated backfill/replay; never fake carrier measurements/locality codes. |
 | #189 / #203 / #250 | Apply the R1 rule in integration flow 4: a PAID child can be cancelled until ShipmentPickedUp without a handover request/ACK. Keep this distinct from whole-group prepayment cancellation; already-picked-up shipments remain unchanged with a Support WARN. |
-| #209 / #197 / #216 | Agree admission/no-stock 409 versus async AuctionCreated reservation behavior, and cancellation product-flag reconciliation. #216 names AuctionCreated/AuctionEnded, not a new AuctionCancelled subscriber. |
+| #209 / #197 / #216 | The create precheck returns 409 for zero stock. AuctionStockRejected handles stock lost before the hold. Product-flag reconciliation remains with #216. |
 | #141 / #171 / #172 | Review the #139 order-line mapping and proposed image/quantity policy; implement the singleton group without another stock reservation. Defer the payment manifest until shipping confirmation. Record both sides' actual !150 approvals. |
 
 The #186 table's consumers are all named here, including explicit filtering where #204 consumes a topic but only two shipment types move order state. New logging subscriptions in #192 replace the old six publisher-only classifications; they do not invent unrelated business handlers.
