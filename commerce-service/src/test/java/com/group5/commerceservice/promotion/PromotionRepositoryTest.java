@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
-import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -357,7 +357,7 @@ class PromotionRepositoryTest {
         SecurityContextHolder.getContext().setAuthentication(new JwtAuthConverter().convert(jwt));
     }
 
-    @Configuration(proxyBeanMethods = false)
+    @TestConfiguration(proxyBeanMethods = false)
     @EnableTransactionManagement
     @EnableMethodSecurity
     static class PromotionSecurity { }

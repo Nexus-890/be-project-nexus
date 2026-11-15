@@ -1,14 +1,14 @@
 package com.group5.commerceservice.promotion;
 
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import tools.jackson.databind.ObjectMapper;
 
 import javax.sql.DataSource;
 
-@Configuration(proxyBeanMethods = false)
+@TestConfiguration(proxyBeanMethods = false)
 @Import({VoucherCheckoutService.class, VoucherLimitRepository.class, VoucherRepository.class, MegaSaleEventRepository.class,
         VoucherLifecycleService.class})
 public class PromotionTestConfig {

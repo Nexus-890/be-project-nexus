@@ -253,9 +253,14 @@ class OrderExpiryJobTest {
         }
 
         @Bean
-        EventEnvelopeFactory eventEnvelopeFactory() {
+        Tracer tracer() {
             Tracer tracer = Mockito.mock(Tracer.class, Mockito.RETURNS_DEEP_STUBS);
             when(tracer.currentSpan().context().traceId()).thenReturn("159expiry");
+            return tracer;
+        }
+
+        @Bean
+        EventEnvelopeFactory eventEnvelopeFactory(Tracer tracer) {
             return new EventEnvelopeFactory(tracer, Clock.systemUTC());
         }
 
