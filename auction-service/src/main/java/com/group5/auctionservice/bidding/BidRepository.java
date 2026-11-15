@@ -12,6 +12,10 @@ import java.util.UUID;
 public interface BidRepository extends JpaRepository<Bid, UUID> {
     Optional<Bid> findByIdempotencyKey(String idempotencyKey);
 
+    // Earlier bids win ties. ID breaks ties at an identical placement timestamp.
+    Optional<Bid> findFirstByAuctionIdAndStatusNotOrderByAmountDescPlacedAtAscIdAsc(
+            UUID auctionId, Bid.Status excludedStatus);
+
     @Query("""
             select new com.group5.auctionservice.bidding.dto.BidHistoryItem(b.amount, b.bidderName, b.placedAt)
             from Bid b

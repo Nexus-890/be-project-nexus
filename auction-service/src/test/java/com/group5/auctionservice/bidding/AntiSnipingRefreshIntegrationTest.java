@@ -19,7 +19,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.testcontainers.postgresql.PostgreSQLContainer;
+import com.group5.auctionservice.TestPostgres;
 
 import java.math.BigDecimal;
 import java.net.URI;
@@ -42,7 +42,7 @@ import static org.awaitility.Awaitility.await;
 
 /** #149: actual actuator refresh and lifecycle ticks against an isolated PostgreSQL database. */
 class AntiSnipingRefreshIntegrationTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final TestPostgres POSTGRES = new TestPostgres();
     private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     private static final CurrentUser BUYER = new CurrentUser(UUID.randomUUID(), Set.of("BUYER"), Set.of("AUCTION.BID"));
     private static ConfigurableApplicationContext context;
@@ -70,7 +70,8 @@ class AntiSnipingRefreshIntegrationTest {
                         "--spring.cloud.discovery.enabled=false", "--eureka.client.enabled=false",
                         "--spring.kafka.admin.auto-create=false", "--spring.kafka.listener.auto-startup=false",
                         "--management.endpoints.web.exposure.include=health,refresh",
-                        "--management.tracing.export.zipkin.enabled=false", "--nexus.outbox.relay.enabled=false");
+                        "--management.tracing.export.zipkin.enabled=false", "--nexus.outbox.relay.enabled=false",
+                        "--nexus.auction.settlement.enabled=false");
         jdbc = context.getBean(JdbcTemplate.class);
         bids = context.getBean(BidService.class);
         properties = context.getBean(AuctionProperties.class);

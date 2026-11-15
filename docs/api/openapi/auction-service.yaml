@@ -311,7 +311,7 @@ paths:
                     instance: /api/v1/auctions
                     code: AUCTION_SKU_NOT_FOUND
         '409':
-          description: The SKU already has a live auction or the seller has reached the live auction limit.
+          description: The product lacks a valid image, the SKU is out of stock or has a live auction, or the seller has reached the live auction limit.
           content:
             application/problem+json:
               schema:
@@ -322,7 +322,7 @@ paths:
                       status:
                         enum: [409]
                       code:
-                        enum: [AUCTION_SKU_ALREADY_LIVE, AUCTION_SELLER_LIMIT_REACHED]
+                        enum: [AUCTION_IMAGE_REQUIRED, AUCTION_SKU_ALREADY_LIVE, AUCTION_SELLER_LIMIT_REACHED, AUCTION_STOCK_UNAVAILABLE]
         '429':
           description: 'RATE_LIMITED — Gateway request limit exceeded.'
           headers:
@@ -341,7 +341,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
         '503':
-          description: The catalog is unavailable or the gateway cannot reach auction-service.
+          description: Catalog or inventory is unavailable, or the gateway cannot reach auction-service.
           content:
             application/problem+json:
               schema:
@@ -350,7 +350,7 @@ paths:
                   - type: object
                     properties:
                       code:
-                        enum: [AUCTION_CATALOG_UNAVAILABLE, SERVICE_UNAVAILABLE]
+                        enum: [AUCTION_CATALOG_UNAVAILABLE, AUCTION_INVENTORY_UNAVAILABLE, SERVICE_UNAVAILABLE]
               example:
                 type: urn:problem:domain-error
                 title: Service Unavailable
@@ -1327,7 +1327,7 @@ components:
         cancelledBy:
           type: string
           nullable: true
-          enum: [SELLER, ADMIN]
+          enum: [SELLER, ADMIN, SYSTEM]
         cancelledReason:
           type: string
           nullable: true

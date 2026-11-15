@@ -19,6 +19,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -30,12 +31,14 @@ import java.util.UUID;
 public class AuctionService {
 
     private static final Duration START_TIME_TOLERANCE = Duration.ofSeconds(5);
+    private static final UUID SYSTEM_ACTOR = new UUID(0, 0);
 
     private final AuctionRepository auctions;
     private final AuctionProperties properties;
     private final Clock clock;
     private final AuctionStateMachine stateMachine;
     private final AuctionCatalog catalog;
+    private final AuctionInventoryClient inventory;
     private final AuctionCreation auctionCreation;
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
@@ -74,13 +77,44 @@ public class AuctionService {
         if (product.skus().stream().noneMatch(sku -> request.skuId().equals(sku.id()))) {
             throw new DomainException(AuctionErrorCode.AUCTION_SKU_NOT_FOUND);
         }
+        String imageUrl = requireImage(product.firstImageUrl());
+        requireStock(request.skuId());
 
         BigDecimal increment = request.bidIncrement() == null
                 ? properties.getDefaultBidIncrement()
                 : request.bidIncrement();
         Auction auction = new Auction(request.productId(), request.skuId(), seller.id(), product.name(),
-                product.firstImageUrl(), request.startingPrice(), increment, request.startAt(), request.endAt());
+                imageUrl, request.startingPrice(), increment, request.startAt(), request.endAt());
         return AuctionResponse.from(auctionCreation.save(auction));
+    }
+
+    private static String requireImage(String imageUrl) {
+        if (imageUrl != null && !imageUrl.isBlank() && imageUrl.length() <= 500) {
+            try {
+                if (URI.create(imageUrl).isAbsolute()) {
+                    return imageUrl;
+                }
+            } catch (IllegalArgumentException ignored) {
+                // Catalog must provide an absolute URI usable in the AuctionWon snapshot.
+            }
+        }
+        throw new DomainException(AuctionErrorCode.AUCTION_IMAGE_REQUIRED);
+    }
+
+    private void requireStock(UUID skuId) {
+        AuctionInventoryClient.Stock stock;
+        try {
+            var response = inventory.available(skuId);
+            stock = response == null ? null : response.data();
+        } catch (feign.FeignException failure) {
+            throw new DomainException(AuctionErrorCode.AUCTION_INVENTORY_UNAVAILABLE);
+        }
+        if (stock == null || !skuId.equals(stock.skuId()) || stock.available() == null || stock.available() < 0) {
+            throw new DomainException(AuctionErrorCode.AUCTION_INVENTORY_UNAVAILABLE);
+        }
+        if (stock.available() == 0) {
+            throw new DomainException(AuctionErrorCode.AUCTION_STOCK_UNAVAILABLE);
+        }
     }
 
     private void validateWindow(Instant startAt, Instant endAt) {
@@ -133,13 +167,29 @@ public class AuctionService {
             throw new DomainException(AuctionErrorCode.AUCTION_HAS_BIDS);
         }
         stateMachine.cancel(auction, actor);
-        auction.recordCancellation(admin ? "ADMIN" : "SELLER", actor.id(), request.reason().strip(),
+        publishCancellation(auction, admin ? "ADMIN" : "SELLER", actor.id(), request.reason().strip());
+        return AuctionResponse.from(auction);
+    }
+
+    @Transactional
+    public void cancelForUnavailableStock(UUID auctionId, UUID skuId) {
+        var candidate = auctions.findForUpdateByIdAndDeletedAtIsNull(auctionId);
+        if (candidate.isEmpty() || !candidate.get().getSkuId().equals(skuId)) {
+            return;
+        }
+        Auction auction = candidate.get();
+        if (stateMachine.cancelForUnavailableStock(auction)) {
+            publishCancellation(auction, "SYSTEM", SYSTEM_ACTOR, "STOCK_UNAVAILABLE");
+        }
+    }
+
+    private void publishCancellation(Auction auction, String cancelledBy, UUID actorId, String reason) {
+        auction.recordCancellation(cancelledBy, actorId, reason,
                 clock.instant().truncatedTo(ChronoUnit.MICROS));
         // Flush once before the event so its version is the committed entity version.
         auctions.flush();
         outbox.write("Auction", Topics.AUCTION,
-                envelopes.create("AuctionCancelled", id.toString(), AuctionCancelled.from(auction)));
-        return AuctionResponse.from(auction);
+                envelopes.create("AuctionCancelled", auction.getId().toString(), AuctionCancelled.from(auction)));
     }
 
     private Auction lock(UUID id) {

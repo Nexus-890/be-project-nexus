@@ -211,7 +211,7 @@ class AuctionSchedulerIntegrationTest {
                 "--spring.cloud.discovery.enabled=false", "--eureka.client.enabled=false",
                 "--spring.kafka.admin.auto-create=false", "--spring.kafka.listener.auto-startup=false",
                 "--spring.jpa.open-in-view=false", "--management.tracing.export.zipkin.enabled=false",
-                "--nexus.outbox.relay.enabled=false");
+                "--nexus.outbox.relay.enabled=false", "--nexus.auction.settlement.enabled=false");
     }
 
     private UUID seed(String status, Instant start, Instant end, Instant originalEnd, boolean deleted) {
