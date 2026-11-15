@@ -23,6 +23,38 @@ security:
     bearerAuth: []
 paths:
   /api/v1/categories:
+    get:
+      tags: [Categories]
+      operationId: listFlatCategories
+      summary: List categories as a flat page
+      description: Filter nondeleted categories by case-insensitive name or slug, direct parent and exact level.
+      security: []
+      x-catalogue-id: CAT-05
+      parameters:
+        - name: q
+          in: query
+          schema: {type: string, maxLength: 150}
+        - name: parentId
+          in: query
+          schema: {type: string, format: uuid}
+        - name: level
+          in: query
+          schema: {type: integer, minimum: 0, maximum: 32767}
+        - $ref: '#/components/parameters/CatalogSearchPage'
+        - $ref: '#/components/parameters/CatalogSearchSize'
+      responses:
+        '200':
+          description: Category page ordered by name and ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlatCategoryPage'
+        '400':
+          description: Invalid query parameters
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
     post:
       tags:
         - "Categories"
@@ -4194,6 +4226,52 @@ paths:
                     detail: "The service did not answer in time"
                     instance: "/api/v1/products/c8000000-0000-4000-8000-000000000002"
                     code: "GATEWAY_TIMEOUT"
+  /api/v1/products/search:
+    get:
+      tags: [Products]
+      operationId: searchProducts
+      summary: Search public products
+      description: >-
+        Find a phrase in the name or description of nondeleted ACTIVE products,
+        ignoring accents and case. An empty q browses the filtered catalog. Price filters
+        and price sort use the lowest ACTIVE SKU price, with unpriced products last.
+        Relevance weights name matches above description matches. Remaining ties use newest and ID.
+      security: []
+      x-catalogue-id: PRD-08
+      parameters:
+        - name: q
+          in: query
+          schema: {type: string, maxLength: 200}
+        - name: categoryId
+          in: query
+          schema: {type: string, format: uuid}
+        - name: minPrice
+          in: query
+          schema: {type: number, minimum: 0}
+        - name: maxPrice
+          in: query
+          schema: {type: number, minimum: 0}
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [relevance, price_asc, price_desc, newest]
+            default: relevance
+        - $ref: '#/components/parameters/CatalogSearchPage'
+        - $ref: '#/components/parameters/CatalogSearchSize'
+      responses:
+        '200':
+          description: Product search page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListProductsResponse'
+        '400':
+          description: Invalid parameters or minimum price above maximum price
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/products/mine:
     get:
       tags:
@@ -4274,6 +4352,8 @@ paths:
                         sellerId: "68000000-0000-4000-8000-000000000002"
                         minPrice: 150000.5
                         maxPrice: 150000.5
+                        description: "Owner-editable product description"
+                        auctionEnable: false
                     page:
                       number: 0
                       size: 10
@@ -7776,6 +7856,15 @@ paths:
                     instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images/order"
                     code: "INTERNAL_ERROR"
 components:
+  parameters:
+    CatalogSearchPage:
+      name: page
+      in: query
+      schema: {type: integer, minimum: 0, default: 0}
+    CatalogSearchSize:
+      name: size
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 100, default: 10}
   securitySchemes:
     bearerAuth:
       type: "http"
@@ -8393,6 +8482,31 @@ components:
         page:
           $ref: "#/components/schemas/PageInfo"
       additionalProperties: false
+    FlatCategoryPage:
+      type: object
+      required: [code, message, data, page]
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+    OwnerProduct:
+      allOf:
+        - $ref: '#/components/schemas/Product'
+        - type: object
+          required: [description, auctionEnable]
+          properties:
+            description:
+              type: string
+              nullable: true
+            auctionEnable:
+              type: boolean
     ListOwnProductsResponse:
       type: "object"
       required:
@@ -8412,7 +8526,7 @@ components:
         data:
           type: "array"
           items:
-            $ref: "#/components/schemas/Product"
+            $ref: "#/components/schemas/OwnerProduct"
         page:
           $ref: "#/components/schemas/PageInfo"
       additionalProperties: false

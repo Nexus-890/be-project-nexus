@@ -15,6 +15,7 @@ import com.group5.catalogservice.product.dto.request.ChangeStatusRequest;
 import com.group5.common_core.model.ApiResponse;
 import com.group5.common_core.model.PageInfo;
 import org.springframework.data.domain.Page;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -63,6 +64,18 @@ public class ProductController {
             @RequestParam(defaultValue = "10") int size) {
 
         return pageResponse(productService.getProductsByCategory(categoryId, page, size));
+    }
+
+    @GetMapping("/search")
+    public ApiResponse<List<ProductResponse>> search(
+            @RequestParam(defaultValue = "") String q,
+            @RequestParam(required = false) UUID categoryId,
+            @RequestParam(required = false) BigDecimal minPrice,
+            @RequestParam(required = false) BigDecimal maxPrice,
+            @RequestParam(defaultValue = "relevance") String sort,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return pageResponse(productService.search(q, categoryId, minPrice, maxPrice, sort, page, size));
     }
 
     @GetMapping("/mine")

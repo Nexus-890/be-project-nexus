@@ -5,6 +5,7 @@ import com.group5.catalogservice.product.dto.ShippingParcel;
 import com.group5.catalogservice.product.dto.request.ChangeStatusRequest;
 import com.group5.catalogservice.product.dto.request.ProductRequest;
 import com.group5.catalogservice.product.dto.response.ImageResponse;
+import com.group5.catalogservice.product.dto.response.OwnerProductResponse;
 import com.group5.catalogservice.product.dto.response.ProductResponse;
 import com.group5.catalogservice.product.dto.response.ProductDetailResponse;
 import com.group5.catalogservice.product.dto.response.SkuResponse;
@@ -13,7 +14,10 @@ import com.group5.catalogservice.product.entity.Skus;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.math.BigDecimal;
 import java.util.stream.Collectors;
+import java.util.function.Function;
 import java.time.OffsetDateTime;
 import com.group5.catalogservice.product.OrderReferenceChecker;
 import com.group5.catalogservice.shared.config.CatalogProperties;
@@ -38,6 +42,7 @@ import org.springframework.data.domain.Pageable;
 @Slf4j
 @RequiredArgsConstructor
 public class ProductService {
+    private static final Set<String> SEARCH_SORTS = Set.of("relevance", "price_asc", "price_desc", "newest");
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final ProductSlugGenerator productSlugGenerator;
@@ -51,13 +56,13 @@ public class ProductService {
             throw new DomainException(CatalogErrorCode.UNAUTHORIZED);
         }
 
-        Product product = productRepository.findByIdAndDeletedAtIsNull(id)
+        Product product = productRepository.findForDeleteByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new DomainException(CatalogErrorCode.PRODUCT_NOT_FOUND));
         if (!product.getSellerId().equals(currentUser.id())) {
             throw new DomainException(CatalogErrorCode.UNAUTHORIZED);
         }
         if (!catalogProperties.isAllowProductDeleteWithOrder()
-                && orderReferenceChecker.hasOrderReferences(id)) {
+                && (Boolean.TRUE.equals(product.getHasOrder()) || orderReferenceChecker.hasOrderReferences(id))) {
             throw new DomainException(CatalogErrorCode.PRODUCT_HAS_ORDERS);
         }
 
@@ -146,6 +151,23 @@ public class ProductService {
     }
 
     @Transactional(readOnly = true)
+    public Page<ProductResponse> search(String q, UUID categoryId, BigDecimal minPrice, BigDecimal maxPrice,
+                                        String sort, int page, int size) {
+        validatePagination(page, size);
+        if (size > 100 || q.length() > 200 || !SEARCH_SORTS.contains(sort)
+                || minPrice != null && minPrice.signum() < 0
+                || maxPrice != null && maxPrice.signum() < 0
+                || minPrice != null && maxPrice != null && minPrice.compareTo(maxPrice) > 0) {
+            throw new DomainException(CatalogErrorCode.DATA_INVALID);
+        }
+        Page<ProductResponse> results = productRepository.search(q.strip(), categoryId, minPrice, maxPrice,
+                sort, PageRequest.of(page, size)).map(row -> new ProductResponse(row.getId(), row.getName(),
+                row.getSlug(), ProductStatus.ACTIVE, row.getCategoryId(), row.getSellerId(),
+                row.getMinPrice(), row.getMaxPrice()));
+        return attachImages(results);
+    }
+
+    @Transactional(readOnly = true)
     public Page<ProductResponse> getProductsByCategory(UUID categoryId, int page, int size) {
 
         validatePagination(page, size);
@@ -188,7 +210,20 @@ public class ProductService {
         log.debug("Finished getting seller products: sellerId={}, totalElements={}",
                 sellerId, responses.getTotalElements());
 
-        return attachImages(responses);
+        return attachOwnerFields(attachImages(responses));
+    }
+
+    private Page<ProductResponse> attachOwnerFields(Page<ProductResponse> responses) {
+        if (responses.isEmpty()) {
+            return responses;
+        }
+        Map<UUID, Product> details = productRepository.findAllById(
+                responses.stream().map(ProductResponse::getId).toList()).stream()
+                .collect(Collectors.toMap(Product::getId, Function.identity()));
+        return responses.map(response -> {
+            Product detail = details.get(response.getId());
+            return new OwnerProductResponse(response, detail.getDescription(), detail.getAuctionEnable());
+        });
     }
 
     private Page<ProductResponse> attachImages(Page<ProductResponse> page) {

@@ -64,6 +64,10 @@ nexus:
       - method: GET
         path: /api/v1/products
       - method: GET
+        path: /api/v1/products/search
+      - method: GET
+        path: /api/v1/categories
+      - method: GET
         path: /api/v1/products/{id}
       - method: GET
         path: /api/v1/categories/{id}
