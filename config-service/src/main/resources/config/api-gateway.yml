@@ -96,6 +96,10 @@ nexus:
       - method: GET
         path: /api/v1/auctions/{id}
       - method: GET
+        path: /api/v1/auctions/{id}/state
+      - method: GET
+        path: /api/v1/auctions/{id}/bids
+      - method: GET
         path: /api/v1/inventory
       - method: GET
         path: /api/v1/inventory/{id}
@@ -325,5 +329,7 @@ nexus:
         privilege: AUDIT_LOG.VIEW
   gateway:
     rate-limit:
-      # Có thể đổi qua Config Server và /actuator/refresh; đủ cho polling 2 giây.
+      # Có thể đổi cả hai quota qua Config Server và /actuator/refresh.
       requests-per-minute: 100
+      # Dùng chung cho GET auction state và bid history, tính riêng theo IP.
+      auction-read-requests-per-minute: 600

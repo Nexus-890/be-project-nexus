@@ -744,7 +744,7 @@ paths:
                   currentPrice: 1200000.0
                   bidCount: 3
                   bidIncrement: 50000.0
-                  leaderBidderName: Ng**** V**
+                  leaderBidderName: 'N***A'
                   endAt: '2026-11-06T10:00:00Z'
                   status: ACTIVE
                   serverTime: '2026-11-05T15:30:00Z'
@@ -1420,7 +1420,7 @@ paths:
                 message: response success
                 data:
                 - amount: 1200000.0
-                  bidderName: Ng**** V**
+                  bidderName: 'N***A'
                   placedAt: '2026-11-05T15:00:00Z'
                 page:
                   number: 0

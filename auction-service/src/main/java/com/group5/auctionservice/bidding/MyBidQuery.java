@@ -42,14 +42,22 @@ public class MyBidQuery {
                         SELECT 1 FROM bids top_bid WHERE top_bid.auction_id = a.id
                         AND top_bid.bidder_id = :bidder AND top_bid.status <> 'CANCELLED'
                         AND top_bid.amount = a.current_price)) AS leading,
-                    (a.status IN ('WON', 'SETTLED', 'PAYMENT_TIMEOUT') AND a.winner_id = :bidder) AS won
+                    (a.status IN ('WON', 'SETTLED', 'PAYMENT_TIMEOUT') AND a.winner_id = :bidder) AS won,
+                    CASE WHEN a.status IN ('WON', 'SETTLED', 'PAYMENT_TIMEOUT') AND a.winner_id = :bidder
+                        THEN a.order_id END AS order_id,
+                    CASE WHEN a.status IN ('WON', 'SETTLED', 'PAYMENT_TIMEOUT') AND a.winner_id = :bidder
+                        THEN a.payment_due_at END AS payment_due_at,
+                    CASE WHEN a.status IN ('WON', 'SETTLED', 'PAYMENT_TIMEOUT') AND a.winner_id = :bidder
+                        THEN a.final_price END AS final_price
                 FROM latest JOIN auctions a ON a.id = latest.auction_id
                 ORDER BY latest.placed_at DESC, latest.id DESC
                 LIMIT :limit OFFSET :offset
                 """, parameters, (row, number) -> new MyBidResponse(
                 row.getObject("id", UUID.class), row.getString("title"), row.getBigDecimal("amount"),
                 row.getTimestamp("placed_at").toInstant(), AuctionStatus.valueOf(row.getString("auction_status")),
-                row.getBoolean("leading"), row.getBoolean("won")));
+                row.getBoolean("leading"), row.getBoolean("won"), row.getObject("order_id", UUID.class),
+                row.getTimestamp("payment_due_at") == null ? null : row.getTimestamp("payment_due_at").toInstant(),
+                row.getBigDecimal("final_price")));
         return new PageImpl<>(content, pageable, total);
     }
 }

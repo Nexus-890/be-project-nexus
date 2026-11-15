@@ -253,7 +253,7 @@ class BidIdempotencyTest {
                 lowerUpdated.countDown();
             }
             return updated;
-        }).when(auctions).acceptBid(eq(fixture.id()), eq(fixture.bidder().id()), any());
+        }).when(auctions).acceptBid(eq(fixture.id()), eq(fixture.bidder().id()), any(), eq("***"));
 
         List<Attempt> results = race(
                 () -> attempt(fixture, key, MINIMUM), () -> attempt(fixture, key, HIGHER));
@@ -286,7 +286,7 @@ class BidIdempotencyTest {
                 higherUpdated.countDown();
             }
             return updated;
-        }).when(auctions).acceptBid(eq(fixture.id()), eq(fixture.bidder().id()), any());
+        }).when(auctions).acceptBid(eq(fixture.id()), eq(fixture.bidder().id()), any(), eq("***"));
 
         List<Attempt> results = race(
                 () -> attempt(fixture, key, HIGHER), () -> attempt(fixture, key, MINIMUM));
