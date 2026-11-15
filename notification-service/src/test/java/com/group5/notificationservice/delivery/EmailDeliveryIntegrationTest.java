@@ -4,6 +4,9 @@ import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.Topics;
 import com.group5.common_outbox.IdempotentConsumer;
 import com.group5.notificationservice.eventlog.EventLogRepository;
+import com.group5.notificationservice.health.BrokerHealthJob;
+import com.group5.notificationservice.health.HealthEventWriter;
+import com.group5.notificationservice.health.KafkaBrokerProbe;
 import com.group5.notificationservice.notification.DomainEventConsumer;
 import com.group5.notificationservice.notification.NotificationChannel;
 import com.group5.notificationservice.notification.NotificationRepository;
@@ -18,6 +21,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -60,6 +64,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup;
 
+// Bài test email không chạy health job hay kết nối Redis/Kafka của luồng giám sát broker.
+@MockitoBean(types = {BrokerHealthJob.class, HealthEventWriter.class, KafkaBrokerProbe.class})
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.location=optional:classpath:/notification-email-delivery-test.properties",
         "spring.cloud.config.enabled=false", "spring.cloud.config.import-check.enabled=false",
@@ -100,13 +106,13 @@ class EmailDeliveryIntegrationTest {
     private static final String SELLER_EMAIL = "seller.one@example.com";
     private static final String SECOND_BIDDER_EMAIL = "bidder.two@example.com";
     private static final int CLOSED_PORT = 1;
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
+    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
     @Autowired private WebApplicationContext context;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private DomainEventConsumer consumer;
     @Autowired private DeliveryRetryJob job;
-    @Autowired private JavaMailSenderImpl mailSender;
+    @Autowired private JavaMailSender mailSender;
     @Autowired private DeliveryService deliveryService;
     @Autowired private DeliveryProperties properties;
     @Autowired private EmailSender sender;
@@ -133,7 +139,7 @@ class EmailDeliveryIntegrationTest {
         jdbc.update("DELETE FROM event_logs");
         jdbc.update("DELETE FROM notification_preferences");
         mailpit("DELETE", "/api/v1/messages");
-        mailSender.setPort(MAILPIT.getMappedPort(1025));
+        smtpPort(MAILPIT.getMappedPort(1025));
         reset(recipients, decoder);
         when(recipients.emailOf(BUYER)).thenReturn(BUYER_EMAIL);
         when(recipients.emailOf(SELLER)).thenReturn(SELLER_EMAIL);
@@ -345,11 +351,11 @@ class EmailDeliveryIntegrationTest {
     @Test
     void disablingAfterSmtpFailureStopsFurtherRetries() throws Exception {
         UUID notificationId = receiveOrderCreated("NX-259-RETRY");
-        mailSender.setPort(CLOSED_PORT);
+        smtpPort(CLOSED_PORT);
         assertThat(job.runOnce()).isEqualTo(1);
         // Giữ lịch sử lần lỗi trước đó nhưng không gửi lại khi người dùng đã tắt loại email này.
         preference(BUYER, "ORDER_CREATED", "EMAIL", false);
-        mailSender.setPort(MAILPIT.getMappedPort(1025));
+        smtpPort(MAILPIT.getMappedPort(1025));
 
         assertThat(job.runOnce()).isZero();
 
@@ -420,7 +426,7 @@ class EmailDeliveryIntegrationTest {
     void smtpDownThenBackRetriesOnceAndSendsExactlyOneEmail() throws Exception {
         UUID notificationId = receiveOrderCreated("NX-20261104-0002");
 
-        mailSender.setPort(CLOSED_PORT);
+        smtpPort(CLOSED_PORT);
         job.runOnce();
         assertThat(delivery(notificationId).get("status")).isEqualTo("PENDING");
         Map<String, Object> first = attempts(notificationId).getFirst();
@@ -428,7 +434,7 @@ class EmailDeliveryIntegrationTest {
         assertThat(first.get("error_code")).isEqualTo("SMTP_UNAVAILABLE");
         assertThat(first.get("retryable")).isEqualTo(true);
 
-        mailSender.setPort(MAILPIT.getMappedPort(1025));
+        smtpPort(MAILPIT.getMappedPort(1025));
         job.runOnce();
         assertThat(delivery(notificationId).get("status")).isEqualTo("SENT");
         assertThat(attempts(notificationId)).extracting(row -> row.get("status"))
@@ -453,7 +459,7 @@ class EmailDeliveryIntegrationTest {
                 Instant.now(), "4bf92f3577b34da6a3ce929d0e0e4736", payload);
         ConsumerRecord<String, EventEnvelope<JsonNode>> record =
                 new ConsumerRecord<>(Topics.COMMERCE, 0, 0L, orderId.toString(), envelope);
-        mailSender.setPort(CLOSED_PORT);
+        smtpPort(CLOSED_PORT);
 
         consumer.receive(record);
         consumer.receive(record);
@@ -473,7 +479,7 @@ class EmailDeliveryIntegrationTest {
         assertThat(job.runOnce()).isEqualTo(1);
         assertThat(attempts(notificationId)).extracting(row -> row.get("error_code"))
                 .containsExactly("SMTP_UNAVAILABLE");
-        mailSender.setPort(MAILPIT.getMappedPort(1025));
+        smtpPort(MAILPIT.getMappedPort(1025));
         assertThat(job.runOnce()).isEqualTo(1);
 
         List<JsonNode> inbox = messages();
@@ -494,7 +500,7 @@ class EmailDeliveryIntegrationTest {
     @Test
     void afterTheRetryLimitTheDeliveryIsFailedAndNeverSentAgain() throws Exception {
         UUID notificationId = receiveOrderCreated("NX-20261104-0003");
-        mailSender.setPort(CLOSED_PORT);
+        smtpPort(CLOSED_PORT);
 
         for (int i = 0; i < 3; i++) {
             job.runOnce();
@@ -504,7 +510,7 @@ class EmailDeliveryIntegrationTest {
         assertThat(failed.get("attempt_count")).isEqualTo(3);
         assertThat(failed.get("next_attempt_at")).isNull();
 
-        mailSender.setPort(MAILPIT.getMappedPort(1025));
+        smtpPort(MAILPIT.getMappedPort(1025));
         assertThat(job.runOnce()).isZero();
         assertThat(attempts(notificationId)).hasSize(3)
                 .allSatisfy(row -> assertThat(row.get("status")).isEqualTo("FAILED"));
@@ -620,9 +626,9 @@ class EmailDeliveryIntegrationTest {
     @Test
     void theOwnerReadsTheAttemptsWithoutTheEmailAndOthersAreRefused() throws Exception {
         UUID notificationId = receiveOrderCreated("NX-20261104-0007");
-        mailSender.setPort(CLOSED_PORT);
+        smtpPort(CLOSED_PORT);
         job.runOnce();
-        mailSender.setPort(MAILPIT.getMappedPort(1025));
+        smtpPort(MAILPIT.getMappedPort(1025));
         job.runOnce();
 
         mvc.perform(get("/api/v1/notifications/{id}/deliveries", notificationId).header("Authorization", "Bearer buyer"))
@@ -752,6 +758,11 @@ class EmailDeliveryIntegrationTest {
                 """, notificationId);
     }
 
+    // Inject interface do Spring công bố; chỉ đổi cổng trên SMTP implementation của bài test.
+    private void smtpPort(int port) {
+        assertThat(mailSender).isInstanceOfSatisfying(JavaMailSenderImpl.class, smtp -> smtp.setPort(port));
+    }
+
     private List<Map<String, Object>> attempts(UUID notificationId) {
         return jdbc.queryForList("""
                 SELECT a.attempt_number, a.status::text AS status, a.error_code, a.error_message, a.retryable,
@@ -782,8 +793,11 @@ class EmailDeliveryIntegrationTest {
     private static String mailpit(String method, String path) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create("http://" + MAILPIT.getHost() + ":"
                         + MAILPIT.getMappedPort(8025) + path))
+                .timeout(Duration.ofSeconds(10))
                 .method(method, HttpRequest.BodyPublishers.noBody()).build();
-        return HTTP.send(request, HttpResponse.BodyHandlers.ofString()).body();
+        HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).as("Mailpit %s %s", method, path).isBetween(200, 299);
+        return response.body();
     }
 
     private static final class FakeClock extends Clock {
