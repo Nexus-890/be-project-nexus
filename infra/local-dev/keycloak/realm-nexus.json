@@ -6,7 +6,17 @@
   "registrationAllowed": false,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
-  "resetPasswordAllowed": false,
+  "resetPasswordAllowed": true,
+  "loginTheme": "nexus",
+  "smtpServer": {
+    "host": "mailpit",
+    "port": "1025",
+    "from": "accounts@nexus.local",
+    "fromDisplayName": "Nexus",
+    "auth": "false",
+    "ssl": "false",
+    "starttls": "false"
+  },
   "rememberMe": false,
   "verifyEmail": false,
   "defaultSignatureAlgorithm": "RS256",

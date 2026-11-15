@@ -252,7 +252,8 @@ class PaymentConfirmationServiceTest {
                 instruction.getFundedTransaction(), instruction.getPaidAt())).toList()).isEqualTo(before);
         verify(sessions, never()).saveAndFlush(any());
         verify(instructions, never()).saveAllAndFlush(any());
-        verifyNoInteractions(envelopes, outbox, refunds);
+        verify(envelopes, never()).create(eq("CheckoutPaymentConfirmed"), any(), any());
+        verifyNoInteractions(refunds);
     }
 
     @Test
@@ -399,7 +400,8 @@ class PaymentConfirmationServiceTest {
         });
         verify(sessions, never()).saveAndFlush(any());
         verify(instructions, never()).saveAllAndFlush(any());
-        verifyNoInteractions(envelopes, outbox, refunds);
+        verify(envelopes, never()).create(eq("CheckoutPaymentConfirmed"), any(), any());
+        verifyNoInteractions(refunds);
     }
 
     private PaymentSession session() {

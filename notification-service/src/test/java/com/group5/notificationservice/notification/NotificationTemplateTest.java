@@ -34,6 +34,20 @@ class NotificationTemplateTest {
     }
 
     @Test
+    void orderCancelledTellsTheBuyerWhichOrder() {
+        Notification notification = NotificationTemplate.forEventType("OrderCancelled").orElseThrow()
+                .render(JsonMapper.shared().readTree("""
+                        {"orderId":"00000000-0000-4000-8000-000000000001",
+                         "buyerId":"00000000-0000-4000-8000-000000000002",
+                         "orderNumber":"NX-20261120-0001","reason":"PAYMENT_DEADLINE_EXPIRED"}
+                        """));
+
+        assertThat(notification.getUserId()).isEqualTo(UUID.fromString("00000000-0000-4000-8000-000000000002"));
+        assertThat(notification.getType()).isEqualTo("ORDER_CANCELLED");
+        assertThat(notification.getContent()).isEqualTo("Your order NX-20261120-0001 was cancelled");
+    }
+
+    @Test
     void orderCreatedWithoutBuyerIsRejected() {
         assertThatThrownBy(() -> NotificationTemplate.ORDER_CREATED.render(
                 JsonMapper.shared().readTree("{\"orderNumber\":\"NX-1\"}")))

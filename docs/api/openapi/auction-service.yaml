@@ -469,7 +469,68 @@ paths:
           $ref: '#/components/responses/UnexpectedError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/auctions/{id}/state:
+    get:
+      tags: [Auctions]
+      operationId: getAuctionState
+      summary: Read the live state of a public auction
+      description: Auction data is cached for one second. Server time is read on every request.
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Current auction state
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GetAuctionStateResponse'}
+        '400':
+          $ref: '#/components/responses/MineInvalidQuery'
+        '401':
+          $ref: '#/components/responses/InvalidBearer'
+        '404':
+          $ref: '#/components/responses/PublicAuctionNotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/UnexpectedError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/auctions/{id}/bids:
+    get:
+      tags: [Auctions]
+      operationId: listAuctionBids
+      summary: Read the paginated bid history of a public auction
+      description: Bids are ordered by amount descending, then newest first for equal amounts. Names are masked.
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+        - $ref: '#/components/parameters/MinePage'
+        - $ref: '#/components/parameters/MineSize'
+      responses:
+        '200':
+          description: Bid history page, empty when the auction has no bids
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ListAuctionBidsResponse'}
+        '400':
+          $ref: '#/components/responses/MineInvalidQuery'
+        '401':
+          $ref: '#/components/responses/InvalidBearer'
+        '404':
+          $ref: '#/components/responses/PublicAuctionNotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/UnexpectedError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     post:
       tags: [Auctions]
       operationId: placeBid
@@ -910,6 +971,11 @@ components:
       description: Number of distinct result rows per page.
       schema: {type: integer, minimum: 1, maximum: 100, default: 10}
   responses:
+    PublicAuctionNotFound:
+      description: AUCTION_NOT_FOUND. The auction is missing, deleted or restricted.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
     MineInvalidQuery:
       description: INVALID_PARAMETER, VALIDATION_FAILED or INVALID_REQUEST_BODY; malformed query or paging bounds.
       content:
@@ -967,6 +1033,55 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    AuctionState:
+      type: object
+      additionalProperties: false
+      required: [auctionId, currentPrice, bidCount, bidIncrement, leaderBidderName, endAt, status, serverTime]
+      properties:
+        auctionId: {type: string, format: uuid}
+        currentPrice: {type: number, minimum: 0}
+        bidCount: {type: integer, minimum: 0}
+        bidIncrement: {type: number, minimum: 0, exclusiveMinimum: true}
+        leaderBidderName:
+          type: string
+          nullable: true
+          description: Masked name, or null when there is no leader.
+          example: 'N***A'
+        endAt: {type: string, format: date-time}
+        status: {$ref: '#/components/schemas/AuctionStatus'}
+        serverTime: {type: string, format: date-time}
+    GetAuctionStateResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code: {type: integer, default: 0}
+        message: {type: string, default: response success}
+        data: {$ref: '#/components/schemas/AuctionState'}
+    PublicBid:
+      type: object
+      additionalProperties: false
+      required: [amount, bidderName, placedAt]
+      properties:
+        amount: {type: number, minimum: 0}
+        bidderName: {type: string, description: Masked display name, example: 'N***A'}
+        placedAt: {type: string, format: date-time}
+    ListAuctionBidsResponse:
+      type: object
+      required: [code, message, data, page]
+      properties:
+        code: {type: integer, default: 0}
+        message: {type: string, default: response success}
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/PublicBid'}
+        page:
+          type: object
+          required: [number, size, totalElements, totalPages]
+          properties:
+            number: {type: integer, minimum: 0}
+            size: {type: integer, minimum: 1, maximum: 100}
+            totalElements: {type: integer, format: int64, minimum: 0}
+            totalPages: {type: integer, minimum: 0}
     MyBid:
       type: object
       additionalProperties: false
@@ -979,6 +1094,22 @@ components:
         auctionStatus: {$ref: '#/components/schemas/AuctionStatus'}
         leading: {type: boolean}
         won: {type: boolean}
+        orderId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Recorded settlement order id, returned only to the recorded winner in WON/SETTLED/PAYMENT_TIMEOUT. Null before the OrderCreated projection is stored, for other bidders and for other statuses. Never inferred from a product or bid.
+        paymentDueAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Stored auction payment deadline, returned only to the recorded winner in WON/SETTLED/PAYMENT_TIMEOUT; otherwise null. This read never creates or extends the deadline.
+        finalPrice:
+          type: number
+          multipleOf: 0.01
+          minimum: 0
+          nullable: true
+          description: Stored final auction price as a JSON number, returned only to the recorded winner in WON/SETTLED/PAYMENT_TIMEOUT; otherwise null. Distinct from the caller's latest personal bid amount.
     ListMyBidsResponse:
       type: object
       required: [code, message, data, page]
