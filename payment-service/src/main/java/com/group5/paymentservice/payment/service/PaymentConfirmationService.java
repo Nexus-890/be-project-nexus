@@ -13,6 +13,7 @@ import com.group5.paymentservice.payment.enums.PaymentSessionStatus;
 import com.group5.paymentservice.payment.enums.PaymentTransactionStatus;
 import com.group5.paymentservice.payment.enums.PaymentTransactionType;
 import com.group5.paymentservice.payment.event.payload.CheckoutPaymentConfirmed;
+import com.group5.paymentservice.payment.event.payload.PaymentUnreconciled;
 import com.group5.paymentservice.payment.repository.PaymentInstructionRepository;
 import com.group5.paymentservice.payment.repository.PaymentSessionRepository;
 import com.group5.paymentservice.payment.repository.PaymentTransactionRepository;
@@ -94,8 +95,18 @@ public class PaymentConfirmationService {
         receipt.setReceivedAt(now);
         PaymentTransaction stored = transactions.saveAndFlush(receipt);
         if (!payable) {
-            log.warn("SePay receipt requires reconciliation: transactionId={}, orderGroupId={}, amount={}",
-                    request.id(), groupId, request.transferAmount());
+            Unreconciled reason = reasonOf(session, plan, now);
+            log.warn("SePay receipt requires reconciliation: sessionId={}, sepayTransactionId={}, orderGroupId={}, "
+                    + "amount={}, reasonCode={}", session.getId(), request.id(), groupId, request.transferAmount(),
+                    reason.name());
+            if (request.transferAmount().signum() > 0 && !plan.isEmpty()) {
+                PaymentUnreconciled unreconciled = new PaymentUnreconciled(session.getId(), groupId, stored.getId(),
+                        request.id().toString(), session.getBuyerId(), money(request.transferAmount()),
+                        session.getCurrency(), plan.stream().map(PaymentInstruction::getOrderId).distinct().toList(),
+                        reason.name(), reason.text, now.toInstant().toString(), null);
+                outbox.write("PaymentSession", Topics.PAYMENT,
+                        envelopes.create("PaymentUnreconciled", session.getId().toString(), unreconciled));
+            }
             return;
         }
 
@@ -130,6 +141,39 @@ public class PaymentConfirmationService {
                         && !instruction.getDueAt().isBefore(now) && instruction.getAmount().signum() >= 0)
                 && plan.stream().map(PaymentInstruction::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add)
                         .compareTo(session.getTotalAmount()) == 0;
+    }
+
+    private static Unreconciled reasonOf(PaymentSession session, List<PaymentInstruction> plan, OffsetDateTime now) {
+        if (session.getStatus() == PaymentSessionStatus.PAID) return Unreconciled.ALREADY_PAID;
+        if (session.getStatus() == PaymentSessionStatus.CANCELED) return Unreconciled.CANCELLED_ORDER_GROUP;
+        if (session.getStatus() == PaymentSessionStatus.EXPIRED || session.getDueAt().isBefore(now)) {
+            return Unreconciled.LATE_PAYMENT;
+        }
+        if (plan.stream().anyMatch(instruction -> instruction.getCanceledAt() != null
+                || instruction.getStatus() == PaymentInstructionStatus.CANCELED)) {
+            return Unreconciled.CANCELLED_ORDER;
+        }
+        if (plan.stream().anyMatch(instruction -> instruction.getStatus() == PaymentInstructionStatus.EXPIRED
+                || instruction.getDueAt().isBefore(now))) {
+            return Unreconciled.LATE_PAYMENT;
+        }
+        if (!"VND".equals(session.getCurrency())) return Unreconciled.CURRENCY_MISMATCH;
+        return Unreconciled.AMOUNT_MISMATCH;
+    }
+
+    private enum Unreconciled {
+        LATE_PAYMENT("Payment arrived after the payment deadline. Support will contact you about a refund."),
+        CANCELLED_ORDER_GROUP("Payment arrived after this checkout was cancelled. Support will contact you about a refund."),
+        CANCELLED_ORDER("Payment arrived after an order in this checkout was cancelled. Support will contact you about a refund."),
+        AMOUNT_MISMATCH("The amount transferred does not match the order total. Support will contact you."),
+        CURRENCY_MISMATCH("The payment currency does not match the order. Support will contact you."),
+        ALREADY_PAID("This checkout was already paid. Support will contact you about the extra transfer.");
+
+        private final String text;
+
+        Unreconciled(String text) {
+            this.text = text;
+        }
     }
 
     /** Kiểm tra mã giao dịch, chiều tiền vào và giới hạn numeric(19,2) trước khi ghi dữ liệu. */

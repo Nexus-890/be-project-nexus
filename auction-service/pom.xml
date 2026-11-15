@@ -50,6 +50,10 @@
 
 	<dependencies>
 		<dependency>
+			<groupId>com.github.ben-manes.caffeine</groupId>
+			<artifactId>caffeine</artifactId>
+		</dependency>
+		<dependency>
 			<groupId>com.group5</groupId>
 			<artifactId>common-test</artifactId>
 			<version>${project.parent.version}</version>

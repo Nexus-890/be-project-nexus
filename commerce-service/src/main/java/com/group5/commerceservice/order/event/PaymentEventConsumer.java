@@ -2,6 +2,7 @@ package com.group5.commerceservice.order.event;
 
 import com.group5.commerceservice.order.service.RefundStatusHandler;
 import com.group5.commerceservice.order.CheckoutPaymentConfirmedConsumer;
+import com.group5.commerceservice.order.PaymentUnreconciledConsumer;
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.EventKafka;
 import com.group5.common_events.Topics;
@@ -17,12 +18,15 @@ public class PaymentEventConsumer {
     private final RefundStatusHandler refunds;
     private final JsonMapper mapper;
     private final CheckoutPaymentConfirmedConsumer confirmations;
+    private final PaymentUnreconciledConsumer unreconciled;
 
     public PaymentEventConsumer(RefundStatusHandler refunds, JsonMapper mapper,
-                                CheckoutPaymentConfirmedConsumer confirmations) {
+                                CheckoutPaymentConfirmedConsumer confirmations,
+                                PaymentUnreconciledConsumer unreconciled) {
         this.refunds = refunds;
         this.mapper = mapper;
         this.confirmations = confirmations;
+        this.unreconciled = unreconciled;
     }
 
     // Dùng chung một listener cho consumer group để các listener không tranh record và làm mất nhánh xử lý.
@@ -33,6 +37,7 @@ public class PaymentEventConsumer {
         switch (event.eventType()) {
             // Truyền Kafka key để consumer kiểm tra key là groupId, còn aggregate của envelope là sessionId.
             case "CheckoutPaymentConfirmed" -> confirmations.receive(record.key(), typed(event, CheckoutPaymentConfirmed.class));
+            case "PaymentUnreconciled" -> unreconciled.receive(record.key(), typed(event, PaymentUnreconciled.class));
             case "OrderRefundRequested" -> refunds.requested(typed(event, OrderRefundRequested.class));
             case "OrderRefundCompleted" -> refunds.completed(typed(event, OrderRefundCompleted.class));
             default -> {}

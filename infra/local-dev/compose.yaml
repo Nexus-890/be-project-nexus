@@ -215,6 +215,7 @@ services:
 
     volumes:
       - ./keycloak/realm-nexus.json:/opt/keycloak/data/import/nexus-realm.json:ro
+      - ./keycloak/themes/nexus:/opt/keycloak/themes/nexus:ro
 
     depends_on:
       postgres:

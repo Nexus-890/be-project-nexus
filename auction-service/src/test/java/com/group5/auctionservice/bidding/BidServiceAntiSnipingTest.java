@@ -90,7 +90,7 @@ class BidServiceAntiSnipingTest {
         ArgumentCaptor<Bid> stored = ArgumentCaptor.forClass(Bid.class);
         InOrder order = inOrder(auctions, bids, policy, envelopes, outbox);
         order.verify(bids).findByIdempotencyKey(KEY);
-        order.verify(auctions).acceptBid(AUCTION_ID, BUYER.id(), AMOUNT);
+        order.verify(auctions).acceptBid(AUCTION_ID, BUYER.id(), AMOUNT, "***");
         order.verify(bids).saveAndFlush(stored.capture());
         order.verify(policy).extendAcceptedBid(AUCTION_ID, BUYER.id());
         order.verify(envelopes).create(eq("BidPlaced"), eq(AUCTION_ID.toString()), any());
@@ -166,7 +166,7 @@ class BidServiceAntiSnipingTest {
 
     @Test
     void bidPersistenceFailureStopsBeforeExtensionAndOutbox() {
-        when(auctions.acceptBid(AUCTION_ID, BUYER.id(), AMOUNT)).thenReturn(1);
+        when(auctions.acceptBid(AUCTION_ID, BUYER.id(), AMOUNT, "***")).thenReturn(1);
         IllegalStateException failure = new IllegalStateException("Bid insert failed");
         when(bids.saveAndFlush(any(Bid.class))).thenThrow(failure);
 
@@ -207,7 +207,7 @@ class BidServiceAntiSnipingTest {
     @Test
     void replayOfALastMinuteBidReturnsTheOriginalResponseWithoutRunningThePolicyAgain() {
         Bid previous = new Bid(AUCTION_ID, BUYER.id(), AMOUNT,
-                NOW.minusSeconds(30).truncatedTo(ChronoUnit.MICROS), KEY);
+                NOW.minusSeconds(30).truncatedTo(ChronoUnit.MICROS), KEY, "***");
         ReflectionTestUtils.setField(previous, "id", BID_ID);
         when(bids.findByIdempotencyKey(KEY)).thenReturn(Optional.of(previous));
 
@@ -232,7 +232,7 @@ class BidServiceAntiSnipingTest {
     }
 
     private void allowBidAndPersist() {
-        when(auctions.acceptBid(AUCTION_ID, BUYER.id(), AMOUNT)).thenReturn(1);
+        when(auctions.acceptBid(AUCTION_ID, BUYER.id(), AMOUNT, "***")).thenReturn(1);
         when(bids.saveAndFlush(any(Bid.class))).thenAnswer(invocation -> {
             Bid bid = invocation.getArgument(0);
             ReflectionTestUtils.setField(bid, "id", BID_ID);

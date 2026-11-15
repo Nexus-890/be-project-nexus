@@ -1991,7 +1991,7 @@ components:
           $ref: '#/components/schemas/PageInfo'
     MovementType:
       type: string
-      enum: [INTAKE, RESERVE, RELEASE, COMMIT, ADJUSTMENT]
+      enum: [INTAKE, RESERVE, RELEASE, COMMIT, ADJUSTMENT, RETURN]
     Movement:
       type: object
       required: [id, skuId, warehouseId, movementType, quantity, referenceId, reason, createdAt]

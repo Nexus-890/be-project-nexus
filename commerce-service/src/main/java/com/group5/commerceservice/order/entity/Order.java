@@ -82,6 +82,9 @@ public class Order {
     @Column(name = "paid_at")
     private OffsetDateTime paidAt;
 
+    @Column(name = "payment_note")
+    private String paymentNote;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 

@@ -49,6 +49,37 @@ CheckoutPaymentConfirmed is synthetic. OrderPaid is validated against events.md.
 
 ## Validation and limits
 
+### Upgrade from develop
+
+The branch includes develop `aa238638`. Its Auction `V7__masked_bidder_names.sql`
+and Commerce `V13__order_payment_note.sql` remain unchanged. The new settlement
+migrations are `V8__auction_settled_at.sql` and `V14__auction_order_reference.sql`;
+their SQL bodies are unchanged from the original #172 migrations.
+
+From `infra/db-verification`, run with Java 21:
+
+```powershell
+mvn '-Dtest=AuctionSettlementMigrationTest' '-Duser.timezone=UTC' test
+```
+
+Testcontainers is the default. The disposable PostgreSQL URL option above also
+works here. Four cases cover fresh installation and upgrades from Auction V7
+and Commerce V13. They check every expected migration version, preserve existing
+business rows and complete Flyway history/checksums, apply exactly one new
+migration, validate, then rerun with zero migrations. They also verify nullable
+`settled_at` and the auction-reference uniqueness guard without restricting
+STANDARD orders or null references. Each case uses and removes its own random
+schema.
+
+On 15 November 2026 these four cases pass on PostgreSQL 18. Before the rename,
+all four fail because Flyway detects duplicate V7/V13 migrations. This upgrade
+check covers the develop schema; complete Kafka/payment/notification acceptance
+remains pending as described below.
+
+The merged branch also passes 82 focused Commerce tests, 104 Auction tests and
+the OpenAPI inventory check for 104 operations. These are local focused runs,
+not full-service verify or remote CI results.
+
 Verified on the MR source based on develop `09b3cf6f`, 13–14 November 2026:
 Commerce 101, Auction 104, Shipment 69 and Gateway 83 tests pass, zero failure/error/skip.
 Common-events 22 and shared-library reactor install pass. The reference lookup
