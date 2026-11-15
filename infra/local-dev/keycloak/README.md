@@ -161,6 +161,11 @@ Startup `--import-realm` deliberately skips a realm that already exists. Editing
 `realm-nexus.json` and restarting does not overwrite an existing `nexus` realm.
 Use the isolated test project above to validate changes without touching local data.
 
+For #256, the existing seed command also installs the Promotions client privileges
+and composite role grants in an existing realm. Re-run the seed and sign in again
+to receive the new privileges in access tokens. User-service V7 removed the old
+role/permission tables, so Keycloak is the live source for these grants.
+
 To reload the JSON into a disposable local development setup, back up any needed
 Keycloak data, stop auth-service, and reset **only `auth_db`**. This deletes all
 Keycloak realms, users, credentials and sessions in that database, including

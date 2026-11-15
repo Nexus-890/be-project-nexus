@@ -40,6 +40,11 @@ class MegaSaleEventRepository {
                 .param("id", id).param("seller", seller).param("now", now).query(MegaSaleEvent.class).optional();
     }
 
+    Optional<MegaSaleEvent> share(UUID id) {
+        return jdbc.sql(EVENT + " WHERE id = :id FOR SHARE")
+                .param("id", id).query(MegaSaleEvent.class).optional();
+    }
+
     Optional<MegaSaleEvent> lock(UUID id) {
         return jdbc.sql(EVENT + " WHERE id = :id FOR UPDATE")
                 .param("id", id).query(MegaSaleEvent.class).optional();

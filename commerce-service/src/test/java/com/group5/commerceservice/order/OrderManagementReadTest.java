@@ -29,6 +29,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import com.group5.commerceservice.promotion.PromotionTestConfig;
 import org.springframework.data.domain.AuditorAware;
 import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
@@ -384,7 +385,7 @@ class OrderManagementReadTest {
     @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses = {CartRepository.class, OrderRepository.class})
     @EnableJpaAuditing(auditorAwareRef = "auditor")
-    @Import({OrderService.class, OrderStateMachine.class, PricingService.class})
+    @Import({PromotionTestConfig.class, OrderService.class, OrderStateMachine.class, PricingService.class})
     static class JpaConfig {
         // Fixture báo giá tách riêng khỏi transport Shipping; các test này kiểm nghiệp vụ Order hiện hữu.
         @Bean

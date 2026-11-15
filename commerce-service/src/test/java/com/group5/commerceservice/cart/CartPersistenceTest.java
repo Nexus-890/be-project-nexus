@@ -85,12 +85,12 @@ class CartPersistenceTest {
                 new CatalogClient.ProductResponse(productId, UUID.randomUUID(), "Product", "ACTIVE", List.of())));
         Map<String, String> before = databaseSnapshot(jdbc);
         CurrentUser user = new CurrentUser(userId, Set.of("BUYER"), Set.of());
-        assertThat(pricing.pricing(user, "D01").subtotal()).isEqualByComparingTo("320000");
+        assertThat(pricing.pricing(user, null, null).subtotal()).isEqualByComparingTo("320000");
         assertThat(pricing.validate(user).valid()).isFalse();
         assertThat(pricing.preview(user, "D01").items()).hasSize(1);
 
         CurrentUser noCart = new CurrentUser(UUID.randomUUID(), Set.of(), Set.of());
-        assertThat(pricing.pricing(noCart, null).subtotal()).isZero();
+        assertThat(pricing.pricing(noCart, null, null).subtotal()).isZero();
         assertThat(pricing.validate(noCart).valid()).isTrue();
         assertThatThrownBy(() -> pricing.preview(noCart, null))
                 .isInstanceOf(com.group5.common_core.exception.DomainException.class)
@@ -339,7 +339,8 @@ class CartPersistenceTest {
         @Bean
         CartPricingService pricing(CartRepository carts, CartItemRepository items, CatalogClient catalog) {
             return new CartPricingService(carts, items, catalog, new CheckoutProperties(),
-                    mock(com.group5.commerceservice.order.service.PricingService.class));
+                    mock(com.group5.commerceservice.order.service.PricingService.class),
+                    mock(com.group5.commerceservice.promotion.VoucherCheckoutService.class));
         }
 
         @Bean

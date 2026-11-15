@@ -7,15 +7,19 @@ import org.springframework.stereotype.Component;
 @Component
 class PromotionStatusJob {
     private final MegaSaleEventService events;
+    private final VoucherLifecycleService vouchers;
 
-    PromotionStatusJob(MegaSaleEventService events) {
+    PromotionStatusJob(MegaSaleEventService events, VoucherLifecycleService vouchers) {
         this.events = events;
+        this.vouchers = vouchers;
     }
 
     @Scheduled(fixedDelayString = "${nexus.promotion.status-interval:30s}",
             initialDelayString = "${nexus.promotion.status-interval:30s}")
     @SchedulerLock(name = "promotionStatusJob", lockAtMostFor = "PT2M")
     public void run() {
-        events.advance(MegaSaleEventService.now());
+        var now = MegaSaleEventService.now();
+        events.advance(now);
+        vouchers.expireVoucherWindows(now);
     }
 }

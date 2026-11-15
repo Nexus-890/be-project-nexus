@@ -28,6 +28,10 @@ import com.group5.commerceservice.order.event.OrderGroupCancelled;
 import com.group5.commerceservice.order.repository.OrderGroupRepository;
 import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.repository.OrderStatusHistoryRepository;
+import com.group5.commerceservice.promotion.VoucherCheckoutService;
+import com.group5.commerceservice.promotion.VoucherCodes;
+import com.group5.commerceservice.promotion.VoucherLifecycleService;
+import com.group5.commerceservice.promotion.VoucherPricing;
 import com.group5.commerceservice.shared.exception.CommerceErrorCode;
 import com.group5.commerceservice.shared.pricing.PriceBreakdown;
 import com.group5.common_core.constant.CommonErrorCode;
@@ -96,6 +100,8 @@ public class OrderService {
     private final PlatformTransactionManager transactionManager;
     private final OrderEventPublisher events;
     private final EntityManager entityManager;
+    private final VoucherCheckoutService vouchers;
+    private final VoucherLifecycleService voucherLifecycle;
 
     @Value("${nexus.order.idempotency-enabled:true}")
     private boolean idempotencyEnabled = true;
@@ -163,6 +169,7 @@ public class OrderService {
         }
         if (group.getOrders().isEmpty()
                 || group.getOrders().stream().anyMatch(order -> order.getShippingInfo() == null
+                || !Objects.equals(snapshot.get("voucherCodes"), order.getShippingInfo().get("voucherCodes"))
                 || snapshot.entrySet().stream().anyMatch(entry ->
                         !Objects.equals(entry.getValue(), order.getShippingInfo().get(entry.getKey()))))) {
             throw new DomainException(CommerceErrorCode.IDEMPOTENCY_CONFLICT);
@@ -192,10 +199,7 @@ public class OrderService {
         if (lines.isEmpty()) {
             throw new DomainException(CommerceErrorCode.CART_EMPTY);
         }
-        // Promotion pricing is a separate issue; never silently drop an already selected voucher.
-        if (cart.getPromoCode() != null && !cart.getPromoCode().isBlank()) {
-            throw new DomainException(CommerceErrorCode.PROMOTION_NOT_SUPPORTED);
-        }
+        List<String> codes = VoucherCodes.withCartFallback(request.requestedVouchers(), cart.getPromoCode());
 
         Map<UUID, CatalogSkuResponse> skus;
         try {
@@ -246,7 +250,7 @@ public class OrderService {
             item.setSkuCode(sku.getSkuCode());
             item.setImageUrl(firstImage(product));
             item.setQuantity(line.getQuantity());
-            item.setUnitPrice(money(line.getUnitPrice()));
+            item.setUnitPrice(money(codes.isEmpty() ? line.getUnitPrice() : sku.getPrice()));
             item.setTotalPrice(money(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity()))));
             order.getItems().add(item);
         }
@@ -259,14 +263,18 @@ public class OrderService {
                     order.getItems().stream().map(item -> new OrderShippingService.Line(
                             item.getSkuId(), item.getQuantity(), skus.get(item.getSkuId()))).toList());
             order.setShippingFee(money(quote.fee()));
-            order.setTotalAmount(money(new PriceBreakdown(order.getSubtotal(), order.getDiscountAmount(),
-                    order.getTaxAmount(), order.getShippingFee()).total()));
             order.getShippingInfo().put("parcel", Map.of("weightGrams", quote.parcel().weightGrams(),
                     "lengthCm", quote.parcel().lengthCm(), "widthCm", quote.parcel().widthCm(),
                     "heightCm", quote.parcel().heightCm()));
             order.getShippingInfo().put("carrier", quote.carrier());
             order.getShippingInfo().put("serviceType", quote.serviceType());
             group.getOrders().add(order);
+        }
+        OffsetDateTime quotedAt = OffsetDateTime.now(ZoneOffset.UTC);
+        VoucherPricing.Result voucherQuote = reserveVouchers(user.id(), sellers, codes, quotedAt);
+        for (Order order : sellers.values()) {
+            order.setTotalAmount(money(new PriceBreakdown(order.getSubtotal(), order.getDiscountAmount(),
+                    order.getTaxAmount(), order.getShippingFee()).total()));
         }
         group.setTotalAmount(money(group.getOrders().stream().map(Order::getTotalAmount)
                 .reduce(new BigDecimal("0.00"), BigDecimal::add)));
@@ -285,6 +293,7 @@ public class OrderService {
             order.getShippingInfo().put("warehouseId", reservation.warehouseId().toString());
         });
         groupRepository.saveAndFlush(savedGroup);
+        if (voucherQuote != null) vouchers.persistReservations(user.id(), savedGroup.getOrders(), voucherQuote, quotedAt);
         savedGroup.getOrders().forEach(order -> stateMachine.recordCreated(order.getId(), user.id()));
 
         log.info("Cart before checkout: id={}, status={}",
@@ -300,6 +309,22 @@ public class OrderService {
         log.info("Cart after checkout: id={}, status={}", cart.getId(), cart.getStatus());
         log.info("Order group created: groupId={}, buyerId={}, orders={}", group.getId(), user.id(), sellers.size());
         return new CheckoutResult(new CreationResult(true, toResponse(savedGroup, user)), null);
+    }
+
+    private VoucherPricing.Result reserveVouchers(UUID buyer, Map<UUID, Order> orders, List<String> codes,
+                                                   OffsetDateTime now) {
+        if (codes.isEmpty()) return null;
+        List<VoucherPricing.Line> lines = orders.values().stream()
+                .flatMap(order -> order.getItems().stream().map(item -> new VoucherPricing.Line(
+                        item.getSkuId(), item.getProductId(), order.getSellerId(), item.getTotalPrice())))
+                .toList();
+        var result = vouchers.reserveQuota(buyer, lines, codes, now);
+        result.applications().stream().flatMap(application -> application.allocations().stream())
+                .forEach(allocation -> {
+                    Order order = orders.get(allocation.line().sellerId());
+                    order.setDiscountAmount(order.getDiscountAmount().add(allocation.discountAmount()));
+                });
+        return result;
     }
 
     private void publishCreation(OrderGroup group) {
@@ -466,6 +491,9 @@ public class OrderService {
                 .sorted(Comparator.comparing(Order::getId))
                 .toList();
         if (from == OrderStatus.PENDING) {
+            boolean expiry = PAYMENT_DEADLINE_EXPIRED.equals(reason);
+            voucherLifecycle.release(cancelled, expiry, OffsetDateTime.parse(cancelledAt), actor,
+                    expiry ? PAYMENT_DEADLINE_EXPIRED : "ORDER_CANCELLED");
             events.orderGroupCancelled(new OrderGroupCancelled(group.getId(), group.getBuyerId(), group.getVersion(),
                     reason, actor, cancelledAt, orders.stream()
                             .map(order -> new OrderGroupCancelled.CancelledOrder(order.getId(), order.getVersion()))
@@ -670,11 +698,13 @@ public class OrderService {
                 .sorted(Comparator.comparing(OrderItem::getId))
                 .map(this::toItemResponse)
                 .toList();
+        List<VoucherCheckoutService.OrderVoucher> orderVouchers = order.getDiscountAmount().signum() == 0
+                ? List.of() : vouchers.summary(order.getId());
         return new OrderResponse(order.getId(), order.getOrderNumber(), order.getUserId(), order.getSellerId(),
                 order.getOrderType(), order.getStatus(), order.getCreatedAt(), order.getTotalAmount(), items,
                 shippingSnapshotText(order, "name", "recipientName"), shippingSnapshotText(order, "phone", "phoneNumber"),
                 order.getOrderGroup().getId(), order.getSubtotal(), order.getShippingFee(),
-                order.getDiscountAmount(), order.getTaxAmount(), canCancel(order, user), order.getPaymentNote());
+                order.getDiscountAmount(), order.getTaxAmount(), canCancel(order, user), order.getPaymentNote(), orderVouchers);
     }
 
     // This is a snapshot for the UI; cancel() rechecks the locked state and may still return 409.

@@ -260,6 +260,29 @@ The contract cell contains only `R2` for out-of-scope names. Each R1 link resolv
 | `InventoryStockUnavailable` | #157 late OrderPaid recovery | [R1 — payload](#inventorystockunavailable) |
 | `AuctionStockRejected` | #170 auction hold rejection | [R1 — payload](#auctionstockrejected) |
 
+## Voucher usage events (#256)
+
+Commerce writes `VoucherRedeemed`, `VoucherReleased`, and `VoucherReversed`
+to `nexus.commerce.events` through its outbox. Each outbox record has aggregate type
+`VoucherUsage` and the usage UUID as its aggregate ID and partition key. The
+payload contains `usageId`, `orderId`, `voucherId`, `status`, `discountAmount`,
+`sellerFunded`, `platformFunded`, and an optional `reason`. Amounts use decimal
+strings with exactly two fractional digits.
+
+- `VoucherRedeemed` accompanies the accepted payment transition and carries the
+  amounts reserved for that order.
+- `VoucherReleased` carries the freed amounts and status `RELEASED` on buyer
+  cancellation or `EXPIRED` on payment deadline expiry.
+- `VoucherReversed` carries the reversed discount and funding shares. A full
+  order refund reverses the original allocations. The current Payment payload
+  identifies the order and refunded amount, so an amount-only partial refund
+  reverses the proportional share of the stored allocations. It leaves the
+  claimed voucher used.
+
+The voucher state change, allocation updates, and the event insert share the
+Commerce transaction. Retrying a payment receipt or a refund event leaves the
+original transitions and event IDs intact.
+
 ## Publishers and consumers
 
 Issue numbers identify implementation ownership, not completed runtime behavior. The table covers 49 R1 contracts plus the deferred PaymentConfirmed R2 reference; its historical topic and issue links do not authorize R1 publication or consumption. See each payload section for log-only handling and review conditions.
