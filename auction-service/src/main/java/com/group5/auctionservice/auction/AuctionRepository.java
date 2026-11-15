@@ -18,6 +18,14 @@ import java.util.UUID;
 public interface AuctionRepository extends JpaRepository<Auction, UUID> {
     Page<Auction> findBySellerIdAndDeletedAtIsNull(UUID sellerId, Pageable pageable);
 
+    Page<Auction> findByDeletedAtIsNull(Pageable pageable);
+
+    Page<Auction> findByStatusAndDeletedAtIsNull(AuctionStatus status, Pageable pageable);
+
+    Optional<Auction> findByIdAndDeletedAtIsNull(UUID id);
+
+    boolean existsByIdAndDeletedAtIsNull(UUID id);
+
     Page<Auction> findBySellerIdAndStatusAndDeletedAtIsNull(UUID sellerId, AuctionStatus status, Pageable pageable);
 
     @Query(value = "SELECT 1 FROM pg_advisory_xact_lock(hashtextextended('auction-create:' || CAST(:sellerId AS text), 0))",

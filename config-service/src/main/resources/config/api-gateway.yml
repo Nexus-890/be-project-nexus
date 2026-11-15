@@ -310,6 +310,18 @@ nexus:
         path: /api/v1/auctions/mine
         privilege: AUCTION.LIST
       - method: GET
+        path: /api/v1/auctions/manage
+        privilege: AUCTION.LIST
+      - method: GET
+        path: /api/v1/auctions/manage/{id}
+        privilege: AUCTION.VIEW
+      - method: GET
+        path: /api/v1/auctions/manage/{id}/state
+        privilege: AUCTION.VIEW
+      - method: GET
+        path: /api/v1/auctions/manage/{id}/bids
+        privilege: AUCTION.VIEW_BID_HISTORY
+      - method: GET
         path: /api/v1/bids/mine
         privilege: AUCTION.VIEW_BID_HISTORY
       - method: GET
