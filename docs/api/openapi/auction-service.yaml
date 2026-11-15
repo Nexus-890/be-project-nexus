@@ -39,6 +39,117 @@ paths:
         '429': {$ref: '#/components/responses/RateLimited'}
         '500': {$ref: '#/components/responses/UnexpectedError'}
         '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/auctions/manage:
+    get:
+      tags: [Auctions]
+      operationId: listManagedAuctions
+      summary: List every auction for the back office
+      description: Back-office list for ADMIN and SUPPORT_STAFF including CREATED, CANCELLED and RESTRICTED auctions of every seller. Soft-deleted rows are excluded. Omitting status returns every status. Sorts by createdAt descending then id descending. The public list is unchanged.
+      x-required-roles: [ADMIN, SUPPORT_STAFF]
+      x-required-privileges: [AUCTION.LIST]
+      x-ownership: None; auctions of every seller are readable.
+      parameters:
+        - name: status
+          in: query
+          description: Optional exact status filter; omitted means all statuses.
+          schema: {$ref: '#/components/schemas/AuctionStatus'}
+        - {$ref: '#/components/parameters/MinePage'}
+        - {$ref: '#/components/parameters/MineSize'}
+      responses:
+        '200':
+          description: Auction snapshots with page metadata; empty/out-of-range pages retain the actual totals.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ListAuctionsResponse'}
+        '400': {$ref: '#/components/responses/MineInvalidQuery'}
+        '401': {$ref: '#/components/responses/MineUnauthorized'}
+        '403': {$ref: '#/components/responses/MineForbidden'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/UnexpectedError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/auctions/manage/{id}:
+    get:
+      tags: [Auctions]
+      operationId: getManagedAuction
+      summary: Read any auction for the back office
+      description: Reads the stored snapshot regardless of status or visibility. Soft-deleted or unknown auctions return 404.
+      x-required-roles: [ADMIN, SUPPORT_STAFF]
+      x-required-privileges: [AUCTION.VIEW]
+      x-ownership: None; auctions of every seller are readable.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Stored auction snapshot
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GetAuctionResponse'}
+        '400': {$ref: '#/components/responses/MineInvalidQuery'}
+        '401': {$ref: '#/components/responses/MineUnauthorized'}
+        '403': {$ref: '#/components/responses/MineForbidden'}
+        '404': {$ref: '#/components/responses/ManagedAuctionNotFound'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/UnexpectedError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/auctions/manage/{id}/state:
+    get:
+      tags: [Auctions]
+      operationId: getManagedAuctionState
+      summary: Read the live state of any auction for the back office
+      description: Same shape as the public state read, regardless of visibility. Not cached.
+      x-required-roles: [ADMIN, SUPPORT_STAFF]
+      x-required-privileges: [AUCTION.VIEW]
+      x-ownership: None; auctions of every seller are readable.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Current auction state
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GetAuctionStateResponse'}
+        '400': {$ref: '#/components/responses/MineInvalidQuery'}
+        '401': {$ref: '#/components/responses/MineUnauthorized'}
+        '403': {$ref: '#/components/responses/MineForbidden'}
+        '404': {$ref: '#/components/responses/ManagedAuctionNotFound'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/UnexpectedError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/auctions/manage/{id}/bids:
+    get:
+      tags: [Auctions]
+      operationId: listManagedAuctionBids
+      summary: Read the bid history of any auction for the back office
+      description: Same order and masked names as the public history, regardless of visibility. Bidder identities are never returned.
+      x-required-roles: [ADMIN, SUPPORT_STAFF]
+      x-required-privileges: [AUCTION.VIEW_BID_HISTORY]
+      x-ownership: None; auctions of every seller are readable.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+        - {$ref: '#/components/parameters/MinePage'}
+        - {$ref: '#/components/parameters/MineSize'}
+      responses:
+        '200':
+          description: Bid history page, empty when the auction has no bids
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ListAuctionBidsResponse'}
+        '400': {$ref: '#/components/responses/MineInvalidQuery'}
+        '401': {$ref: '#/components/responses/MineUnauthorized'}
+        '403': {$ref: '#/components/responses/MineForbidden'}
+        '404': {$ref: '#/components/responses/ManagedAuctionNotFound'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/UnexpectedError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
   /api/v1/bids/mine:
     get:
       tags: [Auctions]
@@ -363,11 +474,11 @@ paths:
       tags: [Auctions]
       operationId: updateAuction
       summary: Configure an auction before it starts
-      description: The authenticated actor must own the auction. Only CREATED/SCHEDULED before the stored startAt; updates startingPrice/currentPrice, bidIncrement, startAt, endAt and the originalEndAt baseline atomically.
+      description: A SELLER must own the auction; an ADMIN may edit any auction and the sellerId is kept. For both, only CREATED/SCHEDULED before the stored startAt and without valid bids; updates startingPrice/currentPrice, bidIncrement, startAt, endAt and the originalEndAt baseline atomically.
       x-catalogue-id: AUC-02
       x-required-roles: [SELLER, ADMIN]
       x-required-privileges: [AUCTION.UPDATE]
-      x-ownership: The authenticated actor must own the auction. Only CREATED/SCHEDULED before the stored startAt; updates startingPrice/currentPrice, bidIncrement, startAt, endAt and the originalEndAt baseline atomically.
+      x-ownership: A SELLER must own the auction; an ADMIN may edit any auction and the sellerId is kept. For both, only CREATED/SCHEDULED before the stored startAt and without valid bids; updates startingPrice/currentPrice, bidIncrement, startAt, endAt and the originalEndAt baseline atomically.
       parameters:
         - name: id
           in: path
@@ -396,7 +507,7 @@ paths:
         '401':
           $ref: '#/components/responses/InvalidBearer'
         '403':
-          description: 'FORBIDDEN for missing role or privilege; AUCTION_FORBIDDEN for ownership failure.'
+          description: 'FORBIDDEN for missing role or privilege; AUCTION_FORBIDDEN when a SELLER does not own the auction.'
           content:
             application/problem+json:
               schema:
@@ -971,6 +1082,11 @@ components:
       description: Number of distinct result rows per page.
       schema: {type: integer, minimum: 1, maximum: 100, default: 10}
   responses:
+    ManagedAuctionNotFound:
+      description: AUCTION_NOT_FOUND. The auction is missing or soft-deleted.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
     PublicAuctionNotFound:
       description: AUCTION_NOT_FOUND. The auction is missing, deleted or restricted.
       content:

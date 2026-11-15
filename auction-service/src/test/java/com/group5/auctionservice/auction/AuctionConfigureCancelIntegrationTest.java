@@ -85,6 +85,7 @@ class AuctionConfigureCancelIntegrationTest {
         when(decoder.decode("admin")).thenReturn(token("admin", ADMIN, "ADMIN", "AUCTION.ADMIN_CANCEL", "AUCTION.UPDATE"));
         when(decoder.decode("buyer")).thenReturn(token("buyer", OWNER, "BUYER", "AUCTION.UPDATE", "AUCTION.CANCEL", "AUCTION.ADMIN_CANCEL"));
         when(decoder.decode("no-privilege")).thenReturn(token("no-privilege", OWNER, "SELLER"));
+        when(decoder.decode("admin-no-update")).thenReturn(token("admin-no-update", ADMIN, "ADMIN", "AUCTION.ADMIN_CANCEL"));
         jdbc.update("DELETE FROM outbox");
         jdbc.update("DELETE FROM bids");
         jdbc.update("DELETE FROM auctions");
@@ -122,6 +123,43 @@ class AuctionConfigureCancelIntegrationTest {
     void storedStartTimeBlocksEditingEvenBeforeSchedulerChangesStatus() throws Exception {
         jdbc.update("UPDATE auctions SET start_at = ?::timestamptz WHERE id = ?", NOW.toString(), id);
         edit("owner", body(120)).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("AUCTION_NOT_EDITABLE"));
+    }
+
+    @Test
+    void adminEditsAnotherSellersScheduledAuctionWithoutTakingOwnership() throws Exception {
+        edit("admin", body(120)).andExpect(status().isOk()).andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.sellerId").value(OWNER.toString()))
+                .andExpect(jsonPath("$.data.status").value("SCHEDULED"))
+                .andExpect(jsonPath("$.data.startingPrice").value(200000))
+                .andExpect(jsonPath("$.data.bidIncrement").value(20000));
+        assertThat(row().get("seller_id")).isEqualTo(OWNER);
+        assertThat(row().get("starting_price")).isEqualTo(new BigDecimal("200000.00"));
+        assertThat(events()).isZero();
+    }
+
+    @Test
+    void sellerEditingAnotherSellersAuctionIsStillForbidden() throws Exception {
+        var before = row();
+        edit("other", body(120)).andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AUCTION_FORBIDDEN"));
+        edit("admin-no-update", body(120)).andExpect(status().isForbidden());
+        assertThat(row()).isEqualTo(before);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ACTIVE", "ENDED", "CANCELLED"})
+    void adminEditingStartedOrFinalAuctionIsNotEditable(String state) throws Exception {
+        setStatus(state);
+        var before = row();
+        edit("admin", body(120)).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("AUCTION_NOT_EDITABLE"));
+        assertThat(row()).isEqualTo(before);
+    }
+
+    @Test
+    void adminEditingAfterStoredStartOrWithValidBidsIsRejected() throws Exception {
+        seedBid("PLACED");
+        edit("admin", body(120)).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("AUCTION_HAS_BIDS"));
+        jdbc.update("UPDATE auctions SET start_at = ?::timestamptz WHERE id = ?", NOW.toString(), id);
+        edit("admin", body(120)).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("AUCTION_NOT_EDITABLE"));
     }
 
     @ParameterizedTest
@@ -215,7 +253,6 @@ class AuctionConfigureCancelIntegrationTest {
         }
         cancel("owner", true).andExpect(status().isForbidden());
         cancel("buyer", true).andExpect(status().isForbidden());
-        edit("admin", body(120)).andExpect(status().isForbidden());
         assertThat(row()).isEqualTo(before);
         assertThat(events()).isZero();
     }
