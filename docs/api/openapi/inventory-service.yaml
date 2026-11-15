@@ -23,6 +23,55 @@ tags:
   - name: Warehouses
     description: Warehouse records
 paths:
+  /internal/v1/inventory/reservations:
+    get:
+      tags: [Reservations]
+      operationId: getLinkedAuctionReservation
+      summary: Read the winner's linked auction hold
+      description: >-
+        Internal service endpoint for Commerce shipping confirmation. Commerce
+        relays the buyer's bearer token. Only the winning buyer can see the
+        linked hold. Returns an empty data array before AuctionSettled links
+        the order, for an unknown order, or when the buyer does not own it.
+      servers:
+        - url: http://localhost:8085
+          description: Inventory service directly
+      security:
+        - bearerAuth: []
+      x-roles: [BUYER]
+      parameters:
+        - name: orderId
+          in: query
+          required: true
+          description: Auction order UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Linked hold visible to the winning buyer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkedAuctionReservationApiResponse'
+        '400':
+          description: orderId is missing or invalid
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Caller lacks the BUYER role
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/inventory/{skuId}:
     get:
       tags: [Stock]
@@ -1667,6 +1716,30 @@ components:
             instance: /api/v1/warehouses
             code: INTERNAL_ERROR
   schemas:
+    LinkedAuctionReservationApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          enum: [0]
+        message:
+          type: string
+        data:
+          type: array
+          items:
+            type: object
+            required: [reservationId, warehouseId, status]
+            properties:
+              reservationId:
+                type: string
+                format: uuid
+              warehouseId:
+                type: string
+                format: uuid
+              status:
+                type: string
+                enum: [HELD, CONFIRMED, RELEASED, EXPIRED]
     IntakeRequest:
       type: object
       required: [skuId, quantity]

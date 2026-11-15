@@ -42,6 +42,16 @@ public class AuctionStateMachine {
         apply(auction, CANCELLED);
     }
 
+    boolean cancelForUnavailableStock(Auction auction) {
+        return switch (auction.getStatus()) {
+            case CREATED, SCHEDULED, ACTIVE -> {
+                apply(auction, CANCELLED);
+                yield true;
+            }
+            default -> false;
+        };
+    }
+
     private void apply(Auction auction, AuctionStatus to) {
         if (!canTransition(auction.getStatus(), to)) {
             throw new DomainException(AuctionErrorCode.AUCTION_ILLEGAL_TRANSITION);

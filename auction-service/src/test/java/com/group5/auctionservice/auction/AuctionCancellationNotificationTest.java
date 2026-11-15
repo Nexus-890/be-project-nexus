@@ -124,6 +124,27 @@ class AuctionCancellationNotificationTest {
         assertThat(events(auction)).isEqualTo(1);
     }
 
+    /** Hủy tự động do hết hàng dùng cùng publisher và giữ snapshot bidder distinct như hủy thủ công. */
+    @Test
+    void stockCancellationIncludesDistinctBiddersAndDoesNotPublishTwice() {
+        UUID auction = auction();
+        UUID bidder = UUID.randomUUID();
+        bid(auction, bidder, "PLACED");
+        bid(auction, bidder, "OUTBID");
+        UUID sku = jdbc().queryForObject("SELECT sku_id FROM auctions WHERE id = ?", UUID.class, auction);
+
+        auctions.cancelForUnavailableStock(auction, sku);
+        auctions.cancelForUnavailableStock(auction, sku);
+
+        JsonNode payload = payload(auction);
+        assertThat(payload.path("bidderIds").valueStream().map(JsonNode::asString).toList())
+                .containsExactly(bidder.toString());
+        assertThat(payload.path("sellerId").asString()).isEqualTo(SELLER.toString());
+        assertThat(payload.path("cancelledBy").asString()).isEqualTo("SYSTEM");
+        assertThat(payload.path("reason").asString()).isEqualTo("STOCK_UNAVAILABLE");
+        assertThat(events(auction)).isEqualTo(1);
+    }
+
     private UUID auction() {
         return jdbc().queryForObject("""
                 INSERT INTO auctions(product_id, sku_id, seller_id, title, starting_price, bid_increment,
@@ -190,6 +211,8 @@ class AuctionCancellationNotificationTest {
         // Hủy chỉ dùng dữ liệu local; các dependency tạo auction không được gọi trong test này.
         @Bean AuctionCatalog catalog() { return mock(AuctionCatalog.class); }
         @Bean AuctionCreation creation() { return mock(AuctionCreation.class); }
+        // Hủy chỉ dùng dữ liệu local; Inventory không được gọi trong test snapshot bidder.
+        @Bean AuctionInventoryClient inventory() { return mock(AuctionInventoryClient.class); }
         @Bean Clock clock() { return Clock.systemUTC(); }
         @Bean Tracer tracer() {
             var tracer = mock(Tracer.class, RETURNS_DEEP_STUBS);

@@ -128,8 +128,12 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/auctions/{id}/bids` | POST | AUCTION.BID | #146/#147 — Place a bid as BUYER; the bidder cannot be the auction seller. Required UUID `Idempotency-Key`; replay requires the original bidder, auction and numeric amount; a different amount returns 409 |
 | `/api/v1/auctions/{id}/schedule` | POST | AUCTION.UPDATE | #144 — Owner with SELLER role publishes a CREATED auction |
 | `/api/v1/auctions/mine` | GET | AUCTION.LIST | #198 |
+| `/api/v1/auctions/manage` | GET | AUCTION.LIST | #260 — Back-office list of every status and visibility; service additionally requires ADMIN or SUPPORT_STAFF |
+| `/api/v1/auctions/manage/{id}` | GET | AUCTION.VIEW | #260 — Back-office read of any non-deleted auction; service additionally requires ADMIN or SUPPORT_STAFF |
+| `/api/v1/auctions/manage/{id}/state` | GET | AUCTION.VIEW | #260 — Uncached live state of any non-deleted auction; service additionally requires ADMIN or SUPPORT_STAFF |
+| `/api/v1/auctions/manage/{id}/bids` | GET | AUCTION.VIEW_BID_HISTORY | #260 — Masked bid history of any non-deleted auction; service additionally requires ADMIN or SUPPORT_STAFF |
 | `/api/v1/bids/mine` | GET | AUCTION.VIEW_BID_HISTORY | #198; nullable orderId/paymentDueAt/finalPrice are visible only to the recorded winner in WON/SETTLED/PAYMENT_TIMEOUT |
-| `/api/v1/auctions/{id}` | PUT | AUCTION.UPDATE | #197 — SELLER/ADMIN owner, CREATED/SCHEDULED before startAt |
+| `/api/v1/auctions/{id}` | PUT | AUCTION.UPDATE | #197/#260 — SELLER owner or any ADMIN, CREATED/SCHEDULED before startAt |
 | `/api/v1/auctions/{id}/cancel` | POST | AUCTION.CANCEL | #197 — SELLER owner with no valid bids |
 | `/api/v1/auctions/{id}/admin-cancel` | POST | AUCTION.ADMIN_CANCEL | #197 — ADMIN; CREATED/SCHEDULED/ACTIVE/ENDED/WON only |
 | `/api/v1/auctions` | GET | Public | #143 — PUBLIC, non-deleted auctions; status defaults to ACTIVE, endAt ascending |
@@ -653,7 +657,7 @@ A path with several roles in `x-required-roles` accepts any one of them.
 | Method | Path | Actor roles (or public) | Gateway privilege | Required service privileges (all) | Ownership / business restriction | Owning issue |
 |---|---|---|---|---|---|---|
 | POST | `/api/v1/auctions` | ADMIN, SELLER | AUCTION.CREATE | AUCTION.CREATE | Seller of the product; ADMIN on behalf of a seller | #140, #141, #142 |
-| PUT | `/api/v1/auctions/{id}` | ADMIN, SELLER | AUCTION.UPDATE | AUCTION.UPDATE | Owner of the auction; frozen once it has started | #197 |
+| PUT | `/api/v1/auctions/{id}` | ADMIN, SELLER | AUCTION.UPDATE | AUCTION.UPDATE | SELLER must own the auction; ADMIN may edit any auction; frozen once it has started or has a valid bid | #197, #260 |
 | POST | `/api/v1/auctions/{id}/schedule` | SELLER | AUCTION.UPDATE | AUCTION.UPDATE | Owner of the auction; only from CREATED | #144 |
 | GET | `/api/v1/auctions/{id}` | public | public | none (public) |  | #143 |
 | GET | `/api/v1/auctions` | public | public | none (public) |  | #143 |
@@ -661,6 +665,10 @@ A path with several roles in `x-required-roles` accepts any one of them.
 | POST | `/api/v1/auctions/{id}/cancel` | ADMIN, SELLER | AUCTION.CANCEL | AUCTION.CANCEL | Owner of the auction; only while it has no valid bid | #197 |
 | POST | `/api/v1/auctions/{id}/admin-cancel` | ADMIN | AUCTION.ADMIN_CANCEL | AUCTION.ADMIN_CANCEL | Any auction not yet settled or cancelled; audit actor and reason | #197 |
 | GET | `/api/v1/auctions/mine` | SELLER | AUCTION.LIST | AUCTION.LIST | Own auctions only | #198 |
+| GET | `/api/v1/auctions/manage` | ADMIN, SUPPORT_STAFF | AUCTION.LIST | AUCTION.LIST | Every status and visibility, soft-deleted excluded | #260 |
+| GET | `/api/v1/auctions/manage/{id}` | ADMIN, SUPPORT_STAFF | AUCTION.VIEW | AUCTION.VIEW | Any visibility, soft-deleted excluded | #260 |
+| GET | `/api/v1/auctions/manage/{id}/state` | ADMIN, SUPPORT_STAFF | AUCTION.VIEW | AUCTION.VIEW | Any visibility, uncached | #260 |
+| GET | `/api/v1/auctions/manage/{id}/bids` | ADMIN, SUPPORT_STAFF | AUCTION.VIEW_BID_HISTORY | AUCTION.VIEW_BID_HISTORY | Any visibility; bidder names masked | #260 |
 | POST | `/api/v1/auctions/{id}/bids` | BUYER | AUCTION.BID | AUCTION.BID | Not the auction's seller; globally unique UUID key replays only for the original bidder, auction and numeric amount; a different amount returns 409 | #146, #147 |
 | GET | `/api/v1/auctions/{id}/bids` | public | public | none (public) |  | #169 |
 | GET | `/api/v1/bids/mine` | BUYER | AUCTION.VIEW_BID_HISTORY | AUCTION.VIEW_BID_HISTORY | Own bids only; settlement references are null for other bidders/statuses | #198; winner checkout projection |

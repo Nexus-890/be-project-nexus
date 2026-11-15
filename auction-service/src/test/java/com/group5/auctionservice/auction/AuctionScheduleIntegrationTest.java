@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -67,6 +68,7 @@ class AuctionScheduleIntegrationTest {
     @Autowired private AuctionStateMachine stateMachine;
     @MockitoBean private JwtDecoder decoder;
     @MockitoBean private CatalogClient catalog;
+    @MockitoBean private AuctionInventoryClient inventory;
     private MockMvc client;
     private UUID auctionId;
 
@@ -89,7 +91,10 @@ class AuctionScheduleIntegrationTest {
         UUID productId = UUID.randomUUID();
         UUID skuId = UUID.randomUUID();
         when(catalog.getProduct(productId)).thenReturn(ApiResponse.of(new CatalogClient.Product(
-                OWNER, "Scheduled auction", List.of(new CatalogClient.Sku(skuId)), List.of())));
+                OWNER, "Scheduled auction", List.of(new CatalogClient.Sku(skuId)),
+                List.of(new CatalogClient.Image("https://example.com/auction.png")))));
+        when(inventory.available(any())).thenAnswer(call ->
+                ApiResponse.of(new AuctionInventoryClient.Stock(call.getArgument(0), 5)));
         String body = """
                 {"productId":"%s","skuId":"%s","title":"Scheduled auction","startingPrice":100000,
                  "startAt":"%s","endAt":"%s"}

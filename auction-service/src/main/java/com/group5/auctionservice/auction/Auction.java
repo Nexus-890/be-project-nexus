@@ -135,6 +135,12 @@ public class Auction extends AuditedEntity {
         this.status = status;
     }
 
+    public void recordWinner(UUID bidderId, BigDecimal price, Instant deadline) {
+        this.winnerId = bidderId;
+        this.finalPrice = price;
+        this.paymentDueAt = deadline;
+    }
+
     void configure(BigDecimal startingPrice, BigDecimal bidIncrement, Instant startAt, Instant endAt) {
         this.startingPrice = startingPrice;
         this.currentPrice = startingPrice;
