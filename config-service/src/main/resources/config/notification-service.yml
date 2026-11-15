@@ -44,6 +44,7 @@ nexus:
       processing-delay-ms: 0
   notification:
     email-enabled: ${EMAIL_NOTIFICATION_ENABLED:false}
+    frontend-base-url: ${NEXUS_FRONTEND_URL:http://localhost:3000}
     group-id: nexus.notification.domain-events.v1
     delivery:
       retry-limit: ${NOTIFICATION_RETRY_LIMIT:3}

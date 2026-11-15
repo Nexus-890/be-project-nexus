@@ -5,6 +5,7 @@ import com.group5.auctionservice.auction.dto.CreateAuctionRequest;
 import com.group5.auctionservice.auction.dto.UpdateAuctionRequest;
 import com.group5.auctionservice.auction.dto.CancelAuctionRequest;
 import com.group5.auctionservice.shared.config.AuctionProperties;
+import com.group5.auctionservice.bidding.BidRepository;
 import com.group5.auctionservice.shared.exception.AuctionErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
@@ -39,6 +40,7 @@ public class AuctionService {
     private final AuctionCreation auctionCreation;
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
+    private final BidRepository bids;
 
     @Transactional(readOnly = true)
     public AuctionResponse get(UUID id) {
@@ -138,7 +140,9 @@ public class AuctionService {
         // Flush once before the event so its version is the committed entity version.
         auctions.flush();
         outbox.write("Auction", Topics.AUCTION,
-                envelopes.create("AuctionCancelled", id.toString(), AuctionCancelled.from(auction)));
+                // Snapshot bidder trong cùng transaction đang giữ lock auction; không đọc DB từ Notification.
+                envelopes.create("AuctionCancelled", id.toString(),
+                        AuctionCancelled.from(auction, bids.findDistinctBidderIdsByAuctionId(id))));
         return AuctionResponse.from(auction);
     }
 

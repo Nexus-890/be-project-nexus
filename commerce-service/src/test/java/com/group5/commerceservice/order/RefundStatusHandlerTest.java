@@ -121,7 +121,7 @@ class RefundStatusHandlerTest {
         return new EventEnvelope<>(UUID.randomUUID(), "OrderRefundRequested", orderId.toString(), Instant.now(),
                 "247refund", new OrderRefundRequested(UUID.randomUUID(), orderId, UUID.randomUUID(),
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "300000.00", "VND", "REQUESTED",
-                "Seller out of stock", SUPPORT, 0, 1, Instant.now().toString()));
+                "Seller out of stock", SUPPORT, 0, 1, Instant.now().toString(), null));
     }
 
     private static EventEnvelope<OrderRefundCompleted> completed(UUID orderId) {
@@ -129,7 +129,7 @@ class RefundStatusHandlerTest {
                 "247refund", new OrderRefundCompleted(UUID.randomUUID(), orderId, UUID.randomUUID(),
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "300000.00", "VND", "COMPLETED",
                 "Seller out of stock", SUPPORT, 1, 1, Instant.now().toString(), UUID.randomUUID(),
-                Instant.now().toString()));
+                Instant.now().toString(), null));
     }
 
     private UUID insertOrder(OrderStatus status) {

@@ -46,6 +46,8 @@ class RefundCancellationTest extends PaymentDatabaseTestSupport {
         var payload = fixtures.lastPayload("OrderRefundRequested", group.bigOrder());
         assertThat(payload.get("refundId").asString()).isEqualTo(refund.get("id").toString());
         assertThat(payload.get("orderGroupId").asString()).isEqualTo(group.groupId().toString());
+        // Hoàn tiền tự động cũng bổ sung người nhận từ dữ liệu Payment đã lưu.
+        assertThat(payload.get("buyerId").asString()).isEqualTo(group.buyerId().toString());
         assertThat(payload.get("sessionId").asString()).isEqualTo(group.sessionId().toString());
         assertThat(payload.get("incomingTransactionId").asString()).isEqualTo(group.transactionId().toString());
         assertThat(payload.get("amount").asString()).isEqualTo(RefundFixtures.BIG);

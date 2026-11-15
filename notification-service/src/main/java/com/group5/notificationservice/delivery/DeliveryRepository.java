@@ -20,12 +20,33 @@ public class DeliveryRepository {
         this.jdbc = jdbc;
     }
 
-    public void insertPendingEmail(UUID notificationId, Instant dueAt) {
+    // Chỉ preference đúng người, đúng loại và kênh EMAIL mới quyết định việc gửi.
+    // Chưa có preference được hiểu là bật; vẫn lưu SKIPPED để chủ thông báo xem được kết quả.
+    public void insertEmail(UUID notificationId, Instant dueAt) {
         jdbc.update("""
                 INSERT INTO notification_deliveries (notification_id, channel, status, next_attempt_at)
-                VALUES (?, 'EMAIL', 'PENDING', ?)
+                SELECT n.id, 'EMAIL',
+                       CASE WHEN COALESCE(p.enabled, true) THEN 'PENDING'::notification_delivery_status
+                            ELSE 'SKIPPED'::notification_delivery_status END,
+                       CASE WHEN COALESCE(p.enabled, true) THEN CAST(? AS timestamptz) ELSE NULL END
+                FROM notifications n
+                LEFT JOIN notification_preferences p
+                  ON p.user_id = n.user_id AND p.notification_type = n.type AND p.channel = 'EMAIL'
+                WHERE n.id = ?
                 ON CONFLICT (notification_id, channel) DO NOTHING
-                """, notificationId, Timestamp.from(dueAt));
+                """, Timestamp.from(dueAt), notificationId);
+    }
+
+    // Đọc lại preference tại lúc worker gửi, để email đã xếp hàng không vượt qua lựa chọn tắt mới nhất.
+    public boolean skipDisabledEmail(UUID deliveryId, Instant now) {
+        return jdbc.update("""
+                UPDATE notification_deliveries d
+                SET status = 'SKIPPED', next_attempt_at = NULL, updated_at = ?
+                FROM notifications n, notification_preferences p
+                WHERE d.id = ? AND d.notification_id = n.id AND d.channel = 'EMAIL' AND d.status = 'PENDING'
+                  AND p.user_id = n.user_id AND p.notification_type = n.type AND p.channel = 'EMAIL'
+                  AND NOT p.enabled
+                """, Timestamp.from(now), deliveryId) > 0;
     }
 
     // KHÓA DELIVERY ĐẾN HẠN BẰNG FOR UPDATE SKIP LOCKED -> 2 WORKER KHÔNG NHẬN CÙNG 1 DELIVERY CÙNG LÚC

@@ -16,5 +16,7 @@ public record OrderRefundRequested(
         UUID actorId,
         long refundVersion,
         long instructionVersion,
-        String requestedAt) {
+        String requestedAt,
+        // Người nhận lấy từ instruction đã lưu, không phải actor thao tác hoàn tiền.
+        UUID buyerId) {
 }

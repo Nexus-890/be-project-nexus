@@ -22,11 +22,11 @@ public class EmailChannel implements NotificationChannel {
         this.clock = clock;
     }
 
-    // KHÔNG GỬI SMTP TRONG LÚC NHẬN EVENT KAFKA: CHỈ GHI 1 DÒNG DELIVERY PENDING CÙNG TRANSACTION VỚI THÔNG BÁO
+    // KHÔNG GỬI SMTP TRONG LÚC NHẬN EVENT KAFKA: GHI DELIVERY PENDING/SKIPPED THEO PREFERENCE CÙNG TRANSACTION
     // DeliveryRetryJob SẼ GỬI LẦN ĐẦU VÀ CẢ CÁC LẦN GỬI LẠI -> SMTP CHẬM/SẬP KHÔNG LÀM KẸT CONSUMER
     @Override
     public void send(Notification notification) {
         notifications.flush();
-        deliveries.insertPendingEmail(notification.getId(), clock.instant());
+        deliveries.insertEmail(notification.getId(), clock.instant());
     }
 }

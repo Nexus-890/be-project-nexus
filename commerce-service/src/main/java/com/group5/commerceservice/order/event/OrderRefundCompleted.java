@@ -22,5 +22,7 @@ public record OrderRefundCompleted(
         long instructionVersion,
         String requestedAt,
         @NotNull UUID completedTransactionId,
-        @NotBlank String completedAt) {
+        @NotBlank String completedAt,
+        // Trường thêm mới không thay đổi kiểm tra trạng thái hoàn tiền của Commerce.
+        UUID buyerId) {
 }
