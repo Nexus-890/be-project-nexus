@@ -1,6 +1,7 @@
 package com.group5.auctionservice.auction;
 
 import com.group5.auctionservice.TestPostgres;
+import com.group5.common_core.model.ApiResponse;
 import jakarta.servlet.Filter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -58,6 +59,7 @@ class AuctionLimitsIntegrationTest {
     @Autowired private JdbcTemplate jdbc;
     @MockitoBean private JwtDecoder decoder;
     @MockitoBean private AuctionCatalog catalog;
+    @MockitoBean private AuctionInventoryClient inventory;
     private final Map<UUID, UUID> productIdsBySku = new ConcurrentHashMap<>();
     private final Map<UUID, CatalogClient.Product> products = new ConcurrentHashMap<>();
     private MockMvc client;
@@ -80,6 +82,8 @@ class AuctionLimitsIntegrationTest {
         when(decoder.decode("seller")).thenReturn(token("seller", seller));
         when(decoder.decode("other")).thenReturn(token("other", otherSeller));
         when(catalog.requireProduct(any())).thenAnswer(call -> products.get(call.getArgument(0)));
+        when(inventory.available(any())).thenAnswer(call ->
+                ApiResponse.of(new AuctionInventoryClient.Stock(call.getArgument(0), 5)));
     }
 
     @ParameterizedTest

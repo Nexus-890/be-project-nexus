@@ -56,6 +56,77 @@ public class ReservationService {
     private final EventEnvelopeFactory envelopes;
 
     @Transactional
+    public void holdAuction(UUID auctionId, UUID skuId, Instant endAt) {
+        if (reservations.existsByAuctionId(auctionId)) {
+            return;
+        }
+        UUID warehouseId = warehouses.defaultWarehouseId();
+        OffsetDateTime createdAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
+        InventoryReservation hold = reservations.saveAndFlush(InventoryReservation.heldForAuction(
+                auctionId, skuId, warehouseId, createdAt, endAt.atOffset(ZoneOffset.UTC)));
+        if (balances.reserve(skuId, warehouseId, 1, SYSTEM_ACTOR) == 0) {
+            throw insufficientStock(skuId, warehouseId, 1);
+        }
+        movements.record(skuId, warehouseId, MovementType.RESERVE, 1, hold.getId(), SYSTEM_ACTOR);
+        outbox.write("InventoryReservation", Topics.INVENTORY, envelopes.create("InventoryReserved", hold.getId().toString(),
+                new AuctionStockReserved(hold.getId(), auctionId, null, skuId, warehouseId, 1,
+                        ReservationStatus.HELD, createdAt, hold.getExpiresAt())));
+    }
+
+    @Transactional
+    public void releaseAuction(UUID auctionId, String reason) {
+        var existing = reservations.findForUpdateByAuctionId(auctionId);
+        if (existing.isEmpty()) {
+            return;
+        }
+        InventoryReservation hold = existing.get();
+        if (hold.getOrderId() != null || reservations.releaseHeld(hold.getId(), SYSTEM_ACTOR) == 0) {
+            return;
+        }
+        requireMoved(balances.releaseReserved(hold.getSkuId(), hold.getWarehouseId(), hold.getQuantity(),
+                SYSTEM_ACTOR), hold);
+        movements.record(hold.getSkuId(), hold.getWarehouseId(), MovementType.RELEASE, hold.getQuantity(),
+                hold.getId(), SYSTEM_ACTOR);
+        outbox.write("InventoryReservation", Topics.INVENTORY, envelopes.create("InventoryReleased", hold.getId().toString(),
+                new AuctionStockReleased(hold.getId(), auctionId, null, hold.getSkuId(), hold.getWarehouseId(),
+                        hold.getQuantity(), ReservationStatus.RELEASED, find(hold.getId()).getReleasedAt(), reason)));
+    }
+
+    @Transactional
+    public void linkAuctionOrder(UUID auctionId, UUID orderId) {
+        InventoryReservation hold = reservations.findForUpdateByAuctionId(auctionId)
+                .orElseThrow(() -> new DomainException(InventoryErrorCode.RESERVATION_NOT_FOUND));
+        if (orderId.equals(hold.getOrderId())) {
+            return;
+        }
+        if (hold.getStatus() != ReservationStatus.HELD || hold.getOrderId() != null) {
+            throw new DomainException(InventoryErrorCode.RESERVATION_CONFLICT);
+        }
+        hold.linkOrder(orderId);
+    }
+
+    @Transactional
+    public void recordAuctionWinner(UUID auctionId, UUID winnerId) {
+        InventoryReservation hold = reservations.findForUpdateByAuctionId(auctionId)
+                .orElseThrow(() -> new DomainException(InventoryErrorCode.RESERVATION_NOT_FOUND));
+        if (hold.getAuctionWinnerId() == null) {
+            hold.recordAuctionWinner(winnerId);
+        } else if (!winnerId.equals(hold.getAuctionWinnerId())) {
+            throw new DomainException(InventoryErrorCode.RESERVATION_CONFLICT);
+        }
+    }
+
+    private record AuctionStockReserved(UUID reservationId, UUID auctionId, UUID orderId, UUID skuId,
+                                        UUID warehouseId, int quantity, ReservationStatus status,
+                                        OffsetDateTime reservedAt, OffsetDateTime expiresAt) {
+    }
+
+    private record AuctionStockReleased(UUID reservationId, UUID auctionId, UUID orderId, UUID skuId,
+                                        UUID warehouseId, int quantity, ReservationStatus status,
+                                        OffsetDateTime releasedAt, String reason) {
+    }
+
+    @Transactional
     public ReservationResponse reserve(ReserveRequest request, CurrentUser currentUser) {
         List<ReserveRequest.Item> items = request.items();
         rejectDuplicateItems(items);
@@ -172,6 +243,18 @@ public class ReservationService {
                 reservation.getQuantity(), actor), reservation);
         movements.record(reservation.getSkuId(), reservation.getWarehouseId(), MovementType.COMMIT,
                 reservation.getQuantity(), reservation.getId(), actor);
+        if (reservation.getAuctionId() != null && reservation.getOrderId() != null) {
+            outbox.write("InventoryReservation", Topics.INVENTORY, envelopes.createWithTimestamp(
+                    "InventoryCommitted", reservationId.toString(), committedAt -> Map.of(
+                            "reservationId", reservationId,
+                            "auctionId", reservation.getAuctionId(),
+                            "orderId", reservation.getOrderId(),
+                            "skuId", reservation.getSkuId(),
+                            "warehouseId", reservation.getWarehouseId(),
+                            "quantity", reservation.getQuantity(),
+                            "status", ReservationStatus.CONFIRMED,
+                            "committedAt", committedAt)));
+        }
     }
 
     @Transactional

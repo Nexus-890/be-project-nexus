@@ -36,6 +36,7 @@ public class AuctionService {
     private final Clock clock;
     private final AuctionStateMachine stateMachine;
     private final AuctionCatalog catalog;
+    private final AuctionInventoryClient inventory;
     private final AuctionCreation auctionCreation;
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
@@ -74,6 +75,7 @@ public class AuctionService {
         if (product.skus().stream().noneMatch(sku -> request.skuId().equals(sku.id()))) {
             throw new DomainException(AuctionErrorCode.AUCTION_SKU_NOT_FOUND);
         }
+        requireStock(request.skuId());
 
         BigDecimal increment = request.bidIncrement() == null
                 ? properties.getDefaultBidIncrement()
@@ -81,6 +83,22 @@ public class AuctionService {
         Auction auction = new Auction(request.productId(), request.skuId(), seller.id(), product.name(),
                 product.firstImageUrl(), request.startingPrice(), increment, request.startAt(), request.endAt());
         return AuctionResponse.from(auctionCreation.save(auction));
+    }
+
+    private void requireStock(UUID skuId) {
+        AuctionInventoryClient.Stock stock;
+        try {
+            var response = inventory.available(skuId);
+            stock = response == null ? null : response.data();
+        } catch (feign.FeignException failure) {
+            throw new DomainException(AuctionErrorCode.AUCTION_INVENTORY_UNAVAILABLE);
+        }
+        if (stock == null || !skuId.equals(stock.skuId()) || stock.available() == null || stock.available() < 0) {
+            throw new DomainException(AuctionErrorCode.AUCTION_INVENTORY_UNAVAILABLE);
+        }
+        if (stock.available() == 0) {
+            throw new DomainException(AuctionErrorCode.AUCTION_STOCK_UNAVAILABLE);
+        }
     }
 
     private void validateWindow(Instant startAt, Instant endAt) {

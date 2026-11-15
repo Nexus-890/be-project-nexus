@@ -70,7 +70,8 @@ class AntiSnipingRefreshIntegrationTest {
                         "--spring.cloud.discovery.enabled=false", "--eureka.client.enabled=false",
                         "--spring.kafka.admin.auto-create=false", "--spring.kafka.listener.auto-startup=false",
                         "--management.endpoints.web.exposure.include=health,refresh",
-                        "--management.tracing.export.zipkin.enabled=false", "--nexus.outbox.relay.enabled=false");
+                        "--management.tracing.export.zipkin.enabled=false", "--nexus.outbox.relay.enabled=false",
+                        "--nexus.auction.settlement.enabled=false");
         jdbc = context.getBean(JdbcTemplate.class);
         bids = context.getBean(BidService.class);
         properties = context.getBean(AuctionProperties.class);
