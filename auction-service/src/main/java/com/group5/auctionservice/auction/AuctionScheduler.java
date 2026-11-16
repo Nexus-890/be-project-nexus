@@ -70,6 +70,9 @@ public class AuctionScheduler {
             Integer selected = transactions.execute(status -> {
                 List<UUID> ids = lockDue.get();
                 for (Auction auction : auctions.findAllById(ids)) {
+                    // POST chưa commit hoặc còn request hợp lệ: giữ ACTIVE để consumer xử lý trước.
+                    if (target == AuctionStatus.ENDED && (!auctions.tryCloseBidAdmission(auction.getId())
+                            || auctions.hasEligibleQueuedBids(auction.getId()))) continue;
                     stateMachine.transition(auction, target);
                     writeEvent(auction, target);
                 }

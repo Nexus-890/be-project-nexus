@@ -10,6 +10,8 @@ public enum AuctionErrorCode implements ErrorCode {
     AUCTION_DURATION_TOO_LONG(HttpStatus.BAD_REQUEST, "Auction duration exceeds the configured maximum"),
     AUCTION_SKU_ALREADY_LIVE(HttpStatus.CONFLICT, "This SKU already has a live auction"),
     AUCTION_SELLER_LIMIT_REACHED(HttpStatus.CONFLICT, "The seller has reached the live auction limit"),
+    AUCTION_BID_NOT_FOUND(HttpStatus.NOT_FOUND, "Bid not found"),
+    AUCTION_STREAM_BUSY(HttpStatus.SERVICE_UNAVAILABLE, "Auction stream connection limit reached"),
     AUCTION_NOT_FOUND(HttpStatus.NOT_FOUND, "Auction not found"),
     AUCTION_PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, "Product not found in catalog"),
     AUCTION_SKU_NOT_FOUND(HttpStatus.NOT_FOUND, "SKU not found on the selected product"),

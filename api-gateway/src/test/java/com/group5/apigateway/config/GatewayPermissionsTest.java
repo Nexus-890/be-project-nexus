@@ -27,6 +27,8 @@ class GatewayPermissionsTest {
             new Row("/api/v1/vouchers", "GET", "Public"),
             new Row("/api/v1/auctions", "GET", "Public"),
             new Row("/api/v1/auctions/{id}", "GET", "Public"),
+            // SSE công khai, cùng visibility với state nhưng giới hạn bằng số kết nối.
+            new Row("/api/v1/auctions/{id}/stream", "GET", "Public"),
             new Row("/api/v1/auctions/{id}/state", "GET", "Public"),
             new Row("/api/v1/auctions/{id}/bids", "GET", "Public"),
             new Row("/api/v1/inventory", "GET", "Public"),

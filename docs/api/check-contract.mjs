@@ -51,6 +51,7 @@ const services = {
     'src/main/java/com/group5/auctionservice/auction/AuctionController.java',
     'src/main/java/com/group5/auctionservice/bidding/MyBidController.java',
     'src/main/java/com/group5/auctionservice/bidding/BidController.java',
+    'src/main/java/com/group5/auctionservice/stream/AuctionStreamController.java',
   ],
   'shipment-service': [
     'src/main/java/com/group5/shipmentservice/shipping/controller/CarrierController.java',
@@ -68,6 +69,7 @@ for (const [service, controllers] of Object.entries(services)) {
   for (const controller of controllers) {
     const source = readFileSync(resolve(root, service, controller), 'utf8');
     const base = source.match(/@RequestMapping\("([^"]+)"\)/)?.[1] ?? '';
+    // Nhận cả value/path và produces để kiểm tra đầy đủ endpoint SSE.
     const methods = source.matchAll(/@(Get|Post|Put|Patch|Delete)Mapping(?:\(\s*(?:(?:value|path)\s*=\s*)?"([^"]*)"[^)]*\))?/g);
     for (const method of methods) {
       const key = `${method[1].toUpperCase()} ${normalize(base + (method[2] ?? ''))}`;

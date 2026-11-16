@@ -72,9 +72,11 @@ class BidConcurrencyIT extends AuctionPostgresIntegrationTest {
             .version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(10)).build();
 
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private BidCommandConsumer consumer;
     @Autowired private JsonMapper json;
     @Value("${local.server.port}") private int port;
 
+    /** Trigger chỉ dùng test để quan sát thứ tự giá tăng trong DB, không can thiệp xử lý bid. */
     @BeforeEach
     void recordActualDatabaseUpdateOrder() {
         // Test-only observer, never a production migration. It does not lock or reject bids.
@@ -101,119 +103,49 @@ class BidConcurrencyIT extends AuctionPostgresIntegrationTest {
                 """);
     }
 
+    /** 50 HTTP request từ10 bidder đều nhận202; drain qua consumer thật và kiểm tra DB cuối. */
     @RepeatedTest(10)
     @Timeout(value = 120, unit = TimeUnit.SECONDS)
     void fiftyConcurrentBidsPreserveEveryInvariant(RepetitionInfo repetition) throws Exception {
-        UUID auction = seedAuction();
-        List<Attempt> attempts = attempts(repetition.getCurrentRepetition());
-        List<Result> results = new ArrayList<>();
-        CountDownLatch ready = new CountDownLatch(REQUESTS);
-        CountDownLatch start = new CountDownLatch(1);
-        try (var workers = Executors.newVirtualThreadPerTaskExecutor()) {
-            List<Future<Result>> futures = new ArrayList<>();
-            for (Attempt attempt : attempts) {
-                futures.add(workers.submit(() -> {
-                    ready.countDown();
-                    if (!start.await(15, TimeUnit.SECONDS)) {
-                        throw new IllegalStateException("Bid release latch timed out");
-                    }
-                    return post(auction, attempt);
-                }));
-            }
-            try {
-                assertThat(ready.await(15, TimeUnit.SECONDS)).as("all 50 workers ready").isTrue();
-            } finally {
-                start.countDown();
-            }
-            for (Future<Result> future : futures) {
-                results.add(future.get(60, TimeUnit.SECONDS));
-            }
+        UUID auction=seedAuction();List<Attempt> attempts=attempts(repetition.getCurrentRepetition());
+        List<Result> results=new ArrayList<>();CountDownLatch ready=new CountDownLatch(REQUESTS),start=new CountDownLatch(1);
+        try(var workers=Executors.newVirtualThreadPerTaskExecutor()){
+            List<Future<Result>> futures=new ArrayList<>();
+            for(Attempt attempt:attempts) futures.add(workers.submit(()->{ready.countDown();
+                if(!start.await(15,TimeUnit.SECONDS))throw new IllegalStateException("Bid release timeout");return post(auction,attempt);}));
+            assertThat(ready.await(15,TimeUnit.SECONDS)).isTrue();start.countDown();
+            for(Future<Result> future:futures)results.add(future.get(60,TimeUnit.SECONDS));
         }
-
-        List<Result> accepted = results.stream().filter(r -> r.status() == 201).toList();
-        assertThat(results).hasSize(REQUESTS);
-        assertThat(accepted).as("at least one bid must succeed").isNotEmpty();
-        assertThat(results).allSatisfy(result -> {
-            assertThat(result.status()).as("response for %s: %s", result.attempt(), result.body())
-                    .isIn(201, 400);
-            assertThat(result.contentType()).contains(result.status() == 201
-                    ? "application/json" : "application/problem+json");
-            JsonNode body = json.readTree(result.body());
-            if (result.status() == 201) {
-                assertThat(body.path("code").asInt()).isZero();
-                assertThat(body.path("message").asText()).isEqualTo("response success");
-                assertThat(body.path("data").path("currentPrice").decimalValue())
-                        .isEqualByComparingTo(result.attempt().amount());
-                assertThat(body.path("data").path("leaderBidderId").asText())
-                        .isEqualTo(result.attempt().bidder().toString());
-            } else {
-                assertThat(body.path("code").asText()).isEqualTo("AUCTION_BID_TOO_LOW");
-                assertThat(body.path("status").asInt()).isEqualTo(400);
-                assertThat(body.path("minimum").decimalValue()).isGreaterThan(result.attempt().amount());
-            }
+        assertThat(results).hasSize(REQUESTS).allSatisfy(result->{
+            assertThat(result.status()).as("response: %s",result.body()).isEqualTo(202);
+            assertThat(result.contentType()).contains("application/json");
+            JsonNode body=json.readTree(result.body());assertThat(body.path("data").path("status").asString()).isEqualTo("QUEUED");
+            assertThat(body.path("data").path("requestedAt").asString()).isNotBlank();
         });
-
-        Map<UUID, AcceptedBid> expected = new HashMap<>();
-        for (Result result : accepted) {
-            UUID id = UUID.fromString(json.readTree(result.body()).path("data").path("bidId").asText());
-            assertThat(expected.put(id, new AcceptedBid(result.attempt().bidder(), result.attempt().amount())))
-                    .as("each 201 has a unique bidId").isNull();
-        }
-        Map<UUID, AcceptedBid> stored = new HashMap<>();
-        jdbc.query("SELECT id, bidder_id, amount FROM bids WHERE auction_id = ?", row -> {
-            stored.put(row.getObject("id", UUID.class),
-                    new AcceptedBid(row.getObject("bidder_id", UUID.class), row.getBigDecimal("amount")));
-        }, auction);
-        List<Update> updates = jdbc.query("""
-                SELECT old_price, price, old_count, bid_count, bidder_id
-                FROM bid_test_updates WHERE auction_id = ? ORDER BY sequence
-                """, (row, n) -> new Update(row.getBigDecimal("old_price"), row.getBigDecimal("price"),
-                row.getInt("old_count"), row.getInt("bid_count"), row.getObject("bidder_id", UUID.class)), auction);
-        BigDecimal highest = accepted.stream().map(r -> r.attempt().amount()).max(BigDecimal::compareTo).orElseThrow();
-        Map<String, Object> finalAuction = jdbc.queryForMap(
-                "SELECT current_price, bid_count, version, leader_bidder_id FROM auctions WHERE id = ?", auction);
-
-        // Keep all four checks visible in red evidence even when several invariants break.
-        assertAll("bid concurrency invariants, repetition " + repetition.getCurrentRepetition(),
-                () -> assertIncreasingPrices(updates, expected),
-                () -> assertThat(finalAuction.get("bid_count")).as("bid_count equals HTTP 201 count")
-                        .isEqualTo(accepted.size()),
-                () -> assertThat((BigDecimal) finalAuction.get("current_price"))
-                        .as("current_price equals highest accepted amount").isEqualByComparingTo(highest),
-                () -> {
-                    assertThat(jdbc.queryForObject("SELECT count(*) FROM bids WHERE auction_id = ?", Long.class, auction))
-                            .as("stored bids count equals HTTP 201 count").isEqualTo((long) accepted.size());
-                    assertThat(stored).as("exact accepted bid rows, with no orphan or missing row")
-                            .containsExactlyInAnyOrderEntriesOf(expected);
-                });
-        assertThat(finalAuction.get("version")).isEqualTo((long) accepted.size());
-        assertThat(updates.getLast().bidder()).isEqualTo(finalAuction.get("leader_bidder_id"));
-        assertThat(jdbc.queryForObject("""
-                SELECT count(*) FROM outbox WHERE aggregate_id = ? AND event_type = 'BidPlaced'
-                """, Long.class, auction.toString())).isEqualTo((long) accepted.size());
-        System.out.printf("BID_CONCURRENCY run=%d requests=50 bidders=10 accepted=%d rejected=%d highest=%s invariants=PASS%n",
-                repetition.getCurrentRepetition(), accepted.size(), REQUESTS - accepted.size(), highest);
+        assertThat(jdbc.queryForObject("SELECT current_price FROM auctions WHERE id=?",BigDecimal.class,auction)).isEqualByComparingTo(START);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bids WHERE auction_id=? AND status='QUEUED'",Integer.class,auction)).isEqualTo(50);
+        // Cố tình đảo delivery để chứng minh consumer khôi phục thứ tự requestedAt đã lưu trong DB.
+        List<String> commands=jdbc.queryForList("SELECT payload::text FROM outbox WHERE aggregate_id=? AND event_type='BidRequested' ORDER BY occurred_at DESC,id DESC",String.class,auction.toString());
+        long began=System.nanoTime();
+        for(String payload:commands){com.group5.common_events.EventEnvelope<JsonNode> event=json.readValue(payload,
+            json.getTypeFactory().constructParametricType(com.group5.common_events.EventEnvelope.class,JsonNode.class));consumer.onEvent(event);}
+        long drainMillis=TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-began);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bids WHERE auction_id=? AND status='QUEUED'",Integer.class,auction)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bids WHERE auction_id=? AND status IN ('PLACED','REJECTED')",Integer.class,auction)).isEqualTo(50);
+        BigDecimal highest=attempts.stream().map(Attempt::amount).max(BigDecimal::compareTo).orElseThrow();
+        var winner=attempts.stream().filter(a->a.amount().compareTo(highest)==0).findFirst().orElseThrow();
+        Map<String,Object> finalState=jdbc.queryForMap("SELECT current_price,leader_bidder_id,bid_count FROM auctions WHERE id=?",auction);
+        assertThat((BigDecimal)finalState.get("current_price")).isEqualByComparingTo(highest);
+        assertThat(finalState.get("leader_bidder_id")).isEqualTo(winner.bidder());
+        Integer placed=jdbc.queryForObject("SELECT count(*) FROM bids WHERE auction_id=? AND status='PLACED'",Integer.class,auction);
+        assertThat(finalState.get("bid_count")).isEqualTo(placed);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox WHERE aggregate_id=? AND event_type='BidPlaced'",Integer.class,auction.toString())).isEqualTo(placed);
+        List<BigDecimal> updates=jdbc.queryForList("SELECT price FROM bid_test_updates WHERE auction_id=? ORDER BY sequence",BigDecimal.class,auction);
+        assertThat(updates).isSorted().doesNotHaveDuplicates();
+        System.out.printf("BID_QUEUE run=%d requests=50 bidders=10 queued=50 placed=%d rejected=%d remaining=0 highest=%s drain_ms=%d local_only=true%n",repetition.getCurrentRepetition(),placed,50-placed,highest,drainMillis);
     }
 
-    private void assertIncreasingPrices(List<Update> updates, Map<UUID, AcceptedBid> accepted) {
-        assertThat(updates).as("one committed update per 201").hasSize(accepted.size());
-        List<AcceptedBid> transitions = new ArrayList<>();
-        BigDecimal previous = START;
-        for (int index = 0; index < updates.size(); index++) {
-            Update update = updates.get(index);
-            // Same-row locks order the trigger sequence until commit. HTTP arrival order does not.
-            assertThat(update.oldPrice()).isEqualByComparingTo(previous);
-            assertThat(update.price()).as("201 currentPrice strictly increases in database update order")
-                    .isGreaterThanOrEqualTo(previous.add(INCREMENT));
-            assertThat(update.oldCount()).isEqualTo(index);
-            assertThat(update.count()).isEqualTo(index + 1);
-            transitions.add(new AcceptedBid(update.bidder(), update.price()));
-            previous = update.price();
-        }
-        assertThat(transitions).as("every 201 corresponds to a winning update")
-                .containsExactlyInAnyOrderElementsOf(accepted.values());
-    }
-
+    /** Tạo50 giá riêng từ10 buyer rồi xáo thứ tự HTTP để tăng tranh chấp. */
     private List<Attempt> attempts(int repetition) throws Exception {
         List<Attempt> attempts = new ArrayList<>();
         for (int bidderIndex = 0; bidderIndex < BIDDERS; bidderIndex++) {
@@ -230,6 +162,7 @@ class BidConcurrencyIT extends AuctionPostgresIntegrationTest {
         return attempts;
     }
 
+    /** Gửi HTTP thật tới server, giữ body và content-type để xác nhận hợp đồng202. */
     private Result post(UUID auction, Attempt attempt) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port
                         + "/api/v1/auctions/" + auction + "/bids"))
@@ -244,6 +177,7 @@ class BidConcurrencyIT extends AuctionPostgresIntegrationTest {
                 response.headers().firstValue("Content-Type").orElse(""));
     }
 
+    /** Seed auction riêng cho mỗi lần lặp; tắt anti-sniping bằng deadline còn một giờ. */
     private UUID seedAuction() {
         UUID id = UUID.randomUUID();
         jdbc.update("""
@@ -255,6 +189,7 @@ class BidConcurrencyIT extends AuctionPostgresIntegrationTest {
         return id;
     }
 
+    /** Ký JWT fixture bằng RSA, để security stack xác thực token thật. */
     private static RSAKey key() {
         try {
             return new RSAKeyGenerator(2048).generate();
@@ -263,6 +198,7 @@ class BidConcurrencyIT extends AuctionPostgresIntegrationTest {
         }
     }
 
+    /** Mỗi bidder có subject khác và đúng role/privilege đặt bid. */
     private static String token(UUID bidder) throws Exception {
         Instant now = Instant.now();
         SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.RS256), new JWTClaimsSet.Builder()
@@ -285,6 +221,4 @@ class BidConcurrencyIT extends AuctionPostgresIntegrationTest {
 
     private record Attempt(UUID bidder, String token, UUID key, BigDecimal amount) { }
     private record Result(Attempt attempt, int status, String body, String contentType) { }
-    private record AcceptedBid(UUID bidder, BigDecimal amount) { }
-    private record Update(BigDecimal oldPrice, BigDecimal price, int oldCount, int count, UUID bidder) { }
 }

@@ -1,6 +1,7 @@
 package com.group5.auctionservice.bidding;
 
 import com.group5.auctionservice.bidding.dto.BidResponse;
+import com.group5.auctionservice.bidding.dto.BidStatusResponse;
 import com.group5.auctionservice.bidding.dto.BidHistoryItem;
 import com.group5.auctionservice.bidding.dto.PlaceBidRequest;
 import com.group5.common_core.model.ApiResponse;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.UUID;
+import java.net.URI;
 
 @RestController
 @RequiredArgsConstructor
@@ -49,13 +51,22 @@ public class BidController {
         return historyPage(history.listManaged(id, page, size));
     }
 
+    /** Trạng thái request riêng tư: chỉ bidder tạo nó được xem, kể cả khi biết bidId. */
+    @GetMapping("/{id}/bids/{bidId}")
+    @PreAuthorize("hasRole('BUYER') and hasAuthority('AUCTION.BID')")
+    public ApiResponse<BidStatusResponse> status(@PathVariable UUID id, @PathVariable UUID bidId, CurrentUser user) {
+        return ApiResponse.of(bids.status(id, bidId, user));
+    }
+
+    /** Trả biên nhận ngay sau khi lưu QUEUED và command trong outbox; kết quả xem bằng GET. */
     @PostMapping("/{id}/bids")
     @PreAuthorize("hasRole('BUYER') and hasAuthority('AUCTION.BID')")
     public ResponseEntity<ApiResponse<BidResponse>> place(@PathVariable UUID id,
             @RequestHeader(value = "Idempotency-Key", required = false) String key,
             @Valid @RequestBody PlaceBidRequest request, CurrentUser user) {
         BidService.PlacementResult result = bids.place(id, key, request, user);
-        return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .location(URI.create("/api/v1/auctions/" + id + "/bids/" + result.response().bidId()))
                 .body(ApiResponse.of(result.response()));
     }
 

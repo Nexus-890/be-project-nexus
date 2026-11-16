@@ -239,39 +239,30 @@ class KeycloakTokenTrustTest {
         verifyNoInteractions(auctions, bids, outbox);
     }
 
+    /** Cả lần nhận đầu và replay đều trả202 với cùng biên nhận; giá chưa đổi tại POST. */
     @Test
-    void firstBidReturns201AndReplayReturns200WithIdenticalEnvelope() throws Exception {
-        UUID auctionId = UUID.randomUUID();
-        UUID bidId = UUID.randomUUID();
-        String key = UUID.randomUUID().toString();
-        Bid accepted = mock(Bid.class);
-        when(accepted.getId()).thenReturn(bidId);
-        when(accepted.getAuctionId()).thenReturn(auctionId);
-        when(accepted.getBidderId()).thenReturn(UUID.fromString(SUBJECT));
-        when(accepted.getAmount()).thenReturn(new BigDecimal("1050000.00"));
-        when(accepted.getPlacedAt()).thenReturn(Instant.parse("2026-11-05T10:00:00Z"));
+    void firstBidAndReplayReturn202WithIdenticalReceipt() throws Exception {
+        UUID auctionId=UUID.randomUUID(), bidId=UUID.randomUUID();String key=UUID.randomUUID().toString();
+        Instant requested=Instant.parse("2026-11-05T10:00:00Z");
+        Bid accepted=mock(Bid.class);when(accepted.getId()).thenReturn(bidId);
+        when(accepted.getAuctionId()).thenReturn(auctionId);when(accepted.getBidderId()).thenReturn(UUID.fromString(SUBJECT));
+        when(accepted.getAmount()).thenReturn(new BigDecimal("1050000.00"));when(accepted.getRequestedAt()).thenReturn(requested);
         when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
-        when(bids.findByIdempotencyKey(key)).thenReturn(Optional.empty(), Optional.of(accepted));
-        when(auctions.acceptBid(auctionId, UUID.fromString(SUBJECT), new BigDecimal("1050000.00"), "***")).thenReturn(1);
-        when(bids.saveAndFlush(any())).thenReturn(accepted);
-        String token = auctionToken("BUYER", List.of("AUCTION.BID"));
-
-        String first = client.perform(post(AUCTIONS + "/" + auctionId + "/bids")
-                        .contentType(MediaType.APPLICATION_JSON).header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", key).content("{\"amount\":1050000}"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.message").value("response success"))
-                .andExpect(jsonPath("$.data.bidId").value(bidId.toString()))
-                .andReturn().getResponse().getContentAsString();
-        String replay = client.perform(post(AUCTIONS + "/" + auctionId + "/bids")
-                        .contentType(MediaType.APPLICATION_JSON).header("Authorization", "Bearer " + token)
-                        .header("Idempotency-Key", key).content("{\"amount\":1050000.00}"))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        assertThat(replay).isEqualTo(first);
-        verify(auctions, times(1)).acceptBid(any(), any(), any(), any());
-        verify(bids, times(1)).saveAndFlush(any());
-        verify(outbox, times(1)).write(any(), any(), any());
+        when(bids.findByIdempotencyKey(key)).thenReturn(Optional.empty(),Optional.of(accepted));
+        com.group5.auctionservice.auction.Auction auction=mock(com.group5.auctionservice.auction.Auction.class);
+        when(auctions.findAvailableById(auctionId)).thenReturn(Optional.of(auction));when(auctions.currentWallTime()).thenReturn(requested);
+        when(auction.getSellerId()).thenReturn(UUID.randomUUID());when(auction.getStatus()).thenReturn(com.group5.auctionservice.auction.AuctionStatus.ACTIVE);
+        when(auction.getStartAt()).thenReturn(requested.minusSeconds(1));when(auction.getEndAt()).thenReturn(requested.plusSeconds(1));
+        when(bids.saveAndFlush(any())).thenReturn(accepted);String token=auctionToken("BUYER",List.of("AUCTION.BID"));
+        String first=client.perform(post(AUCTIONS+"/"+auctionId+"/bids").contentType(MediaType.APPLICATION_JSON)
+            .header("Authorization","Bearer "+token).header("Idempotency-Key",key).content("{\"amount\":1050000}"))
+            .andExpect(status().isAccepted()).andExpect(jsonPath("$.data.status").value("QUEUED"))
+            .andExpect(jsonPath("$.data.bidId").value(bidId.toString())).andReturn().getResponse().getContentAsString();
+        String replay=client.perform(post(AUCTIONS+"/"+auctionId+"/bids").contentType(MediaType.APPLICATION_JSON)
+            .header("Authorization","Bearer "+token).header("Idempotency-Key",key).content("{\"amount\":1050000.00}"))
+            .andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
+        assertThat(replay).isEqualTo(first);verify(auctions,never()).acceptQueuedBid(any(),any(),any(),any(),any());
+        verify(bids,times(1)).saveAndFlush(any());verify(outbox,times(1)).write(any(),any(),any());
     }
 
     @ParameterizedTest
@@ -299,14 +290,17 @@ class KeycloakTokenTrustTest {
         verify(bids, never()).saveAndFlush(any());
     }
 
+    /** POST và endpoint trạng thái đều đòi cả role BUYER lẫn privilege, kể cả Support Staff. */
     @Test
     void bidRequiresBothBuyerRoleAndPrivilege() throws Exception {
         for (String token : List.of(auctionToken("SELLER", List.of("AUCTION.BID")),
-                auctionToken("ADMIN", List.of("AUCTION.BID")), auctionToken("BUYER", List.of()))) {
+                auctionToken("ADMIN", List.of("AUCTION.BID")), auctionToken("SUPPORT_STAFF", List.of("AUCTION.BID")), auctionToken("BUYER", List.of()))) {
             client.perform(post(AUCTIONS + "/" + UUID.randomUUID() + "/bids")
                             .contentType(MediaType.APPLICATION_JSON).header("Authorization", "Bearer " + token)
                             .header("Idempotency-Key", UUID.randomUUID()).content("{\"amount\":1050000}"))
                     .andExpect(status().isForbidden());
+            client.perform(get(AUCTIONS + "/" + UUID.randomUUID() + "/bids/" + UUID.randomUUID())
+                    .header("Authorization", "Bearer " + token)).andExpect(status().isForbidden());
         }
         verifyNoInteractions(auctions, bids, outbox);
     }

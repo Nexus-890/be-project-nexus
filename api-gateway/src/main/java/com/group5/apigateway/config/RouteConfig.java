@@ -110,9 +110,21 @@ public class RouteConfig {
                                         .setThrowOnLimit(true)))
                         .uri("lb://inventory-service"))
 
+                // SSE giữ kết nối dài; header ngăn proxy gom buffer và registry giới hạn số kết nối.
+                .route("auction-stream", route -> route
+                        .order(-2)
+                        .path("/api/v1/auctions/*/stream")
+                        .and().method(HttpMethod.GET)
+                        .filters(filters -> filters
+                                .setResponseHeader("X-Accel-Buffering", "no")
+                                .setResponseHeader("Cache-Control", "no-cache, no-transform"))
+                        .metadata("response-timeout", -1)
+                        .uri("lb://auction-service"))
+
                 .route(AUCTION_READ_ROUTE_ID, route -> route
                         .order(-1)
-                        .path("/api/v1/auctions/*/state", "/api/v1/auctions/*/bids")
+                        .path("/api/v1/auctions/*/state", "/api/v1/auctions/*/bids",
+                                "/api/v1/auctions/*/bids/*")
                         .and().method(HttpMethod.GET)
                         .filters(filters -> filters.requestRateLimiter(config -> config
                                 .setRateLimiter(limiter)

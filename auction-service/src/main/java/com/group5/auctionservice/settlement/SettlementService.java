@@ -36,7 +36,10 @@ public class SettlementService {
             return;
         }
         Auction auction = candidate.get();
-        bids.findFirstByAuctionIdAndStatusNotOrderByAmountDescPlacedAtAscIdAsc(auctionId, Bid.Status.CANCELLED)
+        // Hàng đợi chậm không được biến một bid trước deadline thành phiên không có người thắng.
+        if (!auctions.tryCloseBidAdmission(auctionId) || auctions.hasEligibleQueuedBids(auctionId)) return;
+        bids.findFirstByAuctionIdAndStatusInOrderByAmountDescPlacedAtAscIdAsc(auctionId,
+                java.util.List.of(Bid.Status.PLACED, Bid.Status.OUTBID, Bid.Status.WON))
                 .ifPresentOrElse(bid -> declareWinner(auction, bid), () -> failWithoutBids(auction));
     }
 

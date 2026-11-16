@@ -1,0 +1,22 @@
+{
+  "environment": "LOCAL Windows, Docker PostgreSQL18, apache/kafka:4.0.0, packaged WebFlux gateway; not STAGING",
+  "clients": 1000,
+  "bids": 60,
+  "bidIntervalMillis": 1000,
+  "receivedStateChanges": 60000,
+  "errors": 0,
+  "bidPlacedToViewerP95Millis": 318.5368,
+  "bidPlacedToViewerMaxMillis": 380.8335,
+  "acceptToViewerP95Millis": 426.7788,
+  "acceptToViewerMaxMillis": 489.1788,
+  "totalElapsedSeconds": 76.7175417,
+  "completedAt": "2026-11-16T11:51:05.583068400Z",
+  "kafkaImage": "apache/kafka:4.0.0",
+  "javaVersion": "21.0.12.1",
+  "jvmActiveProcessors": 2,
+  "testJvmMaxHeapMiB": 512,
+  "gatewayJvmMaxHeapMiB": 384,
+  "connectionRampBatch": 50,
+  "bidDriver": "Direct production BidService.place with tracing; POST HTTP latency not measured",
+  "latencyBoundary": "BidPlaced outbox occurred_at to viewer SSE wire receipt, all bid/viewer pairs"
+}

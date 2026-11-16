@@ -29,18 +29,20 @@ public class MyBidQuery {
                 SELECT count(DISTINCT b.auction_id)
                 FROM bids b JOIN auctions a ON a.id = b.auction_id
                 WHERE b.bidder_id = :bidder AND a.deleted_at IS NULL
+                    AND b.status NOT IN ('QUEUED', 'REJECTED')
                 """, parameters, Long.class);
         var content = jdbc.query("""
                 WITH latest AS (
                     SELECT DISTINCT ON (b.auction_id) b.auction_id, b.amount, b.placed_at, b.id
                     FROM bids b JOIN auctions a ON a.id = b.auction_id
                     WHERE b.bidder_id = :bidder AND a.deleted_at IS NULL
+                    AND b.status NOT IN ('QUEUED', 'REJECTED')
                     ORDER BY b.auction_id, b.placed_at DESC, b.id DESC
                 )
                 SELECT a.id, a.title, latest.amount, latest.placed_at, a.status::text AS auction_status,
                     (a.status IN ('ACTIVE', 'ENDED') AND a.leader_bidder_id = :bidder AND EXISTS (
                         SELECT 1 FROM bids top_bid WHERE top_bid.auction_id = a.id
-                        AND top_bid.bidder_id = :bidder AND top_bid.status <> 'CANCELLED'
+                        AND top_bid.bidder_id = :bidder AND top_bid.status IN ('PLACED', 'OUTBID', 'WON')
                         AND top_bid.amount = a.current_price)) AS leading,
                     (a.status IN ('WON', 'SETTLED', 'PAYMENT_TIMEOUT') AND a.winner_id = :bidder) AS won,
                     CASE WHEN a.status IN ('WON', 'SETTLED', 'PAYMENT_TIMEOUT') AND a.winner_id = :bidder

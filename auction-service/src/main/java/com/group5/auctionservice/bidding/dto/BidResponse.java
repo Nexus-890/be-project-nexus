@@ -1,11 +1,7 @@
 package com.group5.auctionservice.bidding.dto;
 
-import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 
-public record BidResponse(
-        UUID bidId,
-        BigDecimal currentPrice,
-        UUID leaderBidderId
-) {
-}
+/** Biên nhận bất biến của POST; kết quả xử lý được đọc ở endpoint trạng thái bid. */
+public record BidResponse(UUID bidId, String status, Instant requestedAt) {}

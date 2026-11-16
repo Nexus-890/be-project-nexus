@@ -1,5 +1,7 @@
 # Bid concurrency regression (#148)
 
+> Current placement uses the #253 queued 202 flow. See [Queued bidding and SSE](bid-queue-and-stream.md) for the current test invariants and runbook. The synchronous 201/400 results below are historical #148 evidence; they are not the current API contract.
+
 `BidConcurrencyIT` sends 50 real HTTP bids from exactly ten buyer identities (five
 requests each), released by one latch. `@RepeatedTest(10)` creates a fresh ACTIVE
 auction for every run. All 50 amounts are distinct, from 1,050,000.00

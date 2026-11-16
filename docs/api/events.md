@@ -6599,3 +6599,29 @@ The local checks read this Markdown directly, parsed every JSON block with Decim
 - [ ] Both backend lanes approve the merge request; record the actual GitLab approvals before checking this item.
 
 These document/schema checks provide evidence for the examples and inventory. They do not complete the unchecked review decisions or assert that any Java publisher/consumer, carrier call, refund transfer or migration is implemented.
+
+## BidRequested command and live auction state (#253 / #267)
+
+`BidRequested` is an auction-service command on `nexus.auction.bids`, not an Outbid notification. The EventEnvelope aggregateId and Kafka key are both `auctionId`; eventVersion is 1. Provision the command topic from `infra/local-dev/kafka/topics.conf` before starting the listener. Producers write the QUEUED bid and command outbox in the same auction_db transaction. Only the owner-only result endpoint exposes an unprocessed or rejected request.
+
+Payload schema (Draft 7; additive properties allowed):
+
+```json
+{"type":"object","required":["auctionId","bidId","requestedAt"],"properties":{"auctionId":{"type":"string","format":"uuid"},"bidId":{"type":"string","format":"uuid"},"requestedAt":{"type":"string","format":"date-time"}},"additionalProperties":true}
+```
+
+Example payload:
+
+```json
+{"auctionId":"019a5509-abcd-7111-8111-111111111111","bidId":"019a5509-abcd-7111-8111-111111111113","requestedAt":"2026-11-16T10:00:00Z"}
+```
+
+The command references the authoritative bid row; the consumer never trusts a client-supplied processing amount or deadline. All instances share group `auction-bid-commands` and `IdempotentConsumer` name `auction-bid-command`. Processing serializes per auction and drains earlier committed QUEUED requests by `requested_at, id` through the triggering request, so multiple outbox relays publishing in a different order do not skip an already committed earlier request. The conditional price update remains inside that transaction. PLACED/REJECTED, auction price, anti-sniping extension, processed marker and any BidPlaced outbox rows commit together. Duplicate commands and a fresh eventId referring to a processed bid do not repeat price changes or BidPlaced. A failure rolls everything back for retry.
+
+Eligibility and anti-sniping use database `requested_at`, not consumer wall time. Scheduler ending and winner settlement wait for eligible QUEUED requests and coordinate with in-flight POST transactions through admission locks. A rejected request never becomes the winner or a public accepted-history entry. Existing BidPlaced payloads remain unchanged, including decimal-string amount and requestedAt-derived placedAt.
+
+For state delivery, each instance subscribes to `nexus.auction.events` under a distinct `auction-stream-<instance-id>` group with latest offsets. AuctionStarted, BidPlaced, AuctionEnded, AuctionWon, AuctionFailed, AuctionCancelled, AuctionSettled and AuctionPaymentTimeout trigger a 200 ms coalesced read after invalidating the one-second state cache. No processed_events marker is used for this broadcast: every instance must see the same event. The SSE event is named `state`, id is the auction version from the same cached snapshot, and data is exactly the GET/state data without ApiResponse. Heartbeats have no id. Reconnection always receives current state; historical event replay is unnecessary.
+
+## Administrative identity recovery — #211
+
+For password/unlock remote success followed by a local commit failure, user-service retains an independent identity-operation journal. Its recovery worker emits the original UserPasswordChanged/UserUnlocked fact with additional operationId, reconciled=true, profileReconciled and remoteConfirmedAt metadata. The original changedAt/unlockedAt names remain present; remoteConfirmedAt records the verified remote response time. Audit/profile and journal completion share one local transaction. PENDING is an uncertain remote outcome and requires manual review; the worker never replays the remote change. See docs/testing/admin-user-management.md for the recovery procedure and the pending owner decision on the strict distributed-failure criterion.

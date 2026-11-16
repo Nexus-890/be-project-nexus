@@ -96,6 +96,8 @@ nexus:
       - method: GET
         path: /api/v1/auctions/{id}
       - method: GET
+        path: /api/v1/auctions/{id}/stream
+      - method: GET
         path: /api/v1/auctions/{id}/state
       - method: GET
         path: /api/v1/auctions/{id}/bids
@@ -301,6 +303,9 @@ nexus:
         privilege: AUCTION.CREATE
       - method: POST
         path: /api/v1/auctions/{id}/bids
+        privilege: AUCTION.BID
+      - method: GET
+        path: /api/v1/auctions/{id}/bids/{bidId}
         privilege: AUCTION.BID
       - method: POST
         path: /api/v1/auctions/{id}/schedule

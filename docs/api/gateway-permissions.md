@@ -148,7 +148,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/reputations/{userId}/adjustments` | POST | USER.REPUTATION.ADJUST | #213 — rating-service; reason and score bounds checked downstream |
 | `/api/v1/reputations/{userId}/history` | GET | USER.REPUTATION.VIEW | #213 — rating-service |
 | `/api/v1/auctions` | POST | AUCTION.CREATE | #140 — Create as SELLER; `sellerId` comes from the JWT subject |
-| `/api/v1/auctions/{id}/bids` | POST | AUCTION.BID | #146/#147 — Place a bid as BUYER; the bidder cannot be the auction seller. Required UUID `Idempotency-Key`; replay requires the original bidder, auction and numeric amount; a different amount returns 409 |
+| `/api/v1/auctions/{id}/bids` | POST | AUCTION.BID | #253 — Accept a QUEUED bid with 202 as BUYER; the bidder cannot be the auction seller. Required UUID `Idempotency-Key`; replay requires the original bidder, auction and numeric amount; a different amount returns 409 |
 | `/api/v1/auctions/{id}/schedule` | POST | AUCTION.UPDATE | #144 — Owner with SELLER role publishes a CREATED auction |
 | `/api/v1/auctions/mine` | GET | AUCTION.LIST | #198 |
 | `/api/v1/auctions/manage` | GET | AUCTION.LIST | #260 — Back-office list of every status and visibility; service additionally requires ADMIN or SUPPORT_STAFF |
@@ -161,6 +161,8 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/auctions/{id}/admin-cancel` | POST | AUCTION.ADMIN_CANCEL | #197 — ADMIN; CREATED/SCHEDULED/ACTIVE/ENDED/WON only |
 | `/api/v1/auctions` | GET | Public | #143 — PUBLIC, non-deleted auctions; status defaults to ACTIVE, endAt ascending |
 | `/api/v1/auctions/{id}` | GET | Public | #143 — PUBLIC, non-deleted auction; hidden and missing rows return 404 |
+| `/api/v1/auctions/{id}/stream` | GET | Public | #253/#267 — SSE snapshots, heartbeat, bounded connections |
+| `/api/v1/auctions/{id}/bids/{bidId}` | GET | AUCTION.BID | #253 — BUYER owner only; another bidder or auction returns 404 |
 | `/api/v1/auctions/{id}/state` | GET | Public | #168 — One-second data cache and fresh server time. Public, non-deleted auction only |
 | `/api/v1/auctions/{id}/bids` | GET | Public | #168 — Paginated bids with masked names. Public, non-deleted auction only |
 | `/api/v1/inventory` | GET | Public | #132 — inventory-service; `skuIds` query, at most 100; returns `skuId` and `available` only |
@@ -765,3 +767,17 @@ The runnable FE guide is in [inventory-service.yaml](inventory-service.yaml), un
 
 Prism does not check JWT signatures, roles, privileges or ownership, so none of this
 proves runtime authorization. The FE confirmation is recorded on #124, not here.
+
+### Queued bidding and SSE (#253 / #267)
+
+| Method | Path | Access | Gateway privilege | Service rule |
+| --- | --- | --- | --- | --- |
+| POST | `/api/v1/auctions/{id}/bids` | BUYER | AUCTION.BID | UUID Idempotency-Key; ACTIVE/time window, not seller; 202 QUEUED receipt |
+| GET | `/api/v1/auctions/{id}/bids/{bidId}` | BUYER | AUCTION.BID | JWT subject owns the bid; other users receive AUCTION_BID_NOT_FOUND (404) |
+| GET | `/api/v1/auctions/{id}/stream` | Public | none | PUBLIC, not deleted; unknown/restricted 404; capacity AUCTION_STREAM_BUSY 503 before opening |
+
+The dedicated stream route has priority -2, response-timeout=-1 and X-Accel-Buffering=no. It does not apply the short-request per-IP quota to long-lived connections; auction-service enforces a configurable per-instance concurrent connection cap. The existing state/history polling quota remains unchanged.
+
+For nginx / #163, forward this path with HTTP/1.1, clear Connection, set `proxy_buffering off`, `proxy_cache off` and `proxy_read_timeout 35m`. Preserve heartbeat chunks and `X-Accel-Buffering: no`; do not add a compression/buffering filter that waits for response completion. Keep GET/state available as the two-second fallback.
+
+Private bid-result polling uses the existing auction-read quota (600 requests per IP per minute by default), separately from the general 100-request POST quota. Authentication and bidder ownership remain enforced. This prevents result polling for an accepted burst from consuming the same quota as new bid submissions.

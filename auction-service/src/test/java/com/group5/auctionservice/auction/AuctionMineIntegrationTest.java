@@ -221,6 +221,7 @@ class AuctionMineIntegrationTest {
                     .andExpect(status().isBadRequest()).andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
         }
     }
+    /** Hợp đồng202: chỉ bid đã được consumer áp dụng mới xuất hiện trong lịch sử và thay leader. */
     @Test
     void actualBidAndIdempotencyFlowKeepsOneRowAndChangesLeading() throws Exception {
         auction(1, SELLER, "ACTIVE", "PUBLIC");
@@ -231,17 +232,19 @@ class AuctionMineIntegrationTest {
             String key = UUID.randomUUID().toString();
             http.perform(post("/api/v1/auctions/" + id(1) + "/bids").header("Authorization", "Bearer " + token)
                             .header("Idempotency-Key", key).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":" + amount + "}"))
-                    .andExpect(status().isCreated());
+                    .andExpect(status().isAccepted());
             http.perform(post("/api/v1/auctions/" + id(1) + "/bids").header("Authorization", "Bearer " + token)
                             .header("Idempotency-Key", key).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":" + amount + "}"))
-                    .andExpect(status().isOk());
+                    .andExpect(status().isAccepted());
+            drainBidCommands();
         }
         http.perform(get("/api/v1/bids/mine?size=1").header("Authorization", "Bearer buyer"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(1))
                 .andExpect(jsonPath("$.data[0].amount").value(120)).andExpect(jsonPath("$.data[0].leading").value(false));
         http.perform(post("/api/v1/auctions/" + id(1) + "/bids").header("Authorization", "Bearer buyer")
                         .header("Idempotency-Key", UUID.randomUUID().toString()).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":140}"))
-                .andExpect(status().isCreated());
+                .andExpect(status().isAccepted());
+        drainBidCommands();
         http.perform(get("/api/v1/bids/mine?size=1").header("Authorization", "Bearer buyer"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(1))
                 .andExpect(jsonPath("$.data[0].amount").value(140)).andExpect(jsonPath("$.data[0].leading").value(true));
@@ -258,6 +261,16 @@ class AuctionMineIntegrationTest {
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox", Integer.class)).isZero();
     }
+    /** Giao envelope outbox thật qua consumer, bảo đảm GET mine không biến request QUEUED thành bid lịch sử. */
+    private void drainBidCommands() {
+        var mapper=tools.jackson.databind.json.JsonMapper.shared();
+        for(String payload:jdbc.queryForList("SELECT payload::text FROM outbox WHERE event_type='BidRequested' ORDER BY occurred_at,id",String.class)) {
+            com.group5.common_events.EventEnvelope<tools.jackson.databind.JsonNode> event=mapper.readValue(payload,
+                mapper.getTypeFactory().constructParametricType(com.group5.common_events.EventEnvelope.class,tools.jackson.databind.JsonNode.class));
+            context.getBean(com.group5.auctionservice.bidding.BidCommandConsumer.class).onEvent(event);
+        }
+    }
+
     private void auction(int number, UUID seller, String status, String visibility) {
         jdbc.update("""
                 INSERT INTO auctions(id,product_id,sku_id,seller_id,title,starting_price,bid_increment,current_price,

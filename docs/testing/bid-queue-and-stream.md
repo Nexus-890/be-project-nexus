@@ -1,0 +1,93 @@
+# Queued bidding and auction SSE — #253 / #267
+
+Implementation lives in the primary local project and follows the existing controller/service/repository, transactional outbox, EventEnvelope and IdempotentConsumer conventions. SRS 3.5.2 requires atomic bids, the highest valid winner and no lost valid bids. The older endpoint workbook BID-01 (row 108) describes 201/200 synchronous placement; issue #253 explicitly replaces that flow with 202 plus an owner-only result resource.
+
+## Delivered behavior
+
+- POST `/api/v1/auctions/{id}/bids`: BUYER + `AUCTION.BID`, UUID `Idempotency-Key`; returns ApiResponse containing `{bidId,status:"QUEUED",requestedAt}` and `Location`. The transaction stores the request and `BidRequested` outbox command together. Format, ACTIVE/time window and seller exclusion run at admission; the minimum price runs in the consumer.
+- Matching idempotent retries return the immutable 202 receipt, including after placement, rejection or auction end. A different bidder, auction or numeric amount returns 409 without exposing the original bid.
+- GET `/api/v1/auctions/{id}/bids/{bidId}`: BUYER + `AUCTION.BID`; only the original bidder sees QUEUED, PLACED or REJECTED. Another bidder, a wrong auction or unknown bid receives the same `AUCTION_BID_NOT_FOUND` 404. Rejection includes a stable reason and minimum where relevant.
+- `nexus.auction.bids` is keyed by auctionId. The consumer first waits for earlier in-flight admissions to commit, releases that admission barrier, then processes within IdempotentConsumer. It serializes processing per auction and drains committed requests in requested_at/id order through the command's bid. POST can still commit while a consumer holds the auction price update transaction.
+- Conditional price update, result, requestedAt-based anti-sniping, processed marker and BidPlaced outbox commit together. Scheduler end and settlement wait for eligible QUEUED requests, including an admission not yet visible to a normal SELECT. QUEUED/REJECTED requests cannot become the winner or appear as accepted public history.
+- Public GET `/api/v1/auctions/{id}/stream`: named `state` events contain exactly GET/state data, without ApiResponse, and use the auction version as id. First state is immediate; heartbeats run every 15 seconds. Every instance has its own Kafka group; committed events coalesce for 200 ms and refresh the one-second cache, including the anti-sniping endAt.
+- Unknown/restricted/deleted auction: 404 before opening. Capacity: 503 `AUCTION_STREAM_BUSY`. Final ENDED/WON/SETTLED/FAILED/CANCELLED/PAYMENT_TIMEOUT state is sent, then the stream closes. Reconnect always receives the current snapshot; historical replay is not required.
+- Existing FE SSE/reconnect/two-second polling stays available. Bid submission now waits for terminal status, shows REJECTED.minimum, preserves the key after an uncertain POST, and retries GET only once the bidId is known.
+
+Migration V9 is additive; local V8 belongs to the separate settlement work and is deliberately not republished by this MR. Flyway permits that version gap on develop. Existing applied migrations are unchanged.
+
+## Configuration and infrastructure
+
+`config-service/src/main/resources/config/auction-service.yml` owns:
+
+| Key | Default | Purpose |
+| --- | --- | --- |
+| `nexus.outbox.relay.fixed-delay` | 100 ms | Low-latency command and state publication; env `AUCTION_OUTBOX_RELAY_DELAY_MS` |
+| `nexus.auction.stream.max-connections` | 2000 | Concurrent emitters per instance; env `AUCTION_STREAM_MAX_CONNECTIONS` |
+| `nexus.auction.stream.timeout` | 30m | Emitter lifetime |
+| `nexus.auction.stream.heartbeat-interval` | 15s | Keep browser stream activity visible |
+| `nexus.auction.stream.coalesce-interval` | 200ms | One latest state per event burst |
+| `nexus.auction.stream.group-id` | `auction-stream-${random.uuid}` | Must remain distinct per instance; tests may use explicit distinct ids |
+
+Provision `nexus.auction.bids` from `infra/local-dev/kafka/topics.conf` before starting the service. A larger partition count distributes different auctions; one auction always uses one key. Outbid and WebSocket are outside this issue.
+
+The gateway has a dedicated public GET stream route at priority -2, disables response timeout and sends X-Accel-Buffering=no / no-cache,no-transform. Concurrent stream capacity is enforced by auction-service, so opening viewers does not consume the normal short-request per-IP quota. The private result path uses AUCTION.BID and preserves the JWT for ownership checks.
+
+nginx (#163): use HTTP/1.1, clear Connection, `proxy_buffering off`, `proxy_cache off`, and `proxy_read_timeout 35m` for `/api/v1/auctions/<uuid>/stream`. Do not buffer/compress the entire response before flushing chunks. Polling remains available when a stream is refused or interrupted.
+
+## Reproduce the checks
+
+Use Java 21 and Docker. Run Maven from each service directory because tests import sibling Config Server files. UTC avoids the PostgreSQL/Asia/Saigon alias issue. On machines with limited Windows commit memory, use Xms64m/Xmx512m and ActiveProcessorCount=2; Mockito may be preloaded as a Java agent as used in the checked local logs.
+
+```powershell
+Set-Location be-project-nexus/lib
+.\mvnw.cmd -B -DskipTests install
+.\mvnw.cmd -B -pl common-events -am test
+Set-Location ../api-gateway
+.\mvnw.cmd -B verify
+Set-Location ../auction-service
+.\mvnw.cmd -B '-Duser.timezone=UTC' verify
+Set-Location ..
+node docs/api/check-contract.mjs
+```
+
+Frontend (Node 24; the full existing auth suite requires navigator.locks): `npm ci`, `npm run test:unit`, `npm run test:auction`, `npm run lint`, `npm run typecheck`, and `npm run build` from `fe-project-nexus`. Auction browser tests use the real Next.js app plus the existing Postman HTTP fixture; they do not claim a live banking/Keycloak/staging environment.
+
+Optional real local load run, after gateway packaging:
+
+```powershell
+# From auction-service; the default run is 1000 clients, 60 bids, one bid per second.
+.\mvnw.cmd -B '-Duser.timezone=UTC' '-Dtest=AuctionStreamKafkaIT' '-Dauction.stream.load=true' test
+```
+
+The load helper starts the packaged WebFlux gateway, routes to the real auction instance, and uses the existing real PostgreSQL/Kafka integration fixture. It records every viewer/bid delivery in `auction-service/target/auction-stream-load/result.json` and writes the gateway process log beside it. It sends bids through the real service/outbox/Kafka consumer, rather than the HTTP POST, so its accept timing is not an HTTP POST p95 measurement. Report local numbers separately from STAGING.
+
+## Reviewer evidence and screenshots
+
+| Issue item | Important production code | Important test / evidence |
+| --- | --- | --- |
+| Migration + atomic queued acceptance | V9__bid_queue.sql; BidService.accept; BidController.place | BidPlacementIntegrationTest; BidIdempotencyTest.acceptsWithoutChangingPriceThenAppliesCommandAtomically |
+| 50 concurrent bids / no queued rows left | BidService.apply; AuctionRepository.acceptQueuedBid | BidConcurrencyIT: 10 runs x 50 real HTTP requests, 10 buyer JWTs; final highest price/leader and one event per placed bid |
+| Duplicate command, restart, rebalance | BidCommandConsumer; IdempotentConsumer; bid processing guard + conditional SQL | BidIdempotencyTest duplicate/restart, competing consumers and conditionalUpdateAloneAllowsOneWinnerForSamePrice |
+| Arrival order / no hidden older admission | BidService.awaitAdmissions and apply; admission locks | BidIdempotencyTest.processingWaitsForEarlierAdmissionBeforeDrainingLaterCommand; newAdmissionDoesNotWaitForConsumerPriceTransaction |
+| requestedAt, anti-sniping, winner waits | AntiSnipingPolicy; AuctionScheduler; SettlementService | BidIdempotencyTest late consumption, in-flight admission and settlement-wait tests; AntiSnipingRefreshIntegrationTest |
+| Owner-only result / 404 privacy | BidService.status; BidController.status; gateway policy | BidPlacementIntegrationTest ownership/403 and KeycloakTokenTrustTest; gateway private result test |
+| SSE lifecycle / burst coalescing | AuctionStreamRegistry; AuctionStateQuery | AuctionStreamRegistryTest; AuctionStateVersionTest |
+| Every instance receives live price/endAt | AuctionStreamConsumer; per-instance group | AuctionStreamKafkaIT: two real HTTP instances, Kafka, actual queued bid and deadline extension |
+| Gateway no buffering / timeout | RouteConfig auction-stream route | SecurityConfigTest.auctionStreamFlushesStateAndHeartbeatThroughGateway, including heartbeat after the ordinary HTTP timeout |
+| FE QUEUED/REJECTED/retry + polling fallback | auctionBidQueue.ts; useAuctionBid.ts | auction-bid-queue.test.ts; auction.spec.ts, including GET-only retry and existing SSE fallback scenarios |
+| 1000 clients / delivery p95 | AuctionStreamRegistry + packaged gateway | Optional load result.json; record client count, duration, errors and p95 from the actual run |
+
+For each screenshot include the class/method name, Vietnamese explanation and green assertions/result panel. Capture the corresponding DB/event assertions, not just a test name or a green total.
+
+## Validation limits
+
+The required STAGING HTTP POST p95 <=50 ms with 50 concurrent bidders and terminal bid latency <=2 seconds must remain unchecked until measured on STAGING. SRS throughput targets and a local passing load run do not certify that staging criterion. No GitLab CI result is inferred from local verification. Full cross-service FE type generation on the mixed local checkout may include unrelated older spec drift; this issue checks the auction contract and does not regenerate other service types.
+## STAGING HTTP performance probe
+
+Run `node docs/testing/measure-bid-queue.mjs <private-config.json> <result.json>` from the backend directory. The private input is JSON with `baseUrl`, `environment:"STAGING"`, `auctionId`, `tokens` (the authorized buyer tokens), `startAmount`, `increment`, and `count:50`. Keep that file outside the repository. Start with an ACTIVE auction whose current minimum is no greater than startAmount. Use 10 buyer tokens for the functional scenario or 50 for the performance scenario. The script sends real concurrent POSTs and polls each owner-only result every 250 ms, writes no token into the result, and exits nonzero if any request fails, POST p95 exceeds 50 ms or any terminal result exceeds two seconds. Polling adds up to one poll interval to the observed terminal latency. It neither certifies staging merely from the label nor substitutes local fixture numbers for a staging run.
+
+## Recorded local SSE load — 2026-11-16
+
+The real PostgreSQL18 / Kafka4.0 integration and packaged WebFlux gateway served 1,000 concurrent viewers for 60 bids at one bid per second. All 60,000 state changes arrived, with zero errors. BidPlaced-to-viewer p95 was 318.54 ms (max 380.84 ms); service accept-to-viewer p95 was 426.78 ms. The two-instance functional case delivered BidPlaced to both viewers in 293 ms, including the anti-sniping extension. Connections ramped in batches of 50; measurements started only after all 1,000 initial states were received. The driver calls the real production BidService and outbox/Kafka pipeline; it does not measure HTTP POST p95. See [JSON evidence](evidence/bid253/sse-local-load.json) and [measurement notes](evidence/bid253/sse-local-load.md).
+
+Private bid-result polling uses the existing auction-read quota (600 requests per IP per minute by default), separately from the general 100-request POST quota. Authentication and bidder ownership remain enforced. This prevents result polling for an accepted burst from consuming the same quota as new bid submissions.

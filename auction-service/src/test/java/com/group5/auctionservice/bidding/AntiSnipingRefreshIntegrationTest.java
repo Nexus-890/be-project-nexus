@@ -156,7 +156,7 @@ class AntiSnipingRefreshIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM bids WHERE auction_id = ?", Integer.class,
                 capped.id())).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox WHERE aggregate_id = ?", Integer.class,
-                capped.id().toString())).isEqualTo(3);
+                capped.id().toString())).isEqualTo(5);
     }
 
     private static void writeConfig(boolean enabled, int extension, int maxExtension) throws Exception {
@@ -179,7 +179,14 @@ class AntiSnipingRefreshIntegrationTest {
         Tracer tracer = context.getBean(Tracer.class);
         Span span = tracer.nextSpan().name("anti-sniping.test-bid").start();
         try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
-            bids.place(auctionId, UUID.randomUUID().toString(), new PlaceBidRequest(new BigDecimal(amount)), BUYER);
+            // Nhận202 rồi giao đúng command đã lưu qua consumer để kiểm tra policy runtime tại lúc apply.
+            var receipt=bids.place(auctionId, UUID.randomUUID().toString(), new PlaceBidRequest(new BigDecimal(amount)), BUYER);
+            String payload=jdbc.queryForObject("SELECT payload::text FROM outbox WHERE event_type='BidRequested' AND payload->'payload'->>'bidId'=?",
+                    String.class,receipt.response().bidId().toString());
+            var mapper=tools.jackson.databind.json.JsonMapper.shared();
+            com.group5.common_events.EventEnvelope<tools.jackson.databind.JsonNode> event=mapper.readValue(payload,
+                    mapper.getTypeFactory().constructParametricType(com.group5.common_events.EventEnvelope.class,tools.jackson.databind.JsonNode.class));
+            context.getBean(BidCommandConsumer.class).onEvent(event);
         } finally {
             span.end();
         }
@@ -218,7 +225,7 @@ class AntiSnipingRefreshIntegrationTest {
             // Token verification is isolated; actuator authentication and refresh are the real HTTP stack.
             return token -> Jwt.withTokenValue(token).header("alg", "RS256").subject(BUYER.id().toString())
                     .issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(300))
-                    .claim("roles", List.of("BUYER")).claim("privileges", List.of("AUCTION.BID")).build();
+                    .claim("roles", List.of("ADMIN")).claim("privileges", List.of("SYSTEM.CONFIG.UPDATE")).build();
         }
     }
 }

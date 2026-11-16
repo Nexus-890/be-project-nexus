@@ -612,7 +612,7 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/auctions/{id}/bids:
     get:
-      tags: [Auctions]
+      tags: [ Auctions ]
       operationId: listAuctionBids
       summary: Read the paginated bid history of a public auction
       description: Bids are ordered by amount descending, then newest first for equal amounts. Names are masked.
@@ -621,7 +621,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: {type: string, format: uuid}
+          schema: { type: string, format: uuid }
         - $ref: '#/components/parameters/MinePage'
         - $ref: '#/components/parameters/MineSize'
       responses:
@@ -629,7 +629,7 @@ paths:
           description: Bid history page, empty when the auction has no bids
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/ListAuctionBidsResponse'}
+              schema: { $ref: '#/components/schemas/ListAuctionBidsResponse' }
         '400':
           $ref: '#/components/responses/MineInvalidQuery'
         '401':
@@ -643,33 +643,20 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
     post:
-      tags: [Auctions]
+      tags:
+        - Auctions
       operationId: placeBid
-      summary: Place a bid as a buyer
-      description: >
-        Places a bid on an ACTIVE auction from startAt (inclusive) to endAt
-        (exclusive). Outside that window, bids are refused even if the status is still ACTIVE.
-        A conditional update prevents concurrent bids from both winning the same price.
-        The authenticated buyer may not bid on their own auction.
-        Anti-sniping is enabled by default: an accepted bid with at most five minutes
-        remaining adds five minutes to endAt, capped at originalEndAt plus the configured
-        maximum extension (30 minutes by default). The bid, extension and BidPlaced outbox
-        event commit together; refused bids leave the deadline unchanged. Read the auction
-        again to obtain its effective endAt and extensionCount.
-        Idempotency-Key is a required UUID. A new key returns 201. Reusing a key
-        for the same auction, authenticated bidder and numeric amount returns 200
-        with the original bidId, accepted amount and leaderBidderId, even if the
-        auction state has since changed. Amounts such as 1050000 and 1050000.00
-        are equivalent. A different amount with the same key returns 409
-        AUCTION_IDEMPOTENCY_KEY_CONFLICT; use a new key for a different bid.
-        A replay does not extend endAt or increment extensionCount, update the auction,
-        insert a bid or publish another event. UUID letter case is normalized. The key is globally unique;
-        reusing it for another auction, bidder or amount returns 409 without exposing
-        the original bid. Concurrent successful requests with one key create
-        one bid, increment bid_count once and publish one BidPlaced event.
+      summary: Accept a bid request for asynchronous processing
+      description: Validates amount format, ACTIVE/time window and seller exclusion without locking the auction price.
+        Persists a QUEUED request and BidRequested outbox command atomically, then returns 202. Minimum-price validation
+        and anti-sniping run in the consumer using requestedAt, including requests consumed after endAt. Reusing the
+        same UUID Idempotency-Key for the same auction, bidder and numeric amount returns the original 202 receipt even
+        after processing. A different payload returns 409. Follow the private bid-status URL until PLACED or REJECTED.
       x-catalogue-id: BID-01
-      x-required-roles: [BUYER]
-      x-required-privileges: [AUCTION.BID]
+      x-required-roles:
+        - BUYER
+      x-required-privileges:
+        - AUCTION.BID
       x-ownership: The bidder is the authenticated JWT subject and may not be the auction seller.
       parameters:
         - name: id
@@ -682,9 +669,8 @@ paths:
           in: header
           required: true
           description: >
-            UUID identifying one bid attempt. Retry with the same key after a
-            timeout. Uppercase and lowercase UUID letters identify the same key.
-            Use a new key for a new bid.
+            UUID identifying one bid attempt. Retry with the same key after a timeout. Uppercase and lowercase UUID
+            letters identify the same key. Use a new key for a new bid.
           schema:
             type: string
             format: uuid
@@ -696,68 +682,64 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PlaceBidRequest'
+              $ref: "#/components/schemas/PlaceBidRequest"
             example:
               amount: 1200000
       responses:
-        '200':
-          description: >
-            The key was already accepted for this auction, bidder and numeric amount. Returns
-            the original response data and leaves the auction, bids and outbox unchanged.
+        "202":
+          description: Durable queued receipt, also returned for a matching idempotent replay.
+          headers:
+            Location:
+              description: Private result resource for the authenticated bidder.
+              schema:
+                type: string
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PlaceBidResponse'
+                $ref: "#/components/schemas/BidAcceptedResponse"
               example:
                 code: 0
                 message: response success
                 data:
-                  bidId: 019a5509-abcd-7111-8111-111111111112
-                  currentPrice: 1200000
-                  leaderBidderId: 68000000-0000-4000-8000-000000000003
-        '201':
-          description: Bid accepted and the auction price advanced.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PlaceBidResponse'
-              example:
-                code: 0
-                message: response success
-                data:
-                  bidId: 019a5509-abcd-7111-8111-111111111112
-                  currentPrice: 1200000
-                  leaderBidderId: 68000000-0000-4000-8000-000000000003
-        '400':
-          description: >
-            Idempotency-Key is missing or invalid, or the bid amount is invalid
-            or below the current minimum. A rejected request writes no bid.
+                  bidId: 019a5509-abcd-7111-8111-111111111113
+                  status: QUEUED
+                  requestedAt: 2026-11-16T10:00:00Z
+        "400":
+          description: Invalid amount, missing/malformed UUID Idempotency-Key or invalid request/parameter.
           content:
             application/problem+json:
               schema:
                 oneOf:
                   - allOf:
-                      - $ref: '#/components/schemas/Problem'
+                      - $ref: "#/components/schemas/Problem"
                       - type: object
-                        required: [minimum]
+                        required:
+                          - minimum
                         properties:
                           status:
-                            enum: [400]
+                            enum:
+                              - 400
                           code:
-                            enum: [AUCTION_BID_TOO_LOW]
+                            enum: []
                           minimum:
                             type: number
                             minimum: 0
                             multipleOf: 0.01
                             description: The minimum amount accepted at the time of the failed bid.
                   - allOf:
-                      - $ref: '#/components/schemas/Problem'
+                      - $ref: "#/components/schemas/Problem"
                       - type: object
                         properties:
                           status:
-                            enum: [400]
+                            enum:
+                              - 400
                           code:
-                            enum: [AUCTION_IDEMPOTENCY_KEY_REQUIRED, AUCTION_INVALID_IDEMPOTENCY_KEY, INVALID_REQUEST_BODY, VALIDATION_FAILED, INVALID_PARAMETER]
+                            enum:
+                              - AUCTION_IDEMPOTENCY_KEY_REQUIRED
+                              - AUCTION_INVALID_IDEMPOTENCY_KEY
+                              - INVALID_REQUEST_BODY
+                              - VALIDATION_FAILED
+                              - INVALID_PARAMETER
               examples:
                 missingIdempotencyKey:
                   value:
@@ -775,17 +757,8 @@ paths:
                     detail: Idempotency-Key must be a UUID
                     instance: /api/v1/auctions/019a5509-abcd-7111-8111-111111111111/bids
                     code: AUCTION_INVALID_IDEMPOTENCY_KEY
-                tooLow:
-                  value:
-                    type: urn:problem:domain-error
-                    title: Bad Request
-                    status: 400
-                    detail: Bid amount must be at least 1250000
-                    instance: /api/v1/auctions/019a5509-abcd-7111-8111-111111111111/bids
-                    code: AUCTION_BID_TOO_LOW
-                    minimum: 1250000
-        '401':
-          description: 'UNAUTHENTICATED — A valid bearer token is required.'
+        "401":
+          description: UNAUTHENTICATED — A valid bearer token is required.
           headers:
             WWW-Authenticate:
               description: Bearer challenge.
@@ -794,26 +767,28 @@ paths:
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/Problem'
-        '403':
-          description: 'FORBIDDEN — The caller lacks the BUYER role or the AUCTION.BID privilege.'
+                $ref: "#/components/schemas/Problem"
+        "403":
+          description: FORBIDDEN — The caller lacks the BUYER role or the AUCTION.BID privilege.
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/Problem'
-        '404':
+                $ref: "#/components/schemas/Problem"
+        "404":
           description: Auction not found.
           content:
             application/problem+json:
               schema:
                 allOf:
-                  - $ref: '#/components/schemas/Problem'
+                  - $ref: "#/components/schemas/Problem"
                   - type: object
                     properties:
                       status:
-                        enum: [404]
+                        enum:
+                          - 404
                       code:
-                        enum: [AUCTION_NOT_FOUND]
+                        enum:
+                          - AUCTION_NOT_FOUND
               example:
                 type: urn:problem:domain-error
                 title: Not Found
@@ -821,21 +796,25 @@ paths:
                 detail: Auction not found
                 instance: /api/v1/auctions/019a5509-abcd-7111-8111-111111111111/bids
                 code: AUCTION_NOT_FOUND
-        '409':
+        "409":
           description: >
-            Auction is outside its bid window, is not ACTIVE, the bidder is the auction seller,
-            or the key was already accepted for another auction, bidder or amount.
+            Auction is outside its bid window, is not ACTIVE, the bidder is the auction seller, or the key was already
+            accepted for another auction, bidder or amount.
           content:
             application/problem+json:
               schema:
                 allOf:
-                  - $ref: '#/components/schemas/Problem'
+                  - $ref: "#/components/schemas/Problem"
                   - type: object
                     properties:
                       status:
-                        enum: [409]
+                        enum:
+                          - 409
                       code:
-                        enum: [AUCTION_NOT_ACTIVE, AUCTION_SELLER_CANNOT_BID, AUCTION_IDEMPOTENCY_KEY_CONFLICT]
+                        enum:
+                          - AUCTION_NOT_ACTIVE
+                          - AUCTION_SELLER_CANNOT_BID
+                          - AUCTION_IDEMPOTENCY_KEY_CONFLICT
               examples:
                 idempotencyKeyConflict:
                   value:
@@ -861,8 +840,8 @@ paths:
                     detail: The auction seller cannot place a bid
                     instance: /api/v1/auctions/019a5509-abcd-7111-8111-111111111111/bids
                     code: AUCTION_SELLER_CANNOT_BID
-        '429':
-          description: 'RATE_LIMITED — Gateway request limit exceeded.'
+        "429":
+          description: RATE_LIMITED — Gateway request limit exceeded.
           headers:
             Retry-After:
               description: Seconds until the request can be retried.
@@ -871,19 +850,19 @@ paths:
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/Problem'
-        '500':
-          description: 'INTERNAL_ERROR — Unexpected server error.'
+                $ref: "#/components/schemas/Problem"
+        "500":
+          description: INTERNAL_ERROR — Unexpected server error.
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/Problem'
-        '503':
-          description: 'SERVICE_UNAVAILABLE — The gateway could not reach auction-service.'
+                $ref: "#/components/schemas/Problem"
+        "503":
+          description: SERVICE_UNAVAILABLE — The gateway could not reach auction-service.
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/Problem'
+                $ref: "#/components/schemas/Problem"
   /api/v1/auctions/{id}/schedule:
     post:
       tags: [Auctions]
@@ -1069,6 +1048,195 @@ paths:
           $ref: '#/components/responses/UnexpectedError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/auctions/{id}/bids/{bidId}:
+    get:
+      tags:
+        - Auctions
+      operationId: getBidStatus
+      summary: Read the authenticated bidder’s queued or final result
+      x-required-roles:
+        - BUYER
+      x-required-privileges:
+        - AUCTION.BID
+      x-ownership: bidderId equals JWT subject; a wrong auction, another bidder or an unknown bid returns the same 404.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: bidId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: QUEUED while waiting, PLACED with the price/leader snapshot, or REJECTED with reason and optional minimum.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BidStatusEnvelope"
+        "400":
+          description: Invalid UUID path.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 400
+                      code:
+                        type: string
+                        enum:
+                          - INVALID_PARAMETER
+        "401":
+          description: UNAUTHENTICATED — A valid bearer token is required.
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge.
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "403":
+          description: FORBIDDEN — The caller lacks the BUYER role or the AUCTION.BID privilege.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: Unknown request, wrong auction or another bidder.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 404
+                      code:
+                        type: string
+                        enum:
+                          - AUCTION_BID_NOT_FOUND
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/UnexpectedError"
+  /api/v1/auctions/{id}/stream:
+    get:
+      tags:
+        - Auctions
+      operationId: streamAuctionState
+      summary: Stream public auction snapshots over Server-Sent Events
+      description: The first named state event is the current public state. Subsequent committed auction events coalesce for
+        200 ms and invalidate the one-second state cache. data is exactly GET /state data, without ApiResponse; id is
+        the auction version. heartbeat events arrive every 15 seconds. Reconnect always receives the current snapshot,
+        including when Last-Event-ID was supplied; this is not an event-history replay. The stream closes on ENDED, WON,
+        SETTLED, FAILED, CANCELLED or PAYMENT_TIMEOUT. On failure/refusal the frontend retains its two-second polling
+        fallback. Timeout is 30 minutes; each instance enforces its own configured connection cap.
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Last-Event-ID
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional browser reconnection cursor; a fresh current state is always sent.
+      responses:
+        "200":
+          description: A long-lived SSE protocol response, without an ApiResponse wrapper.
+          headers:
+            X-Accel-Buffering:
+              schema:
+                type: string
+                enum:
+                  - no
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: |+
+                id: 12
+                event: state
+                data: {"auctionId":"019a5509-abcd-7111-8111-111111111111","currentPrice":1200000,"bidCount":2,"bidIncrement":50000,"leaderBidderName":"N***","endAt":"2026-11-16T11:05:00Z","status":"ACTIVE","serverTime":"2026-11-16T11:00:00Z"}
+
+                event: heartbeat
+                data: 2026-11-16T11:00:15Z
+
+        "400":
+          description: Invalid auction UUID.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 400
+                      code:
+                        type: string
+                        enum:
+                          - INVALID_PARAMETER
+        "404":
+          description: Unknown, restricted or soft-deleted auction; stream has not opened.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 404
+                      code:
+                        type: string
+                        enum:
+                          - AUCTION_NOT_FOUND
+        "500":
+          $ref: "#/components/responses/UnexpectedError"
+        "503":
+          description: Instance connection cap reached or shutting down; use polling.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Problem"
+                  - type: object
+                    properties:
+                      status:
+                        type: integer
+                        enum:
+                          - 503
+                      code:
+                        type: string
+                        enum:
+                          - AUCTION_STREAM_BUSY
 components:
   parameters:
     MinePage:
@@ -1376,19 +1544,93 @@ components:
           $ref: '#/components/schemas/BidResponse'
     BidResponse:
       type: object
-      required: [bidId, currentPrice, leaderBidderId]
+      required:
+        - bidId
+        - status
+        - requestedAt
       properties:
         bidId:
           type: string
           format: uuid
+        status:
+          type: string
+          enum:
+            - QUEUED
+        requestedAt:
+          type: string
+          format: date-time
+    BidAcceptedResponse:
+      type: object
+      required:
+        - code
+        - message
+        - data
+      properties:
+        code:
+          type: integer
+          example: 0
+        message:
+          type: string
+          example: response success
+        data:
+          $ref: "#/components/schemas/BidResponse"
+    BidStatusEnvelope:
+      type: object
+      required:
+        - code
+        - message
+        - data
+      properties:
+        code:
+          type: integer
+          example: 0
+        message:
+          type: string
+          example: response success
+        data:
+          $ref: "#/components/schemas/BidStatus"
+    BidStatus:
+      type: object
+      required:
+        - bidId
+        - status
+        - requestedAt
+        - amount
+      properties:
+        bidId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - QUEUED
+            - PLACED
+            - REJECTED
+            - OUTBID
+            - WON
+            - CANCELLED
+        requestedAt:
+          type: string
+          format: date-time
+        amount:
+          type: number
+          multipleOf: 0.01
         currentPrice:
           type: number
-          minimum: 0
-          multipleOf: 0.01
-          description: The original accepted bid amount, including on a replay after the auction price has changed.
+          description: Accepted price at the time this request was processed.
         leaderBidderId:
           type: string
           format: uuid
+        reason:
+          type: string
+          enum:
+            - AUCTION_BID_TOO_LOW
+            - AUCTION_NOT_ACTIVE
+            - AUCTION_SELLER_CANNOT_BID
+        minimum:
+          type: number
+          description: Minimum accepted price when a too-low request was rejected.
+
     Auction:
       type: object
       required: [id, productId, skuId, sellerId, title, startingPrice, bidIncrement, currentPrice, bidCount, currency, startAt, endAt, originalEndAt, extensionCount, status]

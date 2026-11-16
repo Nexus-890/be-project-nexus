@@ -72,6 +72,7 @@ import static org.mockito.Mockito.when;
                 "spring.config.name=api-gateway-security-test",
                 "spring.main.web-application-type=reactive",
                 "spring.cloud.config.enabled=false",
+                "spring.cloud.gateway.server.webflux.httpclient.response-timeout=500ms",
                 "eureka.client.enabled=false",
                 "spring.cloud.discovery.enabled=true",
                 "management.tracing.export.zipkin.enabled=false",
@@ -92,6 +93,42 @@ class SecurityConfigTest {
         assertThat(SERVICE_LOG).containsExactly("GET /api/v1/auctions/mine", "GET /api/v1/bids/mine");
         assertThat(FORWARDED_TOKENS).hasSize(2);
     }
+    /** SSE công khai đi qua route riêng, không bị timeout HTTP ngắn hoặc gom buffer. */
+    @Test
+    void auctionStreamFlushesStateAndHeartbeatThroughGateway() {
+        var route = routeLocator.getRoutes().filter(value -> value.getId().equals("auction-stream")).blockFirst();
+        assertThat(route).isNotNull();
+        assertThat(route.getOrder()).isEqualTo(-2);
+        assertThat(route.getMetadata()).containsEntry("response-timeout", -1);
+        var response = client.get().uri("/api/v1/auctions/" + ID + "/stream")
+                .exchange().expectStatus().isOk()
+                .expectHeader().valueEquals("X-Accel-Buffering", "no")
+                .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM)
+                .returnResult(new org.springframework.core.ParameterizedTypeReference<org.springframework.http.codec.ServerSentEvent<String>>() { });
+        var messages = response.getResponseBody().take(2).collectList().block(Duration.ofSeconds(5));
+        assertThat(messages).hasSize(2);
+        assertThat(messages.getFirst().event()).isEqualTo("state");
+        assertThat(messages.getFirst().id()).isEqualTo("7");
+        assertThat(messages.getFirst().data()).isEqualTo("{\"currentPrice\":1200000}");
+        assertThat(messages.getLast().event()).isEqualTo("heartbeat");
+    }
+
+    /** Gateway giữ nguyên bearer để auction-service kiểm tra ownership của kết quả bid. */
+    @Test
+    void privateBidResultRequiresBidPrivilegeAndForwardsToken() {
+        String path = "/api/v1/auctions/" + ID + "/bids/22222222-2222-4222-8222-222222222222";
+        client.get().uri(path).exchange().expectStatus().isUnauthorized();
+        client.get().uri(path).header(HttpHeaders.AUTHORIZATION,
+                "Bearer " + token(SIGNING_KEY, claims -> claims.claim("privileges", List.of("AUCTION.VIEW_BID_HISTORY"))))
+                .exchange().expectStatus().isForbidden();
+        String bearer = "Bearer " + token(SIGNING_KEY, claims -> claims.claim("privileges", List.of("AUCTION.BID")));
+        client.get().uri(path).header(HttpHeaders.AUTHORIZATION, bearer).exchange().expectStatus().isOk();
+        assertThat(FORWARDED_TOKENS).containsExactly(bearer);
+        // Poll kết quả dùng quota đọc 600/phút, không tiêu quota POST 100/phút của cùng IP.
+        verify(rateLimiter).isAllowed("auction-read", "gateway-test-client");
+        verify(rateLimiter, never()).isAllowed("auction-service", "gateway-test-client");
+    }
+
     private static final String ID = "11111111-1111-4111-8111-111111111111";
     private static final String ME = "/api/v1/users/me";
     private static final String ISSUER = "http://localhost:18080/realms/nexus";
@@ -108,7 +145,8 @@ class SecurityConfigTest {
             "payment-service", startDomainServer("payment-service"),
             "shipment-service", startDomainServer("shipment-service"),
             "rating-service", startDomainServer("rating-service"),
-            "inventory-service", startDomainServer("inventory-service"));
+            "inventory-service", startDomainServer("inventory-service"),
+            "auction-service", startDomainServer("auction-service"));
     private static final List<String> DOMAIN_LOG = new CopyOnWriteArrayList<>();
     private static final AtomicBoolean RATE_LIMITED = new AtomicBoolean();
 
@@ -647,7 +685,7 @@ class SecurityConfigTest {
     void guestCartPoliciesAllowAnonymousButStillRejectInvalidBearerAndProtectMerge() {
         for (SecurityConfig.Endpoint endpoint : permissions.endpoints()) {
             if (!endpoint.allowGuest()) continue;
-            String path = endpoint.path().replace("{id}", ID);
+            String path = endpoint.path().replace("{id}", ID).replace("{bidId}", ID);
             client.method(endpoint.method()).uri(path).header("X-Guest-Token", "guest-owner")
                     .exchange().expectStatus().isOk();
             client.method(endpoint.method()).uri(path).header("X-Guest-Token", "guest-owner")
@@ -810,7 +848,7 @@ class SecurityConfigTest {
     }
 
     private static String concretePath(String path) {
-        return path.replace("{id}", ID).replace("{userId}", ID).replace("{imageId}", ID);
+        return path.replace("{id}", ID).replace("{bidId}", ID).replace("{userId}", ID).replace("{imageId}", ID);
     }
 
     private void expectInvalidToken(String token) {
@@ -867,6 +905,7 @@ class SecurityConfigTest {
                 exchange.getResponseBody().write(body);
                 exchange.close();
             });
+            server.setExecutor(java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor());
             server.start();
             return server;
         } catch (Exception ex) {
@@ -927,7 +966,21 @@ class SecurityConfigTest {
                 DOMAIN_LOG.add(serviceId + " " + request);
                 String bearer = exchange.getRequestHeaders().getFirst(HttpHeaders.AUTHORIZATION);
                 if (bearer != null) FORWARDED_TOKENS.add(bearer);
-                byte[] body = serviceId.getBytes(StandardCharsets.UTF_8);
+                // Stub thực sự flush hai chunk cách nhau hơn timeout mặc định của Gateway.
+                if (serviceId.equals("auction-service") && exchange.getRequestURI().getPath().endsWith("/stream")) {
+                    exchange.getResponseHeaders().set(HttpHeaders.CONTENT_TYPE, MediaType.TEXT_EVENT_STREAM_VALUE);
+                    exchange.sendResponseHeaders(200, 0);
+                    try {
+                        exchange.getResponseBody().write("id:7\nevent:state\ndata:{\"currentPrice\":1200000}\n\n".getBytes(StandardCharsets.UTF_8));
+                        exchange.getResponseBody().flush();
+                        Thread.sleep(1100);
+                        exchange.getResponseBody().write("event:heartbeat\ndata:alive\n\n".getBytes(StandardCharsets.UTF_8));
+                        exchange.getResponseBody().flush();
+                    } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+                    finally { exchange.close(); }
+                    return;
+                }
+                byte[] body = (serviceId.equals("auction-service") ? "downstream" : serviceId).getBytes(StandardCharsets.UTF_8);
                 boolean rejected = exchange.getRequestHeaders().containsKey("X-Test-Require-Provider-Auth")
                         && !fixtureSignature(payload).equals(exchange.getRequestHeaders().getFirst("X-Provider-Signature"));
                 exchange.getResponseHeaders().set("X-Test-Owning-Service", serviceId);
@@ -935,6 +988,7 @@ class SecurityConfigTest {
                 exchange.getResponseBody().write(body);
                 exchange.close();
             });
+            server.setExecutor(java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor());
             server.start();
             return server;
         } catch (Exception ex) {

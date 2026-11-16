@@ -45,7 +45,17 @@ springdoc:
     enabled: true
 
 nexus:
+  outbox:
+    relay:
+      # Phát bid/state nhanh; không chờ chu kỳ một giây trên luồng realtime.
+      fixed-delay: ${AUCTION_OUTBOX_RELAY_DELAY_MS:100}
   auction:
+    stream:
+      # Giới hạn tổng kết nối trên một instance; client bị từ chối vẫn dùng polling.
+      max-connections: ${AUCTION_STREAM_MAX_CONNECTIONS:2000}
+      timeout: 30m
+      heartbeat-interval: 15s
+      coalesce-interval: 200ms
     min-duration-minutes: ${AUCTION_MIN_DURATION_MINUTES:60}
     max-duration-hours: ${AUCTION_MAX_DURATION_HOURS:168}
     max-active-per-seller: ${MAX_ACTIVE_AUCTIONS_PER_SELLER:5}
@@ -59,6 +69,8 @@ nexus:
         path: /api/v1/auctions
       - method: GET
         path: /api/v1/auctions/{id}
+      - method: GET
+        path: /api/v1/auctions/{id}/stream
       - method: GET
         path: /api/v1/auctions/{id}/state
       - method: GET
