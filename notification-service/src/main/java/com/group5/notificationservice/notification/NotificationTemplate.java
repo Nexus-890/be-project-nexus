@@ -20,7 +20,8 @@ public enum NotificationTemplate {
     CHECKOUT_PAYMENT_CONFIRMED("CheckoutPaymentConfirmed", "Payment received",
             "Payment received for order group %s: %s %s.",
             new String[]{"buyerId"}, "orderGroupId", "totalAmount", "currency"),
-    SHIPMENT_CREATED("ShipmentCreated", "Order shipped", "Your order %s has shipped with %s. Tracking code: %s.",
+    // Giữ type/preference đã lưu; ShipmentCreated còn PENDING_TRACKING nên chờ event pickup có tracking.
+    SHIPMENT_CREATED("ShipmentPickedUp", "Order shipped", "Your order %s has shipped with %s. Tracking code: %s.",
             new String[]{"buyerId"}, "orderId", "carrier", "trackingCode"),
     SHIPMENT_DELIVERED("ShipmentDelivered", "Order delivered", "Your order %s was delivered.",
             new String[]{"buyerId"}, "orderId"),
@@ -63,18 +64,27 @@ public enum NotificationTemplate {
     public List<Notification> render(JsonNode payload, String frontendBaseUrl) {
         Set<UUID> recipients = new LinkedHashSet<>();
         for (String field : recipientFields) {
+            JsonNode value = payload.path(field);
+            if (isAdditiveRecipient(field) && (value.isMissingNode() || value.isNull())) {
+                // Payload v1 cũ không có đủ audience: không suy đoán buyer/bidder từ actor hay ID khác.
+                continue;
+            }
             if ("bidderIds".equals(field)) {
-                JsonNode bidders = payload.path(field);
+                JsonNode bidders = value;
                 if (!bidders.isArray()) {
                     throw new IllegalArgumentException(eventType + " payload has no " + field);
                 }
                 // Mảng rỗng hợp lệ khi phiên đấu giá chưa có bid; seller vẫn nhận email.
                 bidders.forEach(bidder -> recipients.add(recipientId(bidder, field)));
             } else {
-                recipients.add(recipientId(payload.path(field), field));
+                recipients.add(recipientId(value, field));
             }
         }
-        Object[] values = contentFields.stream().map(field -> contentValue(payload, field)).toArray();
+        // Refund lịch sử vẫn được consumer đánh dấu processed mà không tạo email sai người nhận.
+        if (recipients.isEmpty()) {
+            return List.of();
+        }
+        Object[] values = contentFields.stream().map(field -> requiredText(payload, field)).toArray();
         String content = contentFormat.formatted(values);
         if (this == SHIPMENT_DELIVERED) {
             UUID orderId = UUID.fromString(requiredText(payload, "orderId"));
@@ -91,6 +101,11 @@ public enum NotificationTemplate {
         return recipients.stream().map(userId -> notification(userId, renderedContent, renderedHtml)).toList();
     }
 
+    private boolean isAdditiveRecipient(String field) {
+        return (this == ORDER_REFUND_REQUESTED || this == ORDER_REFUND_COMPLETED) && "buyerId".equals(field)
+                || this == AUCTION_CANCELLED && "bidderIds".equals(field);
+    }
+
     private Notification notification(UUID userId, String content, String emailHtml) {
         Notification notification = new Notification();
         notification.setUserId(userId);
@@ -99,14 +114,6 @@ public enum NotificationTemplate {
         notification.setContent(content);
         notification.setEmailHtml(emailHtml);
         return notification;
-    }
-
-    private String contentValue(JsonNode payload, String field) {
-        // #202 cho phép tạo shipment lúc carrier chưa trả mã; không làm event này retry vô hạn.
-        if (this == SHIPMENT_CREATED && "trackingCode".equals(field) && payload.path(field).isNull()) {
-            return "Pending carrier confirmation";
-        }
-        return requiredText(payload, field);
     }
 
     private UUID recipientId(JsonNode value, String field) {

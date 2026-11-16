@@ -174,7 +174,7 @@ Complete group manifest envelope example for a hand-published contract test (syn
 
 ## Event email notifications (#259)
 
-Checked against the current publisher ownership on 2026-11-15. The issue's older
+Checked against publisher ownership and the #259 review on 2026-11-16. The issue's older
 COMMERCE label for payment/refund events does not change their existing
 `nexus.payment.events` topic or move the refund publisher into commerce-service.
 DomainEventConsumer keeps COMMERCE/CATALOG and also subscribes to PAYMENT,
@@ -183,7 +183,7 @@ SHIPMENT and AUCTION. No HTTP endpoint or response shape is added.
 | Event | Topic constant | Recipients | Email content |
 | --- | --- | --- | --- |
 | CheckoutPaymentConfirmed | PAYMENT | `buyerId` | Payment received for `orderGroupId`, `totalAmount` and `currency`; one group receipt, not one per seller. |
-| ShipmentCreated | SHIPMENT | `buyerId` | Order shipped, `carrier` and `trackingCode`; a null tracking code is displayed as pending carrier confirmation. |
+| ShipmentPickedUp | SHIPMENT | `buyerId` | Order shipped, with the persisted `carrier` and nonempty `trackingCode`. |
 | ShipmentDelivered | SHIPMENT | `buyerId` | Delivered, with a link to the frontend order page to rate the order (#221). |
 | ShipmentFailed / ShipmentReturned | SHIPMENT | `buyerId` | Delivery problem and an instruction to contact Support. |
 | OrderRefundRequested | PAYMENT | `buyerId` | Refund requested, seller order, amount, currency and reason. |
@@ -191,7 +191,12 @@ SHIPMENT and AUCTION. No HTTP endpoint or response shape is added.
 | AuctionCancelled | AUCTION | Distinct union of `bidderIds` and `sellerId` | Auction cancelled and reason. An empty bidder list still notifies the seller. |
 | AuctionPaymentTimeout | AUCTION | Distinct union of `winnerId` and `sellerId` | Auction payment deadline passed and the affected order. |
 
-Every distinct user receives one notification and one EMAIL delivery per causal
+ShipmentCreated records creation while tracking may still be pending and does not
+trigger an email. The shipped email uses ShipmentPickedUp, after tracking has been
+assigned; assigning tracking alone does not republish ShipmentCreated. Its
+persisted notification type and EMAIL preference key remain `SHIPMENT_CREATED` so existing opt-outs still apply to the email triggered by ShipmentPickedUp.
+
+Every known distinct recipient receives one notification and one EMAIL delivery per causal
 event. The existing processed-events claim, all recipient notifications and the
 delivery rows commit in the same notification_db transaction. Redelivery of the
 same eventId creates no additional notification or email. Recipient email addresses
@@ -201,12 +206,16 @@ the destination email. SMTP uses the existing delivery/retry pipeline after comm
 `buyerId` on the two refund events and `bidderIds` on AuctionCancelled are additive
 v1 extensions: new publishers always populate them, while the schema leaves them
 out of `required` so historical payloads and existing consumers remain compatible.
-The email handler requires every recipient field and rejects missing or invalid
-UUIDs before saving any recipient. Such failure rolls back the processed marker
-for retry; it never guesses a buyer from actorId or silently notifies only part of
-an auction's audience. Historical events without those fields need explicit
-enrichment before email replay. Auction cancellation reads distinct bidders from
-local bids in the same transaction as cancellation/outbox, under the auction lock.
+For historical refund payloads with absent or null buyerId, the email handler
+completes the processed marker without a notification or delivery; it never guesses
+the buyer from actorId or orderId. Historical AuctionCancelled payloads with absent
+or null bidderIds notify the required valid sellerId once, without inventing
+bidders. Replaying either historical form creates no additional notifications.
+Present but malformed recipient values, including a non-array bidderIds, are still
+rejected before saving any recipient and roll back the processed marker for retry.
+Other required recipient fields retain strict validation. New auction cancellation
+publishers read distinct bidders from local bids in the same transaction as
+cancellation/outbox, under the auction lock.
 
 Before delivery, EMAIL preferences are checked by user and notification type.
 An explicitly disabled preference creates a SKIPPED delivery with no SMTP send;
@@ -1817,7 +1826,7 @@ failed effects leave the persisted fact available for another attempt.
 
 #247 creates the REQUESTED refund and this outbox row atomically. actorId is refunds.requested_by; automatic compensation uses the system UUID and stable system:cancel-refund:{orderId} identity. At most one refund exists per order, including an API request racing an automatic cancellation. If an amount is supplied, preserve it exactly after validating against the funded instruction; if omitted, resolve that child's budget. Never use the entire session receipt as each seller's refund. No bank transfer has completed yet. Commerce validates the status transition and tracks refund identity/version so late REQUESTED redelivery cannot undo REFUNDED.
 
-#259 resolves buyerId from the refund's local payment instruction (PaymentInstruction.buyerId) in the publisher transaction, not from actorId or a commerce database lookup. It is an optional additive property in the v1 schema, always populated by new events. Email rendering rejects a missing buyerId and rolls back its processed marker; other existing consumers may continue to ignore the field.
+#259 resolves buyerId from the refund's local payment instruction (PaymentInstruction.buyerId) in the publisher transaction, not from actorId or a commerce database lookup. It is an optional additive property in the v1 schema, always populated by new events. For a historical absent or null buyerId, notification consumes and marks the event processed without creating a notification or guessing a recipient. A present malformed buyerId still fails validation; other existing consumers may continue to ignore the field.
 
 ### OrderRefundCompleted
 
@@ -1975,7 +1984,7 @@ failed effects leave the persisted fact available for another attempt.
 
 #247 atomically commits Support's completion, its outgoing ledger reference and outbox. actorId is completed_by. Preserve requestedAt and incoming funding evidence; completedAt >= requestedAt. Amount/currency/order/instruction must agree with the original refund. Repeating completion adds no ledger row/event. On missing REQUESTED prerequisites, retain durable retry; do not skip the state machine or mark a failed handler processed.
 
-#259 resolves buyerId from the refund's local payment instruction (PaymentInstruction.buyerId) in the publisher transaction, not from actorId or a commerce database lookup. It is an optional additive property in the v1 schema, always populated by new events. Email rendering rejects a missing buyerId and rolls back its processed marker; other existing consumers may continue to ignore the field.
+#259 resolves buyerId from the refund's local payment instruction (PaymentInstruction.buyerId) in the publisher transaction, not from actorId or a commerce database lookup. It is an optional additive property in the v1 schema, always populated by new events. For a historical absent or null buyerId, notification consumes and marks the event processed without creating a notification or guessing a recipient. A present malformed buyerId still fails validation; other existing consumers may continue to ignore the field.
 
 ### AuctionCreated
 
@@ -2358,7 +2367,7 @@ failed effects leave the persisted fact available for another attempt.
 
 #197 commits cancellation/reason/actor/outbox through the state machine. Seller permission requires no valid bids; Admin permission and final-state restrictions remain service checks. #209 releases only an existing HELD auction reservation once and emits InventoryReleased in that local transaction. Never release stock twice when AuctionFailed/cancellation/redelivery race; do not manufacture an order ID before settlement.
 
-#259 snapshots SELECT DISTINCT bidder_id from bids while the cancellation holds the auction lock, in the same transaction as the accepted state transition and outbox row. Notification takes the distinct union of bidderIds and sellerId; repeated bids, or a seller UUID repeated in the array, cannot send a second email to that user. A missing bidderIds array is rejected for email rather than silently dropping bidders. This optional v1 schema extension does not change the existing cancellation eligibility rules or add cross-service database access.
+#259 snapshots SELECT DISTINCT bidder_id from bids while the cancellation holds the auction lock, in the same transaction as the accepted state transition and outbox row. Notification takes the distinct union of bidderIds and sellerId; repeated bids, or a seller UUID repeated in the array, cannot send a second email to that user. Historical absent or null bidderIds notify the required valid sellerId once and complete processing without inferring bidders. A present non-array or malformed bidder UUID is rejected. This optional v1 schema extension does not change the existing cancellation eligibility rules or add cross-service database access.
 
 ### AuctionEnded
 
@@ -3335,7 +3344,7 @@ Inventory handles OrderPaid with the order's reservation rows locked. When an EX
 
 - Topic: `nexus.shipment.events`.
 - Publisher: [#202](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/202).
-- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log creation; no order-state move; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log; notification-service [#259](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/259): email the buyer the carrier and tracking code.
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log creation; no order-state move; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log. #259 does not send email for this creation fact; ShipmentPickedUp supplies the shipped email's carrier and tracking code.
 - Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
@@ -3774,7 +3783,7 @@ The payload uses the same history/version/source/actor fields as ShipmentPickedU
 
 - Topic: `nexus.shipment.events`.
 - Publisher: [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203).
-- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): PAID -> SHIPPED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): PAID -> SHIPPED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log; notification-service [#259](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/259): email the buyer the carrier and tracking code as SHIPMENT_CREATED.
 - Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |

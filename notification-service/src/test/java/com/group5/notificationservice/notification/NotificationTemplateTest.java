@@ -112,7 +112,7 @@ class NotificationTemplateTest {
                         + ",\"orderNumber\":\"NX-259\",\"reason\":\"Expired\"}", 1, "NX-259 was cancelled"),
                 Arguments.of("CheckoutPaymentConfirmed", "{" + buyer + ",\"orderGroupId\":\"group-259\","
                         + "\"totalAmount\":\"350000.50\",\"currency\":\"VND\"}", 1, "group-259: 350000.50 VND"),
-                Arguments.of("ShipmentCreated", "{" + buyer + "," + order
+                Arguments.of("ShipmentPickedUp", "{" + buyer + "," + order
                         + ",\"carrier\":\"GHN\",\"trackingCode\":\"GHN-259\"}", 1, "GHN. Tracking code: GHN-259"),
                 Arguments.of("ShipmentDelivered", "{" + buyer + "," + order + "}", 1,
                         "Rate your order: https://nexus.example/order/00000000-0000-4000-8000-000000000001"),
@@ -131,16 +131,74 @@ class NotificationTemplateTest {
                         + "\"sellerId\":\"00000000-0000-4000-8000-000000000004\"}", 2, "payment deadline"));
     }
 
-    // Không đánh dấu event thành công nếu thiếu một trường người nhận; Kafka còn có thể retry payload lỗi.
+    // Trường người nhận gốc vẫn bắt buộc; chỉ field additive của v1 lịch sử mới được bỏ qua.
     @ParameterizedTest
-    @MethodSource("eventSamples")
-    void missingRecipientIsRejected(String eventType, String payload, int ignoredCount, String ignoredContent) {
+    @MethodSource("requiredRecipientSamples")
+    void missingRequiredRecipientIsRejected(String eventType, String payload, int ignoredCount, String ignoredContent) {
         var node = (tools.jackson.databind.node.ObjectNode) JsonMapper.shared().readTree(payload);
-        String field = eventType.equals("AuctionCancelled") ? "bidderIds"
+        String field = eventType.equals("AuctionCancelled") ? "sellerId"
                 : eventType.equals("AuctionPaymentTimeout") ? "winnerId" : "buyerId";
         node.remove(field);
         assertThatThrownBy(() -> NotificationTemplate.forEventType(eventType).orElseThrow().render(node, FRONTEND))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(field);
+    }
+
+    static Stream<Arguments> requiredRecipientSamples() {
+        return eventSamples().filter(sample -> !List.of("OrderRefundRequested", "OrderRefundCompleted")
+                .contains(sample.get()[0]));
+    }
+
+    @ParameterizedTest
+    @MethodSource("refundEventTypes")
+    void historicalRefundWithoutBuyerDoesNotGuessTheOperatorOrSeller(String eventType) {
+        var payload = (tools.jackson.databind.node.ObjectNode) JsonMapper.shared().readTree("""
+                {"orderId":"00000000-0000-4000-8000-000000000001","amount":"50000.00","currency":"VND",
+                 "reason":"Damaged","actorId":"00000000-0000-4000-8000-000000000003",
+                 "sellerId":"00000000-0000-4000-8000-000000000004"}
+                """);
+        NotificationTemplate template = NotificationTemplate.forEventType(eventType).orElseThrow();
+
+        assertThat(template.render(payload, FRONTEND)).isEmpty();
+        payload.putNull("buyerId");
+        assertThat(template.render(payload, FRONTEND)).isEmpty();
+    }
+
+    static Stream<String> refundEventTypes() {
+        return Stream.of("OrderRefundRequested", "OrderRefundCompleted");
+    }
+
+    @Test
+    void historicalAuctionWithoutBidderSnapshotStillNotifiesOnlyTheSeller() {
+        var payload = (tools.jackson.databind.node.ObjectNode) JsonMapper.shared().readTree("""
+                {"auctionId":"a-259","reason":"Cancelled",
+                 "actorId":"00000000-0000-4000-8000-000000000003",
+                 "sellerId":"00000000-0000-4000-8000-000000000004"}
+                """);
+        UUID seller = UUID.fromString("00000000-0000-4000-8000-000000000004");
+        assertThat(NotificationTemplate.AUCTION_CANCELLED.render(payload, FRONTEND))
+                .extracting(Notification::getUserId).containsExactly(seller);
+        payload.putNull("bidderIds");
+        assertThat(NotificationTemplate.AUCTION_CANCELLED.render(payload, FRONTEND))
+                .extracting(Notification::getUserId).containsExactly(seller);
+    }
+
+    @ParameterizedTest
+    @MethodSource("malformedAdditiveRecipients")
+    void presentMalformedAdditiveRecipientIsRejected(String eventType, String field, String invalidValue) {
+        var payload = (tools.jackson.databind.node.ObjectNode) JsonMapper.shared().readTree("""
+                {"orderId":"00000000-0000-4000-8000-000000000001","amount":"50000.00","currency":"VND",
+                 "reason":"Cancelled","auctionId":"a-259","sellerId":"00000000-0000-4000-8000-000000000004"}
+                """);
+        payload.set(field, JsonMapper.shared().readTree(invalidValue));
+        assertThatThrownBy(() -> NotificationTemplate.forEventType(eventType).orElseThrow().render(payload, FRONTEND))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    static Stream<Arguments> malformedAdditiveRecipients() {
+        return Stream.concat(refundEventTypes().flatMap(eventType -> Stream.of("\"\"", "\"invalid-uuid\"", "7")
+                        .map(value -> Arguments.of(eventType, "buyerId", value))),
+                Stream.of("\"invalid-list\"", "{}", "[null]", "[\"invalid-uuid\"]")
+                        .map(value -> Arguments.of("AuctionCancelled", "bidderIds", value)));
     }
 
     @Test
@@ -160,7 +218,7 @@ class NotificationTemplateTest {
 
     @Test
     void auctionWithoutBidsStillNotifiesTheSeller() {
-        // Mảng bidders rỗng hợp lệ; thiếu mảng hoặc phần tử không phải UUID thì từ chối.
+        // Mảng bidders rỗng hợp lệ; phần tử không phải UUID vẫn bị từ chối.
         var payload = (tools.jackson.databind.node.ObjectNode) JsonMapper.shared().readTree("""
                 {"auctionId":"a-259","reason":"Cancelled","bidderIds":[],
                 "sellerId":"00000000-0000-4000-8000-000000000004"}
@@ -172,13 +230,14 @@ class NotificationTemplateTest {
     }
 
     @Test
-    void shipmentWithoutTrackingDoesNotInventACode() {
-        // Carrier chưa trả tracking là một payload hợp lệ của #202.
+    void shipmentCreationWaitsForPickupAndPickupRequiresTracking() {
+        // Tạo shipment lúc chờ tracking không đồng nghĩa carrier đã nhận kiện hàng.
         JsonNode payload = JsonMapper.shared().readTree("""
                 {"orderId":"order-259","buyerId":"00000000-0000-4000-8000-000000000002",
                  "carrier":"GHN","trackingCode":null}
                 """);
-        assertThat(NotificationTemplate.SHIPMENT_CREATED.render(payload, FRONTEND).getFirst().getContent())
-                .contains("Pending carrier confirmation").doesNotContain("null");
+        assertThat(NotificationTemplate.forEventType("ShipmentCreated")).isEmpty();
+        assertThatThrownBy(() -> NotificationTemplate.SHIPMENT_CREATED.render(payload, FRONTEND))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("trackingCode");
     }
 }

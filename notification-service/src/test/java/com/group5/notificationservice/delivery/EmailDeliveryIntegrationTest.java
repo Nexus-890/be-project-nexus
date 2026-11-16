@@ -666,7 +666,7 @@ class EmailDeliveryIntegrationTest {
         return Stream.of(
                 Arguments.of("CheckoutPaymentConfirmed", Topics.PAYMENT, "CHECKOUT_PAYMENT_CONFIRMED",
                         "Payment received", "Payment received for order group " + ORDER_GROUP + ": 125000.00 VND"),
-                Arguments.of("ShipmentCreated", Topics.SHIPMENT, "SHIPMENT_CREATED", "Order shipped",
+                Arguments.of("ShipmentPickedUp", Topics.SHIPMENT, "SHIPMENT_CREATED", "Order shipped",
                         "has shipped with GHN. Tracking code: TRACK-259"),
                 Arguments.of("ShipmentDelivered", Topics.SHIPMENT, "SHIPMENT_DELIVERED", "Order delivered",
                         "Rate your order: http://localhost:3000/order/" + ORDER),
@@ -687,7 +687,7 @@ class EmailDeliveryIntegrationTest {
         Map<String, ?> payload = switch (eventType) {
             case "CheckoutPaymentConfirmed" -> Map.of("sessionId", UUID.randomUUID(), "orderGroupId", ORDER_GROUP,
                     "buyerId", BUYER, "totalAmount", "125000.00", "currency", "VND");
-            case "ShipmentCreated", "ShipmentDelivered", "ShipmentFailed", "ShipmentReturned" ->
+            case "ShipmentPickedUp", "ShipmentDelivered", "ShipmentFailed", "ShipmentReturned" ->
                     Map.of("shipmentId", UUID.randomUUID(), "orderId", ORDER, "buyerId", BUYER,
                             "carrier", "GHN", "trackingCode", "TRACK-259");
             case "OrderRefundRequested", "OrderRefundCompleted" -> Map.of("refundId", UUID.randomUUID(),
@@ -711,7 +711,7 @@ class EmailDeliveryIntegrationTest {
             case "CheckoutPaymentConfirmed" -> "sessionId";
             case "OrderRefundRequested", "OrderRefundCompleted" -> "orderId";
             case "AuctionCancelled", "AuctionPaymentTimeout" -> "auctionId";
-            case "ShipmentCreated", "ShipmentDelivered", "ShipmentFailed", "ShipmentReturned" -> "shipmentId";
+            case "ShipmentPickedUp", "ShipmentDelivered", "ShipmentFailed", "ShipmentReturned" -> "shipmentId";
             default -> "orderId";
         };
         String aggregateId = payload.path(aggregateField).asString();

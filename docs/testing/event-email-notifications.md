@@ -23,8 +23,18 @@ CheckoutPaymentConfirmed và hai refund event thực tế do payment-service ph�
 Refund thêm buyerId từ PaymentInstruction.buyerId local. AuctionCancelled thêm bidderIds
 distinct từ bids local trong cùng transaction giữ lock auction. Các field mới
 không thêm vào `required` của schema v1 để giữ khả năng đọc event lịch sử. Publisher
-mới luôn cung cấp; email renderer từ chối thiếu/sai recipient và rollback marker
-để retry, không đoán buyer từ actorId hoặc gửi thiếu bidder.
+mới luôn cung cấp. Với refund lịch sử thiếu hoặc null buyerId, consumer hoàn tất
+processed marker, không tạo notification/delivery và không đoán buyer từ actorId
+hay orderId. Với AuctionCancelled lịch sử thiếu hoặc null bidderIds, consumer chỉ
+gửi một lần cho sellerId hợp lệ bắt buộc. Replay hai dạng cũ này không gửi thêm.
+Recipient có giá trị nhưng sai UUID hoặc bidderIds không phải mảng vẫn bị từ chối
+trước khi lưu bất kỳ recipient nào và rollback marker để retry.
+
+Review ngày 16/11/2026 tại `53409a13` xác nhận ShipmentCreated được phát lúc
+PENDING_TRACKING với trackingCode=null. Việc carrier cấp tracking sau đó không
+phát lại ShipmentCreated. Vì vậy email shipped dùng ShipmentPickedUp với carrier
+và trackingCode đã có; ShipmentCreated không tạo notification. Notification type
+và EMAIL preference vẫn giữ `SHIPMENT_CREATED` đã lưu trước đây, để các lựa chọn tắt email hiện có tiếp tục áp dụng khi ShipmentPickedUp kích hoạt gửi.
 
 ## Test tự động
 
@@ -50,9 +60,32 @@ Pop-Location
 node docs/api/check-contract.mjs
 ```
 
+Chạy riêng regression của hai lỗi review, không cần Docker, trên checkout có
+publisher Shipment #202/#203 như base MR `53409a13`:
+
+```powershell
+Push-Location shipment-service
+.\mvnw.cmd '-Duser.timezone=UTC' '-Dtest=ShipmentNotificationPublisherTest' test
+Pop-Location
+Push-Location notification-service
+.\mvnw.cmd '-Duser.timezone=UTC' '-Dtest=NotificationTemplateTest,DomainEventConsumerTest,ShipmentNotificationPublisherContractTest' test
+Pop-Location
+```
+
 `NotificationTemplateTest` kiểm tra nội dung từng template, recipient scalar/mảng,
-distinct, mảng bidder rỗng, thiếu/sai recipient, link đánh giá và tracking đang chờ.
-`DomainEventConsumerTest` kiểm tra fan-out, các topic mới và event trùng.
+distinct, mảng bidder rỗng, payload lịch sử thiếu field additive, recipient sai,
+link đánh giá và yêu cầu tracking của ShipmentPickedUp.
+`DomainEventConsumerTest` kiểm tra fan-out, các topic mới, event trùng và replay
+refund/AuctionCancelled v1 rồi tiếp tục xử lý event hợp lệ kế tiếp. Payload shipment
+để kiểm email cần đối chiếu với outbox từ publisher thật; fixture SMTP tự gán
+tracking không chứng minh luồng tạo shipment có phát event mang tracking.
+`ShipmentNotificationPublisherTest` kiểm tra payload từ service và outbox writer
+production với JDBC boundary được mock, đối chiếu fixture chung
+`notification-service/src/test/resources/shipment-notification-publisher.json`.
+`ShipmentNotificationPublisherContractTest` dùng đúng fixture này qua notification
+consumer để kiểm creation không gửi, pickup gửi carrier/tracking và replay không
+gửi thêm. Hai phía cùng ghim fixture nên payload publisher đổi sẽ làm regression
+thất bại; đây là unit test hợp đồng, không phải nghiệm thu JDBC/SMTP hoặc T3.
 Kiểm chứng chống trùng/rollback bằng `processed_events` phải dùng PostgreSQL thật;
 test mock đơn thuần không chứng minh transaction hoặc UNIQUE constraint hoạt động.
 Email preference tests phải bao phủ tắt trước khi queue, tắt trước retry, giữ
@@ -74,8 +107,11 @@ suy ra full verify, remote CI hoặc manual acceptance từ unit test.
 2. Dùng buyer/seller/bidder thử nghiệm có email xác định trong Keycloak. Tạo order
    mới, thanh toán đúng tổng qua luồng đang có, xác minh một email Payment received
    cho buyer của cả group, đúng tổng/currency; seller không nhận email thanh toán.
-   Tạo shipment và thực hiện trạng thái delivered bằng luồng #202/#203; buyer có
-   email shipped với carrier/tracking và email delivered với link tới order để rate.
+   Tạo shipment bằng luồng #202, đối chiếu ShipmentCreated PENDING_TRACKING/null
+   tracking không tạo email shipped. Sau khi carrier đã cấp tracking, chuyển sang
+   trạng thái `SHIPPED` qua luồng #203 (publisher phát `ShipmentPickedUp`) và đối chiếu email shipped với carrier/tracking trong
+   chính outbox ShipmentPickedUp. Tiếp tục DELIVERED và kiểm email delivered với
+   link tới order để rate. Replay nguyên ShipmentPickedUp phải giữ đúng một email.
 3. Với fixture khác, chạy shipment failed/returned và refund requested/completed.
    Đối chiếu email với buyer, order, amount, currency và reason trong outbox; không
    coi email Refund requested là bằng chứng chuyển tiền hoàn đã hoàn tất.
@@ -92,7 +128,7 @@ suy ra full verify, remote CI hoặc manual acceptance từ unit test.
    chưa đủ lâu. Không sinh eventId mới để thử AC duplicate envelope.
 7. Trên tài khoản thử nghiệm, đặt EMAIL preference của đúng notification type
    thành disabled (tên enum lưu trong `notifications.type`, ví dụ
-   `ORDER_REFUND_REQUESTED`; channel là `EMAIL`), rồi tạo event mới. Notification vẫn có trong history, delivery
+   `ORDER_REFUND_REQUESTED` hoặc `SHIPMENT_CREATED`; channel là `EMAIL`), rồi tạo event mới. Notification vẫn có trong history, delivery
    là SKIPPED, attempt SMTP không tăng và Mailpit không có email cho user đó.
    Với auction nhiều recipient, các user còn bật vẫn nhận. Kiểm tra thêm tắt
    preference khi delivery đang chờ retry, sau đó khôi phục giá trị thử nghiệm.
@@ -107,10 +143,13 @@ hiện có không có trạng thái SKIPPED); email không được gửi.
 Các bước trên chưa tự chứng minh đã chạy thành công. Chỉ đánh dấu T3/AC email khi
 quan sát email Mailpit và đối chiếu recipient/trạng thái DB của cùng event thật.
 
-## Kết quả local ngày 15/11/2026
+## Kết quả lịch sử ngày 15/11/2026, trước sửa review
 
-Đã chạy trên source #259 tách riêng từ develop `aa238638`, bằng JDK 21 và các
-fixture tích hợp PostgreSQL/Kafka/Mailpit. Cả năm service build/verify thành công:
+Kết quả dưới đây thuộc source #259 trước sửa hai lỗi review tại `53409a13`, tách
+riêng từ develop `aa238638`, bằng JDK 21 và fixture PostgreSQL/Kafka/Mailpit.
+Các fixture email này không kiểm chứng tracking từ publisher Shipment thực tế
+hoặc replay refund/AuctionCancelled v1 qua notification consumer. Cả năm service
+build/verify lúc đó thành công:
 
 | Service | Số test | Failure / error | Skip |
 | --- | ---: | --- | ---: |
@@ -134,6 +173,7 @@ UUID sai, bidder rỗng và bidder trùng. Audit diff chỉ có 26 file #259, kh
 endpoint, migration hoặc source của các task khác; `git diff --check` đạt.
 
 Log tái hiện tại `D:\GitLab\log\email259-{notification,payment,commerce,auction,config}-verify.log`.
-Đây là kết quả local trên source feature, không phải remote CI. Chưa chạy manual
+Đây là kết quả local lịch sử trên source feature, không phải kết quả cho code sửa
+review hoặc remote CI. Chưa chạy manual
 T3 qua provider thanh toán/carrier thật tới Mailpit và không xác nhận publisher
 AuctionPaymentTimeout #208 đã tích hợp. Không đánh dấu các phần đó đã nghiệm thu.
