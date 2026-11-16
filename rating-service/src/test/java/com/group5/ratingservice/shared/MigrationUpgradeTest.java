@@ -78,7 +78,8 @@ class MigrationUpgradeTest {
 
             var result = Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
                     .load().migrate();
-            assertThat(result.migrationsExecuted).isEqualTo(2);
+            assertThat(result.migrationsExecuted).isEqualTo(3);
+            assertThat(historyCreatedAtDefault(postgres)).containsIgnoringCase("clock_timestamp");
             try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
                 try (var statement = connection.createStatement(); var rows = statement.executeQuery("SELECT * FROM ratings")) {
                     assertThat(rows.next()).isTrue();
@@ -148,6 +149,15 @@ class MigrationUpgradeTest {
             }
         } finally {
             postgres.stop();
+        }
+    }
+
+    private static String historyCreatedAtDefault(TestPostgres postgres) throws Exception {
+        try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+             var statement = connection.createStatement();
+             var rows = statement.executeQuery("SELECT pg_get_expr(d.adbin, d.adrelid) FROM pg_attrdef d JOIN pg_class c ON c.oid=d.adrelid JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum=d.adnum WHERE c.relname='reputation_history' AND a.attname='created_at'")) {
+            assertThat(rows.next()).isTrue();
+            return rows.getString(1);
         }
     }
 }

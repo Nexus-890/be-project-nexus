@@ -93,8 +93,8 @@ public class ReputationStore {
         return jdbc.queryForObject("""
                 INSERT INTO reputation_history (operation_id, user_id, source_id, source_version, event_id,
                     change_type, previous_score, new_score, delta, previous_trust_level, new_trust_level,
-                    actor_id, reason, policy_version, change_details, created_by, updated_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::trust_level, ?::trust_level, ?, ?, ?, ?::jsonb, ?, ?)
+                    actor_id, reason, policy_version, change_details, created_at, created_by, updated_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::trust_level, ?::trust_level, ?, ?, ?, ?::jsonb, clock_timestamp(), ?, ?)
                 RETURNING *
                 """, HISTORY, operation, state.getUserId(), source, sourceVersion, event, type, before.score(), state.getScore(),
                 state.getScore() - before.score(), before.trustLevel().name(), state.getTrustLevel().name(), actor, reason,

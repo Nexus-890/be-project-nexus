@@ -26,6 +26,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import java.time.Clock;
@@ -66,6 +67,7 @@ class ReputationEngineIntegrationTest extends RatingPostgresIntegrationTest {
     @Autowired private ReputationBackfill backfill;
     @Autowired private OutboxWriter outbox;
     @Autowired private ReputationProperties properties;
+    @Autowired private PlatformTransactionManager transactions;
 
     @BeforeEach
     void clear() {
@@ -325,6 +327,54 @@ class ReputationEngineIntegrationTest extends RatingPostgresIntegrationTest {
         assertThat(backfill.batch(null, null, 100, true).unverifiedAggregates()).isEqualTo(1);
         for (String table : List.of("reputation_history", "reputation_sources", "reputation_effects", "reputation_outcomes",
                 "reputation_adjustment_requests", "processed_events", "outbox")) assertThat(count(table)).isZero();
+    }
+
+    @Test
+    void historyFollowsAppliedChangesWhenCompletionTransactionStartedBeforeAdminAdjustment() throws Exception {
+        UUID user = UUID.randomUUID();
+        Order order = new Order(UUID.randomUUID(), UUID.randomUUID(), user, null);
+        CountDownLatch completionStarted = new CountDownLatch(1);
+        CountDownLatch adminCommitted = new CountDownLatch(1);
+        try (var workers = Executors.newSingleThreadExecutor()) {
+            var completion = workers.submit(() -> new TransactionTemplate(transactions).execute(status -> {
+                OffsetDateTime startedAt = jdbc.queryForObject("SELECT current_timestamp", OffsetDateTime.class);
+                completionStarted.countDown();
+                try {
+                    if (!adminCommitted.await(10, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("Admin adjustment did not commit in time");
+                    }
+                } catch (InterruptedException failure) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(failure);
+                }
+                consumer.commerce(completion(order, UUID.randomUUID(), 1));
+                return startedAt;
+            }));
+            OffsetDateTime completionStartedAt;
+            try {
+                assertThat(completionStarted.await(10, TimeUnit.SECONDS)).isTrue();
+                assertThat(reputations.adjust(user, 10, "Reviewed adjustment", UUID.randomUUID(), null)
+                        .reputation().score()).isEqualTo(60);
+            } finally {
+                adminCommitted.countDown();
+            }
+            completionStartedAt = completion.get(10, TimeUnit.SECONDS);
+            var history = reputations.history(user, 0, 20).getContent();
+            assertThat(reputations.get(user).score()).isEqualTo(80);
+            assertThat(history).extracting(item -> item.changeType())
+                    .containsExactly("ORDER_COMPLETED", "ADMIN_ADJUSTMENT");
+            assertThat(history).extracting(item -> item.previousScore()).containsExactly(60, 50);
+            assertThat(history).extracting(item -> item.newScore()).containsExactly(80, 60);
+            assertThat(history.getFirst().changedAt().toInstant())
+                    .isAfter(history.getLast().changedAt().toInstant());
+            assertThat(history.getLast().changedAt().toInstant()).isAfter(completionStartedAt.toInstant());
+            JsonNode scoreEvent = JSON.readTree(jdbc.queryForObject("""
+                    SELECT payload::text FROM outbox WHERE event_type='ReputationScoreUpdated'
+                      AND aggregate_id=? AND payload->'payload'->>'changeType'='ORDER_COMPLETED'
+                    """, String.class, user.toString())).path("payload");
+            assertThat(OffsetDateTime.parse(scoreEvent.path("changedAt").asString()).toInstant())
+                    .isEqualTo(history.getFirst().changedAt().toInstant());
+        }
     }
 
     private void concurrent(List<Runnable> actions) throws Exception {
