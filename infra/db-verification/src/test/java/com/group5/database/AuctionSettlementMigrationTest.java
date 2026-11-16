@@ -37,7 +37,7 @@ class AuctionSettlementMigrationTest {
 
     static Stream<Service> services() {
         return Stream.of(new Service("auction-service", "7", "8", "8"),
-                new Service("commerce-service", "13", "14", "16"));
+                new Service("commerce-service", "13", "14", "17"));
     }
 
     @BeforeAll static void startPostgres() {
@@ -120,7 +120,7 @@ class AuctionSettlementMigrationTest {
         // Commerce chủ động không có V10; danh tính thanh toán đã được chuyển sang V12.
         List<String> expected = (service.name().equals("auction-service")
                 ? List.of("1", "2", "3", "4", "5", "6", "7", "8")
-                : List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "11", "12", "13", "14", "15", "16"))
+                : List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "11", "12", "13", "14", "15", "16", "17"))
                 .stream().filter(version -> Integer.parseInt(version) <= Integer.parseInt(target)).toList();
         assertThat(rows(connection, """
                 SELECT version FROM flyway_schema_history WHERE type = 'SQL' ORDER BY installed_rank

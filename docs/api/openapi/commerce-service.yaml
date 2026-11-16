@@ -21,10 +21,1309 @@ tags:
   -
     name: "Order references"
     description: "Internal product reference lookup."
+  - name: Promotions
+    description: Mega sale events, seller participation and vouchers.
 security:
   -
     bearerAuth: []
 paths:
+  /api/v1/promotions/events:
+    get:
+      tags: [Promotions]
+      operationId: listMegaSaleEvents
+      summary: "List visible mega sale events"
+      description: "Seller sees open registration windows and events they registered for."
+      security: [{bearerAuth: []}]
+      x-required-privileges: [VOUCHER.VIEW]
+      x-required-roles: ["ADMIN","SELLER"]
+      parameters:
+        - {"in":"query","name":"status","required":false,"schema":{"$ref":"#/components/schemas/EventStatus"}}
+        - {"in":"query","name":"page","required":false,"schema":{"type":"integer","minimum":0,"default":0}}
+        - {"in":"query","name":"size","required":false,"schema":{"type":"integer","minimum":1,"maximum":100,"default":10}}
+      x-error-codes:
+        '400': ["COMMERCE_PROMOTION_INVALID_REQUEST","INVALID_PARAMETER"]
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data","page"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"type":"array","items":{"$ref":"#/components/schemas/Event"}},"page":{"$ref":"#/components/schemas/PageInfo"}}}
+              example: {"code":0,"message":"response success","data":[{"id":"66000000-0000-4000-8000-000000000001","name":"November sale","registrationStartAt":"2026-11-30T07:00:00+07:00","registrationEndAt":"2026-11-30T08:00:00+07:00","startAt":"2026-11-30T09:00:00+07:00","endAt":"2026-11-30T20:00:00+07:00","status":"DRAFT","registrationOpenRequested":false,"createdAt":"2026-11-30T06:00:00+07:00","updatedAt":"2026-11-30T06:00:00+07:00"}],"page":{"number":0,"size":10,"totalElements":1,"totalPages":1}}
+        '400':
+          description: Invalid parameters or body
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_INVALID_REQUEST":{"value":{"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"The promotion request is invalid","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_INVALID_REQUEST"}}}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+    post:
+      tags: [Promotions]
+      operationId: createMegaSaleEvent
+      summary: "Create a draft mega sale event"
+      security: [{bearerAuth: []}]
+      x-required-privileges: [PROMOTION.EVENT.MANAGE]
+      x-required-roles: ["ADMIN"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref":"#/components/schemas/EventWrite"}
+      x-error-codes:
+        '400': ["COMMERCE_PROMOTION_INVALID_REQUEST","INVALID_PARAMETER","VALIDATION_FAILED"]
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"$ref":"#/components/schemas/Event"}}}
+              example: {"code":0,"message":"response success","data":{"id":"66000000-0000-4000-8000-000000000001","name":"November sale","registrationStartAt":"2026-11-30T07:00:00+07:00","registrationEndAt":"2026-11-30T08:00:00+07:00","startAt":"2026-11-30T09:00:00+07:00","endAt":"2026-11-30T20:00:00+07:00","status":"DRAFT","registrationOpenRequested":false,"createdAt":"2026-11-30T06:00:00+07:00","updatedAt":"2026-11-30T06:00:00+07:00"}}
+        '400':
+          description: Invalid parameters or body
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_INVALID_REQUEST":{"value":{"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"The promotion request is invalid","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_INVALID_REQUEST"}}}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+  /api/v1/promotions/events/{id}:
+    get:
+      tags: [Promotions]
+      operationId: getMegaSaleEvent
+      summary: "Read a visible mega sale event"
+      description: "Visibility follows the same rule as listMegaSaleEvents."
+      security: [{bearerAuth: []}]
+      x-required-privileges: [VOUCHER.VIEW]
+      x-required-roles: ["ADMIN","SELLER"]
+      parameters:
+        - {"in":"path","name":"id","required":true,"schema":{"type":"string","format":"uuid"}}
+      x-error-codes:
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '404': ["COMMERCE_PROMOTION_EVENT_NOT_FOUND"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"$ref":"#/components/schemas/Event"}}}
+              example: {"code":0,"message":"response success","data":{"id":"66000000-0000-4000-8000-000000000001","name":"November sale","registrationStartAt":"2026-11-30T07:00:00+07:00","registrationEndAt":"2026-11-30T08:00:00+07:00","startAt":"2026-11-30T09:00:00+07:00","endAt":"2026-11-30T20:00:00+07:00","status":"DRAFT","registrationOpenRequested":false,"createdAt":"2026-11-30T06:00:00+07:00","updatedAt":"2026-11-30T06:00:00+07:00"}}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '404':
+          description: Resource not found
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_EVENT_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Promotion event not found","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_EVENT_NOT_FOUND"}}}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+    put:
+      tags: [Promotions]
+      operationId: editMegaSaleEvent
+      summary: "Edit a draft mega sale event"
+      security: [{bearerAuth: []}]
+      x-required-privileges: [PROMOTION.EVENT.MANAGE]
+      x-required-roles: ["ADMIN"]
+      parameters:
+        - {"in":"path","name":"id","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref":"#/components/schemas/EventWrite"}
+      x-error-codes:
+        '400': ["COMMERCE_PROMOTION_INVALID_REQUEST","INVALID_PARAMETER","VALIDATION_FAILED"]
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '404': ["COMMERCE_PROMOTION_EVENT_NOT_FOUND"]
+        '409': ["COMMERCE_PROMOTION_ILLEGAL_TRANSITION"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"$ref":"#/components/schemas/Event"}}}
+              example: {"code":0,"message":"response success","data":{"id":"66000000-0000-4000-8000-000000000001","name":"November sale","registrationStartAt":"2026-11-30T07:00:00+07:00","registrationEndAt":"2026-11-30T08:00:00+07:00","startAt":"2026-11-30T09:00:00+07:00","endAt":"2026-11-30T20:00:00+07:00","status":"DRAFT","registrationOpenRequested":false,"createdAt":"2026-11-30T06:00:00+07:00","updatedAt":"2026-11-30T06:00:00+07:00"}}
+        '400':
+          description: Invalid parameters or body
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_INVALID_REQUEST":{"value":{"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"The promotion request is invalid","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_INVALID_REQUEST"}}}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '404':
+          description: Resource not found
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_EVENT_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Promotion event not found","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_EVENT_NOT_FOUND"}}}
+        '409':
+          description: Business rule or state conflict
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_ILLEGAL_TRANSITION":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"The event or registration status transition is not allowed","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_ILLEGAL_TRANSITION"}}}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+  /api/v1/promotions/events/{id}/status:
+    patch:
+      tags: [Promotions]
+      operationId: changeMegaSaleEventStatus
+      summary: "Open registration or cancel the event"
+      description: "OPEN before registrationStartAt schedules opening when the window begins."
+      security: [{bearerAuth: []}]
+      x-required-privileges: [PROMOTION.EVENT.MANAGE]
+      x-required-roles: ["ADMIN"]
+      parameters:
+        - {"in":"path","name":"id","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref":"#/components/schemas/EventChangeStatus"}
+      x-error-codes:
+        '400': ["INVALID_PARAMETER","VALIDATION_FAILED"]
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '404': ["COMMERCE_PROMOTION_EVENT_NOT_FOUND"]
+        '409': ["COMMERCE_PROMOTION_ILLEGAL_TRANSITION"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"$ref":"#/components/schemas/Event"}}}
+              example: {"code":0,"message":"response success","data":{"id":"66000000-0000-4000-8000-000000000001","name":"November sale","registrationStartAt":"2026-11-30T07:00:00+07:00","registrationEndAt":"2026-11-30T08:00:00+07:00","startAt":"2026-11-30T09:00:00+07:00","endAt":"2026-11-30T20:00:00+07:00","status":"REGISTRATION_OPEN","registrationOpenRequested":true,"createdAt":"2026-11-30T06:00:00+07:00","updatedAt":"2026-11-30T06:00:00+07:00"}}
+        '400':
+          description: Invalid parameters or body
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '404':
+          description: Resource not found
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_EVENT_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Promotion event not found","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_EVENT_NOT_FOUND"}}}
+        '409':
+          description: Business rule or state conflict
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_ILLEGAL_TRANSITION":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"The event or registration status transition is not allowed","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_ILLEGAL_TRANSITION"}}}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+  /api/v1/promotions/events/{id}/sellers:
+    get:
+      tags: [Promotions]
+      operationId: listEventRegistrations
+      summary: "List seller registrations"
+      security: [{bearerAuth: []}]
+      x-required-privileges: [PROMOTION.EVENT.MANAGE]
+      x-required-roles: ["ADMIN"]
+      parameters:
+        - {"in":"path","name":"id","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"in":"query","name":"status","required":false,"schema":{"$ref":"#/components/schemas/EventSellerStatus"}}
+        - {"in":"query","name":"page","required":false,"schema":{"type":"integer","minimum":0,"default":0}}
+        - {"in":"query","name":"size","required":false,"schema":{"type":"integer","minimum":1,"maximum":100,"default":10}}
+      x-error-codes:
+        '400': ["COMMERCE_PROMOTION_INVALID_REQUEST","INVALID_PARAMETER"]
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '404': ["COMMERCE_PROMOTION_EVENT_NOT_FOUND"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data","page"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"type":"array","items":{"$ref":"#/components/schemas/EventRegistration"}},"page":{"$ref":"#/components/schemas/PageInfo"}}}
+              example: {"code":0,"message":"response success","data":[{"id":"66000000-0000-4000-8000-000000000001","eventId":"66000000-0000-4000-8000-000000000001","sellerId":"66000000-0000-4000-8000-000000000002","status":"PENDING","registeredAt":"2026-11-30T07:00:00+07:00"}],"page":{"number":0,"size":10,"totalElements":1,"totalPages":1}}
+        '400':
+          description: Invalid parameters or body
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_INVALID_REQUEST":{"value":{"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"The promotion request is invalid","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_INVALID_REQUEST"}}}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '404':
+          description: Resource not found
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_EVENT_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Promotion event not found","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_EVENT_NOT_FOUND"}}}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+  /api/v1/promotions/event-sellers/{id}:
+    patch:
+      tags: [Promotions]
+      operationId: reviewEventRegistration
+      summary: "Approve or reject a pending registration"
+      security: [{bearerAuth: []}]
+      x-required-privileges: [PROMOTION.EVENT.MANAGE]
+      x-required-roles: ["ADMIN"]
+      parameters:
+        - {"in":"path","name":"id","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref":"#/components/schemas/EventReview"}
+      x-error-codes:
+        '400': ["INVALID_PARAMETER","VALIDATION_FAILED"]
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '404': ["COMMERCE_PROMOTION_REGISTRATION_NOT_FOUND"]
+        '409': ["COMMERCE_PROMOTION_ILLEGAL_TRANSITION"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"$ref":"#/components/schemas/EventRegistration"}}}
+              example: {"code":0,"message":"response success","data":{"id":"66000000-0000-4000-8000-000000000001","eventId":"66000000-0000-4000-8000-000000000001","sellerId":"66000000-0000-4000-8000-000000000002","status":"APPROVED","registeredAt":"2026-11-30T07:00:00+07:00","reviewedBy":"66000000-0000-4000-8000-000000000001","reviewedAt":"2026-11-30T07:00:00+07:00"}}
+        '400':
+          description: Invalid parameters or body
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '404':
+          description: Resource not found
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_REGISTRATION_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Event registration not found","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_REGISTRATION_NOT_FOUND"}}}
+        '409':
+          description: Business rule or state conflict
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_ILLEGAL_TRANSITION":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"The event or registration status transition is not allowed","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_ILLEGAL_TRANSITION"}}}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+  /api/v1/promotions/events/{id}/registrations:
+    post:
+      tags: [Promotions]
+      operationId: registerForMegaSaleEvent
+      summary: "Register the current seller"
+      security: [{bearerAuth: []}]
+      x-required-privileges: [PROMOTION.EVENT.REGISTER]
+      x-required-roles: ["SELLER"]
+      parameters:
+        - {"in":"path","name":"id","required":true,"schema":{"type":"string","format":"uuid"}}
+      x-error-codes:
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '404': ["COMMERCE_PROMOTION_EVENT_NOT_FOUND"]
+        '409': ["COMMERCE_PROMOTION_REGISTRATION_CLOSED","COMMERCE_PROMOTION_ALREADY_REGISTERED"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"$ref":"#/components/schemas/EventRegistration"}}}
+              example: {"code":0,"message":"response success","data":{"id":"66000000-0000-4000-8000-000000000001","eventId":"66000000-0000-4000-8000-000000000001","sellerId":"66000000-0000-4000-8000-000000000002","status":"PENDING","registeredAt":"2026-11-30T07:00:00+07:00"}}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '404':
+          description: Resource not found
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_EVENT_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Promotion event not found","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_EVENT_NOT_FOUND"}}}
+        '409':
+          description: Business rule or state conflict
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_REGISTRATION_CLOSED":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"Event registrations are closed","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_REGISTRATION_CLOSED"}},"COMMERCE_PROMOTION_ALREADY_REGISTERED":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"The seller has already registered for this event","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_ALREADY_REGISTERED"}}}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+  /api/v1/promotions/events/{id}/registrations/me:
+    delete:
+      tags: [Promotions]
+      operationId: withdrawMegaSaleRegistration
+      summary: "Withdraw the current seller before the event begins"
+      security: [{bearerAuth: []}]
+      x-required-privileges: [PROMOTION.EVENT.REGISTER]
+      x-required-roles: ["SELLER"]
+      parameters:
+        - {"in":"path","name":"id","required":true,"schema":{"type":"string","format":"uuid"}}
+      x-error-codes:
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '404': ["COMMERCE_PROMOTION_EVENT_NOT_FOUND","COMMERCE_PROMOTION_REGISTRATION_NOT_FOUND"]
+        '409': ["COMMERCE_PROMOTION_ILLEGAL_TRANSITION"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '204':
+          description: No content
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '404':
+          description: Resource not found
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_EVENT_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Promotion event not found","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_EVENT_NOT_FOUND"}},"COMMERCE_PROMOTION_REGISTRATION_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Event registration not found","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_REGISTRATION_NOT_FOUND"}}}
+        '409':
+          description: Business rule or state conflict
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_ILLEGAL_TRANSITION":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"The event or registration status transition is not allowed","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_ILLEGAL_TRANSITION"}}}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+  /api/v1/vouchers:
+    get:
+      tags: [Promotions]
+      operationId: listClaimableVouchers
+      summary: "List publicly claimable vouchers"
+      description: "Product and seller filters narrow the eligible scope. Claim windows and stock are rechecked on claim."
+      security: []
+      parameters:
+        - {"in":"query","name":"productId","required":false,"schema":{"type":"string","format":"uuid"}}
+        - {"in":"query","name":"sellerId","required":false,"schema":{"type":"string","format":"uuid"}}
+        - {"in":"query","name":"page","required":false,"schema":{"type":"integer","minimum":0,"default":0}}
+        - {"in":"query","name":"size","required":false,"schema":{"type":"integer","minimum":1,"maximum":100,"default":10}}
+      x-error-codes:
+        '400': ["COMMERCE_VOUCHER_INVALID_REQUEST","INVALID_PARAMETER"]
+        '404': ["COMMERCE_VOUCHER_PRODUCT_NOT_FOUND"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+        '502': ["COMMERCE_INVALID_CATALOG_RESPONSE"]
+        '503': ["COMMERCE_CATALOG_UNAVAILABLE"]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data","page"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"type":"array","items":{"$ref":"#/components/schemas/PublicVoucher"}},"page":{"$ref":"#/components/schemas/PageInfo"}}}
+              example: {"code":0,"message":"response success","data":[{"id":"66000000-0000-4000-8000-000000000001","code":"WELCOME","name":"Welcome voucher","sourceType":"PLATFORM","discountType":"FIXED","discountValue":10000,"minOrderAmount":50000,"productScope":"ALL","claimStartAt":"2026-11-30T07:00:00+07:00","claimEndAt":"2026-11-30T08:00:00+07:00","validFrom":"2026-11-30T08:00:00+07:00","validUntil":"2026-11-30T20:00:00+07:00"}],"page":{"number":0,"size":10,"totalElements":1,"totalPages":1}}
+        '400':
+          description: Invalid parameters or body
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_INVALID_REQUEST":{"value":{"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"The voucher request is invalid","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_INVALID_REQUEST"}}}
+        '404':
+          description: Resource not found
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_PRODUCT_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Voucher product not found","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_PRODUCT_NOT_FOUND"}}}
+        '502':
+          description: Invalid Catalog response
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '503':
+          description: Catalog unavailable
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+    post:
+      tags: [Promotions]
+      operationId: createVoucher
+      summary: "Create a draft voucher"
+      description: "Admin creates PLATFORM or EVENT vouchers. A seller creates SHOP vouchers for its own products."
+      security: [{bearerAuth: []}]
+      x-required-privileges: [VOUCHER.MANAGE]
+      x-required-roles: ["ADMIN","SELLER"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref":"#/components/schemas/VoucherWrite"}
+      x-error-codes:
+        '400': ["COMMERCE_VOUCHER_INVALID_REQUEST","INVALID_PARAMETER","VALIDATION_FAILED"]
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '404': ["COMMERCE_PROMOTION_EVENT_NOT_FOUND"]
+        '409': ["COMMERCE_VOUCHER_CODE_ALREADY_EXISTS","COMMERCE_VOUCHER_ILLEGAL_TRANSITION"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"$ref":"#/components/schemas/ManagedVoucher"}}}
+              example: {"code":0,"message":"response success","data":{"voucher":{"id":"66000000-0000-4000-8000-000000000001","code":"WELCOME","name":"Welcome voucher","sourceType":"PLATFORM","discountType":"FIXED","discountValue":10000,"minOrderAmount":50000,"productScope":"ALL","claimStartAt":"2026-11-30T07:00:00+07:00","claimEndAt":"2026-11-30T08:00:00+07:00","validFrom":"2026-11-30T08:00:00+07:00","validUntil":"2026-11-30T20:00:00+07:00","fundingType":"PLATFORM","sellerFundingPercent":0,"termsVersion":1,"status":"DRAFT","claimCount":0,"committedUses":0,"committedDiscount":0,"createdAt":"2026-11-30T06:00:00+07:00","updatedAt":"2026-11-30T06:00:00+07:00"},"productIds":[]}}
+        '400':
+          description: Invalid parameters or body
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_INVALID_REQUEST":{"value":{"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"The voucher request is invalid","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_INVALID_REQUEST"}}}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '404':
+          description: Resource not found
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_EVENT_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Promotion event not found","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_EVENT_NOT_FOUND"}}}
+        '409':
+          description: Business rule or state conflict
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_CODE_ALREADY_EXISTS":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"Voucher code is already in use","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_CODE_ALREADY_EXISTS"}},"COMMERCE_VOUCHER_ILLEGAL_TRANSITION":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"The voucher status transition is not allowed","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_ILLEGAL_TRANSITION"}}}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+  /api/v1/vouchers/manage:
+    get:
+      tags: [Promotions]
+      operationId: listManagedVouchers
+      summary: "List vouchers visible to the management caller"
+      description: "Admin sees all. Sellers see their own shop vouchers and active event vouchers available to approved participants."
+      security: [{bearerAuth: []}]
+      x-required-privileges: [VOUCHER.MANAGE]
+      x-required-roles: ["ADMIN","SELLER"]
+      parameters:
+        - {"in":"query","name":"sourceType","required":false,"schema":{"$ref":"#/components/schemas/VoucherSource"}}
+        - {"in":"query","name":"status","required":false,"schema":{"$ref":"#/components/schemas/VoucherStatus"}}
+        - {"in":"query","name":"eventId","required":false,"schema":{"type":"string","format":"uuid"}}
+        - {"in":"query","name":"page","required":false,"schema":{"type":"integer","minimum":0,"default":0}}
+        - {"in":"query","name":"size","required":false,"schema":{"type":"integer","minimum":1,"maximum":100,"default":10}}
+      x-error-codes:
+        '400': ["COMMERCE_VOUCHER_INVALID_REQUEST","INVALID_PARAMETER"]
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data","page"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"type":"array","items":{"$ref":"#/components/schemas/ManagedVoucher"}},"page":{"$ref":"#/components/schemas/PageInfo"}}}
+              example: {"code":0,"message":"response success","data":[{"voucher":{"id":"66000000-0000-4000-8000-000000000001","code":"WELCOME","name":"Welcome voucher","sourceType":"PLATFORM","discountType":"FIXED","discountValue":10000,"minOrderAmount":50000,"productScope":"ALL","claimStartAt":"2026-11-30T07:00:00+07:00","claimEndAt":"2026-11-30T08:00:00+07:00","validFrom":"2026-11-30T08:00:00+07:00","validUntil":"2026-11-30T20:00:00+07:00","fundingType":"PLATFORM","sellerFundingPercent":0,"termsVersion":1,"status":"DRAFT","claimCount":0,"committedUses":0,"committedDiscount":0,"createdAt":"2026-11-30T06:00:00+07:00","updatedAt":"2026-11-30T06:00:00+07:00"},"productIds":[]}],"page":{"number":0,"size":10,"totalElements":1,"totalPages":1}}
+        '400':
+          description: Invalid parameters or body
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_INVALID_REQUEST":{"value":{"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"The voucher request is invalid","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_INVALID_REQUEST"}}}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+  /api/v1/vouchers/{id}:
+    get:
+      tags: [Promotions]
+      operationId: getManagedVoucher
+      summary: "Read a managed voucher and selected products"
+      security: [{bearerAuth: []}]
+      x-required-privileges: [VOUCHER.MANAGE]
+      x-required-roles: ["ADMIN","SELLER"]
+      x-ownership: Seller may access only its own shop voucher.
+      parameters:
+        - {"in":"path","name":"id","required":true,"schema":{"type":"string","format":"uuid"}}
+      x-error-codes:
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '404': ["COMMERCE_VOUCHER_NOT_FOUND"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"$ref":"#/components/schemas/ManagedVoucher"}}}
+              example: {"code":0,"message":"response success","data":{"voucher":{"id":"66000000-0000-4000-8000-000000000001","code":"WELCOME","name":"Welcome voucher","sourceType":"PLATFORM","discountType":"FIXED","discountValue":10000,"minOrderAmount":50000,"productScope":"ALL","claimStartAt":"2026-11-30T07:00:00+07:00","claimEndAt":"2026-11-30T08:00:00+07:00","validFrom":"2026-11-30T08:00:00+07:00","validUntil":"2026-11-30T20:00:00+07:00","fundingType":"PLATFORM","sellerFundingPercent":0,"termsVersion":1,"status":"DRAFT","claimCount":0,"committedUses":0,"committedDiscount":0,"createdAt":"2026-11-30T06:00:00+07:00","updatedAt":"2026-11-30T06:00:00+07:00"},"productIds":[]}}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '404':
+          description: Resource not found
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Voucher not found","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_NOT_FOUND"}}}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+    put:
+      tags: [Promotions]
+      operationId: editVoucher
+      summary: "Edit a draft voucher"
+      security: [{bearerAuth: []}]
+      x-required-privileges: [VOUCHER.MANAGE]
+      x-required-roles: ["ADMIN","SELLER"]
+      x-ownership: Seller may access only its own shop voucher.
+      parameters:
+        - {"in":"path","name":"id","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref":"#/components/schemas/VoucherWrite"}
+      x-error-codes:
+        '400': ["COMMERCE_VOUCHER_INVALID_REQUEST","INVALID_PARAMETER","VALIDATION_FAILED"]
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '404': ["COMMERCE_PROMOTION_EVENT_NOT_FOUND","COMMERCE_VOUCHER_NOT_FOUND"]
+        '409': ["COMMERCE_VOUCHER_CODE_ALREADY_EXISTS","COMMERCE_VOUCHER_ILLEGAL_TRANSITION"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"$ref":"#/components/schemas/ManagedVoucher"}}}
+              example: {"code":0,"message":"response success","data":{"voucher":{"id":"66000000-0000-4000-8000-000000000001","code":"WELCOME","name":"Welcome voucher","sourceType":"PLATFORM","discountType":"FIXED","discountValue":10000,"minOrderAmount":50000,"productScope":"ALL","claimStartAt":"2026-11-30T07:00:00+07:00","claimEndAt":"2026-11-30T08:00:00+07:00","validFrom":"2026-11-30T08:00:00+07:00","validUntil":"2026-11-30T20:00:00+07:00","fundingType":"PLATFORM","sellerFundingPercent":0,"termsVersion":1,"status":"DRAFT","claimCount":0,"committedUses":0,"committedDiscount":0,"createdAt":"2026-11-30T06:00:00+07:00","updatedAt":"2026-11-30T06:00:00+07:00"},"productIds":[]}}
+        '400':
+          description: Invalid parameters or body
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_INVALID_REQUEST":{"value":{"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"The voucher request is invalid","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_INVALID_REQUEST"}}}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '404':
+          description: Resource not found
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_EVENT_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Promotion event not found","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_EVENT_NOT_FOUND"}},"COMMERCE_VOUCHER_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Voucher not found","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_NOT_FOUND"}}}
+        '409':
+          description: Business rule or state conflict
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_CODE_ALREADY_EXISTS":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"Voucher code is already in use","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_CODE_ALREADY_EXISTS"}},"COMMERCE_VOUCHER_ILLEGAL_TRANSITION":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"The voucher status transition is not allowed","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_ILLEGAL_TRANSITION"}}}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+  /api/v1/vouchers/{id}/status:
+    patch:
+      tags: [Promotions]
+      operationId: changeVoucherStatus
+      summary: "Activate, pause or cancel the voucher"
+      security: [{bearerAuth: []}]
+      x-required-privileges: [VOUCHER.MANAGE]
+      x-required-roles: ["ADMIN","SELLER"]
+      x-ownership: Seller may access only its own shop voucher.
+      parameters:
+        - {"in":"path","name":"id","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref":"#/components/schemas/VoucherChangeStatus"}
+      x-error-codes:
+        '400': ["COMMERCE_VOUCHER_INVALID_REQUEST","INVALID_PARAMETER","VALIDATION_FAILED"]
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '404': ["COMMERCE_PROMOTION_EVENT_NOT_FOUND","COMMERCE_VOUCHER_NOT_FOUND"]
+        '409': ["COMMERCE_VOUCHER_ILLEGAL_TRANSITION"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"$ref":"#/components/schemas/ManagedVoucher"}}}
+              example: {"code":0,"message":"response success","data":{"voucher":{"id":"66000000-0000-4000-8000-000000000001","code":"WELCOME","name":"Welcome voucher","sourceType":"PLATFORM","discountType":"FIXED","discountValue":10000,"minOrderAmount":50000,"productScope":"ALL","claimStartAt":"2026-11-30T07:00:00+07:00","claimEndAt":"2026-11-30T08:00:00+07:00","validFrom":"2026-11-30T08:00:00+07:00","validUntil":"2026-11-30T20:00:00+07:00","fundingType":"PLATFORM","sellerFundingPercent":0,"termsVersion":1,"status":"ACTIVE","claimCount":0,"committedUses":0,"committedDiscount":0,"createdAt":"2026-11-30T06:00:00+07:00","updatedAt":"2026-11-30T06:00:00+07:00"},"productIds":[]}}
+        '400':
+          description: Invalid parameters or body
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_INVALID_REQUEST":{"value":{"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"The voucher request is invalid","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_INVALID_REQUEST"}}}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '404':
+          description: Resource not found
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_EVENT_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Promotion event not found","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_EVENT_NOT_FOUND"}},"COMMERCE_VOUCHER_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Voucher not found","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_NOT_FOUND"}}}
+        '409':
+          description: Business rule or state conflict
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_ILLEGAL_TRANSITION":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"The voucher status transition is not allowed","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_ILLEGAL_TRANSITION"}}}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+  /api/v1/vouchers/{id}/products:
+    put:
+      tags: [Promotions]
+      operationId: replaceVoucherProducts
+      summary: "Replace the selected products on a draft voucher"
+      security: [{bearerAuth: []}]
+      x-required-privileges: [VOUCHER.MANAGE]
+      x-required-roles: ["ADMIN","SELLER"]
+      x-ownership: Seller may access only its own shop voucher.
+      parameters:
+        - {"in":"path","name":"id","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref":"#/components/schemas/VoucherProducts"}
+      x-error-codes:
+        '400': ["COMMERCE_VOUCHER_INVALID_REQUEST","INVALID_PARAMETER","VALIDATION_FAILED"]
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '404': ["COMMERCE_VOUCHER_NOT_FOUND","COMMERCE_VOUCHER_PRODUCT_NOT_FOUND"]
+        '409': ["COMMERCE_VOUCHER_ILLEGAL_TRANSITION"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+        '502': ["COMMERCE_INVALID_CATALOG_RESPONSE"]
+        '503': ["COMMERCE_CATALOG_UNAVAILABLE"]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"$ref":"#/components/schemas/ManagedVoucher"}}}
+              example: {"code":0,"message":"response success","data":{"voucher":{"id":"66000000-0000-4000-8000-000000000001","code":"WELCOME","name":"Welcome voucher","sourceType":"PLATFORM","discountType":"FIXED","discountValue":10000,"minOrderAmount":50000,"productScope":"ALL","claimStartAt":"2026-11-30T07:00:00+07:00","claimEndAt":"2026-11-30T08:00:00+07:00","validFrom":"2026-11-30T08:00:00+07:00","validUntil":"2026-11-30T20:00:00+07:00","fundingType":"PLATFORM","sellerFundingPercent":0,"termsVersion":1,"status":"DRAFT","claimCount":0,"committedUses":0,"committedDiscount":0,"createdAt":"2026-11-30T06:00:00+07:00","updatedAt":"2026-11-30T06:00:00+07:00"},"productIds":[]}}
+        '400':
+          description: Invalid parameters or body
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_INVALID_REQUEST":{"value":{"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"The voucher request is invalid","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_INVALID_REQUEST"}}}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '404':
+          description: Resource not found
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Voucher not found","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_NOT_FOUND"}},"COMMERCE_VOUCHER_PRODUCT_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Voucher product not found","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_PRODUCT_NOT_FOUND"}}}
+        '409':
+          description: Business rule or state conflict
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_ILLEGAL_TRANSITION":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"The voucher status transition is not allowed","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_ILLEGAL_TRANSITION"}}}
+        '502':
+          description: Invalid Catalog response
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '503':
+          description: Catalog unavailable
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+  /api/v1/vouchers/{id}/sellers:
+    post:
+      tags: [Promotions]
+      operationId: joinEventVoucher
+      summary: "Join with the accepted terms version"
+      description: "Only approved registrants can join. The accepted terms and seller funding are stored as a snapshot."
+      security: [{bearerAuth: []}]
+      x-required-privileges: [VOUCHER.MANAGE]
+      x-required-roles: ["SELLER"]
+      parameters:
+        - {"in":"path","name":"id","required":true,"schema":{"type":"string","format":"uuid"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref":"#/components/schemas/JoinVoucher"}
+      x-error-codes:
+        '400': ["INVALID_PARAMETER","VALIDATION_FAILED"]
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '404': ["COMMERCE_PROMOTION_EVENT_NOT_FOUND","COMMERCE_VOUCHER_NOT_FOUND"]
+        '409': ["COMMERCE_VOUCHER_ILLEGAL_TRANSITION","COMMERCE_VOUCHER_TERMS_CHANGED"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"$ref":"#/components/schemas/VoucherParticipation"}}}
+              example: {"code":0,"message":"response success","data":{"id":"66000000-0000-4000-8000-000000000001","voucherId":"66000000-0000-4000-8000-000000000001","eventSellerId":"66000000-0000-4000-8000-000000000002","status":"ACTIVE","acceptedTermsVersion":1,"acceptedTermsSnapshot":"Applies to eligible lines.","sellerFundingPercentSnapshot":35,"acceptedAt":"2026-11-30T07:00:00+07:00"}}
+        '400':
+          description: Invalid parameters or body
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '404':
+          description: Resource not found
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_EVENT_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Promotion event not found","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_EVENT_NOT_FOUND"}},"COMMERCE_VOUCHER_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Voucher not found","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_NOT_FOUND"}}}
+        '409':
+          description: Business rule or state conflict
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_ILLEGAL_TRANSITION":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"The voucher status transition is not allowed","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_ILLEGAL_TRANSITION"}},"COMMERCE_VOUCHER_TERMS_CHANGED":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"Review the current voucher terms before joining","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_TERMS_CHANGED"}}}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+  /api/v1/vouchers/{id}/sellers/me:
+    delete:
+      tags: [Promotions]
+      operationId: withdrawFromEventVoucher
+      summary: "Withdraw from an event voucher before its validity starts"
+      security: [{bearerAuth: []}]
+      x-required-privileges: [VOUCHER.MANAGE]
+      x-required-roles: ["SELLER"]
+      parameters:
+        - {"in":"path","name":"id","required":true,"schema":{"type":"string","format":"uuid"}}
+      x-error-codes:
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '404': ["COMMERCE_VOUCHER_NOT_FOUND","COMMERCE_VOUCHER_PARTICIPATION_NOT_FOUND"]
+        '409': ["COMMERCE_VOUCHER_ILLEGAL_TRANSITION"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '204':
+          description: No content
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '404':
+          description: Resource not found
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Voucher not found","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_NOT_FOUND"}},"COMMERCE_VOUCHER_PARTICIPATION_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Voucher participation not found","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_PARTICIPATION_NOT_FOUND"}}}
+        '409':
+          description: Business rule or state conflict
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_ILLEGAL_TRANSITION":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"The voucher status transition is not allowed","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_ILLEGAL_TRANSITION"}}}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+  /api/v1/vouchers/{id}/usages:
+    get:
+      tags: [Promotions]
+      operationId: listVoucherUsages
+      summary: "List uses of the managed voucher"
+      security: [{bearerAuth: []}]
+      x-required-privileges: [VOUCHER.MANAGE]
+      x-required-roles: ["ADMIN","SELLER"]
+      x-ownership: Seller may access only its own shop voucher.
+      parameters:
+        - {"in":"path","name":"id","required":true,"schema":{"type":"string","format":"uuid"}}
+        - {"in":"query","name":"page","required":false,"schema":{"type":"integer","minimum":0,"default":0}}
+        - {"in":"query","name":"size","required":false,"schema":{"type":"integer","minimum":1,"maximum":100,"default":10}}
+      x-error-codes:
+        '400': ["COMMERCE_VOUCHER_INVALID_REQUEST","INVALID_PARAMETER"]
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '404': ["COMMERCE_VOUCHER_NOT_FOUND"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data","page"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"type":"array","items":{"$ref":"#/components/schemas/VoucherUsage"}},"page":{"$ref":"#/components/schemas/PageInfo"}}}
+              example: {"code":0,"message":"response success","data":[{"id":"66000000-0000-4000-8000-000000000001","orderId":"66000000-0000-4000-8000-000000000001","status":"RESERVED","eligibleAmount":50000,"discountAmount":10000,"sellerFunded":0,"platformFunded":10000,"reservedAt":"2026-11-30T08:00:00+07:00","reservedUntil":"2026-11-30T09:00:00+07:00"}],"page":{"number":0,"size":10,"totalElements":1,"totalPages":1}}
+        '400':
+          description: Invalid parameters or body
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_INVALID_REQUEST":{"value":{"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"The voucher request is invalid","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_INVALID_REQUEST"}}}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '404':
+          description: Resource not found
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Voucher not found","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_NOT_FOUND"}}}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+  /api/v1/vouchers/{id}/claim:
+    post:
+      tags: [Promotions]
+      operationId: claimVoucher
+      summary: "Claim a voucher for the current buyer"
+      description: "Claims are unique per buyer and voucher. A repeated claim or exhausted limit returns 409."
+      security: [{bearerAuth: []}]
+      x-required-privileges: [VOUCHER.CLAIM]
+      x-required-roles: ["BUYER"]
+      parameters:
+        - {"in":"path","name":"id","required":true,"schema":{"type":"string","format":"uuid"}}
+      x-error-codes:
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '404': ["COMMERCE_PROMOTION_EVENT_NOT_FOUND","COMMERCE_VOUCHER_NOT_FOUND"]
+        '409': ["COMMERCE_VOUCHER_ALREADY_CLAIMED","COMMERCE_VOUCHER_CLAIM_UNAVAILABLE","COMMERCE_VOUCHER_CLAIM_LIMIT_REACHED","COMMERCE_VOUCHER_ILLEGAL_TRANSITION"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"$ref":"#/components/schemas/VoucherWalletEntry"}}}
+              example: {"code":0,"message":"response success","data":{"id":"66000000-0000-4000-8000-000000000001","status":"CLAIMED","claimedAt":"2026-11-30T07:00:00+07:00","expiresAt":"2026-11-30T20:00:00+07:00","voucher":{"id":"66000000-0000-4000-8000-000000000001","code":"WELCOME","name":"Welcome voucher","sourceType":"PLATFORM","discountType":"FIXED","discountValue":10000,"minOrderAmount":50000,"productScope":"ALL","claimStartAt":"2026-11-30T07:00:00+07:00","claimEndAt":"2026-11-30T08:00:00+07:00","validFrom":"2026-11-30T08:00:00+07:00","validUntil":"2026-11-30T20:00:00+07:00"}}}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '404':
+          description: Resource not found
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_PROMOTION_EVENT_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Promotion event not found","instance":"/api/v1/promotions/events","code":"COMMERCE_PROMOTION_EVENT_NOT_FOUND"}},"COMMERCE_VOUCHER_NOT_FOUND":{"value":{"type":"urn:problem:domain-error","title":"Not Found","status":404,"detail":"Voucher not found","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_NOT_FOUND"}}}
+        '409':
+          description: Business rule or state conflict
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_ALREADY_CLAIMED":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"Voucher was already claimed","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_ALREADY_CLAIMED"}},"COMMERCE_VOUCHER_CLAIM_UNAVAILABLE":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"Voucher is not claimable now","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_CLAIM_UNAVAILABLE"}},"COMMERCE_VOUCHER_CLAIM_LIMIT_REACHED":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"Voucher claim limit was reached","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_CLAIM_LIMIT_REACHED"}},"COMMERCE_VOUCHER_ILLEGAL_TRANSITION":{"value":{"type":"urn:problem:domain-error","title":"Conflict","status":409,"detail":"The voucher status transition is not allowed","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_ILLEGAL_TRANSITION"}}}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+  /api/v1/vouchers/me:
+    get:
+      tags: [Promotions]
+      operationId: listVoucherWallet
+      summary: "List claimed vouchers for the current buyer"
+      security: [{bearerAuth: []}]
+      x-required-privileges: [VOUCHER.VIEW]
+      x-required-roles: ["BUYER"]
+      parameters:
+        - {"in":"query","name":"status","required":false,"schema":{"$ref":"#/components/schemas/WalletStatus"}}
+        - {"in":"query","name":"page","required":false,"schema":{"type":"integer","minimum":0,"default":0}}
+        - {"in":"query","name":"size","required":false,"schema":{"type":"integer","minimum":1,"maximum":100,"default":10}}
+      x-error-codes:
+        '400': ["COMMERCE_VOUCHER_INVALID_REQUEST","INVALID_PARAMETER"]
+        '401': ["UNAUTHENTICATED"]
+        '403': ["FORBIDDEN","COMMERCE_FORBIDDEN"]
+        '429': ["RATE_LIMIT_EXCEEDED"]
+        '500': ["INTERNAL_ERROR"]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: {"type":"object","required":["code","message","data","page"],"properties":{"code":{"type":"integer","default":0},"message":{"type":"string"},"data":{"type":"array","items":{"$ref":"#/components/schemas/VoucherWalletEntry"}},"page":{"$ref":"#/components/schemas/PageInfo"}}}
+              example: {"code":0,"message":"response success","data":[{"id":"66000000-0000-4000-8000-000000000001","status":"CLAIMED","claimedAt":"2026-11-30T07:00:00+07:00","expiresAt":"2026-11-30T20:00:00+07:00","voucher":{"id":"66000000-0000-4000-8000-000000000001","code":"WELCOME","name":"Welcome voucher","sourceType":"PLATFORM","discountType":"FIXED","discountValue":10000,"minOrderAmount":50000,"productScope":"ALL","claimStartAt":"2026-11-30T07:00:00+07:00","claimEndAt":"2026-11-30T08:00:00+07:00","validFrom":"2026-11-30T08:00:00+07:00","validUntil":"2026-11-30T20:00:00+07:00"}}],"page":{"number":0,"size":10,"totalElements":1,"totalPages":1}}
+        '400':
+          description: Invalid parameters or body
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+              examples: {"COMMERCE_VOUCHER_INVALID_REQUEST":{"value":{"type":"urn:problem:domain-error","title":"Bad Request","status":400,"detail":"The voucher request is invalid","instance":"/api/v1/vouchers","code":"COMMERCE_VOUCHER_INVALID_REQUEST"}}}
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '403':
+          description: Insufficient permission or wrong owner
+          content:
+            application/problem+json:
+              schema: {"$ref":"#/components/schemas/Problem"}
+        '429':
+          description: Gateway rate limit reached
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema: {$ref: "#/components/schemas/Problem"}
   /internal/v1/orders/{id}/shipping-snapshot:
     get:
       tags:
@@ -1874,7 +3173,7 @@ paths:
       tags: ["Cart"]
       operationId: "getCartPricing"
       summary: "Calculate current cart pricing (CRT-05)"
-      description: "Read-only: never creates a cart, touches activity/audit timestamps, updates cart prices, reserves inventory, creates orders or publishes events. Reads only the JWT subject's active cart, even for ADMIN. Uses current SKU prices and compares them numerically with saved prices. Catalog 404 means PRODUCT_INACTIVE; unavailable SKU lines remain visible at their last saved price and cannot be treated as a valid checkout. Catalog transport failures return a named error, never a valid result. Tax-inclusive prices give taxAmount=0; D01 gives discountAmount=0 and promoCode is ignored. Shipping is null without a delivery address and total excludes unknown shipping; FREE_SHIPPING_THRESHOLD cannot manufacture a carrier quote. INV-03 stock check is skipped until that endpoint exists. CHECKOUT_PRICE_REVALIDATION must remain true (BR-103), enforced at configuration binding. Empty or missing active cart returns zero amounts or valid=true with issues=[] without inserting a cart."
+      description: "Read-only: never creates a cart, touches activity/audit timestamps, updates cart prices, reserves inventory, creates orders or publishes events. Reads only the JWT subject's active cart, even for ADMIN. Uses current SKU prices and compares them numerically with saved prices. Catalog 404 means PRODUCT_INACTIVE; unavailable SKU lines remain visible at their last saved price and cannot be treated as a valid checkout. Catalog transport failures return a named error, never a valid result. Tax-inclusive prices give taxAmount=0; applied vouchers reduce only the merchandise total and rejected vouchers include a reason. Shipping is null without a delivery address and total excludes unknown shipping; FREE_SHIPPING_THRESHOLD cannot manufacture a carrier quote. INV-03 stock check is skipped until that endpoint exists. CHECKOUT_PRICE_REVALIDATION must remain true (BR-103), enforced at configuration binding. Empty or missing active cart returns zero amounts or valid=true with issues=[] without inserting a cart."
       security: [{"bearerAuth":[]}]
       x-required-privileges: ["CART.VIEW"]
       x-gateway-privilege: "CART.VIEW"
@@ -2123,13 +3422,13 @@ paths:
                     detail: "Gateway Timeout"
                     instance: "/api/v1/carts/me/pricing"
                     code: "GATEWAY_TIMEOUT"
-      parameters: [{"name":"promoCode","in":"query","required":false,"description":"Accepted and ignored (D01).","schema":{"type":"string"}}]
+      parameters: [{"name":"promoCode","in":"query","required":false,"description":"Legacy alias for one voucher code.","schema":{"type":"string"}},{"name":"voucherCodes","in":"query","required":false,"style":"form","explode":true,"schema":{"$ref":"#/components/schemas/VoucherCodes"}}]
   /api/v1/carts/me/validate:
     post:
       tags: ["Cart"]
       operationId: "validateCart"
       summary: "Validate the current cart (CRT-06)"
-      description: "Read-only: never creates a cart, touches activity/audit timestamps, updates cart prices, reserves inventory, creates orders or publishes events. Reads only the JWT subject's active cart, even for ADMIN. Uses current SKU prices and compares them numerically with saved prices. Catalog 404 means PRODUCT_INACTIVE; unavailable SKU lines remain visible at their last saved price and cannot be treated as a valid checkout. Catalog transport failures return a named error, never a valid result. Tax-inclusive prices give taxAmount=0; D01 gives discountAmount=0 and promoCode is ignored. Shipping is null without a delivery address and total excludes unknown shipping; FREE_SHIPPING_THRESHOLD cannot manufacture a carrier quote. INV-03 stock check is skipped until that endpoint exists. CHECKOUT_PRICE_REVALIDATION must remain true (BR-103), enforced at configuration binding. Empty or missing active cart returns zero amounts or valid=true with issues=[] without inserting a cart."
+      description: "Read-only: never creates a cart, touches activity/audit timestamps, updates cart prices, reserves inventory, creates orders or publishes events. Reads only the JWT subject's active cart, even for ADMIN. Uses current SKU prices and compares them numerically with saved prices. Catalog 404 means PRODUCT_INACTIVE; unavailable SKU lines remain visible at their last saved price and cannot be treated as a valid checkout. Catalog transport failures return a named error, never a valid result. Tax-inclusive prices give taxAmount=0; applied vouchers reduce only the merchandise total and rejected vouchers include a reason. Shipping is null without a delivery address and total excludes unknown shipping; FREE_SHIPPING_THRESHOLD cannot manufacture a carrier quote. INV-03 stock check is skipped until that endpoint exists. CHECKOUT_PRICE_REVALIDATION must remain true (BR-103), enforced at configuration binding. Empty or missing active cart returns zero amounts or valid=true with issues=[] without inserting a cart."
       security: [{"bearerAuth":[]}]
       x-required-privileges: ["CART.VIEW"]
       x-gateway-privilege: "CART.VIEW"
@@ -2379,7 +3678,7 @@ paths:
       tags: ["Checkout"]
       operationId: "previewCheckout"
       summary: "Preview checkout without creating an order (ORD-02)"
-      description: "Read-only checkout for the JWT buyer: never creates a cart, touches activity timestamps, changes saved cart prices, reserves stock, creates orders or publishes events. Uses current catalog prices and returns item issues for review. A valid cart is grouped by seller; backend packs each seller parcel from catalog-owned per-unit shippingParcel metadata and calls shipment-service once per seller with the two-level recipient address. shippingFee is the sum of those quotes and total includes it. Missing metadata or an oversized parcel returns 409; carrier transport failure returns 503 instead of a zero fee. Client fees or parcel measurements are never trusted. Empty active cart returns 400 COMMERCE_CART_EMPTY. Promo code remains ignored under D01. Inactive/missing product issues leave shipping unknown; PRICE_CHANGED still quotes current catalog data for buyer review."
+      description: "Read-only checkout for the JWT buyer: never creates a cart, touches activity timestamps, changes saved cart prices, reserves stock, creates orders or publishes events. Uses current catalog prices and returns item issues for review. A valid cart is grouped by seller; backend packs each seller parcel from catalog-owned per-unit shippingParcel metadata and calls shipment-service once per seller with the two-level recipient address. shippingFee is the sum of those quotes and total includes it. Missing metadata or an oversized parcel returns 409; carrier transport failure returns 503 instead of a zero fee. Client fees or parcel measurements are never trusted. Empty active cart returns 400 COMMERCE_CART_EMPTY. The voucher selection is priced against current eligible merchandise. The response includes the discount and applicability reason for each code. Inactive/missing product issues leave shipping unknown; PRICE_CHANGED still quotes current catalog data for buyer review."
       security: [{"bearerAuth":[]}]
       x-required-privileges: ["CHECKOUT.START"]
       x-gateway-privilege: "CHECKOUT.START"
@@ -2718,7 +4017,7 @@ paths:
                 provinceCode: "1000001"
                 countryCode: "VN"
               paymentMethod: "SEPAY"
-              promoCode: "IGNORED-D01"
+              voucherCodes: ["WELCOME"]
   /api/v1/orders:
     get:
       tags:
@@ -3123,7 +4422,7 @@ paths:
         - "Orders"
       operationId: "createOrder"
       summary: "Place an order from the current cart"
-      description: "Requires CHECKOUT.START AND ORDER.CREATE and a UUID Idempotency-Key. Splits the active cart by seller and checks current SKU availability before checkout. With nexus.order.idempotency-enabled=true (ORDER_IDEMPOTENCY_ENABLED, default true), a matching replay of the same key, buyer and shipping/payment payload returns the original order group and seller order IDs with 200 before price validation and creates no new rows; a fresh key returns 201. UUID letter case is normalized, so uppercase and lowercase forms are the same key. Concurrent successful requests for one key leave one group and one order per seller; the losing request returns the committed winner's group. A missing or invalid key returns 400 COMMERCE_INVALID_ORDER_REQUEST. A key owned by another buyer returns 400 COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED without that buyer's order data. The same buyer reusing a key with changed shipping/payment data returns 409 COMMERCE_IDEMPOTENCY_CONFLICT. When idempotency is disabled, the UUID header remains required but each successful checkout uses a fresh internal key and does not replay the supplied key. With nexus.checkout.price-revalidation=true (CHECKOUT_PRICE_REVALIDATION, default true), current SKU prices are compared with the cart prices using exact long minor units. A changed price returns 409 COMMERCE_PRICE_CHANGED with top-level skuId, oldPrice and newPrice in the original currency units. Only the reported cart item's price is updated and committed; no order or inventory reservation is created. A confirmed retry with a new Idempotency-Key returns 201 at the updated cart price if prices have not changed again. If several prices changed, each 409 reports and updates one item, leaving the other changed prices for subsequent confirmation. With price-revalidation=false, orders use the saved cart prices while SKU and product availability checks still apply. Cart ownership and checkout guards still apply. Unsupported promotion, unavailable item and unrepresentable money fail before checkout completes. Payment method is SEPAY. Quote every seller order before reserving anything using catalog-owned shippingParcel metadata; client shipping fees are never used. Shipping failure leaves no order or reservation. Save the group and child orders in the commerce transaction, then make one inventory reservation call with all seller order items. Inventory 409 becomes COMMERCE_INSUFFICIENT_STOCK with skuId, available and requested; all commerce group/order rows roll back. Timeout or open inventory circuit returns COMMERCE_INVENTORY_UNAVAILABLE within the configured bounded inventory-call deadline below 3 seconds, with no committed commerce order. Every child paymentDueAt and group dueAt come from reservation expiresAt. Saved shipping_info holds recipient{name,phone,address{line1,wardCode,provinceCode}}, warehouseId from the reservation and the backend-computed parcel. Failure after a successful remote hold may leave inventory for the expiry job; this path sends no compensating release. Gateway checks ORDER.CREATE; downstream additionally checks CHECKOUT.START."
+      description: "Requires CHECKOUT.START AND ORDER.CREATE and a UUID Idempotency-Key. Splits the active cart by seller and checks current SKU availability before checkout. With nexus.order.idempotency-enabled=true (ORDER_IDEMPOTENCY_ENABLED, default true), a matching replay of the same key, buyer and shipping/payment payload returns the original order group and seller order IDs with 200 before price validation and creates no new rows; a fresh key returns 201. UUID letter case is normalized, so uppercase and lowercase forms are the same key. Concurrent successful requests for one key leave one group and one order per seller; the losing request returns the committed winner's group. A missing or invalid key returns 400 COMMERCE_INVALID_ORDER_REQUEST. A key owned by another buyer returns 400 COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED without that buyer's order data. The same buyer reusing a key with changed shipping/payment data returns 409 COMMERCE_IDEMPOTENCY_CONFLICT. When idempotency is disabled, the UUID header remains required but each successful checkout uses a fresh internal key and does not replay the supplied key. With nexus.checkout.price-revalidation=true (CHECKOUT_PRICE_REVALIDATION, default true), current SKU prices are compared with the cart prices using exact long minor units. A changed price returns 409 COMMERCE_PRICE_CHANGED with top-level skuId, oldPrice and newPrice in the original currency units. Only the reported cart item's price is updated and committed; no order or inventory reservation is created. A confirmed retry with a new Idempotency-Key returns 201 at the updated cart price if prices have not changed again. If several prices changed, each 409 reports and updates one item, leaving the other changed prices for subsequent confirmation. With price-revalidation=false, orders without a voucher use saved cart prices. Voucher checkout uses current catalog prices and all checkout paths validate SKU and product availability. Cart ownership and checkout guards still apply. Voucher selection participates in idempotency. A selected voucher must be applicable and quota is reserved before inventory is held. Usage and allocation rows commit with the order. Unavailable items and unrepresentable money fail before checkout completes. Payment method is SEPAY. Quote every seller order before reserving anything using catalog-owned shippingParcel metadata; client shipping fees are never used. Shipping failure leaves no order or reservation. Save the group and child orders in the commerce transaction, then make one inventory reservation call with all seller order items. Inventory 409 becomes COMMERCE_INSUFFICIENT_STOCK with skuId, available and requested; all commerce group/order rows roll back. Timeout or open inventory circuit returns COMMERCE_INVENTORY_UNAVAILABLE within the configured bounded inventory-call deadline below 3 seconds, with no committed commerce order. Every child paymentDueAt and group dueAt come from reservation expiresAt. Saved shipping_info holds recipient{name,phone,address{line1,wardCode,provinceCode}}, warehouseId from the reservation and the backend-computed parcel. Failure after a successful remote hold may leave inventory for the expiry job; this path sends no compensating release. Gateway checks ORDER.CREATE; downstream additionally checks CHECKOUT.START."
       security:
         -
           bearerAuth: []
@@ -3475,7 +4774,7 @@ paths:
                     instance: "/api/v1/orders"
                     code: "NOT_ACCEPTABLE"
         "409":
-          description: "Conflict. Codes: `COMMERCE_INSUFFICIENT_STOCK`, `COMMERCE_IDEMPOTENCY_CONFLICT`, `COMMERCE_PROMOTION_NOT_SUPPORTED`, `COMMERCE_ITEM_UNAVAILABLE`, `COMMERCE_INVALID_ORDER_AMOUNT`, `COMMERCE_PRICE_CHANGED`. IDEMPOTENCY_CONFLICT applies when the same buyer reuses a key with changed shipping/payment data; a key belonging to another buyer returns 400 instead. PRICE_CHANGED includes skuId, oldPrice and newPrice; the reported cart price is saved, but no order or inventory reservation is created. Additional codes: `COMMERCE_SHIPPING_METADATA_REQUIRED`, `COMMERCE_INVALID_PARCEL`."
+          description: "Conflict. Codes: `COMMERCE_INSUFFICIENT_STOCK`, `COMMERCE_IDEMPOTENCY_CONFLICT`, `COMMERCE_VOUCHER_NOT_APPLICABLE`, `COMMERCE_ITEM_UNAVAILABLE`, `COMMERCE_INVALID_ORDER_AMOUNT`, `COMMERCE_PRICE_CHANGED`. IDEMPOTENCY_CONFLICT applies when the same buyer reuses a key with changed shipping/payment data; a key belonging to another buyer returns 400 instead. PRICE_CHANGED includes skuId, oldPrice and newPrice; the reported cart price is saved, but no order or inventory reservation is created. Additional codes: `COMMERCE_SHIPPING_METADATA_REQUIRED`, `COMMERCE_INVALID_PARCEL`."
           content:
             application/problem+json:
               schema:
@@ -3500,7 +4799,7 @@ paths:
                             type: "string"
                             enum:
                               - "COMMERCE_IDEMPOTENCY_CONFLICT"
-                              - "COMMERCE_PROMOTION_NOT_SUPPORTED"
+                              - "COMMERCE_VOUCHER_NOT_APPLICABLE"
                               - "COMMERCE_ITEM_UNAVAILABLE"
                               - "COMMERCE_INVALID_ORDER_AMOUNT"
                               - "COMMERCE_SHIPPING_METADATA_REQUIRED"
@@ -3519,15 +4818,15 @@ paths:
                     detail: "Idempotency-Key was already used for another request"
                     instance: "/api/v1/orders"
                     code: "COMMERCE_IDEMPOTENCY_CONFLICT"
-                COMMERCE_PROMOTION_NOT_SUPPORTED:
-                  summary: "COMMERCE_PROMOTION_NOT_SUPPORTED"
+                COMMERCE_VOUCHER_NOT_APPLICABLE:
+                  summary: "COMMERCE_VOUCHER_NOT_APPLICABLE"
                   value:
                     type: "urn:problem:domain-error"
                     title: "Conflict"
                     status: 409
-                    detail: "Remove the promotion code before placing this order"
+                    detail: "A requested voucher is not applicable to this order"
                     instance: "/api/v1/orders"
-                    code: "COMMERCE_PROMOTION_NOT_SUPPORTED"
+                    code: "COMMERCE_VOUCHER_NOT_APPLICABLE"
                 COMMERCE_ITEM_UNAVAILABLE:
                   summary: "COMMERCE_ITEM_UNAVAILABLE"
                   value:
@@ -8236,6 +9535,231 @@ components:
       bearerFormat: "JWT"
       description: "RS256 access JWT, issuer user-service, audience nexus-services. privileges are exact SRS strings; roles are mapped as ROLE_<code>."
   schemas:
+    EventStatus:
+      type: "string"
+      enum: ["DRAFT","REGISTRATION_OPEN","REGISTRATION_CLOSED","ACTIVE","ENDED","CANCELED"]
+    EventSellerStatus:
+      type: "string"
+      enum: ["PENDING","APPROVED","REJECTED","WITHDRAWN"]
+    EventWrite:
+      type: "object"
+      required: ["name","registrationStartAt","registrationEndAt","startAt","endAt"]
+      properties:
+        name: {"type":"string","minLength":1,"maxLength":200}
+        description: {"type":"string","nullable":true}
+        bannerUrl: {"type":"string","maxLength":500,"nullable":true}
+        registrationStartAt: {"type":"string","format":"date-time"}
+        registrationEndAt: {"type":"string","format":"date-time"}
+        startAt: {"type":"string","format":"date-time"}
+        endAt: {"type":"string","format":"date-time"}
+    Event:
+      type: "object"
+      required: ["id","name","registrationStartAt","registrationEndAt","startAt","endAt","status","registrationOpenRequested","createdAt","updatedAt"]
+      properties:
+        id: {"type":"string","format":"uuid"}
+        name: {"type":"string","minLength":1,"maxLength":200}
+        description: {"type":"string","nullable":true}
+        bannerUrl: {"type":"string","maxLength":500,"nullable":true}
+        registrationStartAt: {"type":"string","format":"date-time"}
+        registrationEndAt: {"type":"string","format":"date-time"}
+        startAt: {"type":"string","format":"date-time"}
+        endAt: {"type":"string","format":"date-time"}
+        status: {"$ref":"#/components/schemas/EventStatus"}
+        registrationOpenRequested: {"type":"boolean"}
+        createdAt: {"type":"string","format":"date-time"}
+        updatedAt: {"type":"string","format":"date-time"}
+    EventChangeStatus:
+      type: "object"
+      required: ["status"]
+      properties:
+        status: {"type":"string","enum":["OPEN","CANCEL"]}
+    EventReview:
+      type: "object"
+      required: ["status"]
+      properties:
+        status: {"type":"string","enum":["APPROVED","REJECTED"]}
+        reviewNote: {"type":"string","nullable":true}
+    EventRegistration:
+      type: "object"
+      required: ["id","eventId","sellerId","status","registeredAt"]
+      properties:
+        id: {"type":"string","format":"uuid"}
+        eventId: {"type":"string","format":"uuid"}
+        sellerId: {"type":"string","format":"uuid"}
+        status: {"$ref":"#/components/schemas/EventSellerStatus"}
+        registeredAt: {"type":"string","format":"date-time"}
+        reviewedBy: {"type":"string","format":"uuid","nullable":true}
+        reviewedAt: {"type":"string","format":"date-time","nullable":true}
+        reviewNote: {"type":"string","nullable":true}
+        withdrawnAt: {"type":"string","format":"date-time","nullable":true}
+    VoucherSource:
+      type: "string"
+      enum: ["PLATFORM","SHOP","EVENT"]
+    VoucherStatus:
+      type: "string"
+      enum: ["DRAFT","ACTIVE","PAUSED","EXPIRED","CANCELED"]
+    WalletStatus:
+      type: "string"
+      enum: ["CLAIMED","USED","EXPIRED"]
+    VoucherWrite:
+      type: "object"
+      required: ["code","name","sourceType","discountType","discountValue","fundingType","productScope","claimStartAt","claimEndAt","validFrom","validUntil"]
+      properties:
+        code: {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$"}
+        name: {"type":"string","minLength":1,"maxLength":200}
+        description: {"type":"string","nullable":true}
+        sourceType: {"$ref":"#/components/schemas/VoucherSource"}
+        eventId: {"type":"string","format":"uuid","nullable":true}
+        discountType: {"type":"string","enum":["PERCENT","FIXED"]}
+        discountValue: {"type":"number","minimum":0}
+        maxDiscountAmount: {"type":"number","minimum":0,"nullable":true}
+        minOrderAmount: {"type":"number","minimum":0,"nullable":true}
+        fundingType: {"type":"string","enum":["PLATFORM","SELLER","CO_FUNDED"]}
+        sellerFundingPercent: {"type":"number","minimum":0,"maximum":100,"nullable":true}
+        productScope: {"type":"string","enum":["ALL","SELECTED"]}
+        claimLimit: {"type":"integer","minimum":1,"nullable":true}
+        usageLimit: {"type":"integer","minimum":1,"nullable":true}
+        discountBudget: {"type":"number","minimum":0,"nullable":true}
+        claimStartAt: {"type":"string","format":"date-time"}
+        claimEndAt: {"type":"string","format":"date-time"}
+        validFrom: {"type":"string","format":"date-time"}
+        validUntil: {"type":"string","format":"date-time"}
+        termsText: {"type":"string","nullable":true}
+    Voucher:
+      type: "object"
+      required: ["id","code","name","sourceType","discountType","discountValue","fundingType","productScope","claimStartAt","claimEndAt","validFrom","validUntil","termsVersion","status","claimCount","committedUses","committedDiscount","createdAt","updatedAt"]
+      properties:
+        id: {"type":"string","format":"uuid"}
+        code: {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$"}
+        name: {"type":"string","minLength":1,"maxLength":200}
+        description: {"type":"string","nullable":true}
+        sourceType: {"$ref":"#/components/schemas/VoucherSource"}
+        eventId: {"type":"string","format":"uuid","nullable":true}
+        discountType: {"type":"string","enum":["PERCENT","FIXED"]}
+        discountValue: {"type":"number","minimum":0}
+        maxDiscountAmount: {"type":"number","minimum":0,"nullable":true}
+        minOrderAmount: {"type":"number","minimum":0,"nullable":true}
+        fundingType: {"type":"string","enum":["PLATFORM","SELLER","CO_FUNDED"]}
+        sellerFundingPercent: {"type":"number","minimum":0,"maximum":100,"nullable":true}
+        productScope: {"type":"string","enum":["ALL","SELECTED"]}
+        claimLimit: {"type":"integer","minimum":1,"nullable":true}
+        usageLimit: {"type":"integer","minimum":1,"nullable":true}
+        discountBudget: {"type":"number","minimum":0,"nullable":true}
+        claimStartAt: {"type":"string","format":"date-time"}
+        claimEndAt: {"type":"string","format":"date-time"}
+        validFrom: {"type":"string","format":"date-time"}
+        validUntil: {"type":"string","format":"date-time"}
+        termsText: {"type":"string","nullable":true}
+        ownerSellerId: {"type":"string","format":"uuid","nullable":true}
+        termsVersion: {"type":"integer","minimum":1}
+        status: {"$ref":"#/components/schemas/VoucherStatus"}
+        claimCount: {"type":"integer","minimum":0}
+        committedUses: {"type":"integer","minimum":0}
+        committedDiscount: {"type":"number","minimum":0}
+        createdAt: {"type":"string","format":"date-time"}
+        updatedAt: {"type":"string","format":"date-time"}
+    ManagedVoucher:
+      type: "object"
+      required: ["voucher","productIds"]
+      properties:
+        voucher: {"$ref":"#/components/schemas/Voucher"}
+        productIds: {"type":"array","items":{"type":"string","format":"uuid"},"uniqueItems":true}
+    VoucherChangeStatus:
+      type: "object"
+      required: ["status"]
+      properties:
+        status: {"type":"string","enum":["ACTIVE","PAUSED","CANCELED"]}
+    VoucherProducts:
+      type: "object"
+      required: ["productIds"]
+      properties:
+        productIds: {"type":"array","items":{"type":"string","format":"uuid"},"uniqueItems":true,"maxItems":500}
+    JoinVoucher:
+      type: "object"
+      required: ["acceptedTermsVersion"]
+      properties:
+        acceptedTermsVersion: {"type":"integer","minimum":1}
+    VoucherParticipation:
+      type: "object"
+      required: ["id","voucherId","eventSellerId","status","acceptedTermsVersion","sellerFundingPercentSnapshot","acceptedAt"]
+      properties:
+        id: {"type":"string","format":"uuid"}
+        voucherId: {"type":"string","format":"uuid"}
+        eventSellerId: {"type":"string","format":"uuid"}
+        status: {"type":"string","enum":["ACTIVE","WITHDRAWN"]}
+        acceptedTermsVersion: {"type":"integer","minimum":1}
+        acceptedTermsSnapshot: {"type":"string","nullable":true}
+        sellerFundingPercentSnapshot: {"type":"number","minimum":0}
+        acceptedAt: {"type":"string","format":"date-time"}
+        withdrawnAt: {"type":"string","format":"date-time","nullable":true}
+    PublicVoucher:
+      type: "object"
+      required: ["id","code","name","sourceType","discountType","discountValue","productScope","claimStartAt","claimEndAt","validFrom","validUntil"]
+      properties:
+        id: {"type":"string","format":"uuid"}
+        code: {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$"}
+        name: {"type":"string","minLength":1,"maxLength":200}
+        description: {"type":"string","nullable":true}
+        sourceType: {"$ref":"#/components/schemas/VoucherSource"}
+        eventId: {"type":"string","format":"uuid","nullable":true}
+        discountType: {"type":"string","enum":["PERCENT","FIXED"]}
+        discountValue: {"type":"number","minimum":0}
+        maxDiscountAmount: {"type":"number","minimum":0,"nullable":true}
+        minOrderAmount: {"type":"number","minimum":0,"nullable":true}
+        productScope: {"type":"string","enum":["ALL","SELECTED"]}
+        claimStartAt: {"type":"string","format":"date-time"}
+        claimEndAt: {"type":"string","format":"date-time"}
+        validFrom: {"type":"string","format":"date-time"}
+        validUntil: {"type":"string","format":"date-time"}
+        termsText: {"type":"string","nullable":true}
+        ownerSellerId: {"type":"string","format":"uuid","nullable":true}
+    VoucherWalletEntry:
+      type: "object"
+      required: ["id","status","claimedAt","expiresAt","voucher"]
+      properties:
+        id: {"type":"string","format":"uuid"}
+        status: {"$ref":"#/components/schemas/WalletStatus"}
+        claimedAt: {"type":"string","format":"date-time"}
+        expiresAt: {"type":"string","format":"date-time"}
+        voucher: {"$ref":"#/components/schemas/PublicVoucher"}
+    VoucherUsage:
+      type: "object"
+      required: ["id","orderId","status","eligibleAmount","discountAmount","sellerFunded","platformFunded","reservedAt","reservedUntil"]
+      properties:
+        id: {"type":"string","format":"uuid"}
+        orderId: {"type":"string","format":"uuid"}
+        status: {"type":"string","enum":["RESERVED","REDEEMED","RELEASED","EXPIRED","REVERSED"]}
+        eligibleAmount: {"type":"number","minimum":0}
+        discountAmount: {"type":"number","minimum":0}
+        sellerFunded: {"type":"number","minimum":0}
+        platformFunded: {"type":"number","minimum":0}
+        reservedAt: {"type":"string","format":"date-time"}
+        reservedUntil: {"type":"string","format":"date-time"}
+        redeemedAt: {"type":"string","format":"date-time","nullable":true}
+        releasedAt: {"type":"string","format":"date-time","nullable":true}
+    VoucherCodes:
+      type: "array"
+      items: {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$"}
+      maxItems: 50
+      description: "Normalized in input order. If present, takes priority over promoCode. An empty list clears the saved cart code for this request."
+    VoucherQuote:
+      type: "object"
+      required: ["code","applied","discountAmount"]
+      properties:
+        code: {"type":"string"}
+        sourceType: {"type":"string","enum":["PLATFORM","SHOP","EVENT"],"nullable":true}
+        applied: {"type":"boolean"}
+        discountAmount: {"type":"number","minimum":0}
+        reason: {"type":"string","enum":["MIN_ORDER_NOT_MET","NOT_CLAIMED","EXPIRED","LIMIT_REACHED","NOT_ELIGIBLE","STACKING"],"nullable":true}
+        missingAmount: {"type":"number","minimum":0,"nullable":true}
+    OrderVoucher:
+      type: "object"
+      required: ["code","discountAmount","sellerFunded","platformFunded"]
+      properties:
+        code: {"type":"string"}
+        discountAmount: {"type":"number","minimum":0}
+        sellerFunded: {"type":"number","minimum":0}
+        platformFunded: {"type":"number","minimum":0}
     OrderShippingSnapshotEnvelope:
       type: object
       required: [code, message, data]
@@ -8301,6 +9825,10 @@ components:
       type: "object"
       required: ["subtotal","taxAmount","discountAmount","estimatedShippingFee","total"]
       properties:
+        vouchers:
+          type: array
+          items:
+            $ref: "#/components/schemas/VoucherQuote"
         subtotal:
           type: "number"
           minimum: 0
@@ -8383,6 +9911,10 @@ components:
       type: "object"
       required: ["items","subtotal","shippingFee","taxAmount","discountAmount","total","issues"]
       properties:
+        vouchers:
+          type: array
+          items:
+            $ref: "#/components/schemas/VoucherQuote"
         items:
           type: "array"
           items:
@@ -8423,8 +9955,10 @@ components:
           enum: ["SEPAY"]
           description: "Trimmed before validation; uses the supported order payment method."
         promoCode:
-          type: "string"
-          description: "Optional; accepted and ignored under D01. No promotion is applied or persisted."
+          type: string
+          description: Legacy alias for a single voucher code.
+        voucherCodes:
+          $ref: "#/components/schemas/VoucherCodes"
     CartPricingEnvelope:
       type: "object"
       required: ["code","message","data"]
@@ -8759,6 +10293,11 @@ components:
           enum:
             - "SEPAY"
           description: "Trimmed before validation."
+        promoCode:
+          type: string
+          description: Legacy alias for a single voucher code.
+        voucherCodes:
+          $ref: "#/components/schemas/VoucherCodes"
     ChangeOrderStatus:
       type: "object"
       required:
@@ -8873,6 +10412,11 @@ components:
         canCancel:
           type: boolean
           description: "Cancellation eligibility for the current caller: ORDER.CANCEL and ownership (or ADMIN/SUPPORT_STAFF), and either PAID or PENDING in a PENDING group. This is a read-time snapshot; cancellation rechecks locked state and can return 409. Missing on older backends must be treated as false."
+        vouchers:
+          type: array
+          description: Frozen voucher amounts per seller order, including the seller-funded and platform-funded shares.
+          items:
+            $ref: "#/components/schemas/OrderVoucher"
         receiptIssueReason:
           type: string
           nullable: true
@@ -9148,6 +10692,54 @@ x-business-error-codes:
   COMMERCE_AUCTION_HOLD_NOT_LINKED:
     status: 409
     detail: The auction hold is not linked to this order yet
+  COMMERCE_PROMOTION_INVALID_REQUEST:
+    status: 400
+    detail: "The promotion request is invalid"
+  COMMERCE_PROMOTION_EVENT_NOT_FOUND:
+    status: 404
+    detail: "Promotion event not found"
+  COMMERCE_PROMOTION_REGISTRATION_NOT_FOUND:
+    status: 404
+    detail: "Event registration not found"
+  COMMERCE_PROMOTION_REGISTRATION_CLOSED:
+    status: 409
+    detail: "Event registrations are closed"
+  COMMERCE_PROMOTION_ALREADY_REGISTERED:
+    status: 409
+    detail: "The seller has already registered for this event"
+  COMMERCE_PROMOTION_ILLEGAL_TRANSITION:
+    status: 409
+    detail: "The event or registration status transition is not allowed"
+  COMMERCE_VOUCHER_INVALID_REQUEST:
+    status: 400
+    detail: "The voucher request is invalid"
+  COMMERCE_VOUCHER_NOT_FOUND:
+    status: 404
+    detail: "Voucher not found"
+  COMMERCE_VOUCHER_PRODUCT_NOT_FOUND:
+    status: 404
+    detail: "Voucher product not found"
+  COMMERCE_VOUCHER_PARTICIPATION_NOT_FOUND:
+    status: 404
+    detail: "Voucher participation not found"
+  COMMERCE_VOUCHER_ILLEGAL_TRANSITION:
+    status: 409
+    detail: "The voucher status transition is not allowed"
+  COMMERCE_VOUCHER_CODE_ALREADY_EXISTS:
+    status: 409
+    detail: "Voucher code is already in use"
+  COMMERCE_VOUCHER_TERMS_CHANGED:
+    status: 409
+    detail: "Review the current voucher terms before joining"
+  COMMERCE_VOUCHER_ALREADY_CLAIMED:
+    status: 409
+    detail: "Voucher was already claimed"
+  COMMERCE_VOUCHER_CLAIM_UNAVAILABLE:
+    status: 409
+    detail: "Voucher is not claimable now"
+  COMMERCE_VOUCHER_CLAIM_LIMIT_REACHED:
+    status: 409
+    detail: "Voucher claim limit was reached"
   COMMERCE_INVALID_QUANTITY:
     status: 400
     detail: "Quantity is invalid"
@@ -9193,9 +10785,9 @@ x-business-error-codes:
   COMMERCE_IDEMPOTENCY_KEY_NOT_OWNED:
     status: 400
     detail: "Idempotency-Key cannot be used for this request"
-  COMMERCE_PROMOTION_NOT_SUPPORTED:
+  COMMERCE_VOUCHER_NOT_APPLICABLE:
     status: 409
-    detail: "Remove the promotion code before placing this order"
+    detail: "A requested voucher is not applicable to this order"
   COMMERCE_ITEM_UNAVAILABLE:
     status: 409
     detail: "An item is unavailable"

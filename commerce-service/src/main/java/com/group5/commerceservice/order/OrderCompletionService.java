@@ -17,7 +17,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
-/** Every completion path serializes on the same order row and writes its outbox atomically. */
+/** Xác nhận nhận hàng và job tự hoàn tất cùng khóa order, ghi trạng thái và outbox trong một transaction. */
 @Service
 @RequiredArgsConstructor
 public class OrderCompletionService {
@@ -33,7 +33,7 @@ public class OrderCompletionService {
         if (!user.hasPrivilege("ORDER.VIEW") || !user.hasRole("BUYER"))
             throw new DomainException(CommerceErrorCode.FORBIDDEN);
         Order order = locked(orderId);
-        // Ownership is checked before status so even an administrator cannot confirm another buyer's order.
+        // Kiểm tra chủ đơn trước trạng thái; admin cũng không được xác nhận thay buyer khác.
         if (!order.getUserId().equals(user.id())) throw new DomainException(CommerceErrorCode.FORBIDDEN);
         if (order.getStatus() == OrderStatus.COMPLETED) return;
         if (order.getStatus() != OrderStatus.DELIVERED) throw new DomainException(CommerceErrorCode.ORDER_NOT_DELIVERED);
@@ -84,6 +84,8 @@ public class OrderCompletionService {
         events.orderCompleted(new OrderCompleted(order.getId(), order.getOrderGroup().getId(), order.getUserId(),
                 order.getSellerId(), order.getOrderType(), order.getReferenceId(), order.getVersion(),
                 completion.getCreatedAt().toInstant().toString(), order.getOrderNumber(),
-                receipts.renderForEmail(order, completion.getCreatedAt())));
+                receipts.renderForEmail(order, completion.getCreatedAt()),
+                order.getTotalAmount().setScale(2).toPlainString(),
+                order.getShippingFee().setScale(2).toPlainString()));
     }
 }

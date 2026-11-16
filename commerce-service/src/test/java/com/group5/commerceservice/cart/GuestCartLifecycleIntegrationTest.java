@@ -25,6 +25,7 @@ import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -237,11 +238,14 @@ class GuestCartLifecycleIntegrationTest {
     @Test void viewingDoesNotExtendExpiryAndExpiredGuestCannotMerge() {
         GuestCartResponse guest = guestWith(2);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
-        jdbc.update("UPDATE carts SET updated_at = now() - interval '6 days' WHERE id = ?", guest.cart().getId());
+        jdbc.update("UPDATE carts SET updated_at = ? WHERE id = ?",
+                OffsetDateTime.now().minusDays(6), guest.cart().getId());
         var before = carts.findById(guest.cart().getId()).orElseThrow().getUpdatedAt();
         service.getMyCart(null, guest.guestToken());
         assertThat(carts.findById(guest.cart().getId()).orElseThrow().getUpdatedAt()).isEqualTo(before);
-        jdbc.update("UPDATE carts SET updated_at = now() - interval '7 days' WHERE id = ?", guest.cart().getId());
+        // Match CartService's JVM clock and stay clear of the expiry boundary.
+        jdbc.update("UPDATE carts SET updated_at = ? WHERE id = ?",
+                OffsetDateTime.now().minusDays(7).minusSeconds(1), guest.cart().getId());
         assertCode(() -> service.getMyCart(null, guest.guestToken()), "COMMERCE_GUEST_CART_NOT_FOUND");
         assertCode(() -> service.mergeGuestCart(buyer, guest.guestToken()), "COMMERCE_GUEST_CART_NOT_FOUND");
     }

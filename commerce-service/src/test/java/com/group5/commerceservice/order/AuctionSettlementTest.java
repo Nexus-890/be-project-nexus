@@ -221,7 +221,8 @@ class AuctionSettlementTest {
     @EnableTransactionManagement
     @org.springframework.data.jpa.repository.config.EnableJpaAuditing(auditorAwareRef="auditor")
     @EnableJpaRepositories(basePackageClasses=OrderRepository.class)
-    @Import({AuctionOrderService.class,AuctionWonConsumer.class,AuctionShippingService.class,CheckoutPaymentConfirmedConsumer.class,OrderStateMachine.class})
+    @Import({com.group5.commerceservice.promotion.PromotionTestConfig.class,
+            AuctionOrderService.class,AuctionWonConsumer.class,AuctionShippingService.class,CheckoutPaymentConfirmedConsumer.class,OrderStateMachine.class})
     static class Config {
         @Bean org.springframework.data.domain.AuditorAware<UUID> auditor() { return new com.group5.common_security.CurrentUserAuditor(); }
         @Bean DataSource dataSource() {

@@ -2,6 +2,8 @@ package com.group5.commerceservice.order;
 
 import com.group5.commerceservice.order.repository.OrderGroupRepository;
 import com.group5.commerceservice.order.service.OrderService;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
@@ -17,6 +19,7 @@ import java.util.UUID;
 public class OrderExpiryJob {
     private final OrderGroupRepository groups;
     private final OrderService orders;
+    private final Tracer tracer;
 
     @Value("${nexus.order.expiry-batch-size:100}")
     private int batchSize = 100;
@@ -32,7 +35,7 @@ public class OrderExpiryJob {
         int expired = 0;
         for (UUID groupId : groups.findOverdueIds(batchSize)) {
             try {
-                if (!orders.expire(groupId).isEmpty()) {
+                if (expireGroup(groupId)) {
                     expired++;
                 }
             } catch (RuntimeException failure) {
@@ -43,5 +46,15 @@ public class OrderExpiryJob {
             log.info("Order expiry job completed: expiredGroups={}", expired);
         }
         return expired;
+    }
+
+    private boolean expireGroup(UUID groupId) {
+        if (tracer.currentSpan() != null) return !orders.expire(groupId).isEmpty();
+        Span span = tracer.nextSpan().name("commerce-order-expiry").start();
+        try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
+            return !orders.expire(groupId).isEmpty();
+        } finally {
+            span.end();
+        }
     }
 }

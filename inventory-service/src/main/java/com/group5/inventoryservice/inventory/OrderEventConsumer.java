@@ -43,10 +43,15 @@ public class OrderEventConsumer {
                     payloadOf(event, OrderPaid.class, OrderPaid::orderId), this::orderPaid));
             case "OrderCancelled" -> idempotent.handle(ORDER_CANCELLED_CONSUMER,
                     payloadOf(event, OrderCancelled.class, OrderCancelled::orderId), this::orderCancelled);
+            case "CheckoutStockReleaseRequested" -> idempotent.handle("inventory-checkout-stock-release",
+                    payloadOf(event, CheckoutStockReleaseRequested.class, CheckoutStockReleaseRequested::orderId),
+                    message -> reservations.releaseOrder(message.payload().orderId()));
             default -> {
             }
         }
     }
+
+    private record CheckoutStockReleaseRequested(UUID orderId) { }
 
     private void traced(String name, Runnable work) {
         Span span = tracer.nextSpan().name(name).start();

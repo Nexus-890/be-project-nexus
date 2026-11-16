@@ -1,7 +1,18 @@
 package com.group5.paymentservice.payment;
 
 import com.group5.common_events.EventEnvelope;
+import com.group5.common_events.EventEnvelopeFactory;
 import com.group5.common_outbox.IdempotentConsumer;
+import com.group5.common_outbox.OutboxWriter;
+import com.group5.paymentservice.payout.PayoutGateway;
+import com.group5.paymentservice.payout.PayoutProperties;
+import com.group5.paymentservice.payout.PayoutService;
+import com.group5.paymentservice.payout.PayoutRepository;
+import com.group5.paymentservice.payout.PayoutHistoryRepository;
+import com.group5.paymentservice.payout.PayoutMovementRepository;
+import com.group5.paymentservice.payment.repository.PayoutEligibilityRepository;
+import com.group5.paymentservice.payout.SandboxPayoutGateway;
+import io.micrometer.tracing.Tracer;
 import com.group5.paymentservice.payment.entity.PaymentInstruction;
 import com.group5.paymentservice.payment.event.payload.CheckoutPaymentRequested;
 import com.group5.paymentservice.payment.event.payload.OrderCompleted;
@@ -29,6 +40,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import tools.jackson.databind.json.JsonMapper;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
@@ -36,6 +48,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.sql.DriverManager;
 import java.time.Instant;
+import java.time.Clock;
 import java.time.ZoneOffset;
 import java.util.HexFormat;
 import java.util.List;
@@ -81,6 +94,36 @@ class LegacySellerReplayUpgradeTest {
             assertThat(legacy.jdbc.queryForMap("SELECT seller_id,funded_transaction_id,amount FROM payout_eligibility WHERE order_id=?", ORDER_A))
                     .containsEntry("seller_id", SELLER_A).containsEntry("funded_transaction_id", PAYMENT)
                     .containsEntry("amount", new BigDecimal("125000.00"));
+            assertThat(legacy.financialSnapshot()).isEqualTo(before);
+            verifyNoInteractions(legacy.context.getBean(RefundService.class));
+        }
+    }
+
+    @Test void populatedLegacyFundingCreatesOnePayoutAfterTrustedSellerRepairAndNewMoneyCompletion() throws Exception {
+        try (var legacy = new Legacy()) {
+            var before = legacy.financialSnapshot();
+            legacy.checkout.checkout(original());
+            var oldCompletion = completed(SELLER_A);
+            var fact = oldCompletion.payload();
+            var amountCompletion = new OrderCompleted(fact.orderId(), fact.orderGroupId(), fact.buyerId(), fact.sellerId(),
+                    fact.orderType(), fact.referenceId(), fact.orderVersion(), fact.completedAt(), fact.orderNumber(),
+                    "125000.00", "25000.00");
+            var event = new EventEnvelope<>(oldCompletion.eventId(), oldCompletion.eventType(), oldCompletion.aggregateId(),
+                    oldCompletion.occurredAt(), oldCompletion.traceId(), amountCompletion);
+            legacy.payouts.completed(event);
+            legacy.payouts.completed(event);
+            legacy.payouts.completed(new EventEnvelope<>(UUID.randomUUID(), event.eventType(), event.aggregateId(),
+                    event.occurredAt(), event.traceId(), event.payload()));
+
+            assertThat(legacy.jdbc.queryForObject("SELECT count(*) FROM payouts WHERE order_id=?", Long.class, ORDER_A))
+                    .isEqualTo(1);
+            var payout = legacy.jdbc.queryForMap("SELECT * FROM payouts WHERE order_id=?", ORDER_A);
+            assertThat(payout.get("status").toString()).isEqualTo("ON_HOLD");
+            assertThat((BigDecimal) payout.get("order_amount")).isEqualByComparingTo("125000.00");
+            assertThat((BigDecimal) payout.get("shipping_fee")).isEqualByComparingTo("25000.00");
+            assertThat((BigDecimal) payout.get("net_amount")).isEqualByComparingTo("100000.00");
+            assertThat(legacy.jdbc.queryForList("SELECT event::text FROM payout_history WHERE payout_id=? ORDER BY event_seq",
+                    String.class, payout.get("id"))).containsExactly("CREATED", "HELD");
             assertThat(legacy.financialSnapshot()).isEqualTo(before);
             verifyNoInteractions(legacy.context.getBean(RefundService.class));
         }
@@ -275,11 +318,19 @@ class LegacySellerReplayUpgradeTest {
     @Configuration(proxyBeanMethods = false)
     @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses = PaymentSessionRepository.class)
-    @Import({PaymentSessionEventHandler.class, PayoutEligibilityService.class})
+    @Import({PaymentSessionEventHandler.class, PayoutEligibilityService.class, PayoutEligibilityRepository.class,
+            PayoutService.class, PayoutRepository.class, PayoutHistoryRepository.class, PayoutMovementRepository.class})
     static class Config {
         @Bean JdbcTemplate jdbcTemplate(DataSource source) { return new JdbcTemplate(source); }
         @Bean Validator validator() { return Validation.buildDefaultValidatorFactory().getValidator(); }
-        // Recovery must never call cancellation/refund workflows.
+        @Bean PayoutProperties payoutProperties() { return new PayoutProperties(); }
+        @Bean PayoutGateway payoutGateway(PayoutProperties properties) { return new SandboxPayoutGateway(properties); }
+        @Bean Tracer tracer() { return Tracer.NOOP; }
+        @Bean EventEnvelopeFactory envelopes(Tracer tracer) { return new EventEnvelopeFactory(tracer, Clock.systemUTC()); }
+        @Bean OutboxWriter outbox(JdbcTemplate jdbc, PlatformTransactionManager transactions) {
+            return new OutboxWriter(jdbc, JsonMapper.shared(), transactions);
+        }
+        // Khôi phục seller không được kích hoạt lại luồng hủy đơn hoặc refund.
         @Bean RefundService refunds() { return mock(RefundService.class); }
         @Bean LocalContainerEntityManagerFactoryBean entityManagerFactory(DataSource source) {
             var factory = new LocalContainerEntityManagerFactoryBean();

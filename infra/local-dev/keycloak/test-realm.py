@@ -14,6 +14,14 @@ HERE = Path(__file__).resolve().parent
 BACKEND = HERE.parents[2]
 SQL = BACKEND / "user-service/src/main/resources/db/migration/V3__roles_and_accounts.sql"
 
+# User-service V7 dropped the historical auth tables. New privileges are seeded in Keycloak.
+PROMOTIONS = {
+    "ADMIN": ["PROMOTION.EVENT.MANAGE", "PROMOTION.EVENT.REGISTER", "VOUCHER.MANAGE", "VOUCHER.CLAIM", "VOUCHER.VIEW"],
+    "SELLER": ["PROMOTION.EVENT.REGISTER", "VOUCHER.MANAGE", "VOUCHER.VIEW"],
+    "BUYER": ["VOUCHER.CLAIM", "VOUCHER.VIEW"],
+    "SUPPORT_STAFF": ["VOUCHER.VIEW"],
+}
+
 
 def source_matrix():
     sql = SQL.read_text()
@@ -22,7 +30,9 @@ def source_matrix():
     for block in sql.split("INSERT INTO role_permissions")[1:]:
         role = re.search(r"WHERE r.code = '([^']+)'", block)[1]
         matrix[role] = re.findall(r"'([A-Z_]+(?:\.[A-Z_]+)+)'", block.split("ON CONFLICT")[0])
-    return privileges, matrix
+    for role, grants in PROMOTIONS.items():
+        matrix[role].extend(grants)
+    return privileges + PROMOTIONS["ADMIN"], matrix
 
 
 class RealmContractTest(unittest.TestCase):
@@ -31,11 +41,11 @@ class RealmContractTest(unittest.TestCase):
         cls.realm = json.loads((HERE / "realm-nexus.json").read_text())
         cls.client = cls.realm["clients"][0]
 
-    def test_exact_privileges_and_composite_matrix_from_v3(self):
+    def test_exact_privileges_and_composite_matrix_from_role_seeds(self):
         privileges, matrix = source_matrix()
         actual = [r["name"] for r in self.realm["roles"]["client"]["nexus-web"]]
-        self.assertEqual(len(privileges), 65)
-        self.assertEqual(len(actual), 65)
+        self.assertEqual(len(privileges), 70)
+        self.assertEqual(len(actual), len(privileges))
         self.assertEqual(set(actual), set(privileges))
         roles = self.realm["roles"]["realm"]
         self.assertEqual(len(roles), 4)
@@ -70,7 +80,11 @@ class RealmContractTest(unittest.TestCase):
         self.assertEqual(self.realm["defaultSignatureAlgorithm"], "RS256")
         self.assertIn("basic", self.client["defaultClientScopes"], "Keycloak 26.7 needs basic to emit sub")
         self.assertNotIn("roles", self.client["defaultClientScopes"])
-        self.assertEqual(set(self.realm["scopeMappings"][0]["roles"]), set(source_matrix()[1]))
+        privileges, matrix = source_matrix()
+        self.assertEqual(set(self.realm["scopeMappings"][0]["roles"]), set(matrix))
+        mappings = self.realm["clientScopeMappings"]["nexus-web"]
+        web_mapping = next(mapping for mapping in mappings if mapping.get("client") == "nexus-web")
+        self.assertEqual(set(web_mapping["roles"]), set(privileges))
 
     def test_demo_ids_roles_and_no_credentials(self):
         users = self.realm["users"]

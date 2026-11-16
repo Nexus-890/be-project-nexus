@@ -20,6 +20,8 @@ springdoc:
 nexus:
   security:
     public-endpoints:
+      - method: GET
+        path: /api/v1/vouchers
       - method: POST
         path: /api/v1/carts/guest
       - method: GET

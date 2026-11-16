@@ -37,9 +37,9 @@ class CartPricingSecurityTest {
 
     @Test void cartViewAloneAllowsPricingAndValidationWithoutCartCreateOrRoleGate() {
         CurrentUser user = authenticate("CART.VIEW");
-        carts.pricing(user, null);
+        carts.pricing(user, null, null);
         carts.validate(user);
-        verify(pricing).pricing(user, null);
+        verify(pricing).pricing(user, null, null);
         verify(pricing).validate(user);
     }
 
@@ -52,7 +52,7 @@ class CartPricingSecurityTest {
 
     @Test void adminHasNoImplicitPrivilegeBypass() {
         CurrentUser user = authenticate("ROLE_ADMIN");
-        assertThatThrownBy(() -> carts.pricing(user, null)).isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> carts.pricing(user, null, null)).isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> carts.validate(user)).isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> checkout.preview(user, new CheckoutPreviewRequest(null, "SEPAY", null)))
                 .isInstanceOf(AccessDeniedException.class);

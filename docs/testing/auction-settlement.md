@@ -63,20 +63,31 @@ mvn '-Dtest=AuctionSettlementMigrationTest' '-Duser.timezone=UTC' test
 ```
 
 Testcontainers is the default. The disposable PostgreSQL URL option above also
-works here. Four cases cover fresh installation through Auction V8 / Commerce V16
+works here. Four cases cover fresh installation through Auction V8 / Commerce V17
 and the historical Auction V7→V8 / Commerce V13→V14 settlement upgrades. The upgrade
 checks explicitly target the settlement migration, preserve existing business rows
 and complete Flyway history/checksums, apply exactly one migration, validate, then
 rerun with zero migrations. The fresh checks include the later receipt migrations
-V15/V16 from develop `13aa202e`. They also verify nullable
+V15/V16 and promotion V17 from develop `d8dbe681`. They also verify nullable
 `settled_at` and the auction-reference uniqueness guard without restricting
 STANDARD orders or null references. Each case uses and removes its own random
 schema.
 
 Commerce V14 is now also present in develop with identical SQL; it is kept once
 at the same path. Run `ReceiptMigrationCompatibilityTest` in commerce-service to
-check upgrades from V12/V13/V14 through the receipt chain V16 with historical
+check upgrades from V12/V13/V14 through the latest chain, including receipt V15/V16, with historical
 DELIVERED orders and the auction-reference uniqueness guard.
+
+On 16 November 2026, after merging develop `d8dbe681`, Commerce's 93 focused
+cases, Auction's 104 settlement/state-machine cases and all four migration cases
+pass with zero failures, errors or skips on PostgreSQL 18.6. Commerce includes
+settlement concurrency/rollback, payment confirmation, shipping units/contracts
+and the receipt upgrade checks. Its settlement fixture now imports the real
+promotion test configuration required by the payment consumer from develop.
+All Commerce/Auction main and test sources compile. The API inventory passes
+143 operations; Commerce OpenAPI is valid with Redocly 2.72.0 and seven path
+ambiguity advisories. These local focused checks do not cover full-service verify,
+remote CI or complete Kafka/payment/notification acceptance.
 
 On 16 November 2026, after merging develop `13aa202e`, all four migration cases
 pass on PostgreSQL 18.6. Commerce's 45 focused cases also pass, including the
