@@ -13,12 +13,16 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 apps=(config-service discovery-service api-gateway user-service catalog-service commerce-service auction-service inventory-service notification-service payment-service shipment-service rating-service frontend)
 databases=(postgres-user:user_db postgres-user:auth_db postgres-catalog:catalog_db postgres-commerce:commerce_db postgres-commerce:payment_db postgres-auction:auction_db postgres-inventory:inventory_db postgres-operations:notification_db postgres-operations:shipment_db postgres-operations:rating_db)
 
+release_state() { python3 "$DIR/scripts/release-state.py" --state-dir "$STATE" "$@"; }
 if [ -z "${RELEASE_TAG:-}" ]; then
-  if [ -f "$STATE/current" ]; then RELEASE_TAG="$(cat "$STATE/current")";
-  else RELEASE_TAG="$(git -C "$REPO" rev-parse HEAD)"; fi
+  RELEASE_TAG="$(release_state current --fallback "$(git -C "$REPO" rev-parse HEAD)")"
 fi
 export RELEASE_TAG
 dc() { docker compose --env-file "$ENV_FILE" -f "$DIR/compose.yaml" "$@"; }
+dc_timeout() { local seconds="$1"; shift; timeout "${seconds}s" docker compose --env-file "$ENV_FILE" -f "$DIR/compose.yaml" "$@"; }
+require_clean_source() {
+  [ -z "$(git -C "$REPO" status --porcelain)" ] || die "Commit or remove tracked and untracked source changes before releasing"
+}
 case "${1:-}" in
   deploy|rollback|backup|restore-test|tls-init|restart-check)
     exec 9>"$STATE/operation.lock"
@@ -35,6 +39,7 @@ read_env() { dc config --format json | python3 -c 'import json,sys; print(json.l
 
 case "${1:-help}" in
   check) check ;;
+  state) release_state show ;;
   compose) shift; dc "$@" ;;
   auth-admin)
     check
@@ -44,6 +49,7 @@ case "${1:-help}" in
   preflight)
     check
     command -v curl >/dev/null; command -v python3 >/dev/null
+    command -v timeout >/dev/null; command -v flock >/dev/null
     docker info --format 'Docker {{.ServerVersion}}; engine RAM {{.MemTotal}} bytes'
     python3 - "$DIR" <<'PY'
 import pathlib, shutil, sys
@@ -57,7 +63,7 @@ PY
   build)
     check
     # Each tag identifies the checked-out source. Do not tag uncommitted edits.
-    [ -z "$(git -C "$REPO" status --porcelain --untracked-files=no)" ] || die "Commit tracked changes before building a release"
+    require_clean_source
     [ "$RELEASE_TAG" = "$(git -C "$REPO" rev-parse HEAD)" ] || die "RELEASE_TAG must equal the checked-out commit SHA"
     dc build --pull "${apps[@]}"
     ;;
@@ -72,6 +78,7 @@ PY
     ;;
   deploy)
     check
+    require_clean_source
     candidate="${2:?Usage: staging.sh deploy FULL_COMMIT_SHA}"
     [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || die "Use a full commit SHA"
     [ "$candidate" = "$(git -C "$REPO" rev-parse HEAD)" ] || die "Check out the candidate source before deploy"
@@ -81,40 +88,24 @@ PY
       image="$(dc config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"][sys.argv[1]]["image"])' "$app")"
       docker image inspect "$image" >/dev/null
     done
-    printf '%s\n' "$candidate" > "$STATE/pending"
+    release_state begin "$candidate"
     services_up postgres-user postgres-catalog postgres-commerce postgres-auction postgres-inventory postgres-operations redis kafka zipkin auth-service
     dc run --rm auth-seed
-    services_up "${apps[@]}"
+    dc up -d --no-build --pull never --wait --wait-timeout 240 "${apps[@]}"
     services_up nginx certbot
     "$DIR/scripts/staging.sh" verify
-    if [ -f "$STATE/current" ]; then cp "$STATE/current" "$STATE/previous"; fi
-    printf '%s\n' "$candidate" > "$STATE/current"
-    rm -f "$STATE/pending"
+    release_state commit "$candidate"
     echo "Deployed $candidate. Previous images and all data volumes are retained."
     ;;
   rollback)
     check
-    if [ -f "$STATE/pending" ]; then
-      [ -s "$STATE/current" ] || die "First deployment failed; there is no previous successful image set"
-      previous="$(cat "$STATE/current")"
-      failed_candidate=1
-    else
-      [ -s "$STATE/previous" ] || die "No recorded previous successful release"
-      previous="$(cat "$STATE/previous")"
-      failed_candidate=0
-    fi
-    [[ "$previous" =~ ^[0-9a-f]{40}$ ]] || die "Invalid previous release"
+    previous="$(release_state rollback-target)"
     # This only replaces application containers. It never recreates/downgrades DBs.
     # Review migration compatibility before running it (see runbook).
     export RELEASE_TAG="$previous"
     dc up -d --no-deps --no-build --pull never --wait --wait-timeout 240 "${apps[@]}"
     "$DIR/scripts/staging.sh" verify
-    if [ "$failed_candidate" -eq 0 ]; then
-      current="$(cat "$STATE/current")"
-      printf '%s\n' "$previous" > "$STATE/current"
-      printf '%s\n' "$current" > "$STATE/previous"
-    fi
-    rm -f "$STATE/pending"
+    release_state rollback-success "$previous"
     echo "Application images rolled back to $previous; database volumes were not changed by this command."
     ;;
   backup)
@@ -127,7 +118,7 @@ PY
       dc exec -T "$service" sh -ec 'exec pg_dump -U "$POSTGRES_USER" -d "$1" --format=custom --no-owner --no-acl' sh "$database" > "$destination/$database.dump.partial"
       mv "$destination/$database.dump.partial" "$destination/$database.dump"
     done
-    printf '%s\n' "$RELEASE_TAG" > "$destination/release.txt"
+    release_state current --fallback "$RELEASE_TAG" > "$destination/release.txt"
     (cd "$destination" && sha256sum ./*.dump > SHA256SUMS)
     echo "Ten logical databases backed up from all six PostgreSQL instances."
     ;;
@@ -151,20 +142,32 @@ PY
       id="$(dc ps -q "$service")"
       [ -n "$id" ] && [ "$(docker inspect --format '{{.State.Health.Status}}' "$id")" = healthy ] || die "$service is not healthy"
     done
+    id="$(dc ps -q certbot)"
+    [ -n "$id" ] && [ "$(docker inspect --format '{{.State.Running}}' "$id")" = true ] || die "certbot renewal loop is not running"
+    for service in realm-init kafka-init; do
+      id="$(dc ps --all -q "$service")"
+      [ -n "$id" ] && [ "$(docker inspect --format '{{.State.Status}}:{{.State.ExitCode}}' "$id")" = exited:0 ] || die "$service did not complete successfully"
+    done
     domain="$(read_env nginx DOMAIN)"
-    curl --fail --silent --show-error "https://$domain/" >/dev/null
+    curl_options=(--connect-timeout 5 --max-time 15 --silent --show-error)
+    curl --fail "${curl_options[@]}" "https://$domain/" >/dev/null
     # Assert a seeded non-empty list, not merely an HTTP 200.
-    curl --fail --silent --show-error "https://$domain/api/v1/products?page=0&size=10" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d.get("data"),list) and len(d["data"])>0, "No seeded products returned"'
-    code="$(curl --silent --output /dev/null --write-out '%{http_code}' -X POST -H 'Content-Type: application/json' --data '{}' "https://$domain/api/v1/webhooks/sepay")"
+    curl --fail "${curl_options[@]}" "https://$domain/api/v1/products?page=0&size=10" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d.get("data"),list) and len(d["data"])>0, "No seeded products returned"'
+    code="$(curl "${curl_options[@]}" --output /dev/null --write-out '%{http_code}' -X POST -H 'Content-Type: application/json' --data '{}' "https://$domain/api/v1/webhooks/sepay")"
     [ "$code" = 401 ] || die "Unsigned SePay POST returned $code, expected 401"
     ;;
   restart-check)
     check
     start=$SECONDS
-    dc restart
-    until dc exec -T discovery-service bash -ec 'exec 3<>/dev/tcp/127.0.0.1/8761; printf "GET /eureka/apps HTTP/1.0\r\nHost: localhost\r\nAccept: application/json\r\nConnection: close\r\n\r\n" >&3; cat <&3' | python3 "$DIR/scripts/check-eureka.py"; do
-      [ "$((SECONDS-start))" -lt 120 ] || die "Not all business services returned to Eureka in 120 seconds"
-      sleep 2
+    dc_timeout 120 restart
+    while :; do
+      remaining=$((120 - (SECONDS - start)))
+      [ "$remaining" -gt 0 ] || die "Not all business services returned to Eureka in 120 seconds"
+      poll_budget=5; [ "$remaining" -ge 5 ] || poll_budget="$remaining"
+      if dc_timeout "$poll_budget" exec -T discovery-service bash -ec 'exec 3<>/dev/tcp/127.0.0.1/8761; printf "GET /eureka/apps HTTP/1.0\r\nHost: localhost\r\nAccept: application/json\r\nConnection: close\r\n\r\n" >&3; cat <&3' | python3 "$DIR/scripts/check-eureka.py"; then
+        break
+      fi
+      sleep 1
     done
     elapsed=$((SECONDS-start))
     [ "$elapsed" -le 120 ] || die "Eureka recovery took $elapsed seconds"
@@ -177,6 +180,6 @@ PY
     dc ps -q | python3 "$DIR/scripts/capacity.py" "$DIR" "$@"
     ;;
   *)
-    echo 'Usage: staging.sh {check|preflight|build|tls-init|deploy SHA|rollback|backup NEW_DIR|restore-test FILE PG scratch_NAME|verify|restart-check|capacity --purchase REF --auction REF|compose ARGS...}'
+    echo 'Usage: staging.sh {check|state|preflight|build|tls-init|deploy SHA|rollback|backup NEW_DIR|restore-test FILE PG scratch_NAME|verify|restart-check|capacity --purchase REF --auction REF|compose ARGS...}'
     ;;
 esac

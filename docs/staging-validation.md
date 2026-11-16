@@ -11,6 +11,7 @@ No VM handover or public STAGING hostname is confirmed. Results here are local.
 | Compose config with disposable dotenv fixture | Pass; 12 app JVMs, six PostgreSQL instances, only nginx publishes host ports |
 | Config rejection probes | Four pass: published DB port, missing heap, debug profile and laptop hostname are rejected |
 | Bash, Python and Node script syntax | Pass |
+| Release-state regression (17/11/2026) | 17 pass: same-SHA redeploy, failed candidate, retry, rollback, interrupted replace, malformed state, legacy migration and CLI boundary; no Docker/VM calls |
 | Maven library install and 12 service packages | Pass using JDK 21; packaging used `-DskipTests`, not a claim that domain tests ran |
 | Gateway full Maven suite | 88 pass, no failures/errors/skips; includes direct IP, transformed IPv4/IPv6 and unresolved-hostname cases |
 | Native nginx 1.28.0 / TLS smoke | 29 assertions pass, using fixture upstreams and a disposable local CA certificate |
@@ -34,6 +35,12 @@ Direct mode still ignores raw forwarding headers; a hostname remains rejected.
 STAGING's framework transformer is permitted only behind nginx with no public
 Gateway binding and overwritten forwarding headers.
 
+The operator follow-up stores release metadata in one atomically replaced JSON
+file. A successful redeploy of the current SHA preserves the older rollback
+target; a failed candidate keeps both successful releases. CLI polling and
+HTTP verification have finite timeouts. These local state tests do not prove
+an image rollback or the 120-second recovery criterion on STAGING.
+
 The original production audit reported Next as critical and Zod/follow-redirects
 as high. The patch update addresses those runtime dependencies before a public
 deployment; `npm audit --omit=dev` now reports zero. This is the production audit
@@ -56,6 +63,7 @@ From `be-project-nexus`, use JDK 21:
 mvn -B -ntp -f lib/pom.xml -DskipTests install
 mvn -B -ntp -f api-gateway/pom.xml test
 node infra/staging/tests/nginx-smoke.mjs
+python3 -m unittest discover -s infra/staging/tests -p test_release_state.py -v
 ```
 
 The nginx test needs `nginx` and `openssl` on PATH; `NGINX_BINARY` and

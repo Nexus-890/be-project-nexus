@@ -15,7 +15,7 @@ have no host binding. Docker-published ports can bypass UFW rules, so inspect
 the Compose bindings and verify reachability from another machine too.
 
 Linux prerequisites: Git, Docker Engine with Compose v2+, Bash, Python 3,
-curl, util-linux (`flock`), outbound HTTPS, DNS and SMTP connectivity.
+curl, GNU coreutils (`timeout`), util-linux (`flock`), outbound HTTPS, DNS and SMTP connectivity.
 Use an account already authorized for Docker and this repository. Docker
 builds need internet access and more temporary disk/RAM than steady state;
 build images on a separate builder/registry if the VM cannot accommodate it.
@@ -85,7 +85,7 @@ Let's Encrypt certificate with webroot validation, then removes that listener.
 It does not mint a self-signed STAGING certificate. `deploy` then starts the
 infrastructure, waits for Keycloak, provisions demo identities/client roles,
 starts the apps and validates health, seeded products and unsigned webhook
-401 before recording `.state/current`. The imported realm is prepared from
+401 before recording the current release in `.state/release.json`. The imported realm is prepared from
 the tracked local realm with the STAGING redirect origin and SMTP. The seed
 tool deliberately resets demo passwords to the host values; run this only on
 STAGING, not on a production realm.
@@ -153,7 +153,7 @@ no published port and every public request passes through nginx.
 
 ## 4. Deploy a new commit and roll back
 
-Before upgrading, take a backup, record the previous `.state/current`, review
+Before upgrading, take a backup, inspect `bash scripts/staging.sh state`, review
 Flyway changes and ensure the old images remain locally available. Application
 rollback requires backward-compatible migrations; this tool never reverses a
 migration or restores a database automatically. Review migrations before the
@@ -173,18 +173,33 @@ If the candidate fails, preserve logs and run:
 ```bash
 bash scripts/staging.sh rollback
 bash scripts/staging.sh compose ps
-cat .state/current
+bash scripts/staging.sh state
 ```
 
-A failed candidate leaves `.state/pending`; rollback targets the last successful
-release in `.state/current`. After a successful upgrade, rollback targets
-`.state/previous`. Only application containers are replaced, using existing
+A failed candidate leaves a pending entry in `.state/release.json`; rollback
+targets the last successful current release. After a successful upgrade,
+rollback targets the previous release. Current/previous/pending are updated
+together by atomic file replacement. Redeploying the same current SHA preserves
+the older previous release. Only application containers are replaced, using existing
 images with `--no-deps --no-build --pull never`; persistent services/volumes are
 not recreated. Verify image IDs using `compose images`, response behavior and
 the stored SHA. Recheck schema/table data during a controlled rehearsal with
 business traffic paused. Background jobs may still write business data; the
 script does not promise a database snapshot freeze. Never use `down -v`, image
 pruning or a database downgrade as a rollback shortcut.
+
+Release builds/deploys reject both tracked and untracked source changes;
+ignored host configuration, state, evidence and backups remain allowed. Deploy
+uses the images already inspected locally with `--no-build --pull never`.
+An unresolved upgrade must be retried with the same candidate or rolled back
+before selecting another candidate. A failed first deployment has no successful
+rollback target, so it can be retried using a corrected commit.
+
+The state tool can read the first version's separate current/previous/pending
+files; its next successful write stores the authoritative `release.json`.
+If legacy pending equals current, the old files cannot establish which image
+was last verified. Confirm that image from deployment evidence before migrating
+the metadata; the tool refuses to guess. Existing database data is untouched.
 
 ## 5. Logs and trace lookup
 
