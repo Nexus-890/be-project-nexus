@@ -44,7 +44,7 @@ The document uses three labels:
 
 ### Target Inventory
 
-The review specification contains **66 application-owned tables: 43 business tables and 23 technical tables**, with **719 field definitions**. These counts include proposed fields/tables; they do not describe what is already deployed. Keycloak's internal tables are excluded.
+The 24 October review baseline below contains **66 application-owned tables: 43 business tables and 23 technical tables**, with **719 field definitions**. The #257 addendum adds four business tables (`seller`, `seller_bank`, `payouts`, `payout_history`); this historical baseline count excludes those additions and later completion/eligibility projections. These counts include proposed fields/tables; they do not describe what is already deployed. Keycloak's internal tables are excluded.
 
 | Database | Business tables | Technical tables | Total tables | Field definitions |
 |---|---|---|---|---|
@@ -207,6 +207,26 @@ Removed or transferred data:
 **Chosen auth/profile synchronization:** retain LOCKED for profile locking by the administration workflow, without restoring failed_login_count/locked_until in user_db. Keep last_login_at nullable and project only successful Keycloak LOGIN events through an authenticated internal adapter. Provisioning/implementing that adapter belongs to the auth/profile issue and is absent from the current code. Duplicate or late events use MAX timestamp so last_login_at never moves backwards.
 
 **Reusing contacts in Keycloak as well:** on soft deletion, disable the old account and revoke sessions, rename its Keycloak username/email to a unique tombstone based on the old ID, then complete the local deletion marker. Retry/compensate failures using an operation ID; do not report success while the login identity remains occupied. Preserve the old profile/history UUID; registration creates a new account UUID. Matching contacts must not cause the old user's business references to be reassigned to the new user.
+
+### user_db.seller
+
+#257 / user-service V8 owns one company/application profile per user. #210 reuses this table; the seller UUID remains the existing Keycloak user ID.
+
+| Field | PostgreSQL type | NULL? | Rule / purpose |
+| --- | --- | --- | --- |
+| `user_id` | `uuid` | No | PK and local FK users(id), ON DELETE NO ACTION; no generated seller ID. |
+| `company_name` | `varchar(200)` | No | Nonblank company name. |
+| `contact_phone` | `varchar(20)` | No | Nonblank contact phone. |
+| `status` | `seller_status` | No | PENDING (default), ACTIVE, REJECTED. |
+| `application_note` | `text` | Yes | Application text written by #210. |
+| `rejection_reason` | `text` | Yes | Required/nonblank only when REJECTED; clear on reapply. |
+| `applied_at` | `timestamptz` | No | DEFAULT now(); application time. |
+| `reviewed_by`, `reviewed_at` | `uuid`, `timestamptz` | Yes | Both required for ACTIVE/REJECTED and NULL for PENDING. |
+| `version` | `bigint` | No | DEFAULT 0, CHECK >= 0; writer increments on change. |
+| `created_at`, `updated_at` | `timestamptz` | No | DEFAULT now(); updates explicitly write updated_at. |
+| `created_by`, `updated_by` | `uuid` | No | DEFAULT all-zero system actor; no identity FK. |
+
+CHECK enforces coherent review metadata and no rejection reason for PENDING/ACTIVE. Index `(status, applied_at, user_id)` serves application review. Existing users with SELLER but no row receive an ACTIVE row on first GET /sellers/me, copying local full_name/phone and using the system reviewer/time. No cross-service backfill or replacement seller UUID.
 
 ### user_db.outbox
 
@@ -1479,11 +1499,11 @@ Refund events carry refundId/orderId/instructionId, the agreed amount/currency, 
 
 ## payment-service / payment_db
 
-**Owner and R1 scope:** payment-service, port 8087. Sources: #120, #121, #155–#157, #207, #240, #247, the commerce V1/V2 baseline, ADR-007, and the accepted leader/user R1 design. The buyer's checkout operation creates a stored `commerce_db.order_groups` aggregate and one commerce order per seller. Exactly one payment session belongs to that order group and supplies its single QR. Per-order `payment_instructions` contain the order shares of the payment plan and funding references; there is no separate allocation table. Record each actual provider movement once, without cloning the full bank transfer for every seller. These **four business tables** describe the target design, not applied migrations; the technical outbox/processed_events definitions follow separately.
+**Owner and R1 scope:** payment-service, port 8087. Sources: #120, #121, #155–#157, #207, #240, #247, the commerce V1/V2 baseline, ADR-007, and the accepted leader/user R1 design. The buyer's checkout operation creates a stored `commerce_db.order_groups` aggregate and one commerce order per seller. Exactly one payment session belongs to that order group and supplies its single QR. Per-order `payment_instructions` contain the order shares of the payment plan and funding references; there is no separate allocation table. Record each actual provider movement once, without cloning the full bank transfer for every seller. These **four baseline business tables** describe the original target design; #257 adds seller_bank, payouts and payout_history below, while already-applied V5 completion/eligibility tables remain in place. The technical outbox/processed_events definitions follow separately.
 
 **Terminology and contract boundary:** checkout names the buyer operation; order group names the stored aggregate. Use `order_group_id` in database relationships and `orderGroupId` in payloads. Retain `CheckoutPaymentRequested` and `CheckoutPaymentConfirmed` as functional event names for the checkout flow; their names do not introduce another stored aggregate or payload identifier. BR-109 and the older #240/#121/#155–#157 contracts assumed payment by one order; this R1 extension settles one complete order group through one session and its per-order instructions. Update #118/#186/#246 event snapshots, #121 QR initiation, #207 reads and #247 refund-origin handling. Do not add replacement sessions, plan revisions, supersession or an unpaid-child cancellation handshake. Before payment, cancel the entire group/session or let its single QR expire; afterward, child cancellation retains the existing physical shipment handover coordination.
 
-**Types and audit:** `payment_instruction_status = ('PENDING','PAID','CANCELED','EXPIRED')`; `payment_session_status = ('PENDING','PAID','CANCELED','EXPIRED')`; `payment_transaction_status = ('PENDING','SUCCESS','FAILED','UNRECONCILED')`; `payment_transaction_type = ('NORMAL','REFUND')`; `refund_status = ('REQUESTED','COMPLETED')`. Each session status appears once. The transaction enum names follow #249; instruction/session/refund type names and added values are target design choices. `provider` remains `varchar(40)` for #120 adapters rather than a fixed SEPAY/STRIPE enum. All four business tables use `created_by`, `updated_by uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000'::uuid` under #249. JPA/native writers supply authenticated actors or the fixed system actor, preserve created_by after INSERT, and update updated_by on changes. There are no physical FKs to commerce/user/Keycloak databases.
+**Types and audit:** `payment_instruction_status = ('PENDING','PAID','CANCELED','EXPIRED')`; `payment_session_status = ('PENDING','PAID','CANCELED','EXPIRED')`; `payment_transaction_status = ('PENDING','SUCCESS','FAILED','UNRECONCILED')`; `payment_transaction_type = ('NORMAL','REFUND','PAYOUT','PAYOUT_RETURN')`; `refund_status = ('REQUESTED','COMPLETED')`. Each session status appears once. The transaction enum names follow #249; instruction/session/refund type names and added values are target design choices. `provider` remains `varchar(40)` for #120 adapters rather than a fixed SEPAY/STRIPE enum. All four business tables use `created_by`, `updated_by uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000'::uuid` under #249. JPA/native writers supply authenticated actors or the fixed system actor, preserve created_by after INSERT, and update updated_by on changes. There are no physical FKs to commerce/user/Keycloak databases.
 
 ### payment_db.payment_instructions
 
@@ -1558,7 +1578,7 @@ Refund events carry refundId/orderId/instructionId, the agreed amount/currency, 
 | `amount` | `numeric(19,2)` | No | From verified provider data or the approved refund amount | Actual value of this single incoming/outgoing movement | Retain CHECK `amount >= 0`; never repeat a session total per child order. |
 | `currency` | `char(3)` | No | `'VND'` | Movement currency | Retain V1; must match the session/instruction/refund at the service. |
 | `status` | `payment_transaction_status` | No | None | PENDING, SUCCESS, FAILED or UNRECONCILED | Keep the original outcomes and add UNRECONCILED under #156/#157. |
-| `type` | `payment_transaction_type` | No | None | NORMAL incoming payment or REFUND outgoing payment | Original V1 domain; not a seller-share type. |
+| `type` | `payment_transaction_type` | No | None | NORMAL incoming payment, REFUND outgoing refund, PAYOUT outgoing seller transfer or PAYOUT_RETURN returned seller funds | Original V1 domain plus #257; not a seller-share type. |
 | `idempotency_key` | `varchar(100)` | No | Stable provider/operation identity; refund operation derived from refundId | Business identity of this movement/attempt | Retain table-wide UNIQUE from V1/#120. |
 | `raw_response` | `jsonb` | Yes | None | Non-sensitive provider payload/response retained for reconciliation | Retain V1; not a complete HTTP log or byte-preserving signature store. |
 | `created_at` | `timestamptz` | No | `now()` | Local ledger recording time | Retain V1. |
@@ -1612,6 +1632,92 @@ Refund events carry refundId/orderId/instructionId, the agreed amount/currency, 
 **Manual completion and events:** Support/Admin with ORDER.REFUND confirms transfer of exactly the request's stored amount, not a freshly computed group total. Under session/instruction/refund locks, verify REQUESTED/version and the same order/currency/amount, then insert one REFUND SUCCESS movement with session_id equal to the funded instruction's session and a key derived from refundId. Set completed_transaction_id/actor/time/status, increment the instruction version and write OrderRefundCompleted in the same local transaction. The linked movement must be REFUND/SUCCESS and exactly match the request; FK/UNIQUE alone do not enforce these values. Replay adds no outgoing movement or event. received_at records local manual confirmation; provider_occurred_at is populated only from verified evidence. Real transfer and DB commit are not atomic, so reconcile external evidence before retrying confirmation.
 
 OrderRefundRequested/OrderRefundCompleted carry refundId, orderId, instructionId, sessionId, amount, currency, REQUESTED/COMPLETED status, totalPaidAmount, agreedRefundAmount, completedRefundAmount, remainingPaidAmount and the per-order refundVersion from payment_instructions.version. The status and balance snapshot is derived from the funded instruction and its single refund in the same local transaction; these event fields do not introduce additional database columns. Commerce retains orders.last_refund_version for ordered application; it is distinct from orders.version and envelope eventVersion. Only this seller order follows REFUND_REQUESTED/REFUNDED under #116/#247; the parent group and successful session retain their payment history, and siblings do not become refunded. Completion confirms the stored refund request amount. Where an authorized smaller amount is accepted, completion is not proof that the full original paid share was returned; R1's one-request constraint does not add a second refund or a new order status. Item-return eligibility, item/quantity accounting and any later residual-refund workflow require their own contract.
+
+### payment_db.seller_bank
+
+#257 / payment-service V7. A seller owns zero or more encrypted bank accounts. Only an active VERIFIED default can receive a payout.
+
+| Field | PostgreSQL type | NULL? | Rule / purpose |
+| --- | --- | --- | --- |
+| `id` | `uuid` | No | PK DEFAULT uuidv7(). |
+| `seller_id` | `uuid` | No | Logical user/seller ID; no cross-database FK. |
+| `bank_code` | `varchar(20)` | No | Six-digit NAPAS BIN. |
+| `account_number_encrypted` | `text` | No | AES-256-GCM versioned ciphertext; preserves leading zeroes. |
+| `account_last4` | `char(4)` | No | Four digits, the only account number portion exposed in APIs. |
+| `account_holder_name` | `varchar(100)` | No | Nonblank holder. |
+| `verification_status` | `seller_bank_verification_status` | No | UNVERIFIED (default), VERIFIED, REJECTED. |
+| `verified_by`, `verified_at` | `uuid`, `timestamptz` | Yes | Both required for reviewed VERIFIED/REJECTED; NULL when UNVERIFIED. |
+| `rejection_reason` | `text` | Yes | Required/nonblank when REJECTED, otherwise NULL. |
+| `is_default`, `active` | `boolean` | No | Defaults false/true. |
+| `version` | `bigint` | No | DEFAULT 0, CHECK >= 0; writer increments on change. |
+| `created_at`, `updated_at` | `timestamptz` | No | DEFAULT now(); updates explicitly write updated_at. |
+| `created_by`, `updated_by` | `uuid` | No | DEFAULT all-zero system actor; no identity FK. |
+
+Partial UNIQUE `(seller_id) WHERE is_default AND active` enforces one active default, including unverified accounts. Index seller/time for own lists and active verification/time for #261. Changing bank code, number or holder clears verification and rejection metadata; changing a bank does not alter an already-sent payout snapshot. The encryption key is configuration, never a database value or API field.
+
+### payment_db.payouts
+
+#257 / payment-service V7. Current payout state, exactly one row per seller order regardless of retries. It does not replace buyer payment status.
+
+| Field | PostgreSQL type | NULL? | Rule / purpose |
+| --- | --- | --- | --- |
+| `id` | `uuid` | No | PK DEFAULT uuidv7(). |
+| `order_id` | `uuid` | No | UNIQUE, logical commerce seller order. |
+| `session_id`, `instruction_id` | `uuid` | No | Local FKs to payment_sessions/payment_instructions. |
+| `seller_id` | `uuid` | No | Logical user/seller ID; validated against trusted local instruction ownership. |
+| `seller_bank_id` | `uuid` | Yes | Local FK seller_bank(id), NULL while held without an account. |
+| `recipient_bank_code` | `varchar(20)` | Yes | Frozen recipient bank BIN for the current attempt. |
+| `recipient_account_encrypted` | `text` | Yes | Frozen encrypted recipient number; private persistence only. |
+| `recipient_account_last4` | `char(4)` | Yes | Recipient last four digits. |
+| `recipient_holder_name` | `varchar(100)` | Yes | Frozen holder name. |
+| `order_amount`, `shipping_fee`, `platform_fee`, `net_amount` | `numeric(19,2)` | No | Per-order money snapshot; shipping/fee nonnegative and net positive. |
+| `platform_fee_rate` | `numeric(5,4)` | No | CHECK 0..1, frozen when payout is created. |
+| `currency` | `char(3)` | No | Same as funded instruction/session. |
+| `status` | `payout_status` | No | ON_HOLD, PENDING, PROCESSING, UNKNOWN, SUCCEEDED, FAILED, RETURNED. |
+| `attempt_count` | `integer` | No | DEFAULT 0, CHECK >=0; no config-dependent upper bound. |
+| `next_attempt_at`, `attempt_started_at` | `timestamptz` | Yes | Due dispatch/reconcile timing and crash recovery. |
+| `provider`, `provider_reference` | `varchar(40)`, `varchar(120)` | Yes | Current attempt provider identity/reference. |
+| `transaction_id`, `return_transaction_id` | `uuid` | Yes | Local FKs to current attempt PAYOUT/PAYOUT_RETURN movements. |
+| `source_event_id` | `uuid` | No | Original OrderCompleted envelope identity. |
+| `succeeded_at`, `returned_at` | `timestamptz` | Yes | Confirmed current-attempt outcomes. |
+| `version` | `bigint` | No | DEFAULT 0, CHECK >= 0; writer increments on change. |
+| `created_at`, `updated_at` | `timestamptz` | No | DEFAULT now(); updates explicitly write updated_at. |
+| `created_by`, `updated_by` | `uuid` | No | DEFAULT all-zero system actor; no identity FK. |
+
+CHECK `platform_fee = round((order_amount - shipping_fee) * platform_fee_rate, 2)` and `net_amount = order_amount - shipping_fee - platform_fee AND net_amount > 0`. Recipient snapshot columns are all NULL or all non-NULL with a bank reference. Partial UNIQUE `(provider,provider_reference) WHERE provider_reference IS NOT NULL`; separate local FK indexes; seller/status listing indexes; PENDING due index and PROCESSING/UNKNOWN attempt-start index. Confirmation requires a provider success, not acceptance. Retry can replace the current snapshot; prior attempt history remains immutable.
+
+### payment_db.payout_history
+
+#257 / payment-service V7. Append-only events; never update/delete an event to revise an earlier result.
+
+| Field | PostgreSQL type | NULL? | Rule / purpose |
+| --- | --- | --- | --- |
+| `id` | `uuid` | No | PK DEFAULT uuidv7(). |
+| `payout_id` | `uuid` | No | Local FK payouts(id); no cascade deletion. |
+| `event_seq` | `bigint` | No | Positive sequence, UNIQUE(payout_id,event_seq). |
+| `event` | `payout_history_event` | No | CREATED, HELD, RELEASED, SENT, SUCCEEDED, FAILED, TIMED_OUT, RECONCILED, RETRIED, RETURNED. |
+| `from_status`, `to_status` | `payout_status` | Yes / No | Previous status NULL for creation; resulting status always present. |
+| `attempt_no` | `integer` | No | CHECK >=0; zero before the first dispatch. |
+| `amount` | `numeric(19,2)` | No | Positive net amount for this step. |
+| `seller_bank_id` | `uuid` | Yes | Local bank FK. |
+| `recipient_bank_code`, `recipient_holder_name` | `varchar(20)`, `varchar(100)` | Yes | Immutable recipient metadata for the attempt. |
+| `recipient_account_encrypted`, `recipient_account_last4` | `text`, `char(4)` | Yes | Private immutable ciphertext and public last4 snapshot. |
+| `provider`, `provider_reference` | `varchar(40)`, `varchar(120)` | Yes | Attempt provider identity, can repeat on several lifecycle events. |
+| `provider_idempotency_key` | `varchar(100)` | Yes | Stable payout:{id}:{attempt}; same key when reconciling. |
+| `provider_status`, `error_code`, `error_message` | `varchar(80)`, `varchar(100)`, `text` | Yes | Sanitized metadata, no secrets or raw provider messages. |
+| `transaction_id` | `uuid` | Yes | Local payment_transactions FK, retaining each historical money movement. |
+| `request_idempotency_key` | `varchar(100)` | Yes | UNIQUE admin retry request identity; other event rows use NULL. |
+| `simulated` | `boolean` | No | Explicit true for sandbox, with no misleading false default. |
+| `actor_id` | `uuid` | No | Admin UUID or system all-zero UUID. |
+| `occurred_at` | `timestamptz` | No | DEFAULT now(); sequence controls lifecycle order. |
+
+Database triggers reject UPDATE, DELETE and TRUNCATE. This table has no mutable version/updated_at/updated_by columns; actor_id/occurred_at describe the immutable step. `(payout_id,event_seq)` serves history reads; indexes cover bank/transaction FKs and provider key/reference lookup. Do not make provider_reference globally unique in history: SENT, success and return evidence can reference the same attempt. APIs whitelist public fields and never serialize recipient ciphertext.
+
+### #257 payout integration and upgrade
+
+The four new business tables are seller in user_db and seller_bank/payouts/payout_history in payment_db. Already-applied V5 payment_order_completions and payout_eligibility remain local durable projections, not a fifth new payout business table. Payment V6 adds transaction enum values before V7 uses them; V8 adds nullable order_amount/shipping_fee to the completion projection. Old rows retain NULL rather than invented shipping. Only upgraded, funded and consistent completion evidence creates automatic payouts.
+
+Actual money movements use per-attempt keys `payout:{id}:{attempt}` and `payout-return:{id}:{attempt}`. This refines the single-key proposal so a successful payout can return and be successfully retried while retaining every movement. Payout transaction pointers describe the current attempt; payout_history.transaction_id preserves prior links. Existing buyer confirmation/refund/read queries continue filtering NORMAL/REFUND. See [automatic payout operations/configuration](../payment-payout-eligibility.md) and [event contracts](../api/events.md#ordercompleted).
 
 ### Combined payment, cancellation and reconciliation contract
 
@@ -2374,7 +2480,9 @@ Every baseline table below has an explicit disposition. Removed auth tables are 
 | `notification_db.processed_events` | `notification_db.processed_events` | Retain ownership; apply the documented field/enum/audit changes where applicable. |
 | `notification_db.shedlock` | `notification_db.shedlock` | Retain ownership; apply the documented field/enum/audit changes where applicable. |
 
-New tables relative to the six V1 schemas: `commerce_db.order_groups`, `payment_db.payment_instructions`, `payment_db.payment_sessions`, `payment_db.refunds`, `rating_db.rating_eligibility` and `rating_db.reputation_history`. R1 stores each order's share directly in its payment instruction. These target additions are distinguished from existing source migrations and the original issue wording. The refunds/reputation_history names remain design proposals satisfying #247/#213. Each payment/shipment/rating database has its own outbox and processed_events under #240/#241/#242; none shares the source service's technical tables.
+New #257 additions relative to the review baseline: `user_db.seller`, `payment_db.seller_bank`, `payment_db.payouts` and `payment_db.payout_history`.
+
+New baseline tables relative to the six V1 schemas: `commerce_db.order_groups`, `payment_db.payment_instructions`, `payment_db.payment_sessions`, `payment_db.refunds`, `rating_db.rating_eligibility` and `rating_db.reputation_history`. R1 stores each order's share directly in its payment instruction. These target additions are distinguished from existing source migrations and the original issue wording. The refunds/reputation_history names remain design proposals satisfying #247/#213. Each payment/shipment/rating database has its own outbox and processed_events under #240/#241/#242; none shares the source service's technical tables.
 
 **Important column changes:** remove users.password_hash/failed_login_count/locked_until under #238; move the canonical QR memo from orders to payment_sessions.memo_code while retaining orders.payment_due_at. Add orders.order_group_id and the payment instruction's session_id/funded_transaction_id. Keep refunds.order_id UNIQUE. Replace payment_transactions.order_id with session_id: one NORMAL receipt funds several per-order instructions. Add commerce payment_note under the #157 design. Each table specifies its audit, enum and snapshot definitions.
 

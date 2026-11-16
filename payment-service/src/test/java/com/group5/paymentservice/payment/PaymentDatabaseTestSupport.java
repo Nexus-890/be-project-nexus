@@ -11,6 +11,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
         "spring.cloud.compatibility-verifier.enabled=false", "eureka.client.enabled=false",
         "spring.kafka.listener.auto-startup=false", "nexus.outbox.relay.enabled=false",
         "nexus.payment.pending-cancellations.cron=-",
+        "nexus.payout.jobs-enabled=false",
         "management.tracing.export.zipkin.enabled=false", "spring.jpa.hibernate.ddl-auto=validate",
         "nexus.payment.provider=SEPAY", "nexus.payment.sepay.bank-id=970416",
         "nexus.payment.sepay.bank-account=0000000002", "nexus.payment.sepay.account-name=DO VAN A",

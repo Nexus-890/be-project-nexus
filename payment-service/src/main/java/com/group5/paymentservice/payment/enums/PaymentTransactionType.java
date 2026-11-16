@@ -1,5 +1,5 @@
 package com.group5.paymentservice.payment.enums;
 
 public enum PaymentTransactionType {
-    NORMAL, REFUND
+    NORMAL, REFUND, PAYOUT, PAYOUT_RETURN
 }

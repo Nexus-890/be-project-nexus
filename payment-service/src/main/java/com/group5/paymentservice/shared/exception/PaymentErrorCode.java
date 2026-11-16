@@ -22,7 +22,16 @@ public enum PaymentErrorCode implements ErrorCode {
     REFUND_EXISTS(HttpStatus.CONFLICT, "This order already has a refund"),
     REFUND_IDEMPOTENCY_CONFLICT(HttpStatus.CONFLICT, "Idempotency-Key was already used for another refund request"),
     REFUND_NOT_FOUND(HttpStatus.NOT_FOUND, "Refund is not available"),
-    REFUND_CONFLICT(HttpStatus.CONFLICT, "Refund was changed by another request, try again");
+    REFUND_CONFLICT(HttpStatus.CONFLICT, "Refund was changed by another request, try again"),
+    SELLER_BANK_ACCOUNT_NOT_FOUND(HttpStatus.NOT_FOUND, "Seller bank account is not available"),
+    SELLER_BANK_ACCOUNT_INVALID(HttpStatus.BAD_REQUEST, "Seller bank account details are invalid"),
+    PAYOUT_NOT_FOUND(HttpStatus.NOT_FOUND, "Payout is not available"),
+    PAYOUT_INVALID_REQUEST(HttpStatus.BAD_REQUEST, "Payout request is invalid"),
+    PAYOUT_NOT_RETRYABLE(HttpStatus.CONFLICT, "Only failed or returned payouts can be retried"),
+    PAYOUT_IDEMPOTENCY_INVALID(HttpStatus.BAD_REQUEST, "A valid unused Idempotency-Key is required"),
+    PAYOUT_CALLBACK_SIGNATURE_INVALID(HttpStatus.UNAUTHORIZED, "Payout callback signature is invalid"),
+    PAYOUT_CALLBACK_INVALID(HttpStatus.BAD_REQUEST, "Payout callback is invalid"),
+    PAYOUT_PROVIDER_CONFLICT(HttpStatus.CONFLICT, "Provider reference conflicts with the stored transfer");
 
     private final HttpStatus status;
     private final String message;

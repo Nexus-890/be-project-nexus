@@ -84,6 +84,8 @@ nexus:
       - method: POST
         path: /api/v1/webhooks/sepay
       - method: POST
+        path: /api/v1/payments/payouts/callbacks/{provider}
+      - method: POST
         path: /api/v1/webhooks/carriers/ghn
       - method: POST
         path: /api/v1/webhooks/carriers/ghtk
@@ -339,6 +341,36 @@ nexus:
       - method: GET
         path: /api/v1/audit-logs
         privilege: AUDIT_LOG.VIEW
+      - method: GET
+        path: /api/v1/sellers/me
+        roles: [SELLER]
+      - method: PUT
+        path: /api/v1/sellers/me
+        roles: [SELLER]
+      - method: POST
+        path: /api/v1/payments/seller-bank-accounts
+        roles: [SELLER]
+      - method: GET
+        path: /api/v1/payments/seller-bank-accounts/me
+        roles: [SELLER]
+      - method: PUT
+        path: /api/v1/payments/seller-bank-accounts/{id}
+        roles: [SELLER]
+      - method: POST
+        path: /api/v1/payments/seller-bank-accounts/{id}/default
+        roles: [SELLER]
+      - method: POST
+        path: /api/v1/payments/seller-bank-accounts/{id}/verify
+        roles: [ADMIN]
+      - method: GET
+        path: /api/v1/payments/payouts/me
+        roles: [SELLER]
+      - method: GET
+        path: /api/v1/payments/payouts/{id}
+        roles: [SELLER, ADMIN]
+      - method: POST
+        path: /api/v1/payments/payouts/{id}/retry
+        roles: [ADMIN]
   gateway:
     rate-limit:
       # Có thể đổi cả hai quota qua Config Server và /actuator/refresh.

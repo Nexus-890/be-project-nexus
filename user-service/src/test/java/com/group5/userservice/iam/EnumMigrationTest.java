@@ -75,6 +75,6 @@ class EnumMigrationTest {
                 from information_schema.columns
                 where table_schema = ? and data_type = 'USER-DEFINED'
                 """, String.class, schema)).containsExactlyInAnyOrder(
-                "users.status:user_status", "users.gender:gender");
+                "users.status:user_status", "users.gender:gender", "seller.status:seller_status");
     }
 }

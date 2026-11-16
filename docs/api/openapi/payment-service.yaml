@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Nexus payments, refunds and SePay webhooks
+  title: Nexus payments, refunds, seller bank accounts and automatic payouts
   version: 1.0.0
   description: >-
     Bank-transfer VietQR initiation, manual refunds and authenticated SePay callbacks.
@@ -25,6 +25,10 @@ tags:
     description: Refunds of cancelled, paid seller orders, completed by a manual transfer
   - name: Webhooks
     description: Provider-authenticated bank-transfer callbacks
+  - name: SellerBankAccounts
+    description: Seller-owned encrypted bank accounts and administrator verification
+  - name: Payouts
+    description: Automatic completed-order payouts, immutable history and administrator retries
 paths:
   /api/v1/webhooks/sepay:
     post:
@@ -502,6 +506,656 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /api/v1/payments/seller-bank-accounts:
+    post:
+      tags: ["SellerBankAccounts"]
+      operationId: "createSellerBankAccount"
+      summary: "Create an encrypted seller bank account"
+      security: [{"bearerAuth":[]}]
+      x-required-roles: ["SELLER"]
+      description: "Seller ID comes from the authenticated JWT. Account numbers retain leading zeroes and are encrypted with AES-GCM. Responses expose only accountLast4. Accounts start UNVERIFIED; verification does not transfer money."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SellerBankAccountRequest"
+      responses:
+        "201":
+          description: "Created unverified bank account"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SellerBankAccountApiResponse"
+        "400":
+          description: "Bank details or verification request are invalid (PAYMENT_SELLER_BANK_ACCOUNT_INVALID)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Bad Request"
+                status: 400
+                detail: "Bank details or verification request are invalid"
+                instance: "/api/v1/payments/payouts"
+                code: "PAYMENT_SELLER_BANK_ACCOUNT_INVALID"
+        "401":
+          description: "Authentication is required (UNAUTHENTICATED)."
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: "string"
+              description: "Bearer challenge for JWT authentication failures."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Unauthorized"
+                status: 401
+                detail: "Authentication is required"
+                instance: "/api/v1/payments/payouts"
+                code: "UNAUTHENTICATED"
+        "403":
+          description: "The authenticated user is not allowed to perform this action (FORBIDDEN)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Forbidden"
+                status: 403
+                detail: "The authenticated user is not allowed to perform this action"
+                instance: "/api/v1/payments/payouts"
+                code: "FORBIDDEN"
+  /api/v1/payments/seller-bank-accounts/me:
+    get:
+      tags: ["SellerBankAccounts"]
+      operationId: "listOwnSellerBankAccounts"
+      summary: "List the authenticated seller bank accounts"
+      security: [{"bearerAuth":[]}]
+      x-required-roles: ["SELLER"]
+      parameters: [{"name":"page","in":"query","schema":{"type":"integer","minimum":0,"default":0}},{"name":"size","in":"query","schema":{"type":"integer","minimum":1,"maximum":100,"default":20}}]
+      x-ownership: "JWT subject only."
+      responses:
+        "200":
+          description: "Own accounts, including verification state; account numbers are masked"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SellerBankAccountListApiResponse"
+        "400":
+          description: "Invalid pagination parameters (PAYMENT_SELLER_BANK_ACCOUNT_INVALID)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Bad Request"
+                status: 400
+                detail: "Invalid pagination parameters"
+                instance: "/api/v1/payments/payouts"
+                code: "PAYMENT_SELLER_BANK_ACCOUNT_INVALID"
+        "401":
+          description: "Authentication is required (UNAUTHENTICATED)."
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: "string"
+              description: "Bearer challenge for JWT authentication failures."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Unauthorized"
+                status: 401
+                detail: "Authentication is required"
+                instance: "/api/v1/payments/payouts"
+                code: "UNAUTHENTICATED"
+        "403":
+          description: "The authenticated user is not allowed to perform this action (FORBIDDEN)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Forbidden"
+                status: 403
+                detail: "The authenticated user is not allowed to perform this action"
+                instance: "/api/v1/payments/payouts"
+                code: "FORBIDDEN"
+  /api/v1/payments/seller-bank-accounts/{id}:
+    put:
+      tags: ["SellerBankAccounts"]
+      operationId: "updateSellerBankAccount"
+      summary: "Update an owned bank account"
+      security: [{"bearerAuth":[]}]
+      x-required-roles: ["SELLER"]
+      description: "Changing bank code, account number or holder resets verification to UNVERIFIED and clears previous verification/rejection metadata. Omitted isDefault/active preserve their stored values. A sent payout retains its recipient snapshot. active=false deactivates the account."
+      parameters: [{"name":"id","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SellerBankAccountRequest"
+      x-ownership: "Only the owning seller; another seller account returns 404."
+      responses:
+        "200":
+          description: "Updated bank account"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SellerBankAccountApiResponse"
+        "400":
+          description: "Bank details or verification request are invalid (PAYMENT_SELLER_BANK_ACCOUNT_INVALID)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Bad Request"
+                status: 400
+                detail: "Bank details or verification request are invalid"
+                instance: "/api/v1/payments/payouts"
+                code: "PAYMENT_SELLER_BANK_ACCOUNT_INVALID"
+        "401":
+          description: "Authentication is required (UNAUTHENTICATED)."
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: "string"
+              description: "Bearer challenge for JWT authentication failures."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Unauthorized"
+                status: 401
+                detail: "Authentication is required"
+                instance: "/api/v1/payments/payouts"
+                code: "UNAUTHENTICATED"
+        "403":
+          description: "The authenticated user is not allowed to perform this action (FORBIDDEN)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Forbidden"
+                status: 403
+                detail: "The authenticated user is not allowed to perform this action"
+                instance: "/api/v1/payments/payouts"
+                code: "FORBIDDEN"
+        "404":
+          description: "Bank account not found, including an account owned by another seller (PAYMENT_SELLER_BANK_ACCOUNT_NOT_FOUND)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Not Found"
+                status: 404
+                detail: "Bank account not found, including an account owned by another seller"
+                instance: "/api/v1/payments/payouts"
+                code: "PAYMENT_SELLER_BANK_ACCOUNT_NOT_FOUND"
+  /api/v1/payments/seller-bank-accounts/{id}/default:
+    post:
+      tags: ["SellerBankAccounts"]
+      operationId: "setDefaultSellerBankAccount"
+      summary: "Choose the seller active default bank account"
+      security: [{"bearerAuth":[]}]
+      x-required-roles: ["SELLER"]
+      description: "At most one active default account per seller. Selecting a default does not verify it. An account must also be active and VERIFIED before a payout can be sent."
+      parameters: [{"name":"id","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}]
+      x-ownership: "Only the owning seller; another seller account returns 404."
+      responses:
+        "200":
+          description: "Selected default account"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SellerBankAccountApiResponse"
+        "400":
+          description: "Bank details or verification request are invalid (PAYMENT_SELLER_BANK_ACCOUNT_INVALID)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Bad Request"
+                status: 400
+                detail: "Bank details or verification request are invalid"
+                instance: "/api/v1/payments/payouts"
+                code: "PAYMENT_SELLER_BANK_ACCOUNT_INVALID"
+        "401":
+          description: "Authentication is required (UNAUTHENTICATED)."
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: "string"
+              description: "Bearer challenge for JWT authentication failures."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Unauthorized"
+                status: 401
+                detail: "Authentication is required"
+                instance: "/api/v1/payments/payouts"
+                code: "UNAUTHENTICATED"
+        "403":
+          description: "The authenticated user is not allowed to perform this action (FORBIDDEN)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Forbidden"
+                status: 403
+                detail: "The authenticated user is not allowed to perform this action"
+                instance: "/api/v1/payments/payouts"
+                code: "FORBIDDEN"
+        "404":
+          description: "Bank account not found, including an account owned by another seller (PAYMENT_SELLER_BANK_ACCOUNT_NOT_FOUND)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Not Found"
+                status: 404
+                detail: "Bank account not found, including an account owned by another seller"
+                instance: "/api/v1/payments/payouts"
+                code: "PAYMENT_SELLER_BANK_ACCOUNT_NOT_FOUND"
+  /api/v1/payments/seller-bank-accounts/{id}/verify:
+    post:
+      tags: ["SellerBankAccounts"]
+      operationId: "verifySellerBankAccount"
+      summary: "Verify or reject a bank account"
+      security: [{"bearerAuth":[]}]
+      x-required-roles: ["ADMIN"]
+      description: "Administrator verification only. Rejecting requires a nonblank reason. Verifying an active default account releases eligible ON_HOLD payouts automatically; no manual payout creation endpoint exists."
+      parameters: [{"name":"id","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SellerBankVerificationRequest"
+      responses:
+        "200":
+          description: "Recorded administrator verification result"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SellerBankAccountApiResponse"
+        "400":
+          description: "Bank details or verification request are invalid (PAYMENT_SELLER_BANK_ACCOUNT_INVALID)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Bad Request"
+                status: 400
+                detail: "Bank details or verification request are invalid"
+                instance: "/api/v1/payments/payouts"
+                code: "PAYMENT_SELLER_BANK_ACCOUNT_INVALID"
+        "401":
+          description: "Authentication is required (UNAUTHENTICATED)."
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: "string"
+              description: "Bearer challenge for JWT authentication failures."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Unauthorized"
+                status: 401
+                detail: "Authentication is required"
+                instance: "/api/v1/payments/payouts"
+                code: "UNAUTHENTICATED"
+        "403":
+          description: "The authenticated user is not allowed to perform this action (FORBIDDEN)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Forbidden"
+                status: 403
+                detail: "The authenticated user is not allowed to perform this action"
+                instance: "/api/v1/payments/payouts"
+                code: "FORBIDDEN"
+        "404":
+          description: "Bank account not found, including an account owned by another seller (PAYMENT_SELLER_BANK_ACCOUNT_NOT_FOUND)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Not Found"
+                status: 404
+                detail: "Bank account not found, including an account owned by another seller"
+                instance: "/api/v1/payments/payouts"
+                code: "PAYMENT_SELLER_BANK_ACCOUNT_NOT_FOUND"
+  /api/v1/payments/payouts/me:
+    get:
+      tags: ["Payouts"]
+      operationId: "listOwnPayouts"
+      summary: "List the authenticated seller automatic payouts"
+      security: [{"bearerAuth":[]}]
+      x-required-roles: ["SELLER"]
+      description: "One payout per completed, funded seller order. PAID buyer state is distinct from payout state. simulated=true identifies sandbox evidence; provider acceptance alone does not mean seller funds have arrived."
+      parameters: [{"name":"page","in":"query","schema":{"type":"integer","minimum":0,"default":0}},{"name":"size","in":"query","schema":{"type":"integer","minimum":1,"maximum":100,"default":20}}]
+      x-ownership: "JWT subject only."
+      responses:
+        "200":
+          description: "Own payouts newest first"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayoutListApiResponse"
+              example:
+                code: 0
+                message: "response success"
+                data: [{"id":"00000000-0000-4000-8000-000000000257","orderId":"00000000-0000-4000-8000-000000000001","sellerId":"00000000-0000-4000-8000-000000000004","orderAmount":325000,"shippingFee":25000,"platformFeeRate":0,"platformFee":0,"netAmount":300000,"currency":"VND","status":"ON_HOLD","attemptCount":0,"recipientAccountLast4":null,"providerReference":null,"simulated":true,"createdAt":"2026-11-16T05:00:00Z"}]
+                page:
+                  number: 0
+                  size: 20
+                  totalElements: 1
+                  totalPages: 1
+        "400":
+          description: "Invalid pagination parameters (PAYMENT_PAYOUT_INVALID_REQUEST)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Bad Request"
+                status: 400
+                detail: "Invalid pagination parameters"
+                instance: "/api/v1/payments/payouts"
+                code: "PAYMENT_PAYOUT_INVALID_REQUEST"
+        "401":
+          description: "Authentication is required (UNAUTHENTICATED)."
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: "string"
+              description: "Bearer challenge for JWT authentication failures."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Unauthorized"
+                status: 401
+                detail: "Authentication is required"
+                instance: "/api/v1/payments/payouts"
+                code: "UNAUTHENTICATED"
+        "403":
+          description: "The authenticated user is not allowed to perform this action (FORBIDDEN)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Forbidden"
+                status: 403
+                detail: "The authenticated user is not allowed to perform this action"
+                instance: "/api/v1/payments/payouts"
+                code: "FORBIDDEN"
+  /api/v1/payments/payouts/{id}:
+    get:
+      tags: ["Payouts"]
+      operationId: "getPayout"
+      summary: "Read payout state and immutable history"
+      security: [{"bearerAuth":[]}]
+      x-required-roles: ["SELLER","ADMIN"]
+      description: "The owning seller or an administrator can read the payout, with history newest first. History exposes last four account digits and sanitized provider outcomes; recipient ciphertext and credentials are never returned."
+      parameters: [{"name":"id","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}]
+      x-ownership: "Owning seller or ADMIN; other sellers receive 404. Roles are alternatives."
+      responses:
+        "200":
+          description: "Payout including immutable history"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayoutDetailApiResponse"
+        "401":
+          description: "Authentication is required (UNAUTHENTICATED)."
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: "string"
+              description: "Bearer challenge for JWT authentication failures."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Unauthorized"
+                status: 401
+                detail: "Authentication is required"
+                instance: "/api/v1/payments/payouts"
+                code: "UNAUTHENTICATED"
+        "403":
+          description: "The authenticated user is not allowed to perform this action (FORBIDDEN)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Forbidden"
+                status: 403
+                detail: "The authenticated user is not allowed to perform this action"
+                instance: "/api/v1/payments/payouts"
+                code: "FORBIDDEN"
+        "404":
+          description: "Payout not found, including a payout owned by another seller (PAYMENT_PAYOUT_NOT_FOUND)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Not Found"
+                status: 404
+                detail: "Payout not found, including a payout owned by another seller"
+                instance: "/api/v1/payments/payouts"
+                code: "PAYMENT_PAYOUT_NOT_FOUND"
+  /api/v1/payments/payouts/{id}/retry:
+    post:
+      tags: ["Payouts"]
+      operationId: "retryPayout"
+      summary: "Retry a definitively failed or returned payout"
+      security: [{"bearerAuth":[]}]
+      x-required-roles: ["ADMIN"]
+      description: "Only FAILED or RETURNED can be retried. Requires an Idempotency-Key of 1 to 100 letters, digits, dots, underscores, colons or hyphens. Repeating the same authorized request does not enqueue another attempt. PROCESSING or UNKNOWN must be reconciled before retry. The next send uses a fresh attempt key and the verified active default bank account."
+      parameters: [{"name":"id","in":"path","required":true,"schema":{"type":"string","format":"uuid"}},{"name":"Idempotency-Key","in":"header","required":true,"schema":{"type":"string","minLength":1,"maxLength":100,"pattern":"^[A-Za-z0-9._:-]{1,100}$"}}]
+      responses:
+        "200":
+          description: "Payout after the retry request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayoutDetailApiResponse"
+        "400":
+          description: "Missing or invalid Idempotency-Key (PAYMENT_PAYOUT_IDEMPOTENCY_INVALID)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Bad Request"
+                status: 400
+                detail: "Missing or invalid Idempotency-Key"
+                instance: "/api/v1/payments/payouts"
+                code: "PAYMENT_PAYOUT_IDEMPOTENCY_INVALID"
+        "401":
+          description: "Authentication is required (UNAUTHENTICATED)."
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: "string"
+              description: "Bearer challenge for JWT authentication failures."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Unauthorized"
+                status: 401
+                detail: "Authentication is required"
+                instance: "/api/v1/payments/payouts"
+                code: "UNAUTHENTICATED"
+        "403":
+          description: "The authenticated user is not allowed to perform this action (FORBIDDEN)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Forbidden"
+                status: 403
+                detail: "The authenticated user is not allowed to perform this action"
+                instance: "/api/v1/payments/payouts"
+                code: "FORBIDDEN"
+        "404":
+          description: "Payout not found, including a payout owned by another seller (PAYMENT_PAYOUT_NOT_FOUND)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Not Found"
+                status: 404
+                detail: "Payout not found, including a payout owned by another seller"
+                instance: "/api/v1/payments/payouts"
+                code: "PAYMENT_PAYOUT_NOT_FOUND"
+        "409":
+          description: "Payout state is not retryable or a verified active default bank account is missing (PAYMENT_PAYOUT_NOT_RETRYABLE)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Conflict"
+                status: 409
+                detail: "Payout state is not retryable or a verified active default bank account is missing"
+                instance: "/api/v1/payments/payouts"
+                code: "PAYMENT_PAYOUT_NOT_RETRYABLE"
+  /api/v1/payments/payouts/callbacks/{provider}:
+    post:
+      tags: ["Payouts"]
+      operationId: "receivePayoutCallback"
+      summary: "Accept a signed payout provider outcome"
+      description: "Public to JWT authentication; authenticates the raw bytes using X-Payout-Timestamp and X-Payout-Signature. HMAC-SHA256 signs epoch seconds, one dot and the exact UTF-8 request body; maximum clock skew is 300 seconds. The payout, provider, attempt and idempotency key must match the persisted send. Duplicate callbacks create no additional money movement. ACCEPTED is PROCESSING; only confirmed SUCCEEDED writes PAYOUT evidence. Provider acknowledgement uses @ProtocolResponse, outside ApiResponse."
+      security: []
+      parameters: [{"name":"provider","in":"path","required":true,"schema":{"type":"string","enum":["sandbox","http"]}},{"name":"X-Payout-Timestamp","in":"header","required":false,"description":"Required for provider authentication; absent or stale headers return 401.","schema":{"type":"string","pattern":"^[0-9]{1,19}$"}},{"name":"X-Payout-Signature","in":"header","required":false,"description":"Hex HMAC-SHA256 digest of timestamp + dot + raw body.","schema":{"type":"string","pattern":"^[0-9a-fA-F]{64}$"}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PayoutProviderCallback"
+      responses:
+        "200":
+          description: "Native provider acknowledgement, including duplicate callbacks"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayoutCallbackAcknowledgement"
+              example:
+                status: "ok"
+        "400":
+          description: "Invalid signed callback body (PAYMENT_PAYOUT_CALLBACK_INVALID)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Bad Request"
+                status: 400
+                detail: "Invalid signed callback body"
+                instance: "/api/v1/payments/payouts"
+                code: "PAYMENT_PAYOUT_CALLBACK_INVALID"
+        "401":
+          description: "The provider callback signature is invalid (PAYMENT_PAYOUT_CALLBACK_SIGNATURE_INVALID)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Unauthorized"
+                status: 401
+                detail: "The provider callback signature is invalid"
+                instance: "/api/v1/payments/payouts"
+                code: "PAYMENT_PAYOUT_CALLBACK_SIGNATURE_INVALID"
+        "404":
+          description: "Payout not found, including a payout owned by another seller (PAYMENT_PAYOUT_NOT_FOUND)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Not Found"
+                status: 404
+                detail: "Payout not found, including a payout owned by another seller"
+                instance: "/api/v1/payments/payouts"
+                code: "PAYMENT_PAYOUT_NOT_FOUND"
+        "409":
+          description: "Provider reference conflicts with the stored transfer (PAYMENT_PAYOUT_PROVIDER_CONFLICT)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Conflict"
+                status: 409
+                detail: "Provider reference conflicts with the stored transfer"
+                instance: "/api/v1/payments/payouts/callbacks/http"
+                code: "PAYMENT_PAYOUT_PROVIDER_CONFLICT"
 components:
   securitySchemes:
     bearerAuth:
@@ -808,3 +1462,333 @@ components:
           type: string
         traceId:
           type: string
+
+    SellerBankAccountRequest:
+      type: "object"
+      required: ["bankCode","accountNumber","accountHolderName"]
+      properties:
+        bankCode:
+          type: "string"
+          pattern: "^[0-9]{6}$"
+          description: "NAPAS bank BIN."
+        accountNumber:
+          type: "string"
+          pattern: "^[0-9]{4,34}$"
+          minLength: 4
+          maxLength: 34
+          writeOnly: true
+          description: "Keep leading zeroes. Encrypted at rest; never included in responses or logs."
+        accountHolderName:
+          type: "string"
+          minLength: 1
+          maxLength: 100
+          pattern: "\\S"
+        isDefault:
+          type: "boolean"
+          description: "Optional; false on create, preserve existing value on update."
+        active:
+          type: "boolean"
+          description: "Optional; true on create, preserve existing value on update."
+    SellerBankVerificationRequest:
+      type: "object"
+      required: ["verificationStatus"]
+      properties:
+        verificationStatus:
+          type: "string"
+          enum: ["VERIFIED","REJECTED"]
+        reason:
+          type: "string"
+          minLength: 1
+          maxLength: 1000
+          description: "Required and nonblank when REJECTED."
+    SellerBankAccount:
+      type: "object"
+      required: ["id","sellerId","bankCode","accountLast4","accountHolderName","verificationStatus","isDefault","active","rejectionReason","verifiedBy","verifiedAt","createdAt","updatedAt","version"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        sellerId:
+          type: "string"
+          format: "uuid"
+        bankCode:
+          type: "string"
+          pattern: "^[0-9]{6}$"
+        accountLast4:
+          type: "string"
+          pattern: "^[0-9]{4}$"
+        accountHolderName:
+          type: "string"
+          maxLength: 100
+        verificationStatus:
+          type: "string"
+          enum: ["UNVERIFIED","VERIFIED","REJECTED"]
+        isDefault:
+          type: "boolean"
+        active:
+          type: "boolean"
+        rejectionReason:
+          type: "string"
+          nullable: true
+        verifiedBy:
+          type: "string"
+          format: "uuid"
+          nullable: true
+        verifiedAt:
+          type: "string"
+          format: "date-time"
+          nullable: true
+        createdAt:
+          type: "string"
+          format: "date-time"
+        updatedAt:
+          type: "string"
+          format: "date-time"
+        version:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+    SellerBankAccountApiResponse:
+      type: "object"
+      required: ["code","message","data"]
+      properties:
+        code:
+          type: "integer"
+          default: 0
+        message:
+          type: "string"
+          default: "response success"
+        data:
+          $ref: "#/components/schemas/SellerBankAccount"
+    SellerBankAccountListApiResponse:
+      type: "object"
+      required: ["code","message","data","page"]
+      properties:
+        code:
+          type: "integer"
+          default: 0
+        message:
+          type: "string"
+          default: "response success"
+        data:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/SellerBankAccount"
+        page:
+          type: "object"
+          required: ["number","size","totalElements","totalPages"]
+          properties:
+            number:
+              type: "integer"
+              minimum: 0
+            size:
+              type: "integer"
+              minimum: 1
+            totalElements:
+              type: "integer"
+              format: "int64"
+              minimum: 0
+            totalPages:
+              type: "integer"
+              minimum: 0
+    PayoutStatus:
+      type: "string"
+      enum: ["ON_HOLD","PENDING","PROCESSING","UNKNOWN","SUCCEEDED","FAILED","RETURNED"]
+    Payout:
+      type: "object"
+      required: ["id","orderId","sellerId","orderAmount","shippingFee","platformFeeRate","platformFee","netAmount","currency","status","attemptCount","recipientAccountLast4","providerReference","simulated","createdAt"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        orderId:
+          type: "string"
+          format: "uuid"
+        sellerId:
+          type: "string"
+          format: "uuid"
+        orderAmount:
+          type: "number"
+          multipleOf: 0.01
+          description: "Decimal monetary value, persisted as numeric(19,2)."
+        shippingFee:
+          type: "number"
+          multipleOf: 0.01
+          description: "Decimal monetary value, persisted as numeric(19,2)."
+        platformFeeRate:
+          type: "number"
+          minimum: 0
+          maximum: 1
+          multipleOf: 0.0001
+          description: "Rate frozen at payout creation; configuration changes affect only later payouts."
+        platformFee:
+          type: "number"
+          multipleOf: 0.01
+          description: "Decimal monetary value, persisted as numeric(19,2)."
+        netAmount:
+          type: "number"
+          multipleOf: 0.01
+          description: "Decimal monetary value, persisted as numeric(19,2)."
+          minimum: 0
+          exclusiveMinimum: true
+        currency:
+          type: "string"
+          minLength: 3
+          maxLength: 3
+          example: "VND"
+        status:
+          $ref: "#/components/schemas/PayoutStatus"
+        attemptCount:
+          type: "integer"
+          minimum: 0
+        recipientAccountLast4:
+          type: "string"
+          pattern: "^[0-9]{4}$"
+          nullable: true
+        providerReference:
+          type: "string"
+          nullable: true
+        simulated:
+          type: "boolean"
+          description: "true means simulated sandbox evidence, not a real bank transfer."
+        createdAt:
+          type: "string"
+          format: "date-time"
+    PayoutHistory:
+      type: "object"
+      required: ["id","event","eventSeq","fromStatus","toStatus","attemptNo","amount","sellerBankId","recipientAccountLast4","provider","providerReference","providerStatus","errorCode","errorMessage","simulated","actorId","occurredAt","transactionId"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        event:
+          type: "string"
+          enum: ["CREATED","HELD","RELEASED","SENT","SUCCEEDED","FAILED","TIMED_OUT","RECONCILED","RETRIED","RETURNED"]
+        eventSeq:
+          type: "integer"
+          format: "int64"
+          minimum: 1
+        fromStatus:
+          type: "string"
+          enum: ["ON_HOLD","PENDING","PROCESSING","UNKNOWN","SUCCEEDED","FAILED","RETURNED"]
+          nullable: true
+        toStatus:
+          $ref: "#/components/schemas/PayoutStatus"
+        attemptNo:
+          type: "integer"
+          minimum: 0
+        amount:
+          type: "number"
+          multipleOf: 0.01
+          description: "Decimal monetary value, persisted as numeric(19,2)."
+        sellerBankId:
+          type: "string"
+          format: "uuid"
+          nullable: true
+        recipientAccountLast4:
+          type: "string"
+          nullable: true
+        provider:
+          type: "string"
+          nullable: true
+        providerReference:
+          type: "string"
+          nullable: true
+        providerStatus:
+          type: "string"
+          nullable: true
+        errorCode:
+          type: "string"
+          nullable: true
+        errorMessage:
+          type: "string"
+          nullable: true
+        simulated:
+          type: "boolean"
+        actorId:
+          type: "string"
+          format: "uuid"
+        occurredAt:
+          type: "string"
+          format: "date-time"
+        transactionId:
+          type: "string"
+          format: "uuid"
+          nullable: true
+    PayoutDetail:
+      allOf: [{"$ref":"#/components/schemas/Payout"},{"type":"object","required":["history"],"properties":{"history":{"type":"array","items":{"$ref":"#/components/schemas/PayoutHistory"},"description":"Newest first; eventSeq orders the immutable lifecycle."}}}]
+    PayoutDetailApiResponse:
+      type: "object"
+      required: ["code","message","data"]
+      properties:
+        code:
+          type: "integer"
+          default: 0
+        message:
+          type: "string"
+          default: "response success"
+        data:
+          $ref: "#/components/schemas/PayoutDetail"
+    PayoutListApiResponse:
+      type: "object"
+      required: ["code","message","data","page"]
+      properties:
+        code:
+          type: "integer"
+          default: 0
+        message:
+          type: "string"
+          default: "response success"
+        data:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/Payout"
+        page:
+          type: "object"
+          required: ["number","size","totalElements","totalPages"]
+          properties:
+            number:
+              type: "integer"
+              minimum: 0
+            size:
+              type: "integer"
+              minimum: 1
+            totalElements:
+              type: "integer"
+              format: "int64"
+              minimum: 0
+            totalPages:
+              type: "integer"
+              minimum: 0
+    PayoutProviderCallback:
+      type: "object"
+      required: ["payoutId","attempt","idempotencyKey","state"]
+      properties:
+        payoutId:
+          type: "string"
+          format: "uuid"
+        attempt:
+          type: "integer"
+          minimum: 1
+        idempotencyKey:
+          type: "string"
+          minLength: 1
+          maxLength: 100
+        state:
+          type: "string"
+          enum: ["ACCEPTED","SUCCEEDED","FAILED","UNKNOWN","RETURNED"]
+        reference:
+          type: "string"
+          maxLength: 120
+          nullable: true
+        providerStatus:
+          type: "string"
+          maxLength: 80
+          nullable: true
+    PayoutCallbackAcknowledgement:
+      type: "object"
+      required: ["status"]
+      properties:
+        status:
+          type: "string"
+          enum: ["ok"]

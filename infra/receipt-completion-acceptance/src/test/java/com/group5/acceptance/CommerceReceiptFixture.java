@@ -36,6 +36,7 @@ import tools.jackson.databind.json.JsonMapper;
 import javax.sql.DataSource;
 import java.time.Clock;
 import java.time.Instant;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -52,22 +53,28 @@ public final class CommerceReceiptFixture implements AutoCloseable {
     public final OrderCompletionJob job = context.getBean(OrderCompletionJob.class);
 
     public OrderFixture order() {
+        return order("0.00");
+    }
+
+    public OrderFixture order(String shippingAmount) {
         UUID buyer = UUID.randomUUID(), seller = UUID.randomUUID();
+        BigDecimal shipping = new BigDecimal(shippingAmount);
+        BigDecimal amount = new BigDecimal("300000.00").add(shipping);
         String number = "NX-ACCEPT-" + UUID.randomUUID().toString().substring(0, 20);
         UUID group = jdbc.queryForObject("""
                 INSERT INTO order_groups(buyer_id,idempotency_key,total_amount,due_at)
-                VALUES (?,?,300000,now()+interval '15 minutes') RETURNING id
-                """, UUID.class, buyer, UUID.randomUUID().toString());
+                VALUES (?,?,?,now()+interval '15 minutes') RETURNING id
+                """, UUID.class, buyer, UUID.randomUUID().toString(), amount);
         UUID id = jdbc.queryForObject("""
-                INSERT INTO orders(order_group_id,user_id,seller_id,order_number,order_type,status,subtotal,total_amount,idempotency_key)
-                VALUES (?,?,?,?,'STANDARD','SHIPPED',300000,300000,?) RETURNING id
-                """, UUID.class, group, buyer, seller, number, UUID.randomUUID().toString());
+                INSERT INTO orders(order_group_id,user_id,seller_id,order_number,order_type,status,subtotal,shipping_fee,total_amount,idempotency_key)
+                VALUES (?,?,?,?,'STANDARD','SHIPPED',300000,?,?,?) RETURNING id
+                """, UUID.class, group, buyer, seller, number, shipping, amount, UUID.randomUUID().toString());
         jdbc.update("""
                 INSERT INTO order_items(order_id,product_id,sku_id,product_name,sku_code,quantity,unit_price,total_price)
                 VALUES (?,?,?,'Cà phê <script>private</script> & tea','RECEIPT-SKU',2,150000,300000)
                 """, id, UUID.randomUUID(), UUID.randomUUID());
         context.getBean(OrderStateMachine.class).move(id, OrderStatus.DELIVERED, buyer, "Shipment delivered");
-        return new OrderFixture(id, group, buyer, seller, number);
+        return new OrderFixture(id, group, buyer, seller, number, amount, shipping);
     }
 
     public List<EventEnvelope<JsonNode>> events(UUID order) {
@@ -87,7 +94,7 @@ public final class CommerceReceiptFixture implements AutoCloseable {
     public String status(OrderFixture order) { return jdbc.queryForObject("SELECT status::text FROM orders WHERE id=?", String.class, order.id()); }
     @Override public void close() { context.close(); }
 
-    public record OrderFixture(UUID id, UUID groupId, UUID buyerId, UUID sellerId, String number) {
+    public record OrderFixture(UUID id, UUID groupId, UUID buyerId, UUID sellerId, String number, BigDecimal amount, BigDecimal shipping) {
         public CurrentUser buyer() { return new CurrentUser(buyerId, Set.of("BUYER"), Set.of("ORDER.VIEW")); }
     }
 

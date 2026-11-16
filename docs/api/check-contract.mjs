@@ -12,6 +12,7 @@ const services = {
   'user-service': [
     'src/main/java/com/group5/userservice/iam/AuthController.java',
     'src/main/java/com/group5/userservice/iam/UserController.java',
+    'src/main/java/com/group5/userservice/seller/SellerController.java',
   ],
   'catalog-service': [
     'src/main/java/com/group5/catalogservice/category/CategoryController.java',
@@ -25,6 +26,7 @@ const services = {
     'src/main/java/com/group5/commerceservice/order/controller/OrderController.java',
     'src/main/java/com/group5/commerceservice/order/controller/OrderShippingSnapshotController.java',
     'src/main/java/com/group5/commerceservice/order/OrderReceiptController.java',
+    'src/main/java/com/group5/commerceservice/order/OrderReceiptConfirmationController.java',
   ],
   'notification-service': [
     'src/main/java/com/group5/notificationservice/notification/NotificationController.java',
@@ -37,6 +39,9 @@ const services = {
     'src/main/java/com/group5/paymentservice/payment/controller/PaymentController.java',
     'src/main/java/com/group5/paymentservice/payment/controller/RefundController.java',
     'src/main/java/com/group5/paymentservice/payment/controller/SepayWebhookController.java',
+    'src/main/java/com/group5/paymentservice/sellerbank/BankAccountController.java',
+    'src/main/java/com/group5/paymentservice/payout/PayoutController.java',
+    'src/main/java/com/group5/paymentservice/payout/PayoutCallbackController.java',
   ],
   'inventory-service': [
     'src/main/java/com/group5/inventoryservice/inventory/InventoryController.java',
