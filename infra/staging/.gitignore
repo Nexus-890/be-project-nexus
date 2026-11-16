@@ -1,0 +1,6 @@
+.env
+.state/
+backups/
+evidence/
+compose.local.yaml
+__pycache__/

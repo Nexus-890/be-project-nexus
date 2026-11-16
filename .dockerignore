@@ -1,0 +1,12 @@
+**/target
+**/.env
+**/.env.*
+**/*.log
+**/.idea
+**/.run
+**/.agent
+infra/staging/.state
+infra/staging/backups
+infra/staging/evidence
+**/*.dump
+**/__pycache__

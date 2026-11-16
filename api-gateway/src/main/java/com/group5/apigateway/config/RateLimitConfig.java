@@ -1,6 +1,7 @@
 package com.group5.apigateway.config;
 
 import com.group5.apigateway.ratelimit.RedisWindowRateLimiter;
+import io.netty.util.NetUtil;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.cloud.gateway.filter.ratelimit.KeyResolver;
@@ -25,15 +26,26 @@ public class RateLimitConfig {
     @Primary
     public KeyResolver clientIpKeyResolver() {
         return exchange -> {
-            // Không dùng X-Forwarded-For: client có thể giả IP để né quota.
+            // Read the request remote address, never a raw client header.
+            // STAGING enables Spring's transformer behind nginx, which overwrites forwarding headers.
             var remoteAddress = exchange.getRequest().getRemoteAddress();
 
-            if (remoteAddress == null || remoteAddress.getAddress() == null) {
+            if (remoteAddress == null) {
+                return Mono.empty();
+            }
+
+            // ForwardedHeaderTransformer uses an unresolved socket address.
+            // Parse numeric literals without DNS; retain fail-closed for hostnames.
+            var address = remoteAddress.getAddress();
+            if (address == null) {
+                address = NetUtil.createInetAddressFromIpAddressString(remoteAddress.getHostString());
+            }
+            if (address == null) {
                 return Mono.empty();
             }
 
             return Mono.just(
-                    remoteAddress.getAddress().getHostAddress()
+                    address.getHostAddress()
             );
         };
     }

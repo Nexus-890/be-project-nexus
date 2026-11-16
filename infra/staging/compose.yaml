@@ -1,0 +1,567 @@
+name: nexus-staging
+
+x-runtime: &runtime
+  restart: unless-stopped
+  networks: [backend]
+  logging:
+    driver: json-file
+    options: {max-size: 10m, max-file: "3"}
+
+x-java-env: &java-env
+  TZ: Asia/Ho_Chi_Minh
+  SPRING_CONFIG_IMPORT: configserver:http://config-service:8888
+  SPRING_PROFILES_ACTIVE: staging
+  EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-service:8761/eureka/
+  EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+  EUREKA_INSTANCE_LEASE_RENEWAL_INTERVAL_IN_SECONDS: "10"
+  EUREKA_CLIENT_INITIAL_INSTANCE_INFO_REPLICATION_INTERVAL_SECONDS: "5"
+  EUREKA_CLIENT_REGISTRY_FETCH_INTERVAL_SECONDS: "5"
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+  KEYCLOAK_ISSUER_URI: https://${DOMAIN:?Set DOMAIN}/auth/realms/nexus
+  KEYCLOAK_JWK_SET_URI: http://auth-service:8080/auth/realms/nexus/protocol/openid-connect/certs
+  KEYCLOAK_SERVER_URL: http://auth-service:8080/auth
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+  DB_PORT: "5432"
+  DB_USERNAME: ${DB_USERNAME:?Set DB_USERNAME}
+  DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+  MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info
+
+x-app: &app
+  <<: *runtime
+  init: true
+  mem_limit: 512m
+  stop_grace_period: 30s
+  healthcheck:
+    test: [CMD, /usr/local/bin/nexus-healthcheck]
+    interval: 10s
+    timeout: 5s
+    retries: 12
+    start_period: 60s
+
+x-pg: &pg
+  <<: *runtime
+  image: pgvector/pgvector:pg18
+  mem_limit: 256m
+  shm_size: 128m
+  environment:
+    POSTGRES_USER: ${DB_USERNAME:?Set DB_USERNAME}
+    POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+  command: [postgres, -c, shared_buffers=64MB, -c, max_connections=60]
+  healthcheck:
+    test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d postgres']
+    interval: 5s
+    timeout: 3s
+    retries: 15
+
+services:
+  postgres-user:
+    <<: *pg
+    volumes:
+      - pg-user:/var/lib/postgresql
+      - ./db/user.sql:/docker-entrypoint-initdb.d/01-databases.sql:ro
+
+  postgres-catalog:
+    <<: *pg
+    volumes:
+      - pg-catalog:/var/lib/postgresql
+      - ./db/catalog.sql:/docker-entrypoint-initdb.d/01-databases.sql:ro
+
+  postgres-commerce:
+    <<: *pg
+    volumes:
+      - pg-commerce:/var/lib/postgresql
+      - ./db/commerce.sql:/docker-entrypoint-initdb.d/01-databases.sql:ro
+
+  postgres-auction:
+    <<: *pg
+    volumes:
+      - pg-auction:/var/lib/postgresql
+      - ./db/auction.sql:/docker-entrypoint-initdb.d/01-databases.sql:ro
+
+  postgres-inventory:
+    <<: *pg
+    volumes:
+      - pg-inventory:/var/lib/postgresql
+      - ./db/inventory.sql:/docker-entrypoint-initdb.d/01-databases.sql:ro
+
+  postgres-operations:
+    <<: *pg
+    volumes:
+      - pg-operations:/var/lib/postgresql
+      - ./db/operations.sql:/docker-entrypoint-initdb.d/01-databases.sql:ro
+
+  kafka:
+    <<: *runtime
+    image: apache/kafka:4.3.1
+    mem_limit: 768m
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_HEAP_OPTS: -Xms128m -Xmx384m
+    volumes: [kafka-data:/var/lib/kafka/data]
+    healthcheck:
+      test: [CMD-SHELL, /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+
+  kafka-init:
+    image: apache/kafka:4.3.1
+    networks: [backend]
+    mem_limit: 384m
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_HEAP_OPTS: -Xms32m -Xmx128m
+    entrypoint: [bash, /opt/nexus/create-topics.sh]
+    volumes:
+      - ../local-dev/create-topics.sh:/opt/nexus/create-topics.sh:ro
+      - ../local-dev/kafka:/opt/nexus/kafka:ro
+    depends_on:
+      kafka: {condition: service_healthy}
+    restart: "no"
+
+  redis:
+    <<: *runtime
+    image: redis:8-alpine
+    mem_limit: 192m
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+    command: [sh, -c, 'exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes --maxmemory 96mb --maxmemory-policy noeviction']
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  zipkin:
+    <<: *runtime
+    image: openzipkin/zipkin:3.6.1
+    mem_limit: 384m
+    environment:
+      JAVA_OPTS: -Xms64m -Xmx192m
+      STORAGE_TYPE: mem
+    healthcheck:
+      test: [CMD, docker-healthcheck]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  realm-init:
+    image: node:24-bookworm-slim
+    networks: [backend]
+    mem_limit: 128m
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN}
+      MAIL_HOST: ${MAIL_HOST:?Set MAIL_HOST}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_FROM: ${MAIL_FROM:?Set MAIL_FROM}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_AUTH: ${MAIL_AUTH:-true}
+      MAIL_STARTTLS: ${MAIL_STARTTLS:-true}
+    entrypoint: [node, /opt/nexus/prepare-realm.mjs]
+    volumes:
+      - ../local-dev/keycloak/realm-nexus.json:/input/realm.json:ro
+      - ./scripts/prepare-realm.mjs:/opt/nexus/prepare-realm.mjs:ro
+      - realm-import:/output
+    restart: "no"
+
+  auth-service:
+    <<: *runtime
+    image: quay.io/keycloak/keycloak:26.7.5
+    mem_limit: 768m
+    command: [start, --import-realm]
+    environment:
+      JAVA_OPTS_KC_HEAP: -Xms128m -Xmx384m
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres-user:5432/auth_db
+      KC_DB_USERNAME: ${DB_USERNAME:?Set DB_USERNAME}
+      KC_DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:?Set KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Set KEYCLOAK_ADMIN_PASSWORD}
+      KC_HOSTNAME: https://${DOMAIN:?Set DOMAIN}/auth
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "true"
+    volumes:
+      - realm-import:/opt/keycloak/data/import:ro
+      - ../local-dev/keycloak/themes/nexus:/opt/keycloak/themes/nexus:ro
+    depends_on:
+      postgres-user: {condition: service_healthy}
+      realm-init: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, bash, -ec, 'exec 3<>/dev/tcp/127.0.0.1/9000; printf "GET /auth/health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3; read -r status <&3; [[ $$status == *" 200 "* ]]']
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 60s
+
+  auth-seed:
+    image: quay.io/keycloak/keycloak:26.7.5
+    profiles: [tools]
+    networks: [backend]
+    mem_limit: 512m
+    environment:
+      JAVA_OPTS_KC_HEAP: -Xms32m -Xmx192m
+      KEYCLOAK_SERVER_URL: http://auth-service:8080/auth
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:?Set KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Set KEYCLOAK_ADMIN_PASSWORD}
+      KEYCLOAK_USER_SERVICE_CLIENT_SECRET: ${KEYCLOAK_USER_SERVICE_CLIENT_SECRET:?Set KEYCLOAK_USER_SERVICE_CLIENT_SECRET}
+      KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET: ${KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET:?Set KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?Set DEMO_ADMIN_PASSWORD}
+      DEMO_SELLER_PASSWORD: ${DEMO_SELLER_PASSWORD:?Set DEMO_SELLER_PASSWORD}
+      DEMO_BUYER_PASSWORD: ${DEMO_BUYER_PASSWORD:?Set DEMO_BUYER_PASSWORD}
+    entrypoint: [bash, /opt/nexus/seed-users.sh, --container]
+    volumes:
+      - ../local-dev/keycloak/seed-users.sh:/opt/nexus/seed-users.sh:ro
+    depends_on:
+      auth-service: {condition: service_healthy}
+    restart: "no"
+
+  config-service:
+    <<: *app
+    image: ${IMAGE_PREFIX:-nexus-staging}/config-service:${RELEASE_TAG:?Set RELEASE_TAG}
+    build:
+      context: ../..
+      dockerfile: infra/staging/Dockerfile
+      args: {SERVICE: config-service}
+    mem_limit: 384m
+    environment:
+      <<: *java-env
+      SERVER_PORT: "8888"
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx128m -XX:+ExitOnOutOfMemoryError
+      SPRING_CONFIG_IMPORT: ""
+      SPRING_PROFILES_ACTIVE: "native,staging"
+    depends_on:
+      zipkin: {condition: service_healthy}
+
+  discovery-service:
+    <<: *app
+    image: ${IMAGE_PREFIX:-nexus-staging}/discovery-service:${RELEASE_TAG:?Set RELEASE_TAG}
+    build:
+      context: ../..
+      dockerfile: infra/staging/Dockerfile
+      args: {SERVICE: discovery-service}
+    mem_limit: 384m
+    environment:
+      <<: *java-env
+      SERVER_PORT: "8761"
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx128m -XX:+ExitOnOutOfMemoryError
+
+    depends_on:
+      config-service: {condition: service_healthy}
+
+  api-gateway:
+    <<: *app
+    image: ${IMAGE_PREFIX:-nexus-staging}/api-gateway:${RELEASE_TAG:?Set RELEASE_TAG}
+    build:
+      context: ../..
+      dockerfile: infra/staging/Dockerfile
+      args: {SERVICE: api-gateway}
+    mem_limit: 512m
+    environment:
+      <<: *java-env
+      SERVER_PORT: "8080"
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m -XX:+ExitOnOutOfMemoryError
+      FRONTEND_ORIGIN: "https://${DOMAIN:?Set DOMAIN}"
+      SERVER_FORWARD_HEADERS_STRATEGY: "framework"
+      SESSION_COOKIE_SECURE: "true"
+    depends_on:
+      discovery-service: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      auth-service: {condition: service_healthy}
+
+  user-service:
+    <<: *app
+    image: ${IMAGE_PREFIX:-nexus-staging}/user-service:${RELEASE_TAG:?Set RELEASE_TAG}
+    build:
+      context: ../..
+      dockerfile: infra/staging/Dockerfile
+      args: {SERVICE: user-service}
+    mem_limit: 512m
+    environment:
+      <<: *java-env
+      SERVER_PORT: "8081"
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m -XX:+ExitOnOutOfMemoryError
+      DB_HOST: "postgres-user"
+      KEYCLOAK_USER_SERVICE_CLIENT_SECRET: "${KEYCLOAK_USER_SERVICE_CLIENT_SECRET:?Set KEYCLOAK_USER_SERVICE_CLIENT_SECRET}"
+    depends_on:
+      discovery-service: {condition: service_healthy}
+      postgres-user: {condition: service_healthy}
+      auth-service: {condition: service_healthy}
+      kafka-init: {condition: service_completed_successfully}
+
+  catalog-service:
+    <<: *app
+    image: ${IMAGE_PREFIX:-nexus-staging}/catalog-service:${RELEASE_TAG:?Set RELEASE_TAG}
+    build:
+      context: ../..
+      dockerfile: infra/staging/Dockerfile
+      args: {SERVICE: catalog-service}
+    mem_limit: 640m
+    environment:
+      <<: *java-env
+      SERVER_PORT: "8082"
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx384m -XX:+ExitOnOutOfMemoryError
+      DB_HOST: "postgres-catalog"
+      COMMERCE_SERVICE_URL: "http://commerce-service:8083"
+      SUPABASE_URL: "${SUPABASE_URL:-}"
+      SUPABASE_SERVICE_KEY: "${SUPABASE_SERVICE_KEY:-}"
+      SUPABASE_BUCKET: "${SUPABASE_BUCKET:-product-images}"
+    depends_on:
+      discovery-service: {condition: service_healthy}
+      postgres-catalog: {condition: service_healthy}
+      auth-service: {condition: service_healthy}
+      kafka-init: {condition: service_completed_successfully}
+
+  commerce-service:
+    <<: *app
+    image: ${IMAGE_PREFIX:-nexus-staging}/commerce-service:${RELEASE_TAG:?Set RELEASE_TAG}
+    build:
+      context: ../..
+      dockerfile: infra/staging/Dockerfile
+      args: {SERVICE: commerce-service}
+    mem_limit: 640m
+    environment:
+      <<: *java-env
+      SERVER_PORT: "8083"
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx384m -XX:+ExitOnOutOfMemoryError
+      DB_HOST: "postgres-commerce"
+      CART_GUEST_TOKEN_SECRET: "${CART_GUEST_TOKEN_SECRET:?Set CART_GUEST_TOKEN_SECRET}"
+    depends_on:
+      discovery-service: {condition: service_healthy}
+      postgres-commerce: {condition: service_healthy}
+      auth-service: {condition: service_healthy}
+      kafka-init: {condition: service_completed_successfully}
+
+  auction-service:
+    <<: *app
+    image: ${IMAGE_PREFIX:-nexus-staging}/auction-service:${RELEASE_TAG:?Set RELEASE_TAG}
+    build:
+      context: ../..
+      dockerfile: infra/staging/Dockerfile
+      args: {SERVICE: auction-service}
+    mem_limit: 640m
+    environment:
+      <<: *java-env
+      SERVER_PORT: "8084"
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx384m -XX:+ExitOnOutOfMemoryError
+      DB_HOST: "postgres-auction"
+    depends_on:
+      discovery-service: {condition: service_healthy}
+      postgres-auction: {condition: service_healthy}
+      auth-service: {condition: service_healthy}
+      kafka-init: {condition: service_completed_successfully}
+
+  inventory-service:
+    <<: *app
+    image: ${IMAGE_PREFIX:-nexus-staging}/inventory-service:${RELEASE_TAG:?Set RELEASE_TAG}
+    build:
+      context: ../..
+      dockerfile: infra/staging/Dockerfile
+      args: {SERVICE: inventory-service}
+    mem_limit: 512m
+    environment:
+      <<: *java-env
+      SERVER_PORT: "8085"
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m -XX:+ExitOnOutOfMemoryError
+      DB_HOST: "postgres-inventory"
+    depends_on:
+      discovery-service: {condition: service_healthy}
+      postgres-inventory: {condition: service_healthy}
+      auth-service: {condition: service_healthy}
+      kafka-init: {condition: service_completed_successfully}
+
+  notification-service:
+    <<: *app
+    image: ${IMAGE_PREFIX:-nexus-staging}/notification-service:${RELEASE_TAG:?Set RELEASE_TAG}
+    build:
+      context: ../..
+      dockerfile: infra/staging/Dockerfile
+      args: {SERVICE: notification-service}
+    mem_limit: 512m
+    environment:
+      <<: *java-env
+      SERVER_PORT: "8086"
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m -XX:+ExitOnOutOfMemoryError
+      DB_HOST: "postgres-operations"
+      KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET: "${KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET:?Set KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET}"
+      KEYCLOAK_REALM_URL: "http://auth-service:8080/auth/realms/nexus"
+      NEXUS_ENVIRONMENT: "staging"
+      MAIL_HOST: "${MAIL_HOST:?Set MAIL_HOST}"
+      MAILPIT_SMTP_PORT: "${MAIL_PORT:-587}"
+      SPRING_MAIL_USERNAME: "${MAIL_USERNAME:-}"
+      SPRING_MAIL_PASSWORD: "${MAIL_PASSWORD:-}"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH: "${MAIL_AUTH:-true}"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: "${MAIL_STARTTLS:-true}"
+    depends_on:
+      discovery-service: {condition: service_healthy}
+      postgres-operations: {condition: service_healthy}
+      auth-service: {condition: service_healthy}
+      kafka-init: {condition: service_completed_successfully}
+
+  payment-service:
+    <<: *app
+    image: ${IMAGE_PREFIX:-nexus-staging}/payment-service:${RELEASE_TAG:?Set RELEASE_TAG}
+    build:
+      context: ../..
+      dockerfile: infra/staging/Dockerfile
+      args: {SERVICE: payment-service}
+    mem_limit: 512m
+    environment:
+      <<: *java-env
+      SERVER_PORT: "8087"
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m -XX:+ExitOnOutOfMemoryError
+      DB_HOST: "postgres-commerce"
+      SEPAY_BANK_ACCOUNT: "${SEPAY_BANK_ACCOUNT:-}"
+      SEPAY_ACCOUNT_NAME: "${SEPAY_ACCOUNT_NAME:-}"
+      SEPAY_BANK_ID: "${SEPAY_BANK_ID:-970415}"
+      SEPAY_VIETQR_TEMPLATE: "${SEPAY_VIETQR_TEMPLATE:-compact}"
+      SEPAY_TRANSFER_CONTENT_PREFIX: "${SEPAY_TRANSFER_CONTENT_PREFIX:-SEVQR}"
+      SEPAY_WEBHOOK_SECRET: "${SEPAY_WEBHOOK_SECRET:?Set SEPAY_WEBHOOK_SECRET}"
+      PAYOUT_ACCOUNT_ENCRYPTION_KEY: "${PAYOUT_ACCOUNT_ENCRYPTION_KEY:?Set PAYOUT_ACCOUNT_ENCRYPTION_KEY}"
+      PAYOUT_CALLBACK_SECRET: "${PAYOUT_CALLBACK_SECRET:?Set PAYOUT_CALLBACK_SECRET}"
+      PAYOUT_PROVIDER: "${PAYOUT_PROVIDER:-sandbox}"
+      PAYOUT_PROVIDER_URL: "${PAYOUT_PROVIDER_URL:-}"
+      PAYOUT_PROVIDER_TOKEN: "${PAYOUT_PROVIDER_TOKEN:-}"
+    depends_on:
+      discovery-service: {condition: service_healthy}
+      postgres-commerce: {condition: service_healthy}
+      auth-service: {condition: service_healthy}
+      kafka-init: {condition: service_completed_successfully}
+
+  shipment-service:
+    <<: *app
+    image: ${IMAGE_PREFIX:-nexus-staging}/shipment-service:${RELEASE_TAG:?Set RELEASE_TAG}
+    build:
+      context: ../..
+      dockerfile: infra/staging/Dockerfile
+      args: {SERVICE: shipment-service}
+    mem_limit: 512m
+    environment:
+      <<: *java-env
+      SERVER_PORT: "8088"
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m -XX:+ExitOnOutOfMemoryError
+      DB_HOST: "postgres-operations"
+      SHIPPING_CARRIER: "${SHIPPING_CARRIER:-NONE}"
+      GHN_WEBHOOK_SECRET: "${GHN_WEBHOOK_SECRET:-}"
+      GHN_BASE_URL: "${GHN_BASE_URL:-https://dev-online-gateway.ghn.vn}"
+      GHN_TOKEN: "${GHN_TOKEN:-}"
+      GHN_SHOP_ID: "${GHN_SHOP_ID:-0}"
+      SHIPPING_DEFAULT_WAREHOUSE_ID: "${SHIPPING_DEFAULT_WAREHOUSE_ID:-}"
+      SHIPPING_PICKUP_PROVINCE_CODE: "${SHIPPING_PICKUP_PROVINCE_CODE:-}"
+      SHIPPING_PICKUP_WARD_CODE: "${SHIPPING_PICKUP_WARD_CODE:-}"
+      SHIPPING_PICKUP_ADDRESS_LINE: "${SHIPPING_PICKUP_ADDRESS_LINE:-}"
+    depends_on:
+      discovery-service: {condition: service_healthy}
+      postgres-operations: {condition: service_healthy}
+      auth-service: {condition: service_healthy}
+      kafka-init: {condition: service_completed_successfully}
+
+  rating-service:
+    <<: *app
+    image: ${IMAGE_PREFIX:-nexus-staging}/rating-service:${RELEASE_TAG:?Set RELEASE_TAG}
+    build:
+      context: ../..
+      dockerfile: infra/staging/Dockerfile
+      args: {SERVICE: rating-service}
+    mem_limit: 512m
+    environment:
+      <<: *java-env
+      SERVER_PORT: "8089"
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m -XX:+ExitOnOutOfMemoryError
+      DB_HOST: "postgres-operations"
+    depends_on:
+      discovery-service: {condition: service_healthy}
+      postgres-operations: {condition: service_healthy}
+      auth-service: {condition: service_healthy}
+      kafka-init: {condition: service_completed_successfully}
+
+  frontend:
+    <<: *runtime
+    image: ${IMAGE_PREFIX:-nexus-staging}/frontend:${RELEASE_TAG:?Set RELEASE_TAG}
+    build:
+      context: ../../../fe-project-nexus
+      args: {PUBLIC_ORIGIN: 'https://${DOMAIN:?Set DOMAIN}'}
+    mem_limit: 512m
+    init: true
+    environment:
+      NODE_OPTIONS: --max-old-space-size=256
+      API_PROXY_TARGET: http://api-gateway:8080
+    healthcheck:
+      test: [CMD, node, -e, 'fetch("http://127.0.0.1:3000/").then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))']
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  nginx:
+    <<: *runtime
+    image: nginx:1.28-alpine
+    mem_limit: 96m
+    networks: [backend, edge]
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN}
+      NGINX_ENVSUBST_FILTER: ^DOMAIN$
+    volumes:
+      - ./nginx.conf:/etc/nginx/templates/default.conf.template:ro
+      - acme-web:/var/www/acme:ro
+      - acme-data:/etc/letsencrypt:ro
+    # Reload renewed certificates without mounting the Docker socket anywhere.
+    command: [/bin/sh, -c, 'nginx -g "daemon off;" & pid=$$!; trap "kill -TERM $$pid" TERM INT; while kill -0 $$pid 2>/dev/null; do sleep 21600 & wait $$!; nginx -t && nginx -s reload; done; wait $$pid']
+    healthcheck:
+      test: [CMD-SHELL, 'nginx -t && wget -q --spider http://127.0.0.1/.well-known/acme-challenge/health']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  certbot:
+    image: certbot/certbot:v4.0.0
+    mem_limit: 128m
+    networks: [edge]
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL}
+    entrypoint: [/bin/sh, -c]
+    command: ['trap "exit 0" TERM INT; while :; do certbot renew --webroot -w /var/www/acme --quiet; sleep 43200 & wait $$!; done']
+    volumes:
+      - acme-web:/var/www/acme
+      - acme-data:/etc/letsencrypt
+    restart: unless-stopped
+
+networks:
+  backend: {}
+  edge: {}
+
+volumes:
+  pg-user: {}
+  pg-catalog: {}
+  pg-commerce: {}
+  pg-auction: {}
+  pg-inventory: {}
+  pg-operations: {}
+  kafka-data: {}
+  redis-data: {}
+  realm-import: {}
+  acme-web: {}
+  acme-data: {}
