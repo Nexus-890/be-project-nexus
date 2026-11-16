@@ -4,6 +4,7 @@ import com.group5.commerceservice.order.entity.Order;
 import com.group5.commerceservice.order.entity.OrderGroup;
 import com.group5.commerceservice.order.entity.OrderItem;
 import com.group5.common_events.EventEnvelopeFactory;
+import com.group5.commerceservice.promotion.VoucherLifecycleService.VoucherEvent;
 import com.group5.common_events.Topics;
 import com.group5.common_outbox.OutboxWriter;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +13,8 @@ import org.springframework.stereotype.Component;
 import java.math.RoundingMode;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -48,10 +51,20 @@ public class OrderEventPublisher {
                 envelopes.create("OrderCancelled", payload.orderId().toString(), payload));
     }
 
+    public void checkoutStockReleaseRequested(UUID orderId) {
+        outbox.write("Order", Topics.COMMERCE, envelopes.create(
+                "CheckoutStockReleaseRequested", orderId.toString(), Map.of("orderId", orderId)));
+    }
+
     /** Ghi một OrderPaid cho từng đơn vào outbox trong transaction đang chuyển trạng thái PAID. */
     public void orderPaid(OrderPaid payload) {
         outbox.write("Order", Topics.COMMERCE,
                 envelopes.create("OrderPaid", payload.orderId().toString(), payload));
+    }
+
+    public void voucherChanged(String eventType, VoucherEvent payload) {
+        outbox.write("VoucherUsage", Topics.COMMERCE,
+                envelopes.create(eventType, payload.usageId().toString(), payload));
     }
 
     public void orderCompleted(OrderCompleted payload) {

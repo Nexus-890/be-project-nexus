@@ -29,6 +29,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import com.group5.commerceservice.promotion.PromotionTestConfig;
 import org.springframework.data.domain.AuditorAware;
 import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
@@ -62,7 +63,7 @@ class OrderManagementReadTest {
     // An explicit local PostgreSQL URL can run the same integration checks without Docker.
     private static final String POSTGRES_URL = System.getProperty("nexus.test.postgres.url");
     private static final PostgreSQLContainer POSTGRES = POSTGRES_URL == null
-            ? new PostgreSQLContainer("postgres:18-alpine") : null;
+            ? new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine") : null;
     private static final OffsetDateTime AT = OffsetDateTime.parse("2026-11-03T10:00:00Z");
     private static final CurrentUser ADMIN = user("ADMIN");
     private static final CurrentUser SUPPORT = user("SUPPORT_STAFF");
@@ -384,7 +385,7 @@ class OrderManagementReadTest {
     @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses = {CartRepository.class, OrderRepository.class})
     @EnableJpaAuditing(auditorAwareRef = "auditor")
-    @Import({OrderService.class, OrderStateMachine.class, PricingService.class})
+    @Import({PromotionTestConfig.class, OrderService.class, OrderStateMachine.class, PricingService.class})
     static class JpaConfig {
         // Fixture báo giá tách riêng khỏi transport Shipping; các test này kiểm nghiệp vụ Order hiện hữu.
         @Bean

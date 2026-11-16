@@ -4,6 +4,12 @@ import com.group5.commerceservice.cart.dto.CatalogClient;
 import com.group5.commerceservice.cart.dto.CatalogSkuResponse;
 import com.group5.commerceservice.cart.entity.Cart;
 import com.group5.commerceservice.cart.repository.CartRepository;
+import com.group5.commerceservice.cart.repository.CartItemRepository;
+import com.group5.commerceservice.cart.service.CartPricingService;
+import com.group5.commerceservice.checkout.dto.CheckoutPreviewRequest;
+import com.group5.commerceservice.order.dto.request.CancelOrderRequest;
+import com.group5.commerceservice.promotion.VoucherCheckoutService;
+import com.group5.commerceservice.shared.config.CheckoutProperties;
 import com.group5.commerceservice.order.dto.request.CreateOrderRequest;
 import com.group5.commerceservice.order.entity.Order;
 import com.group5.commerceservice.order.entity.OrderGroup;
@@ -31,6 +37,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import com.group5.commerceservice.promotion.PromotionTestConfig;
 import org.springframework.data.domain.AuditorAware;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
@@ -56,6 +63,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -67,7 +79,7 @@ import static org.mockito.Mockito.when;
 
 @SpringJUnitConfig(OrderCreationOutboxTest.JpaConfig.class)
 class OrderCreationOutboxTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     private static final CreateOrderRequest REQUEST = new CreateOrderRequest(new CreateOrderRequest.ShippingAddress(
             "Buyer", "0900000000", "1 Main Street", "1003646", "1000001", "VN"), "SEPAY");
 
@@ -76,6 +88,7 @@ class OrderCreationOutboxTest {
     }
 
     @Autowired private OrderService orderService;
+    @Autowired private CartPricingService cartPricing;
     @Autowired private OrderEventPublisher publisher;
     @Autowired private CatalogClient catalogClient;
     @Autowired private InventoryClient inventoryClient;
@@ -215,6 +228,191 @@ class OrderCreationOutboxTest {
         }
     }
 
+    @Test
+    void keepsPricingPreviewAndOrderInSyncAndPersistsEveryAllocation() {
+        Fixture fixture = cart();
+        UUID voucher = voucher(null, null);
+        claim(voucher, fixture.buyer().id());
+        List<String> codes = List.of(voucher.toString());
+
+        var pricing = cartPricing.pricing(fixture.buyer(), null, codes);
+        var preview = cartPricing.previewCheckout(fixture.buyer(),
+                new CheckoutPreviewRequest(REQUEST.shippingAddress(), REQUEST.paymentMethod(), null, codes));
+        String idempotencyKey = UUID.randomUUID().toString();
+        var request = new CreateOrderRequest(REQUEST.shippingAddress(), REQUEST.paymentMethod(), null, codes);
+        var placed = orderService.create(fixture.buyer(), idempotencyKey, request);
+        UUID group = placed.response().orderGroupId();
+        assertThat(pricing.discountAmount()).isEqualByComparingTo("10");
+        assertThat(preview.discountAmount()).isEqualByComparingTo(pricing.discountAmount());
+        assertThat(placed.response().totalAmount()).isEqualByComparingTo(preview.total());
+        assertThat(placed.response().orders()).allSatisfy(order -> {
+            assertThat(order.vouchers()).singleElement().satisfies(entry -> {
+                assertThat(entry.code()).isEqualTo(voucher.toString().toUpperCase(java.util.Locale.ROOT));
+                assertThat(entry.discountAmount()).isEqualByComparingTo(order.discountAmount());
+                assertThat(entry.platformFunded()).isEqualByComparingTo(order.discountAmount());
+                assertThat(entry.sellerFunded()).isZero();
+            });
+        });
+        assertThat(orderService.listOwn(fixture.buyer(), null, 0, 10).getContent())
+                .containsExactlyInAnyOrderElementsOf(placed.response().orders());
+        assertThat(count("""
+                SELECT count(*) FROM promo_voucher_usages u JOIN orders o ON u.order_id = o.id
+                WHERE o.order_group_id = ? AND u.status = 'RESERVED' AND u.reserved_until = o.payment_due_at
+                """, group)).isEqualTo(2);
+        assertThat(count("""
+                SELECT count(*) FROM promo_voucher_usage_allocations a
+                JOIN promo_voucher_usages u ON a.voucher_usage_id = u.id JOIN orders o ON u.order_id = o.id
+                WHERE o.order_group_id = ? AND a.discount_amount = a.seller_funded_amount + a.platform_funded_amount
+                """, group)).isEqualTo(3);
+        assertThat(jdbc().queryForObject("""
+                SELECT sum(discount_amount) FROM promo_voucher_usage_allocations
+                WHERE order_item_id IN (
+                    SELECT i.id FROM order_items i JOIN orders o ON o.id = i.order_id WHERE o.order_group_id = ?)
+                """, BigDecimal.class, group)).isEqualByComparingTo("10");
+
+        var replay = orderService.create(fixture.buyer(), idempotencyKey,
+                new CreateOrderRequest(REQUEST.shippingAddress(), REQUEST.paymentMethod(), voucher.toString(), null));
+        assertThat(replay.created()).isFalse();
+        assertThat(replay.response()).isEqualTo(placed.response());
+        assertThatThrownBy(() -> orderService.create(fixture.buyer(), idempotencyKey, REQUEST))
+                .isInstanceOf(DomainException.class).extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo("COMMERCE_IDEMPOTENCY_CONFLICT");
+    }
+
+    @Test
+    void fiftyCheckoutTransactionsCannotOversellUsageOrDiscountBudget() throws Exception {
+        checkConcurrency(10, null, 10);
+        checkConcurrency(50, new BigDecimal("73"), 7);
+    }
+
+    @Test
+    void sharedVoucherCheckoutsReachSlowInventoryTogetherAndReleaseTheQuotaLosers() throws Exception {
+        UUID voucher = voucher(10, null);
+        List<Fixture> buyers = IntStream.range(0, 20).mapToObj(i -> cart(false)).toList();
+        buyers.forEach(fixture -> claim(voucher, fixture.buyer().id()));
+        var atInventory = new CountDownLatch(buyers.size());
+        var heldOrders = java.util.concurrent.ConcurrentHashMap.<UUID>newKeySet();
+        when(inventoryClient.reserve(any(), any())).thenAnswer(call -> {
+            List<InventoryClient.Item> items = call.getArgument(1);
+            items.forEach(item -> heldOrders.add(item.orderId()));
+            atInventory.countDown();
+            assertThat(atInventory.await(12, TimeUnit.SECONDS))
+                    .as("all checkouts reach Inventory before any takes voucher quota").isTrue();
+            Thread.sleep(200);
+            return new InventoryClient.Reservation(items.stream().map(item -> UUID.randomUUID()).toList(),
+                    UUID.randomUUID(), java.time.OffsetDateTime.now().plusMinutes(15));
+        });
+        var request = new CreateOrderRequest(REQUEST.shippingAddress(), REQUEST.paymentMethod(), voucher.toString(), null);
+        int created = 0;
+        try (var workers = Executors.newFixedThreadPool(buyers.size())) {
+            var attempts = buyers.stream().map(fixture -> workers.submit((Callable<Boolean>) () -> {
+                try {
+                    return orderService.create(fixture.buyer(), UUID.randomUUID().toString(), request).created();
+                } catch (DomainException failure) {
+                    assertThat(failure.getErrorCode()).isEqualTo("COMMERCE_VOUCHER_NOT_APPLICABLE");
+                    return false;
+                }
+            })).toList();
+            for (var attempt : attempts) if (attempt.get(30, TimeUnit.SECONDS)) created++;
+        }
+        assertThat(created).isEqualTo(10);
+        assertThat(heldOrders).hasSize(20);
+        var releases = jdbc().queryForList("""
+                SELECT aggregate_id::uuid FROM outbox
+                WHERE event_type = 'CheckoutStockReleaseRequested'
+                """, UUID.class).stream().filter(heldOrders::contains).toList();
+        assertThat(releases).hasSize(10).doesNotHaveDuplicates();
+        for (UUID order : releases) {
+            assertThat(count("SELECT count(*) FROM orders WHERE id = ?", order)).isZero();
+        }
+        assertThat(count("SELECT committed_uses FROM promo_vouchers WHERE id = ?", voucher)).isEqualTo(10);
+    }
+
+    @Test
+    void cancellationAndExpiryReleaseReservationsAndRetainAValidClaim() {
+        var buyer = cart(false).buyer();
+        UUID voucher = voucher(1, BigDecimal.TEN);
+        claim(voucher, buyer.id());
+        var request = new CreateOrderRequest(REQUEST.shippingAddress(), REQUEST.paymentMethod(), voucher.toString(), null);
+        var order = orderService.create(buyer, UUID.randomUUID().toString(), request).response().orders().getFirst();
+
+        orderService.cancel(buyer, order.orderId(), new CancelOrderRequest("Buyer changed their mind"));
+        assertThat(usageStatus(order.orderId())).isEqualTo("RELEASED");
+        assertThat(voucherEvents(order.orderId(), "VoucherReleased")).isEqualTo(1);
+        assertThat(jdbc().queryForObject("SELECT status FROM promo_customer_vouchers WHERE voucher_id = ? AND customer_id = ?",
+                String.class, voucher, buyer.id())).isEqualTo("CLAIMED");
+
+        var expiring = cart(false).buyer();
+        claim(voucher, expiring.id());
+        var expiringOrder = orderService.create(expiring, UUID.randomUUID().toString(), request).response().orders().getFirst();
+        jdbc().update("UPDATE order_groups SET due_at = now() - interval '1 second' WHERE id = ?", expiringOrder.orderGroupId());
+        jdbc().update("UPDATE orders SET payment_due_at = now() - interval '1 second' WHERE id = ?", expiringOrder.orderId());
+        jdbc().update("UPDATE promo_voucher_usages SET reserved_until = now() - interval '1 second' WHERE order_id = ?",
+                expiringOrder.orderId());
+        assertThat(orderService.expire(expiringOrder.orderGroupId())).containsExactly(expiringOrder.orderId());
+        assertThat(usageStatus(expiringOrder.orderId())).isEqualTo("EXPIRED");
+        assertThat(voucherEvents(expiringOrder.orderId(), "VoucherReleased")).isEqualTo(1);
+        assertThat(count("SELECT committed_uses FROM promo_vouchers WHERE id = ?", voucher)).isZero();
+        assertThat(orderService.expire(expiringOrder.orderGroupId())).isEmpty();
+    }
+
+    private void checkConcurrency(int usageLimit, BigDecimal budget, int expected) throws Exception {
+        UUID voucher = voucher(usageLimit, budget);
+        List<Fixture> buyers = IntStream.range(0, 50).mapToObj(i -> cart(false)).toList();
+        buyers.forEach(fixture -> claim(voucher, fixture.buyer().id()));
+        var request = new CreateOrderRequest(REQUEST.shippingAddress(), REQUEST.paymentMethod(), voucher.toString(), null);
+        var start = new CountDownLatch(1);
+        long created = 0;
+        try (var workers = Executors.newFixedThreadPool(50)) {
+            var attempts = buyers.stream().map(fixture -> workers.submit((Callable<Boolean>) () -> {
+                start.await();
+                try {
+                    return orderService.create(fixture.buyer(), UUID.randomUUID().toString(), request).created();
+                } catch (DomainException rejected) {
+                    assertThat(rejected.getErrorCode()).isEqualTo("COMMERCE_VOUCHER_NOT_APPLICABLE");
+                    return false;
+                }
+            })).toList();
+            start.countDown();
+            for (var attempt : attempts) {
+                if (attempt.get(90, TimeUnit.SECONDS)) created++;
+            }
+        }
+        assertThat(created).isEqualTo(expected);
+        assertThat(count("SELECT count(*) FROM promo_voucher_usages u JOIN promo_customer_vouchers c ON u.customer_voucher_id = c.id "
+                + "WHERE c.voucher_id = ? AND u.status = 'RESERVED'", voucher)).isEqualTo(expected);
+        assertThat(jdbc().queryForObject("SELECT committed_discount FROM promo_vouchers WHERE id = ?", BigDecimal.class, voucher))
+                .isEqualByComparingTo(BigDecimal.TEN.multiply(BigDecimal.valueOf(expected)));
+    }
+
+    private UUID voucher(Integer usageLimit, BigDecimal budget) {
+        UUID id = UUID.randomUUID();
+        jdbc().update("""
+                INSERT INTO promo_vouchers (id, code, name, source_type, discount_type, discount_value, funding_type,
+                      product_scope, usage_limit, discount_budget, claim_start_at, claim_end_at, valid_from, valid_until, status)
+                VALUES (?, upper(?), 'Checkout voucher', 'PLATFORM', 'FIXED', 10, 'PLATFORM', 'ALL', ?, ?,
+                      now() - interval '1 day', now() + interval '1 day',
+                      now() - interval '1 day', now() + interval '1 day', 'ACTIVE')
+                """, id, id.toString(), usageLimit, budget);
+        return id;
+    }
+
+    private void claim(UUID voucher, UUID buyer) {
+        jdbc().update("""
+                INSERT INTO promo_customer_vouchers (customer_id, voucher_id, status, expires_at)
+                SELECT ?, id, 'CLAIMED', valid_until FROM promo_vouchers WHERE id = ?
+                """, buyer, voucher);
+    }
+
+    private String usageStatus(UUID order) {
+        return jdbc().queryForObject("SELECT status FROM promo_voucher_usages WHERE order_id = ?", String.class, order);
+    }
+
+    private long voucherEvents(UUID order, String type) {
+        return count("SELECT count(*) FROM outbox WHERE event_type = ? AND payload->'payload'->>'orderId' = ?",
+                type, order.toString());
+    }
+
     private void assertOrderCreated(EventRow row, UUID groupId, UUID buyerId) {
         UUID orderId = UUID.fromString(row.aggregateId());
         Map<String, Object> stored = jdbc().queryForMap("SELECT * FROM orders WHERE id = ?", orderId);
@@ -272,13 +470,19 @@ class OrderCreationOutboxTest {
     }
 
     private Fixture cart() {
+        return cart(true);
+    }
+
+    private Fixture cart(boolean splitByShop) {
         CurrentUser buyer = new CurrentUser(UUID.randomUUID(), Set.of("BUYER"), Set.of("CHECKOUT.START", "ORDER.CREATE"));
         UUID cartId = jdbc().queryForObject("INSERT INTO carts (user_id) VALUES (?) RETURNING id", UUID.class, buyer.id());
         UUID firstSeller = UUID.randomUUID();
         UUID firstProduct = UUID.randomUUID();
-        List<Line> lines = List.of(new Line(firstSeller, firstProduct, UUID.randomUUID(), new BigDecimal("100000.25")),
+        Line first = new Line(firstSeller, firstProduct, UUID.randomUUID(), new BigDecimal("100000.25"));
+        List<Line> lines = splitByShop ? List.of(first,
                 new Line(firstSeller, firstProduct, UUID.randomUUID(), new BigDecimal("50000.00")),
-                new Line(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), new BigDecimal("200000.50")));
+                new Line(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), new BigDecimal("200000.50")))
+                : List.of(first);
         for (Line line : lines) {
             jdbc().update("INSERT INTO cart_items (cart_id, product_id, sku_id, quantity, price) VALUES (?, ?, ?, 1, ?)",
                     cartId, line.productId(), line.skuId(), line.price());
@@ -341,7 +545,7 @@ class OrderCreationOutboxTest {
     @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses = {CartRepository.class, OrderRepository.class})
     @EnableJpaAuditing(auditorAwareRef = "auditor")
-    @Import({OrderService.class, OrderStateMachine.class, PricingService.class})
+    @Import({PromotionTestConfig.class, OrderService.class, OrderStateMachine.class, PricingService.class})
     static class JpaConfig {
         // Fixture báo giá tách riêng khỏi transport Shipping; các test này kiểm nghiệp vụ Order hiện hữu.
         @Bean
@@ -354,11 +558,20 @@ class OrderCreationOutboxTest {
         }
         @Bean
         DataSource dataSource() {
-            DataSource source = new DriverManagerDataSource(POSTGRES.getJdbcUrl() + "&currentSchema=commerce_creation_outbox",
-                    POSTGRES.getUsername(), POSTGRES.getPassword());
+            String url = POSTGRES.getJdbcUrl();
+            String separator = url.contains("?") ? "&" : "?";
+            String user = POSTGRES.getUsername();
+            String password = POSTGRES.getPassword();
+            DataSource source = new DriverManagerDataSource(url + separator + "currentSchema=commerce_creation_outbox", user, password);
             Flyway.configure().dataSource(source).schemas("commerce_creation_outbox")
                     .defaultSchema("commerce_creation_outbox").load().migrate();
             return source;
+        }
+
+        @Bean
+        CartPricingService cartPricing(CartRepository carts, CartItemRepository items, CatalogClient catalog,
+                                       PricingService pricing, VoucherCheckoutService vouchers) {
+            return new CartPricingService(carts, items, catalog, new CheckoutProperties(), pricing, vouchers);
         }
 
         @Bean AuditorAware<UUID> auditor() { return new CurrentUserAuditor(); }

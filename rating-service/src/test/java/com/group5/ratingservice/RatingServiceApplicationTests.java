@@ -9,9 +9,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -33,23 +30,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "nexus.security.jwt.audience=nexus-services",
         "nexus.security.jwt.jwk-set-uri=http://127.0.0.1/.well-known/jwks.json"
 })
-class RatingServiceApplicationTests {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+class RatingServiceApplicationTests extends RatingPostgresSupport {
     private static final OffsetDateTime COMPLETED_AT = OffsetDateTime.parse("2026-10-30T10:00:00.123456Z");
 
-    static {
-        POSTGRES.start();
-    }
 
     @Autowired private JdbcTemplate jdbc;
     @Autowired private OrderCompletedConsumer consumer;
 
-    @DynamicPropertySource
-    static void database(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
-    }
 
     @BeforeEach
     void clearEventState() {

@@ -1,0 +1,165 @@
+openapi: 3.0.3
+info:
+  title: Nexus rating-service delivered API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/ratings:
+    post:
+      operationId: createRating
+      summary: Rate the seller of one completed order once
+      description: Requires REPUTATION.RATE. The JWT subject must match the buyer in the local OrderCompleted eligibility projection, and toUserId must match its seller. Missing eligibility returns 409, including while the completion event is in transit. The eligibility row lock serializes concurrent requests; the database also enforces one rating per buyer and order. A duplicate returns 409 without a second UserRated event. The rating and UserRated outbox row commit together. Reputation policy recalculation is owned by the event consumer and is not performed by this endpoint.
+      x-required-privileges: [REPUTATION.RATE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateRatingRequest'}
+      responses:
+        '201':
+          description: Persisted rating
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RatingEnvelope'}
+        '400': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '403': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+    get:
+      operationId: listRatings
+      summary: List ratings received by a user
+      description: Requires REPUTATION.VIEW. Newest first by createdAt then id descending. Empty or out-of-range pages return an empty data array with actual totals. userId identifies the recipient, not the author. Caller identity is never selected with request parameters.
+      x-required-privileges: [REPUTATION.VIEW]
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema: {type: string, format: uuid}
+        - name: page
+          in: query
+          schema: {type: integer, minimum: 0, default: 0}
+        - name: size
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 10}
+      responses:
+        '200':
+          description: Ratings and sibling page metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data, page]
+                properties:
+                  code: {type: integer, example: 0}
+                  message: {type: string, example: response success}
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/Rating'}
+                  page: {$ref: '#/components/schemas/PageInfo'}
+        '400': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '403': {$ref: '#/components/responses/Problem'}
+  /api/v1/reputations/{userId}:
+    get:
+      operationId: getReputation
+      summary: Read a persisted user reputation aggregate
+      description: Requires REPUTATION.VIEW. Returns the persisted policy aggregate. A user with no aggregate returns 404 REPUTATION_NOT_FOUND, never a fabricated score. Rating submission emits UserRated for the owning reputation projection; it does not claim synchronous policy recalculation.
+      x-required-privileges: [REPUTATION.VIEW]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Existing reputation aggregate
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {type: integer, example: 0}
+                  message: {type: string, example: response success}
+                  data: {$ref: '#/components/schemas/Reputation'}
+        '400': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '403': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+  responses:
+    Problem:
+      description: RFC 9457 Problem Details. Stable codes include RATING_NOT_ELIGIBLE, RATING_FORBIDDEN, RATING_ALREADY_EXISTS, RATING_INVALID_RECIPIENT, RATING_INVALID_QUERY and REPUTATION_NOT_FOUND. Validation uses VALIDATION_FAILED with errors[].
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/ProblemDetails'}
+  schemas:
+    CreateRatingRequest:
+      type: object
+      required: [orderId, toUserId, score]
+      properties:
+        orderId: {type: string, format: uuid}
+        toUserId: {type: string, format: uuid}
+        score: {type: integer, minimum: 1, maximum: 5}
+        comment: {type: string, nullable: true, maxLength: 1000}
+    Rating:
+      type: object
+      required: [id, fromUserId, toUserId, orderId, score, comment, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        fromUserId: {type: string, format: uuid}
+        toUserId: {type: string, format: uuid}
+        orderId: {type: string, format: uuid}
+        score: {type: integer, minimum: 1, maximum: 5}
+        comment: {type: string, nullable: true, maxLength: 1000}
+        createdAt: {type: string, format: date-time}
+    RatingEnvelope:
+      type: object
+      required: [code, message, data]
+      properties:
+        code: {type: integer, example: 0}
+        message: {type: string, example: response success}
+        data: {$ref: '#/components/schemas/Rating'}
+    Reputation:
+      type: object
+      required: [userId, score, trustLevel, totalTransaction, successfulTransaction, failedTransaction]
+      properties:
+        userId: {type: string, format: uuid}
+        score: {type: integer, minimum: 0, maximum: 100}
+        trustLevel: {type: string, enum: [NEW, BASIC, TRUSTED, TOP]}
+        totalTransaction: {type: integer, minimum: 0}
+        successfulTransaction: {type: integer, minimum: 0}
+        failedTransaction: {type: integer, minimum: 0}
+    PageInfo:
+      type: object
+      required: [number, size, totalElements, totalPages]
+      properties:
+        number: {type: integer, minimum: 0}
+        size: {type: integer, minimum: 1}
+        totalElements: {type: integer, format: int64, minimum: 0}
+        totalPages: {type: integer, minimum: 0}
+    ProblemDetails:
+      type: object
+      required: [title, status, code]
+      properties:
+        type: {type: string}
+        title: {type: string}
+        status: {type: integer}
+        code: {type: string}
+        detail: {type: string}
+        instance: {type: string}
+        traceId: {type: string}
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, code, detail]
+            properties:
+              field: {type: string}
+              code: {type: string}
+              detail: {type: string}

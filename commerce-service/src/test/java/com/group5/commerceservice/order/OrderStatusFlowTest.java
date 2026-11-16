@@ -30,6 +30,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import com.group5.commerceservice.promotion.PromotionTestConfig;
 import org.springframework.data.domain.AuditorAware;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
@@ -62,7 +63,7 @@ import static org.mockito.Mockito.when;
 
 @SpringJUnitConfig(OrderStatusFlowTest.JpaConfig.class)
 class OrderStatusFlowTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     private static final AtomicInteger ORDER_NUMBERS = new AtomicInteger();
     private static final CurrentUser ADMIN = new CurrentUser(UUID.randomUUID(), Set.of("ADMIN"), Set.of("ORDER.VIEW"));
 
@@ -88,7 +89,7 @@ class OrderStatusFlowTest {
         UUID orderId = insertOrder(from);
         ChangeOrderStatusRequest request = new ChangeOrderStatusRequest(to, "Manual reconciliation");
 
-        if (from.canMoveTo(to)) {
+        if (from.canMoveTo(to) && to != OrderStatus.COMPLETED) {
             assertThat(orderService.changeStatus(ADMIN, orderId, request).status()).isEqualTo(to);
             assertThat(statusOf(orderId)).isEqualTo(to.name());
             assertThat(jdbc().queryForList("""
@@ -231,7 +232,7 @@ class OrderStatusFlowTest {
     @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses = {CartRepository.class, OrderRepository.class})
     @EnableJpaAuditing(auditorAwareRef = "auditor")
-    @Import({OrderService.class, OrderStateMachine.class, PricingService.class})
+    @Import({PromotionTestConfig.class, OrderService.class, OrderStateMachine.class, PricingService.class})
     static class JpaConfig {
         // Fixture báo giá tách riêng khỏi transport Shipping; các test này kiểm nghiệp vụ Order hiện hữu.
         @Bean

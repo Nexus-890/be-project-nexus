@@ -1,9 +1,6 @@
 package com.group5.commerceservice.order;
 
 import com.group5.commerceservice.order.entity.Order;
-import com.group5.commerceservice.order.entity.OrderStatusHistory;
-import com.group5.commerceservice.order.event.OrderCompleted;
-import com.group5.commerceservice.order.event.OrderEventPublisher;
 import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.service.OrderStateMachine;
 import com.group5.common_events.EventEnvelope;
@@ -30,8 +27,6 @@ public class ShipmentStatusHandler {
     private final IdempotentConsumer consumer;
     private final OrderRepository orders;
     private final OrderStateMachine stateMachine;
-    private final OrderEventPublisher events;
-    private final OrderReceiptRenderer receipts;
     private final EntityManager entityManager;
     private final Validator validator;
     private final PendingShipmentEvents pending;
@@ -73,6 +68,7 @@ public class ShipmentStatusHandler {
         // Serialize different envelope IDs for the same order, including duplicate delivery facts.
         if (orders.lockOrder(shipment.orderId()).isEmpty()) return false;
         Order order = orders.findById(shipment.orderId()).orElseThrow();
+        entityManager.refresh(order);
         require(order.getUserId().equals(shipment.buyerId()), "Shipment buyer does not own the order");
         OrderStatus current = order.getStatus();
         if (current == OrderStatus.COMPLETED || current == OrderStatus.CANCELED
@@ -99,19 +95,7 @@ public class ShipmentStatusHandler {
             // Park this fact instead of blocking the partition that may carry the missing pickup.
             return false;
         }
-        OrderStatusHistory completion = stateMachine.move(order.getId(), OrderStatus.COMPLETED,
-                shipment.actorId(), "Order completed after delivery");
-        entityManager.flush();
-        entityManager.refresh(completion);
-        // The state machine uses native updates. Publish the committed version, not the cached entity.
-        entityManager.refresh(order);
-        require(!order.getUserId().equals(order.getSellerId()), "Buyer and seller must differ");
-        require(order.getOrderType() == OrderType.AUCTION ? order.getReferenceId() != null : order.getReferenceId() == null,
-                "Order type and reference must match");
-        events.orderCompleted(new OrderCompleted(order.getId(), order.getOrderGroup().getId(), order.getUserId(),
-                order.getSellerId(), order.getOrderType(), order.getReferenceId(), order.getVersion(),
-                completion.getCreatedAt().toInstant().toString(), order.getOrderNumber(),
-                receipts.renderForEmail(order, completion.getCreatedAt())));
+        // Delivery opens the receipt confirmation window; completion has its own buyer/scheduler transaction.
         return true;
     }
 

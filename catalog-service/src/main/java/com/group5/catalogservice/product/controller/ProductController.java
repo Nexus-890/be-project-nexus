@@ -18,6 +18,7 @@ import com.group5.common_core.model.PageInfo;
 import org.springframework.data.domain.Page;
 import java.util.List;
 import java.util.UUID;
+import java.math.BigDecimal;
 
 @RestController
 @RequestMapping("/api/v1/products")
@@ -60,10 +61,14 @@ public class ProductController {
     @GetMapping
     public ApiResponse<List<ProductResponse>> getProductsByCategory(
             @RequestParam(required = false) UUID categoryId,
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "relevance") String sort,
+            @RequestParam(defaultValue = "all") String listingType,
+            @RequestParam(required = false) BigDecimal maxPrice,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
-        return pageResponse(productService.getProductsByCategory(categoryId, page, size));
+        return pageResponse(productService.searchProducts(categoryId, q, sort, listingType, maxPrice, page, size));
     }
 
     @GetMapping("/mine")
