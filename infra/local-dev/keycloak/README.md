@@ -81,6 +81,13 @@ holds only `realm-management` `view-users`, which notification-service needs to 
 a recipient's email before it sends a notification email. Leave the secret empty to
 skip it while `EMAIL_NOTIFICATION_ENABLED=false`.
 
+When `AUCTION_RATING_CLIENT_SECRET` is set, the seed command creates or updates
+the confidential `nexus-auction-service` client for internal rating eligibility.
+Its access token contains only the eligibility privilege and the machine marker;
+it receives no realm-management roles. Leave this optional secret empty while
+reputation enforcement is off. See [rating eligibility machine setup](../../../docs/security-keycloak/rating-eligibility.md)
+for its claims, allowlist, existing-realm provisioning and verification.
+
 Access tokens are signed with RS256 and contain:
 
 - `sub`: the imported user UUID, unchanged from the other service seeds.

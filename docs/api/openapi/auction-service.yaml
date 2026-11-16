@@ -275,6 +275,14 @@ paths:
         allowing up to 5 seconds of clock skew against server time.
         A non-deleted auction in CREATED, SCHEDULED or ACTIVE is live.
         A SKU can have one live auction, and each seller can have up to the configured limit (default 5).
+        With FEATURE_REPUTATION_ENFORCEMENT enabled, the seller must pass the
+        direct rating-service SELL eligibility check before the auction is written.
+        A score below MIN_REPUTATION_TO_SELL (default 50) returns 403
+        AUCTION_REPUTATION_TOO_LOW with the policy reason. When the flag is off,
+        this check and its dependency calls are skipped. With enforcement on,
+        unavailable rating-service, malformed decisions, machine-token failures
+        or an open circuit return 503 AUCTION_REPUTATION_UNAVAILABLE. Refusal
+        writes no auction or creation outbox event.
       x-catalogue-id: AUC-01
       x-required-roles: [SELLER]
       x-required-privileges: [AUCTION.CREATE]
@@ -376,7 +384,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
         '403':
-          description: The caller lacks SELLER or AUCTION.CREATE, or the product belongs to another seller.
+          description: The caller lacks SELLER or AUCTION.CREATE, the product belongs to another seller, or enabled reputation enforcement denies SELL eligibility.
           content:
             application/problem+json:
               schema:
@@ -385,14 +393,29 @@ paths:
                   - type: object
                     properties:
                       code:
-                        enum: [FORBIDDEN, AUCTION_FORBIDDEN]
-              example:
-                type: urn:problem:domain-error
-                title: Forbidden
-                status: 403
-                detail: The product belongs to another seller
-                instance: /api/v1/auctions
-                code: AUCTION_FORBIDDEN
+                        enum: [FORBIDDEN, AUCTION_FORBIDDEN, AUCTION_REPUTATION_TOO_LOW]
+                      reason:
+                        type: string
+                        minLength: 1
+                        description: Policy explanation included for AUCTION_REPUTATION_TOO_LOW.
+              examples:
+                productOwnership:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: The product belongs to another seller
+                    instance: /api/v1/auctions
+                    code: AUCTION_FORBIDDEN
+                reputationBelowMinimum:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: Reputation score 39 is below 50 required for SELL
+                    instance: /api/v1/auctions
+                    code: AUCTION_REPUTATION_TOO_LOW
+                    reason: Reputation score 39 is below 50 required for SELL
         '404':
           description: The product is unavailable in the catalog or the selected SKU does not belong to it.
           content:
@@ -452,7 +475,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
         '503':
-          description: Catalog or inventory is unavailable, or the gateway cannot reach auction-service.
+          description: Catalog or inventory is unavailable, an enabled reputation check cannot obtain a valid decision, or the gateway cannot reach auction-service. Reputation token/timeout/transport/malformed-response/circuit failures fail closed before any auction write.
           content:
             application/problem+json:
               schema:
@@ -461,14 +484,24 @@ paths:
                   - type: object
                     properties:
                       code:
-                        enum: [AUCTION_CATALOG_UNAVAILABLE, AUCTION_INVENTORY_UNAVAILABLE, SERVICE_UNAVAILABLE]
-              example:
-                type: urn:problem:domain-error
-                title: Service Unavailable
-                status: 503
-                detail: Catalog is temporarily unavailable
-                instance: /api/v1/auctions
-                code: AUCTION_CATALOG_UNAVAILABLE
+                        enum: [AUCTION_CATALOG_UNAVAILABLE, AUCTION_INVENTORY_UNAVAILABLE, AUCTION_REPUTATION_UNAVAILABLE, SERVICE_UNAVAILABLE]
+              examples:
+                catalogUnavailable:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Service Unavailable
+                    status: 503
+                    detail: Catalog is temporarily unavailable
+                    instance: /api/v1/auctions
+                    code: AUCTION_CATALOG_UNAVAILABLE
+                reputationUnavailable:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Service Unavailable
+                    status: 503
+                    detail: Reputation eligibility is temporarily unavailable
+                    instance: /api/v1/auctions
+                    code: AUCTION_REPUTATION_UNAVAILABLE
   /api/v1/auctions/{id}:
     put:
       tags: [Auctions]
@@ -667,6 +700,16 @@ paths:
         reusing it for another auction, bidder or amount returns 409 without exposing
         the original bid. Concurrent successful requests with one key create
         one bid, increment bid_count once and publish one BidPlaced event.
+        With FEATURE_REPUTATION_ENFORCEMENT enabled, each new bid must pass
+        rating-service BID eligibility before any bid, price, deadline or outbox
+        write. A score below MIN_REPUTATION_TO_BID (default 40) returns 403
+        AUCTION_REPUTATION_TOO_LOW with the policy reason. When the flag is off,
+        the reputation check and its dependency calls are skipped. When on,
+        rating-service unavailability, malformed decisions, machine-token failures
+        or an open circuit fail closed with 503 AUCTION_REPUTATION_UNAVAILABLE.
+        A replay of an already accepted key still returns its original 200
+        response even when reputation is now denied or rating-service is down;
+        the accepted operation is not written again.
       x-catalogue-id: BID-01
       x-required-roles: [BUYER]
       x-required-privileges: [AUCTION.BID]
@@ -796,11 +839,28 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
         '403':
-          description: 'FORBIDDEN — The caller lacks the BUYER role or the AUCTION.BID privilege.'
+          description: 'FORBIDDEN for a missing BUYER role or AUCTION.BID privilege; AUCTION_REPUTATION_TOO_LOW when enabled enforcement denies BID eligibility.'
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/Problem'
+                allOf:
+                  - $ref: '#/components/schemas/Problem'
+                  - type: object
+                    properties:
+                      code:
+                        enum: [FORBIDDEN, AUCTION_REPUTATION_TOO_LOW]
+                      reason:
+                        type: string
+                        minLength: 1
+                        description: Policy explanation included for AUCTION_REPUTATION_TOO_LOW.
+              example:
+                type: urn:problem:domain-error
+                title: Forbidden
+                status: 403
+                detail: Reputation score 39 is below 40 required for BID
+                instance: /api/v1/auctions/019afe64-9800-7000-8000-000000000001/bids
+                code: AUCTION_REPUTATION_TOO_LOW
+                reason: Reputation score 39 is below 40 required for BID
         '404':
           description: Auction not found.
           content:
@@ -879,11 +939,23 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
         '503':
-          description: 'SERVICE_UNAVAILABLE — The gateway could not reach auction-service.'
+          description: 'AUCTION_REPUTATION_UNAVAILABLE when an enabled check has token, timeout, transport, circuit or malformed-decision failure; SERVICE_UNAVAILABLE when the gateway cannot reach auction-service. No bid, price, deadline or outbox write occurs.'
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/Problem'
+                allOf:
+                  - $ref: '#/components/schemas/Problem'
+                  - type: object
+                    properties:
+                      code:
+                        enum: [AUCTION_REPUTATION_UNAVAILABLE, SERVICE_UNAVAILABLE]
+              example:
+                type: urn:problem:domain-error
+                title: Service Unavailable
+                status: 503
+                detail: Reputation eligibility is temporarily unavailable
+                instance: /api/v1/auctions/019afe64-9800-7000-8000-000000000001/bids
+                code: AUCTION_REPUTATION_UNAVAILABLE
   /api/v1/auctions/{id}/schedule:
     post:
       tags: [Auctions]

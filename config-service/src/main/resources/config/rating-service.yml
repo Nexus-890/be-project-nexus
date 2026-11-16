@@ -20,6 +20,22 @@ springdoc:
 nexus:
   rating:
     group-id: nexus.rating.order-completed.v1
+    eligibility:
+      allowed-clients: ${RATING_ELIGIBILITY_ALLOWED_CLIENTS:nexus-auction-service}
+  reputation:
+    version: reputation-policy-1
+    rating-weight: 30
+    success-weight: 20
+    minimum-to-bid: ${MIN_REPUTATION_TO_BID:40}
+    minimum-to-sell: ${MIN_REPUTATION_TO_SELL:50}
+    timeout-penalty: ${REPUTATION_TIMEOUT_PENALTY:10}
+    basic-max: 59
+    trusted-max: 79
+    group-id: nexus.rating.reputation.v1
+    backfill:
+      enabled: false
+      dry-run: true
+      batch-size: 100
   security:
     jwt:
       issuer: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
