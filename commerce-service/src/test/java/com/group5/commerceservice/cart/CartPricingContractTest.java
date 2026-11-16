@@ -42,8 +42,8 @@ class CartPricingContractTest {
     }
 
     @Test void pricingUsesNumericMoneyAndExplicitNullShippingInsideOneEnvelope() throws Exception {
-        when(service.pricing(any(), eq("D01"))).thenReturn(new CartPricingResponse(
-                new BigDecimal("300000"), BigDecimal.ZERO, BigDecimal.ZERO, null, new BigDecimal("300000")));
+        when(service.pricing(any(), eq("D01"), isNull())).thenReturn(new CartPricingResponse(
+                new BigDecimal("300000"), BigDecimal.ZERO, BigDecimal.ZERO, null, new BigDecimal("300000"), List.of()));
         mvc.perform(get("/api/v1/carts/me/pricing").param("promoCode", "D01"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.message").value("response success"))
@@ -68,13 +68,13 @@ class CartPricingContractTest {
                 .andExpect(jsonPath("$.page").doesNotExist());
     }
 
-    @Test void previewAcceptsShippingPaymentAndIgnoredPromoCodeAndReturnsItems() throws Exception {
+    @Test void previewAcceptsShippingPaymentAndLegacyPromoCodeAndReturnsItems() throws Exception {
         var item = new CheckoutPreviewResponse.Item(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                 2, new BigDecimal("150000"), new BigDecimal("300000"));
         when(service.previewCheckout(any(), argThat(request -> "D01".equals(request.promoCode()))))
                 .thenReturn(new CheckoutPreviewResponse(List.of(item),
                         item.lineTotal(), new BigDecimal("30000"), BigDecimal.ZERO, BigDecimal.ZERO,
-                        item.lineTotal().add(new BigDecimal("30000")), List.of()));
+                        item.lineTotal().add(new BigDecimal("30000")), List.of(), List.of()));
         mvc.perform(post("/api/v1/checkout/preview").contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.message").value("response success"))
                 .andExpect(jsonPath("$.data.items[0].quantity").value(2))

@@ -99,7 +99,12 @@
               "AUDIT_LOG.VIEW",
               "SYSTEM.CONFIG.VIEW",
               "SYSTEM.CONFIG.UPDATE",
-              "SYSTEM.HEALTH.VIEW"
+              "SYSTEM.HEALTH.VIEW",
+              "PROMOTION.EVENT.MANAGE",
+              "PROMOTION.EVENT.REGISTER",
+              "VOUCHER.MANAGE",
+              "VOUCHER.CLAIM",
+              "VOUCHER.VIEW"
             ]
           }
         }
@@ -138,7 +143,10 @@
               "REPUTATION.VIEW",
               "REPUTATION.RATE",
               "NOTIFICATION.VIEW",
-              "NOTIFICATION.MANAGE_PREFERENCE"
+              "NOTIFICATION.MANAGE_PREFERENCE",
+              "PROMOTION.EVENT.REGISTER",
+              "VOUCHER.MANAGE",
+              "VOUCHER.VIEW"
             ]
           }
         }
@@ -179,7 +187,9 @@
               "REPUTATION.VIEW",
               "REPUTATION.RATE",
               "NOTIFICATION.VIEW",
-              "NOTIFICATION.MANAGE_PREFERENCE"
+              "NOTIFICATION.MANAGE_PREFERENCE",
+              "VOUCHER.CLAIM",
+              "VOUCHER.VIEW"
             ]
           }
         }
@@ -225,7 +235,8 @@
               "NOTIFICATION.VIEW",
               "EVENT_LOG.VIEW",
               "EVENT_LOG.VIEW_DETAIL",
-              "SYSTEM.HEALTH.VIEW"
+              "SYSTEM.HEALTH.VIEW",
+              "VOUCHER.VIEW"
             ]
           }
         }
@@ -233,6 +244,26 @@
     ],
     "client": {
       "nexus-web": [
+        {
+          "name": "PROMOTION.EVENT.MANAGE",
+          "composite": false
+        },
+        {
+          "name": "PROMOTION.EVENT.REGISTER",
+          "composite": false
+        },
+        {
+          "name": "VOUCHER.MANAGE",
+          "composite": false
+        },
+        {
+          "name": "VOUCHER.CLAIM",
+          "composite": false
+        },
+        {
+          "name": "VOUCHER.VIEW",
+          "composite": false
+        },
         {
           "name": "AUTH.LOGIN",
           "description": "Login to the system",
@@ -715,7 +746,12 @@
           "AUDIT_LOG.VIEW",
           "SYSTEM.CONFIG.VIEW",
           "SYSTEM.CONFIG.UPDATE",
-          "SYSTEM.HEALTH.VIEW"
+          "SYSTEM.HEALTH.VIEW",
+          "PROMOTION.EVENT.MANAGE",
+          "PROMOTION.EVENT.REGISTER",
+          "VOUCHER.MANAGE",
+          "VOUCHER.CLAIM",
+          "VOUCHER.VIEW"
         ]
       }
     ]

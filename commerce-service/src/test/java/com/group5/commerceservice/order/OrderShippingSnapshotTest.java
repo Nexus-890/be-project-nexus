@@ -6,6 +6,7 @@ import com.group5.commerceservice.order.entity.Order;
 import com.group5.commerceservice.order.entity.OrderGroup;
 import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.service.OrderService;
+import com.group5.commerceservice.promotion.VoucherCheckoutService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -31,6 +32,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class OrderShippingSnapshotTest {
     @Mock private OrderRepository orders;
+    @Mock private VoucherCheckoutService vouchers;
     @InjectMocks private OrderService service;
     private final CurrentUser buyer = new CurrentUser(UUID.randomUUID(), Set.of("BUYER"), Set.of("ORDER.VIEW"));
 

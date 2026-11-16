@@ -176,8 +176,13 @@ class RefundStatusHandlerTest {
     @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses = OrderRepository.class)
     @EnableJpaAuditing(auditorAwareRef = "auditor")
-    @Import({OrderStateMachine.class, RefundStatusHandler.class})
+    @Import({com.group5.commerceservice.promotion.PromotionTestConfig.class, OrderStateMachine.class, RefundStatusHandler.class})
     static class JpaConfig {
+        @Bean
+        com.group5.commerceservice.order.event.OrderEventPublisher orderEvents() {
+            return org.mockito.Mockito.mock(com.group5.commerceservice.order.event.OrderEventPublisher.class);
+        }
+
         @Bean
         AuditorAware<UUID> auditor() {
             return new CurrentUserAuditor();

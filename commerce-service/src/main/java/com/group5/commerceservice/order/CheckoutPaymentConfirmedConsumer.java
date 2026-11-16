@@ -8,6 +8,7 @@ import com.group5.commerceservice.order.event.OrderPaid;
 import com.group5.commerceservice.order.repository.OrderGroupRepository;
 import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.service.OrderStateMachine;
+import com.group5.commerceservice.promotion.VoucherLifecycleService;
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_outbox.IdempotentConsumer;
 import io.micrometer.tracing.Span;
@@ -47,6 +48,7 @@ public class CheckoutPaymentConfirmedConsumer {
     private final Validator validator;
     private final JsonMapper mapper;
     private final Tracer tracer;
+    private final VoucherLifecycleService vouchers;
 
     /** Kiểm tra contract và định tuyến Kafka trước khi IdempotentConsumer nhận quyền xử lý event. */
     public void receive(String key, EventEnvelope<CheckoutPaymentConfirmed> event) {
@@ -107,6 +109,8 @@ public class CheckoutPaymentConfirmedConsumer {
         group.setUpdatedBy(SYSTEM);
         groups.saveAndFlush(group);
 
+        vouchers.redeem(children.stream().filter(order -> order.getStatus() == OrderStatus.PENDING)
+                .map(Order::getId).toList(), paidAt, SYSTEM);
         // Chỉ chuyển các đơn còn PENDING; state machine chịu trách nhiệm kiểm tra bước chuyển và ghi lịch sử.
         for (Order order : children) {
             if (order.getStatus() != OrderStatus.PENDING) continue;
