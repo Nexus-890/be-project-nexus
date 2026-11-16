@@ -320,7 +320,12 @@ public class OrderService {
         if (!user.hasRole("ADMIN")) {
             throw new DomainException(CommerceErrorCode.FORBIDDEN);
         }
+        if (request.status() == OrderStatus.COMPLETED)
+            throw new DomainException(CommerceErrorCode.ILLEGAL_TRANSITION,
+                    "Completion requires buyer receipt confirmation or the automatic completion job");
         stateMachine.move(orderId, request.status(), user.id(), request.reason());
+        entityManager.flush();
+        orderRepository.findById(orderId).ifPresent(entityManager::refresh);
         return orderRepository.findById(orderId).map(order -> toOrderResponse(order, user))
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
     }
@@ -674,7 +679,8 @@ public class OrderService {
                 order.getOrderType(), order.getStatus(), order.getCreatedAt(), order.getTotalAmount(), items,
                 shippingSnapshotText(order, "name", "recipientName"), shippingSnapshotText(order, "phone", "phoneNumber"),
                 order.getOrderGroup().getId(), order.getSubtotal(), order.getShippingFee(),
-                order.getDiscountAmount(), order.getTaxAmount(), canCancel(order, user), order.getPaymentNote());
+                order.getDiscountAmount(), order.getTaxAmount(), canCancel(order, user), order.getPaymentNote(),
+                order.getDeliveredAt(), order.getAutoCompleteAt(), order.getReceiptIssueReason(), order.getReceiptIssueReportedAt());
     }
 
     // This is a snapshot for the UI; cancel() rechecks the locked state and may still return 409.

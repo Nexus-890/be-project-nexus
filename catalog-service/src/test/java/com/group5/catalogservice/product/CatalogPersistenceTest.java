@@ -34,9 +34,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.utility.DockerImageName;
+import com.group5.catalogservice.PostgresTestDatabase;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
@@ -54,11 +52,7 @@ class CatalogPersistenceTest {
     private static final UUID SELLER = UUID.fromString("68000000-0000-4000-8000-000000000002");
     private static final UUID CATEGORY = UUID.fromString("69000000-0000-4000-8000-000000000102");
     private static TimeZone originalTimeZone;
-    private static final GenericContainer<?> POSTGRES = new GenericContainer<>(DockerImageName.parse("postgres:18"))
-            .withEnv("POSTGRES_PASSWORD", "test")
-            .withExposedPorts(5432)
-                    // Port binding can precede PostgreSQL readiness after initdb.
-                    .waitingFor(Wait.forLogMessage(".*database system is ready to accept connections.*\\s", 2));
+    private static final PostgresTestDatabase POSTGRES = new PostgresTestDatabase("postgres:18");
 
     @BeforeAll
     static void startPostgres() {
@@ -78,11 +72,7 @@ class CatalogPersistenceTest {
     }
 
     private DataSource database() {
-        String jdbcUrl = "jdbc:postgresql://" + POSTGRES.getHost() + ":" + POSTGRES.getMappedPort(5432) + "/";
-        String name = "catalog_" + UUID.randomUUID().toString().replace("-", "");
-        new JdbcTemplate(new DriverManagerDataSource(jdbcUrl + "postgres", "postgres", "test"))
-                .execute("CREATE DATABASE " + name);
-        return new DriverManagerDataSource(jdbcUrl + name, "postgres", "test");
+        return new DriverManagerDataSource(POSTGRES.createDatabase("catalog_"), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     private void migrate(DataSource dataSource) {

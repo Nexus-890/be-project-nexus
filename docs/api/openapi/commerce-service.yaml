@@ -5498,7 +5498,7 @@ paths:
         - "Orders"
       operationId: "changeOrderStatus"
       summary: "Change an order status"
-      description: "ADMIN role required at the service. Allowed transitions: PENDING -> PAID/CANCELED; PAID -> CANCELED/SHIPPED; SHIPPED -> DELIVERED; DELIVERED -> COMPLETED; CANCELED -> REFUND_REQUESTED; REFUND_REQUESTED -> REFUNDED. Concurrent or illegal moves return 409. Every successful change appends status history."
+      description: "ADMIN role required at the service. Allowed administrative transitions: PENDING -> PAID/CANCELED; PAID -> CANCELED/SHIPPED; SHIPPED -> DELIVERED; CANCELED -> REFUND_REQUESTED; REFUND_REQUESTED -> REFUNDED. DELIVERED -> COMPLETED is reserved for buyer confirmation or the automatic completion job and returns 409 here. Delivery persists the confirmation window. Concurrent or illegal moves return 409. Every successful change appends status history."
       security:
         -
           bearerAuth: []
@@ -5990,6 +5990,124 @@ paths:
             example:
               status: "PAID"
               reason: "Payment verified"
+  /api/v1/orders/{id}/confirm-receipt:
+    post:
+      tags: [Orders]
+      operationId: confirmReceipt
+      summary: Confirm receipt of a delivered order
+      description: "Requires BUYER and ORDER.VIEW plus buyer ownership, including for callers who also have ADMIN. ShipmentDelivered leaves the order DELIVERED and persists deliveredAt/autoCompleteAt. Confirming locks the order row and moves DELIVERED to COMPLETED, inserts one history row and one OrderCompleted outbox event in the same transaction. Repeating confirmation of an owned COMPLETED order returns it without another history/event. Other statuses return 409 COMMERCE_ORDER_NOT_DELIVERED; another buyer receives 403 before the status check. The automatic job uses the same lock and completion transaction when autoCompleteAt is due. Receipt email, rating and payout consumers remain gated on OrderCompleted. No request body."
+      security:
+        - bearerAuth: []
+      x-gateway-privilege: ORDER.VIEW
+      x-required-privileges: [ORDER.VIEW]
+      x-required-roles: [BUYER]
+      x-ownership: Buyer who owns the order; no administrative bypass.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Completed order, including an idempotent replay.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetOrderResponse"
+        "401":
+          description: Authentication is required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "403":
+          description: BUYER, ORDER.VIEW or ownership is missing.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: COMMERCE_ORDER_NOT_FOUND.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: COMMERCE_ORDER_NOT_DELIVERED or COMMERCE_RECEIPT_ISSUE_OPEN.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/orders/{id}/receipt-issue:
+    post:
+      tags: [Orders]
+      operationId: reportReceiptIssue
+      summary: Report a receipt issue and pause completion
+      description: "Requires BUYER and ORDER.VIEW plus buyer ownership. While the order is DELIVERED, persist the first trimmed reason and reported timestamp under the same row lock used by completion. Repeated reports retain that original report. An open report prevents both buyer and automatic completion. If completion wins a concurrent race, reporting returns 409 COMMERCE_ORDER_NOT_DELIVERED. D11 owns resolution; this operation does not issue a refund or clear the hold."
+      security:
+        - bearerAuth: []
+      x-gateway-privilege: ORDER.VIEW
+      x-required-privileges: [ORDER.VIEW]
+      x-required-roles: [BUYER]
+      x-ownership: Buyer who owns the order; no administrative bypass.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "200":
+          description: Delivered order with the original persisted receipt issue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetOrderResponse"
+        "400":
+          description: Invalid or missing receipt issue reason.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "401":
+          description: Authentication required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "403":
+          description: BUYER, ORDER.VIEW or ownership missing.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: COMMERCE_ORDER_NOT_FOUND.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: COMMERCE_ORDER_NOT_DELIVERED.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
   /api/v1/orders/{id}/cancel:
     post:
       tags:
@@ -8755,6 +8873,25 @@ components:
         canCancel:
           type: boolean
           description: "Cancellation eligibility for the current caller: ORDER.CANCEL and ownership (or ADMIN/SUPPORT_STAFF), and either PAID or PENDING in a PENDING group. This is a read-time snapshot; cancellation rechecks locked state and can return 409. Missing on older backends must be treated as false."
+        receiptIssueReason:
+          type: string
+          nullable: true
+          description: First receipt issue reported by the buyer; retained until D11 resolves it.
+        receiptIssueReportedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: An open report pauses buyer and automatic completion while this timestamp is present.
+        deliveredAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: First committed DELIVERED transition time. Duplicate shipment events do not reset it.
+        autoCompleteAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Persisted deliveredAt plus nexus.order.auto-complete-days (default 7); the scheduler completes due DELIVERED orders. Existing COMPLETED orders are not reopened.
         paymentNote:
           type: string
           nullable: true

@@ -6,9 +6,11 @@ import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.repository.OrderStatusHistoryRepository;
 import com.group5.commerceservice.shared.exception.CommerceErrorCode;
 import com.group5.common_core.exception.DomainException;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
@@ -24,6 +26,14 @@ public class OrderStateMachine {
     private final OrderRepository orderRepository;
     private final OrderStatusHistoryRepository historyRepository;
 
+    @Value("${nexus.order.auto-complete-days:7}")
+    private int autoCompleteDays = 7;
+
+    @PostConstruct
+    void validateReceiptWindow() {
+        if (autoCompleteDays < 1) throw new IllegalArgumentException("nexus.order.auto-complete-days must be at least 1");
+    }
+
     @Transactional
     public OrderStatusHistory move(UUID orderId, OrderStatus target, UUID actor, String reason) {
         OrderStatus current = orderRepository.findStatusById(orderId)
@@ -35,7 +45,10 @@ public class OrderStateMachine {
                     "ILLEGAL_TRANSITION: order cannot move from " + current + " to " + target);
         }
         log.info("Order transition accepted: orderId={}, from={}, to={}, actor={}", orderId, current, target, actor);
-        return historyRepository.save(entry(orderId, current, target, actor, reason));
+        OrderStatusHistory history = historyRepository.save(entry(orderId, current, target, actor, reason));
+        if (target == OrderStatus.DELIVERED)
+            orderRepository.recordDeliveredAt(orderId, history.getCreatedAt(), history.getCreatedAt().plusDays(autoCompleteDays));
+        return history;
     }
 
     @Transactional

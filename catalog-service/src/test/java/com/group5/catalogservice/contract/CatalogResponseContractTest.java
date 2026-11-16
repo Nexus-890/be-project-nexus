@@ -111,7 +111,7 @@ class CatalogResponseContractTest {
         when(products.getMyProduct(id, actor)).thenReturn(new ProductDetailResponse(id, "Shirt", "shirt", ProductStatus.DRAFT,
                 id, sellerId, "Draft description", true, List.of(), List.of()));
         var page = new PageImpl<>(List.of(product), PageRequest.of(1, 2), 5);
-        when(products.getProductsByCategory(null, 1, 2)).thenReturn(page);
+        when(products.searchProducts(null, null, "relevance", "all", null, 1, 2)).thenReturn(page);
         when(products.getMyProducts(actor, null, 1, 2)).thenReturn(page);
 
         String request = "{\"name\":\"Shirt\",\"categoryId\":\"" + id + "\",\"auctionEnable\":false}";

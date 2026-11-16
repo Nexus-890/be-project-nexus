@@ -63,22 +63,33 @@ mvn '-Dtest=AuctionSettlementMigrationTest' '-Duser.timezone=UTC' test
 ```
 
 Testcontainers is the default. The disposable PostgreSQL URL option above also
-works here. Four cases cover fresh installation and upgrades from Auction V7
-and Commerce V13. They check every expected migration version, preserve existing
-business rows and complete Flyway history/checksums, apply exactly one new
-migration, validate, then rerun with zero migrations. They also verify nullable
+works here. Four cases cover fresh installation through Auction V8 / Commerce V16
+and the historical Auction V7→V8 / Commerce V13→V14 settlement upgrades. The upgrade
+checks explicitly target the settlement migration, preserve existing business rows
+and complete Flyway history/checksums, apply exactly one migration, validate, then
+rerun with zero migrations. The fresh checks include the later receipt migrations
+V15/V16 from develop `13aa202e`. They also verify nullable
 `settled_at` and the auction-reference uniqueness guard without restricting
 STANDARD orders or null references. Each case uses and removes its own random
 schema.
 
-On 15 November 2026 these four cases pass on PostgreSQL 18. Before the rename,
-all four fail because Flyway detects duplicate V7/V13 migrations. This upgrade
-check covers the develop schema; complete Kafka/payment/notification acceptance
-remains pending as described below.
+Commerce V14 is now also present in develop with identical SQL; it is kept once
+at the same path. Run `ReceiptMigrationCompatibilityTest` in commerce-service to
+check upgrades from V12/V13/V14 through the receipt chain V16 with historical
+DELIVERED orders and the auction-reference uniqueness guard.
 
-The merged branch also passes 82 focused Commerce tests, 104 Auction tests and
-the OpenAPI inventory check for 104 operations. These are local focused runs,
-not full-service verify or remote CI results.
+On 16 November 2026, after merging develop `13aa202e`, all four migration cases
+pass on PostgreSQL 18.6. Commerce's 45 focused cases also pass, including the
+V12/V13/V14→V16 receipt upgrades, eight settlement integration cases, shipping
+units/contracts and receipt-confirmation HTTP tests. There are no failures,
+errors or skips. The API inventory check passes 111 operations. These are local
+focused results; full-service verify, remote CI and complete Kafka/payment/
+notification acceptance remain pending.
+
+Historical verification at `9fc3e5e6`, 15 November 2026: the original four
+migration cases pass on PostgreSQL 18. Before the rename, all four fail because
+Flyway detects duplicate V7/V13 migrations. That source also passes 82 focused
+Commerce tests, 104 Auction tests and the API inventory check for 104 operations.
 
 Verified on the MR source based on develop `09b3cf6f`, 13–14 November 2026:
 Commerce 101, Auction 104, Shipment 69 and Gateway 83 tests pass, zero failure/error/skip.

@@ -16,7 +16,7 @@ import java.util.Collection;
 import java.util.List;
 
 @Repository
-public interface ProductRepository extends JpaRepository<Product, UUID> {
+public interface ProductRepository extends JpaRepository<Product, UUID>, ProductSearchRepository {
     @Query("""
             SELECT image FROM ProductImage image WHERE image.product.id IN :productIds
             ORDER BY image.product.id, image.sortOrder, image.id

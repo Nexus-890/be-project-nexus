@@ -31,13 +31,13 @@ class AuctionSettlementMigrationTest {
     private static String username;
     private static String password;
 
-    record Service(String name, String baseline, String latest) {
+    record Service(String name, String baseline, String settlement, String latest) {
         @Override public String toString() { return name; }
     }
 
     static Stream<Service> services() {
-        return Stream.of(new Service("auction-service", "7", "8"),
-                new Service("commerce-service", "13", "14"));
+        return Stream.of(new Service("auction-service", "7", "8", "8"),
+                new Service("commerce-service", "13", "14", "16"));
     }
 
     @BeforeAll static void startPostgres() {
@@ -70,7 +70,7 @@ class AuctionSettlementMigrationTest {
             flyway.validate();
             assertThat(flyway.info().current().getVersion().toString()).isEqualTo(service.latest());
             try (Connection connection = database.connect()) {
-                verifyAppliedVersions(connection, service, true);
+                verifyAppliedVersions(connection, service, service.latest());
                 seed(connection, service);
                 verifySettlementSchema(connection, service);
             }
@@ -80,7 +80,7 @@ class AuctionSettlementMigrationTest {
 
     @ParameterizedTest(name = "preserves develop schema and data: {0}")
     @MethodSource("services")
-    void upgradeFromDevelopPreservesRowsAndAppliedHistory(Service service) throws Exception {
+    void upgradeFromPreSettlementDevelopPreservesRowsAndAppliedHistory(Service service) throws Exception {
         inOwnedSchema(database -> {
             Flyway baseline = database.flyway(service, service.baseline());
             baseline.migrate();
@@ -88,19 +88,20 @@ class AuctionSettlementMigrationTest {
             Map<String, List<String>> before;
             List<String> historyBefore;
             try (Connection connection = database.connect()) {
-                verifyAppliedVersions(connection, service, false);
+                verifyAppliedVersions(connection, service, service.baseline());
                 seed(connection, service);
                 before = businessRows(connection);
                 historyBefore = rows(connection, "SELECT to_jsonb(t)::text FROM flyway_schema_history t ORDER BY installed_rank");
             }
 
-            // Chỉ migration mới của #172 được chạy; checksum và lịch sử develop phải còn nguyên.
-            Flyway upgraded = database.flyway(service, null);
+            // Cố định bước nâng cấp #172; migration receipt mới hơn được kiểm riêng bằng full chain.
+            // Checksum, dữ liệu và lịch sử develop trước settlement phải còn nguyên.
+            Flyway upgraded = database.flyway(service, service.settlement());
             assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(1);
             upgraded.validate();
-            assertThat(upgraded.info().current().getVersion().toString()).isEqualTo(service.latest());
+            assertThat(upgraded.info().current().getVersion().toString()).isEqualTo(service.settlement());
             try (Connection connection = database.connect()) {
-                verifyAppliedVersions(connection, service, true);
+                verifyAppliedVersions(connection, service, service.settlement());
                 assertThat(businessRows(connection)).isEqualTo(before);
                 List<String> historyAfter = rows(connection,
                         "SELECT to_jsonb(t)::text FROM flyway_schema_history t ORDER BY installed_rank");
@@ -113,14 +114,14 @@ class AuctionSettlementMigrationTest {
         });
     }
 
-    private static void verifyAppliedVersions(Connection connection, Service service, boolean includeLatest)
+    private static void verifyAppliedVersions(Connection connection, Service service, String target)
             throws SQLException {
         // Kiểm đủ migration lịch sử: chỉ nhìn version cuối sẽ bỏ sót trường hợp thiếu V5/V6.
         // Commerce chủ động không có V10; danh tính thanh toán đã được chuyển sang V12.
-        List<String> expected = new ArrayList<>(service.name().equals("auction-service")
-                ? List.of("1", "2", "3", "4", "5", "6", "7")
-                : List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "11", "12", "13"));
-        if (includeLatest) expected.add(service.latest());
+        List<String> expected = (service.name().equals("auction-service")
+                ? List.of("1", "2", "3", "4", "5", "6", "7", "8")
+                : List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "11", "12", "13", "14", "15", "16"))
+                .stream().filter(version -> Integer.parseInt(version) <= Integer.parseInt(target)).toList();
         assertThat(rows(connection, """
                 SELECT version FROM flyway_schema_history WHERE type = 'SQL' ORDER BY installed_rank
                 """)).containsExactlyElementsOf(expected);

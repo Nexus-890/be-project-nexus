@@ -25,7 +25,8 @@ const services = {
     'src/main/java/com/group5/commerceservice/order/controller/OrderController.java',
     'src/main/java/com/group5/commerceservice/order/controller/OrderShippingSnapshotController.java',
     'src/main/java/com/group5/commerceservice/order/OrderReceiptController.java',
-      'src/main/java/com/group5/commerceservice/order/AuctionShippingController.java',
+    'src/main/java/com/group5/commerceservice/order/OrderReceiptConfirmationController.java',
+    'src/main/java/com/group5/commerceservice/order/AuctionShippingController.java',
   ],
   'notification-service': [
     'src/main/java/com/group5/notificationservice/notification/NotificationController.java',

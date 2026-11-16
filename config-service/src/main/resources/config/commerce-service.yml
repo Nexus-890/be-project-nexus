@@ -51,3 +51,5 @@ nexus:
     remote-breaker-failure-threshold: ${ORDER_REMOTE_BREAKER_FAILURE_THRESHOLD:5}
     remote-breaker-open-ms: ${ORDER_REMOTE_BREAKER_OPEN_MS:30000}
     shipment-retry-interval: ${ORDER_SHIPMENT_RETRY_INTERVAL:5s}
+    auto-complete-days: ${ORDER_AUTO_COMPLETE_DAYS:7}
+    auto-complete-interval: ${ORDER_AUTO_COMPLETE_INTERVAL:1m}

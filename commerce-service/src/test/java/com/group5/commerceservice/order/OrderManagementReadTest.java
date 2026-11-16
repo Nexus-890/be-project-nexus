@@ -62,7 +62,7 @@ class OrderManagementReadTest {
     // An explicit local PostgreSQL URL can run the same integration checks without Docker.
     private static final String POSTGRES_URL = System.getProperty("nexus.test.postgres.url");
     private static final PostgreSQLContainer POSTGRES = POSTGRES_URL == null
-            ? new PostgreSQLContainer("postgres:18-alpine") : null;
+            ? new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine") : null;
     private static final OffsetDateTime AT = OffsetDateTime.parse("2026-11-03T10:00:00Z");
     private static final CurrentUser ADMIN = user("ADMIN");
     private static final CurrentUser SUPPORT = user("SUPPORT_STAFF");
