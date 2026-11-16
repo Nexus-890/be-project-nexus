@@ -22,7 +22,17 @@ public class BidHistoryQuery {
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Page<BidHistoryItem> list(UUID auctionId, int page, int size) {
-        if (!auctions.existsByIdAndVisibilityAndDeletedAtIsNull(auctionId, Auction.Visibility.PUBLIC)) {
+        return history(auctions.existsByIdAndVisibilityAndDeletedAtIsNull(auctionId, Auction.Visibility.PUBLIC),
+                auctionId, page, size);
+    }
+
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Page<BidHistoryItem> listManaged(UUID auctionId, int page, int size) {
+        return history(auctions.existsByIdAndDeletedAtIsNull(auctionId), auctionId, page, size);
+    }
+
+    private Page<BidHistoryItem> history(boolean readable, UUID auctionId, int page, int size) {
+        if (!readable) {
             throw new DomainException(AuctionErrorCode.AUCTION_NOT_FOUND);
         }
         return bids.findHistory(auctionId, PageRequest.of(page, size));

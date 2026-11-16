@@ -12,6 +12,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import com.group5.catalogservice.product.dto.request.ChangeStatusRequest;
+import com.group5.catalogservice.product.enums.ProductStatus;
 import com.group5.common_core.model.ApiResponse;
 import com.group5.common_core.model.PageInfo;
 import org.springframework.data.domain.Page;
@@ -74,10 +75,11 @@ public class ProductController {
     @PreAuthorize("hasRole('SELLER') and hasAuthority('PRODUCT.LIST')")
     public ApiResponse<List<ProductResponse>> getMyProducts(
             CurrentUser currentUser,
+            @RequestParam(required = false) ProductStatus status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
-        return pageResponse(productService.getMyProducts(currentUser, page, size));
+        return pageResponse(productService.getMyProducts(currentUser, status, page, size));
     }
 
     @GetMapping("/mine/{id}")

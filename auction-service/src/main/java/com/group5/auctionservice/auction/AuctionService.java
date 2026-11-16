@@ -61,6 +61,21 @@ public class AuctionService {
     }
 
     @Transactional(readOnly = true)
+    public Page<AuctionResponse> manage(AuctionStatus status, int page, int size) {
+        var pageable = PageRequest.of(page, size, Sort.by("createdAt").descending().and(Sort.by("id").descending()));
+        return (status == null ? auctions.findByDeletedAtIsNull(pageable)
+                : auctions.findByStatusAndDeletedAtIsNull(status, pageable))
+                .map(AuctionResponse::from);
+    }
+
+    @Transactional(readOnly = true)
+    public AuctionResponse manageGet(UUID id) {
+        return auctions.findByIdAndDeletedAtIsNull(id)
+                .map(AuctionResponse::from)
+                .orElseThrow(() -> new DomainException(AuctionErrorCode.AUCTION_NOT_FOUND));
+    }
+
+    @Transactional(readOnly = true)
     public Page<AuctionResponse> mine(AuctionStatus status, int page, int size, CurrentUser seller) {
         var pageable = PageRequest.of(page, size, Sort.by("createdAt").descending().and(Sort.by("id").descending()));
         return (status == null ? auctions.findBySellerIdAndDeletedAtIsNull(seller.id(), pageable)
@@ -136,9 +151,11 @@ public class AuctionService {
     }
 
     @Transactional
-    public AuctionResponse update(UUID id, UpdateAuctionRequest request, CurrentUser owner) {
+    public AuctionResponse update(UUID id, UpdateAuctionRequest request, CurrentUser actor) {
         Auction auction = lock(id);
-        requireOwner(auction, owner);
+        if (!actor.hasRole("ADMIN")) {
+            requireOwner(auction, actor);
+        }
         if ((auction.getStatus() != AuctionStatus.CREATED && auction.getStatus() != AuctionStatus.SCHEDULED)
                 || !clock.instant().isBefore(auction.getStartAt())) {
             throw new DomainException(AuctionErrorCode.AUCTION_NOT_EDITABLE);
