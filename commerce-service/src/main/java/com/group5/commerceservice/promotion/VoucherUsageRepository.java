@@ -8,6 +8,8 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -136,5 +138,20 @@ class VoucherUsageRepository {
                        seller_funded_amount AS seller_funded, platform_funded_amount AS platform_funded
                 FROM promo_voucher_usages WHERE order_id = :order ORDER BY code, id
                 """).param("order", orderId).query(VoucherCheckoutService.OrderVoucher.class).list();
+    }
+
+    Map<UUID, List<VoucherCheckoutService.OrderVoucher>> summaries(List<UUID> orderIds) {
+        if (orderIds.isEmpty()) return Map.of();
+        Map<UUID, List<VoucherCheckoutService.OrderVoucher>> results = new HashMap<>();
+        jdbc.sql("""
+                SELECT order_id, voucher_snapshot ->> 'code' AS code, discount_amount,
+                       seller_funded_amount, platform_funded_amount
+                FROM promo_voucher_usages WHERE order_id IN (:orders) ORDER BY order_id, code, id
+                """).param("orders", orderIds).query().listOfRows().forEach(row ->
+                results.computeIfAbsent((UUID) row.get("order_id"), ignored -> new ArrayList<>())
+                        .add(new VoucherCheckoutService.OrderVoucher((String) row.get("code"),
+                                (BigDecimal) row.get("discount_amount"), (BigDecimal) row.get("seller_funded_amount"),
+                                (BigDecimal) row.get("platform_funded_amount"))));
+        return results;
     }
 }

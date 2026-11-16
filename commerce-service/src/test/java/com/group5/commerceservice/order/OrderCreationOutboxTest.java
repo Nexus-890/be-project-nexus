@@ -254,6 +254,8 @@ class OrderCreationOutboxTest {
                 assertThat(entry.sellerFunded()).isZero();
             });
         });
+        assertThat(orderService.listOwn(fixture.buyer(), null, 0, 10).getContent())
+                .containsExactlyInAnyOrderElementsOf(placed.response().orders());
         assertThat(count("""
                 SELECT count(*) FROM promo_voucher_usages u JOIN orders o ON u.order_id = o.id
                 WHERE o.order_group_id = ? AND u.status = 'RESERVED' AND u.reserved_until = o.payment_due_at
@@ -282,6 +284,49 @@ class OrderCreationOutboxTest {
     void fiftyCheckoutTransactionsCannotOversellUsageOrDiscountBudget() throws Exception {
         checkConcurrency(10, null, 10);
         checkConcurrency(50, new BigDecimal("73"), 7);
+    }
+
+    @Test
+    void sharedVoucherCheckoutsReachSlowInventoryTogetherAndReleaseTheQuotaLosers() throws Exception {
+        UUID voucher = voucher(10, null);
+        List<Fixture> buyers = IntStream.range(0, 20).mapToObj(i -> cart(false)).toList();
+        buyers.forEach(fixture -> claim(voucher, fixture.buyer().id()));
+        var atInventory = new CountDownLatch(buyers.size());
+        var heldOrders = java.util.concurrent.ConcurrentHashMap.<UUID>newKeySet();
+        when(inventoryClient.reserve(any(), any())).thenAnswer(call -> {
+            List<InventoryClient.Item> items = call.getArgument(1);
+            items.forEach(item -> heldOrders.add(item.orderId()));
+            atInventory.countDown();
+            assertThat(atInventory.await(12, TimeUnit.SECONDS))
+                    .as("all checkouts reach Inventory before any takes voucher quota").isTrue();
+            Thread.sleep(200);
+            return new InventoryClient.Reservation(items.stream().map(item -> UUID.randomUUID()).toList(),
+                    UUID.randomUUID(), java.time.OffsetDateTime.now().plusMinutes(15));
+        });
+        var request = new CreateOrderRequest(REQUEST.shippingAddress(), REQUEST.paymentMethod(), voucher.toString(), null);
+        int created = 0;
+        try (var workers = Executors.newFixedThreadPool(buyers.size())) {
+            var attempts = buyers.stream().map(fixture -> workers.submit((Callable<Boolean>) () -> {
+                try {
+                    return orderService.create(fixture.buyer(), UUID.randomUUID().toString(), request).created();
+                } catch (DomainException failure) {
+                    assertThat(failure.getErrorCode()).isEqualTo("COMMERCE_VOUCHER_NOT_APPLICABLE");
+                    return false;
+                }
+            })).toList();
+            for (var attempt : attempts) if (attempt.get(30, TimeUnit.SECONDS)) created++;
+        }
+        assertThat(created).isEqualTo(10);
+        assertThat(heldOrders).hasSize(20);
+        var releases = jdbc().queryForList("""
+                SELECT aggregate_id::uuid FROM outbox
+                WHERE event_type = 'CheckoutStockReleaseRequested'
+                """, UUID.class).stream().filter(heldOrders::contains).toList();
+        assertThat(releases).hasSize(10).doesNotHaveDuplicates();
+        for (UUID order : releases) {
+            assertThat(count("SELECT count(*) FROM orders WHERE id = ?", order)).isZero();
+        }
+        assertThat(count("SELECT committed_uses FROM promo_vouchers WHERE id = ?", voucher)).isEqualTo(10);
     }
 
     @Test

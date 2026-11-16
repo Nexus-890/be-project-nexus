@@ -51,8 +51,8 @@ class VoucherRepository {
                 .param("id", id).query(Voucher.class).optional();
     }
 
-    List<Voucher> forCodes(List<String> codes, boolean lock) {
-        return jdbc.sql("SELECT v.*" + TABLE + "WHERE v.code IN (:codes) ORDER BY v.id" + (lock ? " FOR UPDATE" : ""))
+    List<Voucher> forCodes(List<String> codes) {
+        return jdbc.sql("SELECT v.*" + TABLE + "WHERE v.code IN (:codes) ORDER BY v.id")
                 .param("codes", codes).query(Voucher.class).list();
     }
 

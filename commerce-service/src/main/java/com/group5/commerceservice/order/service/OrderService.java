@@ -112,6 +112,9 @@ public class OrderService {
     private record CheckoutResult(CreationResult order, DomainException priceChange) {
     }
 
+    private record StockToRelease(UUID groupId, List<UUID> orderIds) {
+    }
+
     // Each attempt must finish (or roll back) before reading a UNIQUE-conflict winner.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public CreationResult create(CurrentUser user, String key, CreateOrderRequest request) {
@@ -135,6 +138,7 @@ public class OrderService {
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
         transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         CheckoutResult result;
+        var provisionalStock = new java.util.concurrent.atomic.AtomicReference<StockToRelease>();
         try {
             result = Objects.requireNonNull(transaction.execute(status -> {
                 if (replayEnabled) {
@@ -144,11 +148,25 @@ public class OrderService {
                         return new CheckoutResult(replay(user, snapshot, previous.get()), null);
                     }
                 }
-                return createFromCart(user, effectiveKey, request, snapshot);
+                return createFromCart(user, effectiveKey, request, snapshot, provisionalStock);
             }));
-        } catch (DataIntegrityViolationException violation) {
-            if (!replayEnabled || !isIdempotencyKeyViolation(violation)) {
-                throw violation;
+        } catch (RuntimeException failure) {
+            StockToRelease held = provisionalStock.get();
+            if (held != null) {
+                try {
+                    transaction.executeWithoutResult(status -> {
+                        if (!groupRepository.existsById(held.groupId())) {
+                            held.orderIds().forEach(events::checkoutStockReleaseRequested);
+                        }
+                    });
+                } catch (RuntimeException releaseFailure) {
+                    failure.addSuppressed(releaseFailure);
+                    log.error("Could not enqueue stock release for rolled-back checkout {}", held.groupId(), releaseFailure);
+                }
+            }
+            if (!(failure instanceof DataIntegrityViolationException violation)
+                    || !replayEnabled || !isIdempotencyKeyViolation(violation)) {
+                throw failure;
             }
             // PostgreSQL aborts the losing transaction on 23505; query only after rollback.
             transaction.setReadOnly(true);
@@ -190,7 +208,8 @@ public class OrderService {
     }
 
     private CheckoutResult createFromCart(CurrentUser user, String key, CreateOrderRequest request,
-                                          Map<String, Object> snapshot) {
+                                          Map<String, Object> snapshot,
+                                          java.util.concurrent.atomic.AtomicReference<StockToRelease> provisionalStock) {
         // Đồng bộ những lần tạo đơn của cùng một người mua
         groupRepository.lockKey("order-buyer:" + user.id());
         Cart cart = cartRepository.findForUpdateByUserIdAndStatus(user.id(), CartStatus.ACTIVE)
@@ -270,22 +289,27 @@ public class OrderService {
             order.getShippingInfo().put("serviceType", quote.serviceType());
             group.getOrders().add(order);
         }
-        OffsetDateTime quotedAt = OffsetDateTime.now(ZoneOffset.UTC);
-        VoucherPricing.Result voucherQuote = reserveVouchers(user.id(), sellers, codes, quotedAt);
-        for (Order order : sellers.values()) {
-            order.setTotalAmount(money(new PriceBreakdown(order.getSubtotal(), order.getDiscountAmount(),
-                    order.getTaxAmount(), order.getShippingFee()).total()));
+        List<VoucherPricing.Line> voucherLines = codes.isEmpty() ? List.of() : voucherLines(sellers);
+        if (!codes.isEmpty()) {
+            var quote = vouchers.quote(user.id(), voucherLines, codes);
+            VoucherCheckoutService.requireApplicable(quote);
+            applyDiscounts(sellers, quote);
         }
-        group.setTotalAmount(money(group.getOrders().stream().map(Order::getTotalAmount)
-                .reduce(new BigDecimal("0.00"), BigDecimal::add)));
-        if (group.getTotalAmount().signum() <= 0) {
-            throw new DomainException(CommerceErrorCode.INVALID_ORDER_REQUEST, "SEPAY orders must have a positive total");
-        }
+        updateTotals(group);
         OrderGroup savedGroup = groupRepository.saveAndFlush(group);
         // Một request cho toàn bộ nhóm: Inventory giữ tất cả shop hoặc rollback toàn bộ.
         InventoryClient.Reservation reservation = inventoryClient.reserve(savedGroup.getId(),
                 savedGroup.getOrders().stream().flatMap(order -> order.getItems().stream().map(item ->
                         new InventoryClient.Item(order.getId(), item.getSkuId(), item.getQuantity()))).toList());
+        OffsetDateTime reservedAt = OffsetDateTime.now(ZoneOffset.UTC);
+        VoucherPricing.Result confirmedQuote = null;
+        if (!codes.isEmpty()) {
+            provisionalStock.set(new StockToRelease(savedGroup.getId(),
+                    savedGroup.getOrders().stream().map(Order::getId).toList()));
+            confirmedQuote = vouchers.reserveQuota(user.id(), voucherLines, codes, reservedAt);
+            applyDiscounts(sellers, confirmedQuote);
+            updateTotals(savedGroup);
+        }
         // Chỉ dùng deadline/kho do Inventory trả về; không tự tính timeout thứ hai ở Commerce.
         savedGroup.setDueAt(reservation.expiresAt());
         savedGroup.getOrders().forEach(order -> {
@@ -293,7 +317,7 @@ public class OrderService {
             order.getShippingInfo().put("warehouseId", reservation.warehouseId().toString());
         });
         groupRepository.saveAndFlush(savedGroup);
-        if (voucherQuote != null) vouchers.persistReservations(user.id(), savedGroup.getOrders(), voucherQuote, quotedAt);
+        if (confirmedQuote != null) vouchers.persistReservations(user.id(), savedGroup.getOrders(), confirmedQuote, reservedAt);
         savedGroup.getOrders().forEach(order -> stateMachine.recordCreated(order.getId(), user.id()));
 
         log.info("Cart before checkout: id={}, status={}",
@@ -311,20 +335,32 @@ public class OrderService {
         return new CheckoutResult(new CreationResult(true, toResponse(savedGroup, user)), null);
     }
 
-    private VoucherPricing.Result reserveVouchers(UUID buyer, Map<UUID, Order> orders, List<String> codes,
-                                                   OffsetDateTime now) {
-        if (codes.isEmpty()) return null;
-        List<VoucherPricing.Line> lines = orders.values().stream()
+    private static List<VoucherPricing.Line> voucherLines(Map<UUID, Order> orders) {
+        return orders.values().stream()
                 .flatMap(order -> order.getItems().stream().map(item -> new VoucherPricing.Line(
                         item.getSkuId(), item.getProductId(), order.getSellerId(), item.getTotalPrice())))
                 .toList();
-        var result = vouchers.reserveQuota(buyer, lines, codes, now);
+    }
+
+    private static void applyDiscounts(Map<UUID, Order> orders, VoucherPricing.Result result) {
+        orders.values().forEach(order -> order.setDiscountAmount(BigDecimal.ZERO.setScale(2)));
         result.applications().stream().flatMap(application -> application.allocations().stream())
                 .forEach(allocation -> {
                     Order order = orders.get(allocation.line().sellerId());
                     order.setDiscountAmount(order.getDiscountAmount().add(allocation.discountAmount()));
                 });
-        return result;
+    }
+
+    private void updateTotals(OrderGroup group) {
+        for (Order order : group.getOrders()) {
+            order.setTotalAmount(money(new PriceBreakdown(order.getSubtotal(), order.getDiscountAmount(),
+                    order.getTaxAmount(), order.getShippingFee()).total()));
+        }
+        group.setTotalAmount(money(group.getOrders().stream().map(Order::getTotalAmount)
+                .reduce(new BigDecimal("0.00"), BigDecimal::add)));
+        if (group.getTotalAmount().signum() <= 0) {
+            throw new DomainException(CommerceErrorCode.INVALID_ORDER_REQUEST, "SEPAY orders must have a positive total");
+        }
     }
 
     private void publishCreation(OrderGroup group) {
@@ -554,7 +590,7 @@ public class OrderService {
         Page<Order> orders = status == null
                 ? orderRepository.findByUserIdOrderByCreatedAtDescOrderNumberDesc(user.id(), pageable)
                 : orderRepository.findByUserIdAndStatusOrderByCreatedAtDescOrderNumberDesc(user.id(), status, pageable);
-        return orders.map(order -> toOrderResponse(order, user));
+        return toOrderPage(orders, user);
     }
 
     @Transactional(readOnly = true)
@@ -600,7 +636,7 @@ public class OrderService {
             return criteria.and(predicates.toArray(Predicate[]::new));
         };
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "orderNumber"));
-        return orderRepository.findAll(filter, pageable).map(order -> toOrderResponse(order, user));
+        return toOrderPage(orderRepository.findAll(filter, pageable), user);
     }
 
     private ProductResponse readProduct(UUID id) {
@@ -694,12 +730,23 @@ public class OrderService {
     }
 
     private OrderResponse toOrderResponse(Order order, CurrentUser user) {
+        return toOrderResponse(order, user, order.getDiscountAmount().signum() == 0
+                ? List.of() : vouchers.summary(order.getId()));
+    }
+
+    private Page<OrderResponse> toOrderPage(Page<Order> orders, CurrentUser user) {
+        var ids = orders.stream().filter(order -> order.getDiscountAmount().signum() > 0)
+                .map(Order::getId).toList();
+        var summaries = ids.isEmpty() ? Map.<UUID, List<VoucherCheckoutService.OrderVoucher>>of() : vouchers.summaries(ids);
+        return orders.map(order -> toOrderResponse(order, user, summaries.getOrDefault(order.getId(), List.of())));
+    }
+
+    private OrderResponse toOrderResponse(Order order, CurrentUser user,
+                                          List<VoucherCheckoutService.OrderVoucher> orderVouchers) {
         List<OrderItemResponse> items = order.getItems().stream()
                 .sorted(Comparator.comparing(OrderItem::getId))
                 .map(this::toItemResponse)
                 .toList();
-        List<VoucherCheckoutService.OrderVoucher> orderVouchers = order.getDiscountAmount().signum() == 0
-                ? List.of() : vouchers.summary(order.getId());
         return new OrderResponse(order.getId(), order.getOrderNumber(), order.getUserId(), order.getSellerId(),
                 order.getOrderType(), order.getStatus(), order.getCreatedAt(), order.getTotalAmount(), items,
                 shippingSnapshotText(order, "name", "recipientName"), shippingSnapshotText(order, "phone", "phoneNumber"),

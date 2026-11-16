@@ -338,9 +338,12 @@ class CartPersistenceTest {
 
         @Bean
         CartPricingService pricing(CartRepository carts, CartItemRepository items, CatalogClient catalog) {
+            var vouchers = mock(com.group5.commerceservice.promotion.VoucherCheckoutService.class);
+            when(vouchers.quote(any(), anyList(), anyList())).thenReturn(
+                    new com.group5.commerceservice.promotion.VoucherPricing.Result(BigDecimal.ZERO, List.of(), List.of()));
             return new CartPricingService(carts, items, catalog, new CheckoutProperties(),
                     mock(com.group5.commerceservice.order.service.PricingService.class),
-                    mock(com.group5.commerceservice.promotion.VoucherCheckoutService.class));
+                    vouchers);
         }
 
         @Bean

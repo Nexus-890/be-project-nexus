@@ -13,6 +13,8 @@ import org.springframework.stereotype.Component;
 import java.math.RoundingMode;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -47,6 +49,11 @@ public class OrderEventPublisher {
     public void orderCancelled(OrderCancelled payload) {
         outbox.write("Order", Topics.COMMERCE,
                 envelopes.create("OrderCancelled", payload.orderId().toString(), payload));
+    }
+
+    public void checkoutStockReleaseRequested(UUID orderId) {
+        outbox.write("Order", Topics.COMMERCE, envelopes.create(
+                "CheckoutStockReleaseRequested", orderId.toString(), Map.of("orderId", orderId)));
     }
 
     /** Ghi một OrderPaid cho từng đơn vào outbox trong transaction đang chuyển trạng thái PAID. */

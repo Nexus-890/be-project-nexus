@@ -258,6 +258,7 @@ The contract cell contains only `R2` for out-of-scope names. Each R1 link resolv
 | `ShipmentStatusUpdated` | #203 shipment status standardization | [R1 — payload](#shipmentstatusupdated) |
 | `ShipmentCancelled` | #203 R1 pre-pickup cancellation | [R1 — payload](#shipmentcancelled) |
 | `InventoryStockUnavailable` | #157 late OrderPaid recovery | [R1 — payload](#inventorystockunavailable) |
+| `CheckoutStockReleaseRequested` | #256 rolled-back checkout | [R1 — payload](#checkoutstockreleaserequested) |
 | `AuctionStockRejected` | #170 auction hold rejection | [R1 — payload](#auctionstockrejected) |
 
 ## Voucher usage events (#256)
@@ -3173,6 +3174,26 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 ```
 
 Inventory commits the processed AuctionCreated marker and rejection outbox row together, without a hold or movement. Auction locks the matching auction and SKU and cancels only CREATED, SCHEDULED or ACTIVE. It records `cancelledBy=SYSTEM`, the all-zero system actor UUID and reason `STOCK_UNAVAILABLE`, then writes AuctionCancelled in the same transaction as the processed marker. Replays leave the cancellation and stock unchanged.
+
+### CheckoutStockReleaseRequested
+
+- Topic: `nexus.commerce.events`.
+- Publisher: Commerce #256 after voucher checkout rolls back following a successful Inventory reservation.
+- Consumer: Inventory. Apply the same reservation release rules used for order cancellation, with a dedicated processed-event marker.
+- Envelope aggregateId and Kafka key: `orderId` from the attempted reservation.
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "orderId": { "type": "string", "format": "uuid" }
+  },
+  "required": ["orderId"]
+}
+```
+
+Commerce writes one release request per attempted seller order in a new transaction after confirming the group did not persist. The event does not represent a customer cancellation or a payment change.
 
 ### InventoryStockUnavailable
 

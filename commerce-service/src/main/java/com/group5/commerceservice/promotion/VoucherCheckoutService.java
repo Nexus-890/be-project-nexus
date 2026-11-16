@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,16 +39,14 @@ public class VoucherCheckoutService {
         return evaluate(buyer, lines, codes, MegaSaleEventService.now(), false);
     }
 
-    /** Locks voucher rows in database ID order and holds quota until the order transaction commits. */
+    /** Revalidates under the current clock and takes quota in database ID order after stock is held. */
     @Transactional(propagation = Propagation.MANDATORY)
     public Result reserveQuota(UUID buyer, List<Line> lines, List<String> codes, OffsetDateTime now) {
         Result result = evaluate(buyer, lines, codes, now, true);
-        if (result.vouchers().stream().anyMatch(quote -> !quote.applied())) {
-            throw new DomainException(VOUCHER_NOT_APPLICABLE, VOUCHER_NOT_APPLICABLE.message(),
-                    Map.of("vouchers", result.vouchers()));
-        }
+        requireApplicable(result);
 
-        for (Application application : result.applications()) {
+        for (Application application : result.applications().stream()
+                .sorted(Comparator.comparing(item -> item.offer().id().toString())).toList()) {
             long count = application.allocations().stream().map(row -> row.line().sellerId()).distinct().count();
             BigDecimal amount = application.allocations().stream().map(Allocation::discountAmount)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -58,6 +57,13 @@ public class VoucherCheckoutService {
             }
         }
         return result;
+    }
+
+    public static void requireApplicable(Result result) {
+        if (result.vouchers().stream().anyMatch(quote -> !quote.applied())) {
+            throw new DomainException(VOUCHER_NOT_APPLICABLE, VOUCHER_NOT_APPLICABLE.message(),
+                    Map.of("vouchers", result.vouchers()));
+        }
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -76,13 +82,17 @@ public class VoucherCheckoutService {
         return usages.summary(orderId);
     }
 
+    public Map<UUID, List<OrderVoucher>> summaries(List<UUID> orderIds) {
+        return usages.summaries(orderIds);
+    }
+
     public record OrderVoucher(String code, BigDecimal discountAmount, BigDecimal sellerFunded,
                                BigDecimal platformFunded) { }
 
     private Result evaluate(UUID buyer, List<Line> lines, List<String> codes, OffsetDateTime now, boolean lock) {
         if (codes.isEmpty()) return VoucherPricing.price(lines, codes, Map.of());
         Map<String, Offer> offers = new HashMap<>();
-        for (Voucher voucher : vouchers.forCodes(codes, lock)) {
+        for (Voucher voucher : vouchers.forCodes(codes)) {
             Reason unavailable = unavailable(buyer, voucher, now, lock);
             boolean restrictedProducts = voucher.productScope() == Voucher.Scope.SELECTED;
             Set<UUID> products = restrictedProducts ? vouchers.products(voucher.id()) : Set.of();
