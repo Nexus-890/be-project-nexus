@@ -43,7 +43,7 @@ import static org.awaitility.Awaitility.await;
         bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class CheckoutPaymentConfirmedKafkaTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     static { POSTGRES.start(); }
 
     @DynamicPropertySource

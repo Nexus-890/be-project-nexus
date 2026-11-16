@@ -44,6 +44,10 @@ class PaymentSessionEventsTest extends PaymentDatabaseTestSupport {
         UUID sessionId = (UUID) session.get("id");
         var instructions = instructions(sessionId);
         assertThat(instructions).hasSize(2);
+        for (var order : manifest.orders()) {
+            assertThat(instructions.stream().filter(row -> row.get("order_id").equals(order.orderId())).findFirst().orElseThrow())
+                    .containsEntry("seller_id", order.sellerId());
+        }
         assertThat(instructions.stream().map(row -> (BigDecimal) row.get("amount"))
                 .reduce(BigDecimal.ZERO, BigDecimal::add)).isEqualByComparingTo("350000");
         assertThat(session.get("memo_code").toString()).matches("NX[A-Z0-9]{1,30}");

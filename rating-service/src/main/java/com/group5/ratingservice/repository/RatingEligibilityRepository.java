@@ -4,13 +4,20 @@ import com.group5.ratingservice.entity.RatingEligibility;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.repository.query.Param;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
+import java.util.Optional;
 
 public interface RatingEligibilityRepository
         extends JpaRepository<RatingEligibility, UUID> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select e from RatingEligibility e where e.orderId = :orderId")
+    Optional<RatingEligibility> lockByOrderId(@Param("orderId") UUID orderId);
 
     @Modifying
     @Query(value = """

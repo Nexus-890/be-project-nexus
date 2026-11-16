@@ -45,7 +45,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringJUnitConfig(RefundStatusHandlerTest.JpaConfig.class)
 class RefundStatusHandlerTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     private static final AtomicInteger ORDER_NUMBERS = new AtomicInteger();
     private static final UUID SUPPORT = UUID.randomUUID();
 

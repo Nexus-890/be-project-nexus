@@ -237,6 +237,12 @@ nexus:
       - method: POST
         path: /api/v1/orders/{id}/cancel
         privilege: ORDER.CANCEL
+      - method: POST
+        path: /api/v1/orders/{id}/confirm-receipt
+        privilege: ORDER.VIEW
+      - method: POST
+        path: /api/v1/orders/{id}/receipt-issue
+        privilege: ORDER.VIEW
       - method: GET
         path: /api/v1/notifications
         privilege: NOTIFICATION.VIEW
@@ -342,6 +348,18 @@ nexus:
       - method: GET
         path: /api/v1/auctions/mine
         privilege: AUCTION.LIST
+      - method: GET
+        path: /api/v1/auctions/manage
+        privilege: AUCTION.LIST
+      - method: GET
+        path: /api/v1/auctions/manage/{id}
+        privilege: AUCTION.VIEW
+      - method: GET
+        path: /api/v1/auctions/manage/{id}/state
+        privilege: AUCTION.VIEW
+      - method: GET
+        path: /api/v1/auctions/manage/{id}/bids
+        privilege: AUCTION.VIEW_BID_HISTORY
       - method: GET
         path: /api/v1/bids/mine
         privilege: AUCTION.VIEW_BID_HISTORY

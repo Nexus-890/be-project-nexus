@@ -30,6 +30,7 @@ const services = {
     'src/main/java/com/group5/commerceservice/order/controller/OrderController.java',
     'src/main/java/com/group5/commerceservice/order/controller/OrderShippingSnapshotController.java',
     'src/main/java/com/group5/commerceservice/order/OrderReceiptController.java',
+    'src/main/java/com/group5/commerceservice/order/OrderReceiptConfirmationController.java',
   ],
   'notification-service': [
     'src/main/java/com/group5/notificationservice/notification/NotificationController.java',
@@ -47,6 +48,7 @@ const services = {
     'src/main/java/com/group5/inventoryservice/inventory/InventoryController.java',
     'src/main/java/com/group5/inventoryservice/warehouse/controller/WarehouseController.java',
     'src/main/java/com/group5/inventoryservice/reservation/controller/ReservationController.java',
+    'src/main/java/com/group5/inventoryservice/reservation/controller/InternalReservationController.java',
   ],
   'auction-service': [
     'src/main/java/com/group5/auctionservice/auction/AuctionController.java',

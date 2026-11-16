@@ -12,9 +12,17 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface ReservationRepository extends JpaRepository<InventoryReservation, UUID> {
+
+    boolean existsByAuctionId(UUID auctionId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<InventoryReservation> findForUpdateByAuctionId(UUID auctionId);
+
+    List<InventoryReservation> findByOrderIdAndAuctionWinnerIdOrderById(UUID orderId, UUID buyerId);
 
     List<InventoryReservation> findByOrderIdInAndWarehouseId(Collection<UUID> orderIds, UUID warehouseId);
 

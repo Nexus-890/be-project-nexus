@@ -25,6 +25,8 @@ public enum CommerceErrorCode implements ErrorCode {
     ORDER_NOT_PAID(HttpStatus.CONFLICT, "The order must be PAID before creating a shipment"),
     INVALID_SHIPPING_SNAPSHOT(HttpStatus.CONFLICT, "The paid order has incomplete or invalid shipping data"),
     ORDER_NOT_COMPLETED(HttpStatus.CONFLICT, "The receipt is available only after the order is completed"),
+    ORDER_NOT_DELIVERED(HttpStatus.CONFLICT, "Only a delivered order can be confirmed"),
+    RECEIPT_ISSUE_OPEN(HttpStatus.CONFLICT, "This order has a reported receipt issue and cannot complete until it is resolved"),
     ILLEGAL_TRANSITION(HttpStatus.CONFLICT, "The order status transition is not allowed"),
     IDEMPOTENCY_KEY_NOT_OWNED(HttpStatus.BAD_REQUEST, "Idempotency-Key cannot be used for this request"),
     IDEMPOTENCY_CONFLICT(HttpStatus.CONFLICT, "Idempotency-Key was already used for another request"),

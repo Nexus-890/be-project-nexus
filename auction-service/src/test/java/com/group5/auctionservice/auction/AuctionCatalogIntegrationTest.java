@@ -1,6 +1,7 @@
 package com.group5.auctionservice.auction;
 
 import com.sun.net.httpserver.HttpServer;
+import com.group5.auctionservice.TestPostgres;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import jakarta.servlet.Filter;
 import org.junit.jupiter.api.AfterAll;
@@ -18,7 +19,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.web.context.WebApplicationContext;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -50,12 +50,14 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
         "nexus.auction.scheduler.enabled=false", "nexus.outbox.relay.enabled=false"
 })
 class AuctionCatalogIntegrationTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18");
+    private static final TestPostgres POSTGRES = new TestPostgres();
     private static final UUID PRODUCT = UUID.randomUUID();
     private static final UUID SKU = UUID.randomUUID();
     private static final UUID OWNER = UUID.randomUUID();
     private static final String IMAGE = "https://example.com/first.jpg";
     private static final AtomicInteger CALLS = new AtomicInteger();
+    private static final AtomicInteger AVAILABLE = new AtomicInteger();
+    private static final AtomicInteger STOCK_CALLS = new AtomicInteger();
     private static final AtomicReference<CatalogReply> REPLY = new AtomicReference<>();
     private static final ExecutorService HTTP_THREADS = Executors.newVirtualThreadPerTaskExecutor();
     private static final HttpServer CATALOG = startCatalog();
@@ -76,13 +78,17 @@ class AuctionCatalogIntegrationTest {
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("nexus.auction.catalog-base-url", () -> "http://127.0.0.1:" + CATALOG.getAddress().getPort());
+        registry.add("nexus.auction.inventory-base-url", () -> "http://127.0.0.1:" + CATALOG.getAddress().getPort());
     }
 
     @BeforeEach
     void setup() {
         breakers.circuitBreaker("auctionCatalog").reset();
         jdbc.update("DELETE FROM auctions");
+        jdbc.update("DELETE FROM outbox");
         CALLS.set(0);
+        AVAILABLE.set(5);
+        STOCK_CALLS.set(0);
         REPLY.set(new CatalogReply(200, productJson("""
                 [{"imageUrl":"%s","sortOrder":0},{"imageUrl":"https://example.com/second.jpg","sortOrder":1}]
                 """.formatted(IMAGE)), 0));
@@ -96,6 +102,7 @@ class AuctionCatalogIntegrationTest {
     static void stopCatalog() {
         CATALOG.stop(0);
         HTTP_THREADS.shutdownNow();
+        POSTGRES.stop();
     }
 
     @Test
@@ -109,14 +116,25 @@ class AuctionCatalogIntegrationTest {
                 .containsEntry("title", "Catalog product").containsEntry("image_url", IMAGE)
                 .containsEntry("seller_id", OWNER);
         assertThat(CALLS.get()).isEqualTo(1);
+        assertThat(jdbc.queryForMap("SELECT event_type, payload->'payload'->>'skuId' AS sku FROM outbox"))
+                .containsEntry("event_type", "AuctionCreated").containsEntry("sku", SKU.toString());
     }
 
     @Test
-    void allowsOmittedTitleAndStoresNullWhenProductHasNoImages() throws Exception {
+    void refusesZeroStockBeforeCreatingAuctionOrEvent() throws Exception {
+        AVAILABLE.set(0);
+        expectProblem(create("owner", SKU, ""), 409, "AUCTION_STOCK_UNAVAILABLE");
+        assertThat(rowCount()).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox", Integer.class)).isZero();
+    }
+
+    @Test
+    void refusesProductWithoutImageBeforeCallingInventoryOrWritingAuctionAndEvent() throws Exception {
         REPLY.set(new CatalogReply(200, productJson("[]"), 0));
-        create("owner", SKU, "").andExpect(status().isCreated());
-        assertThat(jdbc.queryForMap("SELECT title, image_url FROM auctions"))
-                .containsEntry("title", "Catalog product").containsEntry("image_url", null);
+        expectProblem(create("owner", SKU, ""), 409, "AUCTION_IMAGE_REQUIRED");
+        assertThat(STOCK_CALLS.get()).isZero();
+        assertThat(rowCount()).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox", Integer.class)).isZero();
     }
 
     @Test
@@ -192,6 +210,17 @@ class AuctionCatalogIntegrationTest {
         try {
             HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.setExecutor(HTTP_THREADS);
+            server.createContext("/api/v1/inventory/" + SKU, exchange -> {
+                try (exchange) {
+                    STOCK_CALLS.incrementAndGet();
+                    byte[] bytes = """
+                            {"code":0,"message":"success","data":{"skuId":"%s","available":%d}}
+                            """.formatted(SKU, AVAILABLE.get()).getBytes(StandardCharsets.UTF_8);
+                    exchange.getResponseHeaders().set("Content-Type", "application/json");
+                    exchange.sendResponseHeaders(200, bytes.length);
+                    exchange.getResponseBody().write(bytes);
+                }
+            });
             server.createContext("/api/v1/products/" + PRODUCT, exchange -> {
                 try (exchange) {
                     CALLS.incrementAndGet();

@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringJUnitConfig(PaidOrderShippingSnapshotTest.JpaConfig.class)
 class PaidOrderShippingSnapshotTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     private static final UUID WAREHOUSE = UUID.fromString("44444444-4444-4444-8444-444444444444");
     private static final OffsetDateTime PAID_AT = OffsetDateTime.parse("2026-11-11T03:00:00Z");
     private static final String SHIPPING = """

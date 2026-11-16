@@ -29,6 +29,7 @@ import java.util.stream.Collectors;
 @Service
 public class PaymentSessionEventHandler {
     public static final String CHECKOUT_CONSUMER = "payment-checkout-requested";
+    public static final String SELLER_BACKFILL_CONSUMER = "payment-checkout-seller-backfill-v1";
     public static final String CANCELLATION_CONSUMER = "payment-order-group-cancelled";
     private final IdempotentConsumer consumer;
     private final PaymentSessionRepository sessions;
@@ -66,7 +67,23 @@ public class PaymentSessionEventHandler {
         require(manifest.orders().stream().map(CheckoutPaymentRequested.SellerOrder::amount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add).compareTo(manifest.totalAmount()) == 0,
                 "Instruction amounts must equal the group total");
-        consumer.handle(CHECKOUT_CONSUMER, event, this::createPlan);
+        // Older payment plans already have CHECKOUT_CONSUMER markers but predate seller_id.
+        // Give ownership recovery its own atomic marker; never reopen the original financial workflow.
+        if (!consumer.handle(CHECKOUT_CONSUMER, event, this::createPlan)
+                && instructions.existsBySessionOrderGroupIdAndSellerIdIsNull(manifest.orderGroupId())) {
+            consumer.handle(SELLER_BACKFILL_CONSUMER, event, this::backfillSellers);
+        }
+    }
+
+    private void backfillSellers(EventEnvelope<CheckoutPaymentRequested> event) {
+        CheckoutPaymentRequested manifest = event.payload();
+        sessions.lockKey("payment-group:" + manifest.orderGroupId());
+        PaymentSession existing = sessions.findLockedByOrderGroupId(manifest.orderGroupId())
+                .orElseThrow(() -> new IllegalArgumentException("Cannot repair a missing original payment plan"));
+        if (!event.eventId().equals(existing.getSourceEventId())) return;
+        // The persisted V4 digest already commits to every seller, order, amount, deadline and source version.
+        require(manifestIdentity(manifest).equals(existing.getIdempotencyKey()), "Conflicting immutable payment manifest");
+        verifyStoredPlan(existing, manifest);
     }
 
     private void createPlan(EventEnvelope<CheckoutPaymentRequested> event) {
@@ -101,6 +118,7 @@ public class PaymentSessionEventHandler {
             instruction.setOrderId(order.orderId());
             instruction.setSession(storedSession);
             instruction.setBuyerId(manifest.buyerId());
+            instruction.setSellerId(order.sellerId());
             instruction.setAmount(order.amount());
             instruction.setCurrency(manifest.currency());
             instruction.setDueAt(order.paymentDueAt().atOffset(ZoneOffset.UTC));
@@ -131,6 +149,10 @@ public class PaymentSessionEventHandler {
                     && instruction.getCurrency().equals(manifest.currency())
                     && instruction.getDueAt().toInstant().equals(order.paymentDueAt()),
                     "Stored instruction differs from manifest");
+            require(instruction.getSellerId() == null || instruction.getSellerId().equals(order.sellerId()),
+                    "Stored instruction seller differs from manifest");
+            // A verified replay of the original immutable manifest can populate historical seller ownership.
+            if (instruction.getSellerId() == null) instruction.setSellerId(order.sellerId());
         }
         // A replay must not reopen a canceled, expired or paid plan or overwrite its funding/version.
     }
