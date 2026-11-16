@@ -562,7 +562,7 @@ class SecurityConfigTest {
     @Test
     void everyDocumentedPrivilegeIsRequiredAndSufficient() {
         for (SecurityConfig.Endpoint endpoint : permissions.endpoints()) {
-            if (endpoint.isPublic()) {
+            if (endpoint.isPublic() || !endpoint.roles().isEmpty()) {
                 continue;
             }
             String path = concretePath(endpoint.path());
@@ -588,6 +588,32 @@ class SecurityConfigTest {
                     .exchange().expectStatus().isOk().expectBody(String.class)
                     .value(body -> assertThat(body).isNotEmpty());
             assertThat(SERVICE_LOG).hasSize(requests + 1);
+        }
+    }
+
+    @Test
+    void sellerAndPayoutPoliciesRequireAConfiguredRealmRoleAndPreserveTheirOwnerRoute() {
+        for (SecurityConfig.Endpoint endpoint : permissions.endpoints()) {
+            if (endpoint.roles().isEmpty()) continue;
+            String path = concretePath(endpoint.path());
+            client.method(endpoint.method()).uri(path).exchange().expectStatus().isUnauthorized();
+            client.method(endpoint.method()).uri(path)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                            claims -> claims.claim("roles", List.of("BUYER"))))
+                    .exchange().expectStatus().isForbidden();
+            for (String role : endpoint.roles()) {
+                client.method(endpoint.method()).uri(path)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                                claims -> claims.claim("roles", List.of(role))))
+                        .exchange().expectStatus().isOk();
+            }
+            if (path.startsWith("/api/v1/sellers")) {
+                var exchange = MockServerWebExchange.from(MockServerHttpRequest.get(path));
+                var routes = routeLocator.getRoutes().filterWhen(route -> route.getPredicate().apply(exchange))
+                        .collectList().block();
+                assertThat(routes).hasSize(1);
+                assertThat(routes.getFirst().getUri().toString()).isEqualTo("lb://user-service");
+            }
         }
     }
 
@@ -713,7 +739,7 @@ class SecurityConfigTest {
                 Map.entry("/api/v1/warehouses", "inventory-service"));
         String bearer = "Bearer " + token(SIGNING_KEY, c -> c.claim("privileges",
                 permissions.endpoints().stream().filter(endpoint -> !endpoint.isPublic())
-                        .map(SecurityConfig.Endpoint::privilege).distinct().toList()));
+                        .map(SecurityConfig.Endpoint::privilege).filter(java.util.Objects::nonNull).distinct().toList()));
         for (var entry : prefixes.entrySet()) {
             List<String> paths = entry.getKey().endsWith("/sepay")
                     ? List.of(entry.getKey()) : List.of(entry.getKey(), entry.getKey() + "/" + ID);
@@ -848,7 +874,8 @@ class SecurityConfigTest {
     }
 
     private static String concretePath(String path) {
-        return path.replace("{id}", ID).replace("{bidId}", ID).replace("{userId}", ID).replace("{imageId}", ID);
+        return path.replace("{id}", ID).replace("{bidId}", ID).replace("{userId}", ID).replace("{imageId}", ID)
+                .replace("{provider}", "sandbox");
     }
 
     private void expectInvalidToken(String token) {

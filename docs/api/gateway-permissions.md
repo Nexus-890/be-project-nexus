@@ -24,6 +24,11 @@ still rejected. Listed SRS 2.7 privileges must appear verbatim in the JWT
 Downstream services validate JWTs again and enforce ownership/business rules
 independently, as required by ADR-006.
 
+#257 introduces role policies using `roles` in `protected-endpoints`; the gateway
+accepts any one listed realm role and does not invent an SRS privilege. The owning
+service repeats the role check and enforces seller ownership. Callback requests
+are public to JWT authentication but require the provider signature downstream.
+
 Guest cart #112 adds `POST /api/v1/carts/guest` as public. The four existing
 cart read/item policies have `allow-guest: true`: anonymous requests pass to
 commerce-service, which checks `ALLOW_GUEST_CART`, the signed `X-Guest-Token`,
@@ -82,6 +87,17 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/users/me` | GET | PROFILE.VIEW | #75 — Own profile: read and update                      |
 | `/api/v1/users/me` | PUT | PROFILE.UPDATE | #75 — Own profile: read and update                      |
 | `/api/v1/users` | GET | USER.LIST | #76 — Admin user list and user by id                    |
+| `/api/v1/sellers/me` | GET | Roles: SELLER | #257 — Seller's own profile; existing SELLER users are bootstrapped lazily |
+| `/api/v1/sellers/me` | PUT | Roles: SELLER | #257 — Own company name and contact phone only |
+| `/api/v1/payments/seller-bank-accounts` | POST | Roles: SELLER | #257 — Seller identity comes from the authenticated user |
+| `/api/v1/payments/seller-bank-accounts/me` | GET | Roles: SELLER | #257 — Own accounts, masked to last four digits |
+| `/api/v1/payments/seller-bank-accounts/{id}` | PUT | Roles: SELLER | #257 — Owning seller only; another seller receives 404 |
+| `/api/v1/payments/seller-bank-accounts/{id}/default` | POST | Roles: SELLER | #257 — Owning seller only; one active default |
+| `/api/v1/payments/seller-bank-accounts/{id}/verify` | POST | Roles: ADMIN | #257 — Verification or rejection with reason |
+| `/api/v1/payments/payouts/me` | GET | Roles: SELLER | #257 — Own automatic payouts |
+| `/api/v1/payments/payouts/{id}` | GET | Roles: SELLER, ADMIN | #257 — Owning seller or ADMIN; includes history |
+| `/api/v1/payments/payouts/{id}/retry` | POST | Roles: ADMIN | #257 — FAILED/RETURNED only; required Idempotency-Key |
+| `/api/v1/payments/payouts/callbacks/{provider}` | POST | Public | #257 — Signed provider callback; signature checked by payment-service |
 | `/api/v1/products` | POST | PRODUCT.CREATE | #83 — Product create, update and read                   |
 | `/api/v1/products/mine` | GET | PRODUCT.LIST | #99 — Product lists                                     |
 | `/api/v1/products/mine/{id}` | GET | PRODUCT.LIST | Back-office demo (issue TBD) — SELLER reads own nondeleted product, including DRAFT/INACTIVE; another seller receives 404 downstream |
