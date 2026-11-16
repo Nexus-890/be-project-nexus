@@ -58,7 +58,7 @@ import static org.mockito.Mockito.when;
 
 @SpringJUnitConfig(OrderReadTest.JpaConfig.class)
 class OrderReadTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     private static final AtomicInteger ORDER_NUMBERS = new AtomicInteger();
     private static final CurrentUser ADMIN = new CurrentUser(UUID.randomUUID(), Set.of("ADMIN"),
             Set.of("ORDER.VIEW", "ORDER.LIST"));

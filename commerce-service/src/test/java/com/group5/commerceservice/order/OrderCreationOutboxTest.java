@@ -79,13 +79,12 @@ import static org.mockito.Mockito.when;
 
 @SpringJUnitConfig(OrderCreationOutboxTest.JpaConfig.class)
 class OrderCreationOutboxTest {
-    private static final String LOCAL_DB = System.getProperty("promotion.test.jdbc-url");
-    private static final PostgreSQLContainer POSTGRES = LOCAL_DB == null ? new PostgreSQLContainer("postgres:18-alpine") : null;
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     private static final CreateOrderRequest REQUEST = new CreateOrderRequest(new CreateOrderRequest.ShippingAddress(
             "Buyer", "0900000000", "1 Main Street", "1003646", "1000001", "VN"), "SEPAY");
 
     static {
-        if (POSTGRES != null) POSTGRES.start();
+        POSTGRES.start();
     }
 
     @Autowired private OrderService orderService;
@@ -559,10 +558,10 @@ class OrderCreationOutboxTest {
         }
         @Bean
         DataSource dataSource() {
-            String url = POSTGRES == null ? LOCAL_DB : POSTGRES.getJdbcUrl();
+            String url = POSTGRES.getJdbcUrl();
             String separator = url.contains("?") ? "&" : "?";
-            String user = POSTGRES == null ? System.getProperty("promotion.test.jdbc-user", "postgres") : POSTGRES.getUsername();
-            String password = POSTGRES == null ? System.getProperty("promotion.test.jdbc-password", "") : POSTGRES.getPassword();
+            String user = POSTGRES.getUsername();
+            String password = POSTGRES.getPassword();
             DataSource source = new DriverManagerDataSource(url + separator + "currentSchema=commerce_creation_outbox", user, password);
             Flyway.configure().dataSource(source).schemas("commerce_creation_outbox")
                     .defaultSchema("commerce_creation_outbox").load().migrate();

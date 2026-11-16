@@ -66,7 +66,7 @@ import static org.mockito.Mockito.when;
 
 @SpringJUnitConfig(ShipmentCompletionTest.JpaConfig.class)
 class ShipmentCompletionTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     private static final AtomicInteger ORDER_NUMBERS = new AtomicInteger();
     private static final UUID SYSTEM = new UUID(0, 0);
 
@@ -76,6 +76,7 @@ class ShipmentCompletionTest {
     @Autowired private OrderEventPublisher publisher;
     @Autowired private DataSource dataSource;
     @Autowired private OrderReceiptService receipts;
+    @Autowired private OrderCompletionService completions;
     @Autowired private PendingShipmentEvents pending;
     @Autowired private ShipmentRetryJob retries;
     @Autowired private PlatformTransactionManager transactions;
@@ -89,7 +90,7 @@ class ShipmentCompletionTest {
     }
 
     @Test
-    void handPublishedPickupAndDeliveryCompleteTheOrderAndPublishThePersistedSnapshot() {
+    void pickupAndDeliveryWaitForBuyerConfirmationBeforePublishingThePersistedSnapshot() {
         Fixture order = order(OrderStatus.PAID, OrderType.STANDARD);
         send(event(order, "ShipmentPickedUp"));
         assertThat(status(order)).isEqualTo("SHIPPED");
@@ -97,6 +98,11 @@ class ShipmentCompletionTest {
         assertThat(outboxCount(order)).isZero();
 
         send(event(order, "ShipmentDelivered"));
+
+        assertThat(status(order)).isEqualTo("DELIVERED");
+        assertThat(history(order)).containsExactly("PAID -> SHIPPED", "SHIPPED -> DELIVERED");
+        assertThat(outboxCount(order)).isZero();
+        confirm(order);
 
         assertThat(status(order)).isEqualTo("COMPLETED");
         assertThat(history(order)).containsExactly("PAID -> SHIPPED", "SHIPPED -> DELIVERED", "DELIVERED -> COMPLETED");
@@ -125,7 +131,7 @@ class ShipmentCompletionTest {
                 .contains("Receipt Buyer", "0900000204", "204 Private Street", order.number(), "300000.00");
         assertThat(envelope.get("traceId").asString()).hasSize(32);
         assertThat(jdbc().queryForList("SELECT DISTINCT changed_by FROM order_status_history WHERE order_id = ?",
-                UUID.class, order.id())).containsExactly(SYSTEM);
+                UUID.class, order.id())).containsExactlyInAnyOrder(SYSTEM, order.buyerId());
         assertThat(jdbc().queryForObject("SELECT topic FROM outbox WHERE aggregate_id = ?", String.class,
                 order.id().toString())).isEqualTo(Topics.COMMERCE);
     }
@@ -140,6 +146,11 @@ class ShipmentCompletionTest {
         send(delivery);
         send(delivery);
 
+        assertThat(status(order)).isEqualTo("DELIVERED");
+        assertThat(outboxCount(order)).isZero();
+        confirm(order);
+        confirm(order);
+
         assertThat(history(order)).hasSize(3);
         assertThat(outboxCount(order)).isEqualTo(1);
         assertThat(processed(pickup.eventId())).isEqualTo(1);
@@ -147,7 +158,7 @@ class ShipmentCompletionTest {
     }
 
     @Test
-    void differentDeliveryEnvelopeIdsRacingForOneOrderPublishOnlyOneCompletion() throws Exception {
+    void differentDeliveryEnvelopeIdsRacingForOneOrderWaitForOneBuyerCompletion() throws Exception {
         Fixture order = order(OrderStatus.SHIPPED, OrderType.STANDARD);
         var first = event(order, "ShipmentDelivered");
         var second = new EventEnvelope<>(UUID.randomUUID(), first.eventType(), first.aggregateId(),
@@ -166,6 +177,10 @@ class ShipmentCompletionTest {
             for (var future : futures) assertThat(future.get(20, TimeUnit.SECONDS)).isTrue();
         }
 
+        assertThat(status(order)).isEqualTo("DELIVERED");
+        assertThat(history(order)).containsExactly("SHIPPED -> DELIVERED");
+        assertThat(outboxCount(order)).isZero();
+        confirm(order);
         assertThat(status(order)).isEqualTo("COMPLETED");
         assertThat(history(order)).containsExactly("SHIPPED -> DELIVERED", "DELIVERED -> COMPLETED");
         assertThat(outboxCount(order)).isEqualTo(1);
@@ -174,11 +189,14 @@ class ShipmentCompletionTest {
     }
 
     @Test
-    void deliveryWithoutPickupCompletesTheOrderAndLatePickupIsANoOp() {
+    void deliveryWithoutPickupWaitsForConfirmationAndLatePickupIsANoOp() {
         Fixture order = order(OrderStatus.PAID, OrderType.STANDARD);
         var delivery = event(order, "ShipmentDelivered");
         send(delivery);
         send(delivery);
+        assertThat(status(order)).isEqualTo("DELIVERED");
+        assertThat(outboxCount(order)).isZero();
+        confirm(order);
         assertThat(status(order)).isEqualTo("COMPLETED");
         assertThat(history(order)).hasSize(3);
         assertThat(processed(delivery.eventId())).isEqualTo(1);
@@ -197,23 +215,24 @@ class ShipmentCompletionTest {
     }
 
     @Test
-    void failureAfterWritingTheOutboxRollsBackBothTransitionsHistoryAndClaim() {
+    void failureAfterWritingTheCompletionOutboxRollsBackConfirmationOnly() {
         Fixture order = order(OrderStatus.SHIPPED, OrderType.STANDARD);
         var delivery = event(order, "ShipmentDelivered");
+        send(delivery);
         doAnswer(invocation -> {
             invocation.callRealMethod();
             throw new IllegalStateException("Fail after completion outbox insert");
         }).when(publisher).orderCompleted(any(OrderCompleted.class));
 
-        assertThatThrownBy(() -> send(delivery)).isInstanceOf(IllegalStateException.class)
+        assertThatThrownBy(() -> confirm(order)).isInstanceOf(IllegalStateException.class)
                 .hasMessage("Fail after completion outbox insert");
 
-        assertThat(status(order)).isEqualTo("SHIPPED");
-        assertThat(history(order)).isEmpty();
+        assertThat(status(order)).isEqualTo("DELIVERED");
+        assertThat(history(order)).containsExactly("SHIPPED -> DELIVERED");
         assertThat(outboxCount(order)).isZero();
-        assertThat(processed(delivery.eventId())).isZero();
+        assertThat(processed(delivery.eventId())).isEqualTo(1);
         reset(publisher);
-        send(delivery);
+        confirm(order);
         assertThat(status(order)).isEqualTo("COMPLETED");
         assertThat(outboxCount(order)).isEqualTo(1);
     }
@@ -235,23 +254,28 @@ class ShipmentCompletionTest {
     }
 
     @Test
-    void aFailedPendingCompletionKeepsItsInboxRowAndRollsBackHistoryAndOutbox() {
+    void aPendingDeliveryIsRetriedWithoutPublishingCompletionBeforeConfirmation() {
         Fixture order = order(OrderStatus.PENDING, OrderType.STANDARD);
         var delivery = event(order, "ShipmentDelivered");
         send(delivery);
         jdbc().update("UPDATE orders SET status='PAID' WHERE id=?", order.id());
+        assertThat(retries.runOnce()).isEqualTo(1);
+        assertThat(status(order)).isEqualTo("DELIVERED");
+        assertThat(history(order)).hasSize(2);
+        assertThat(outboxCount(order)).isZero();
+        assertThat(pendingCount()).isZero();
         doAnswer(invocation -> {
             invocation.callRealMethod();
             throw new IllegalStateException("Failure after pending completion outbox insert");
         }).when(publisher).orderCompleted(any(OrderCompleted.class));
 
-        assertThat(retries.runOnce()).isZero();
-        assertThat(status(order)).isEqualTo("PAID");
-        assertThat(history(order)).isEmpty();
+        assertThatThrownBy(() -> confirm(order)).isInstanceOf(IllegalStateException.class);
+        assertThat(status(order)).isEqualTo("DELIVERED");
+        assertThat(history(order)).hasSize(2);
         assertThat(outboxCount(order)).isZero();
-        assertThat(pendingCount()).isEqualTo(1);
+        assertThat(pendingCount()).isZero();
         reset(publisher);
-        assertThat(retries.runOnce()).isEqualTo(1);
+        confirm(order);
         assertThat(status(order)).isEqualTo("COMPLETED");
         assertThat(outboxCount(order)).isEqualTo(1);
         assertThat(pendingCount()).isZero();
@@ -270,7 +294,8 @@ class ShipmentCompletionTest {
         jdbc().update("UPDATE orders SET status='PAID' WHERE id=?", ready.id());
 
         assertThat(retries.runOnce()).isEqualTo(1);
-        assertThat(status(ready)).isEqualTo("COMPLETED");
+        assertThat(status(ready)).isEqualTo("DELIVERED");
+        assertThat(outboxCount(ready)).isZero();
         assertThat(status(waiting)).isEqualTo("PENDING");
         assertThat(pendingCount()).isEqualTo(101);
     }
@@ -291,6 +316,8 @@ class ShipmentCompletionTest {
     void auctionCompletionPreservesTheCanonicalAuctionReference() {
         Fixture order = order(OrderStatus.SHIPPED, OrderType.AUCTION);
         send(event(order, "ShipmentDelivered"));
+        assertThat(outboxCount(order)).isZero();
+        confirm(order);
         JsonNode payload = completion(order).get("payload");
         assertThat(payload.get("orderType").asString()).isEqualTo("AUCTION");
         assertThat(payload.get("referenceId").asString()).isEqualTo(order.referenceId().toString());
@@ -324,9 +351,19 @@ class ShipmentCompletionTest {
         assertThat(history(order)).containsExactly("PAID -> SHIPPED");
         send(event(order, "ShipmentPickedUp"));
         send(event(order, "ShipmentDelivered"));
+        assertThat(status(order)).isEqualTo("DELIVERED");
+        assertThat(outboxCount(order)).isZero();
+        confirm(order);
         assertThat(status(order)).isEqualTo("COMPLETED");
         assertThat(history(order)).hasSize(3);
         assertThat(outboxCount(order)).isEqualTo(1);
+    }
+
+    private void confirm(Fixture order) {
+        var span = tracer.nextSpan().name("buyer-confirms-receipt").start();
+        try (var ignored = tracer.withSpan(span)) {
+            completions.confirm(new CurrentUser(order.buyerId(), Set.of("BUYER"), Set.of("ORDER.VIEW")), order.id());
+        } finally { span.end(); }
     }
 
     private void send(EventEnvelope<ShipmentStatusChanged> event) {
@@ -420,7 +457,8 @@ class ShipmentCompletionTest {
     @EnableJpaRepositories(basePackageClasses = OrderRepository.class)
     @EnableJpaAuditing(auditorAwareRef = "auditor")
     @Import({OrderStateMachine.class, ShipmentStatusHandler.class, ShipmentEventConsumer.class,
-            OrderReceiptRenderer.class, OrderReceiptService.class, PendingShipmentEvents.class, ShipmentRetryJob.class})
+            OrderReceiptRenderer.class, OrderReceiptService.class, PendingShipmentEvents.class, ShipmentRetryJob.class,
+            OrderCompletionService.class, OrderCompletionJob.class})
     static class JpaConfig {
         @Bean AuditorAware<UUID> auditor() { return new CurrentUserAuditor(); }
         @Bean JsonMapper jsonMapper() { return JsonMapper.shared(); }

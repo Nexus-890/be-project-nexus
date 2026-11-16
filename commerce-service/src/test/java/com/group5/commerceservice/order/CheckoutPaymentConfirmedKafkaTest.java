@@ -45,17 +45,14 @@ import static org.awaitility.Awaitility.await;
         bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class CheckoutPaymentConfirmedKafkaTest {
-    private static final String LOCAL_DB = System.getProperty("promotion.test.jdbc-url");
-    private static final PostgreSQLContainer POSTGRES = LOCAL_DB == null ? new PostgreSQLContainer("postgres:18-alpine") : null;
-    static { if (POSTGRES != null) POSTGRES.start(); }
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
+    static { POSTGRES.start(); }
 
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", () -> LOCAL_DB == null ? POSTGRES.getJdbcUrl() : LOCAL_DB);
-        registry.add("spring.datasource.username", () -> LOCAL_DB == null
-                ? POSTGRES.getUsername() : System.getProperty("promotion.test.jdbc-user", "postgres"));
-        registry.add("spring.datasource.password", () -> LOCAL_DB == null
-                ? POSTGRES.getPassword() : System.getProperty("promotion.test.jdbc-password", ""));
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
     }
 
     @Autowired private JdbcTemplate jdbc;

@@ -49,7 +49,7 @@ import static org.mockito.Mockito.*;
 /** Production migrations and Hibernate validate against real PostgreSQL 18. */
 @SpringJUnitConfig(CartPersistenceTest.JpaConfig.class)
 class CartPersistenceTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
 
     static {
         POSTGRES.start();

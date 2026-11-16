@@ -60,7 +60,7 @@ import static org.mockito.Mockito.when;
 
 @SpringJUnitConfig(OrderCancellationTest.JpaConfig.class)
 class OrderCancellationTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     private static final AtomicInteger ORDER_NUMBERS = new AtomicInteger();
     private static final CancelOrderRequest CHANGED_MIND = new CancelOrderRequest("Changed my mind");
 

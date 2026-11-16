@@ -16,6 +16,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.web.context.WebApplicationContext;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import com.group5.catalogservice.PostgresTestDatabase;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -43,7 +44,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
         "nexus.storage.bucket=product-images"
 })
 class ProductPriceRangeTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18");
+    private static final PostgreSQLContainer POSTGRES = new PostgresTestDatabase("postgres:18");
     private static final JsonMapper JSON = JsonMapper.shared();
     private static final String CATEGORY = "69000000-0000-4000-8000-000000000102";
     private static final UUID SELLER = UUID.randomUUID();

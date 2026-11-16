@@ -94,14 +94,13 @@ import static org.mockito.Mockito.when;
 /** Kiểm thử PostgreSQL thật cho chuyển PAID, chống xử lý lặp, snapshot và rollback toàn nhóm đơn. */
 @SpringJUnitConfig(CheckoutPaymentConfirmedTest.JpaConfig.class)
 class CheckoutPaymentConfirmedTest {
-    private static final String LOCAL_DB = System.getProperty("promotion.test.jdbc-url");
-    private static final PostgreSQLContainer POSTGRES = LOCAL_DB == null ? new PostgreSQLContainer("postgres:18-alpine") : null;
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     private static final AtomicInteger ORDER_NUMBERS = new AtomicInteger();
     private static final UUID SYSTEM = new UUID(0, 0);
     private static final String PAID_AT = "2026-11-10T03:00:00Z";
     private static final JsonMapper JSON = JsonMapper.shared();
     private static final Schema ORDER_PAID = schema();
-    static { if (POSTGRES != null) POSTGRES.start(); }
+    static { POSTGRES.start(); }
 
     @Autowired private PaymentEventConsumer listener;
     @Autowired private OrderEventPublisher publisher;
@@ -675,10 +674,10 @@ class CheckoutPaymentConfirmedTest {
             return tracer;
         }
         @Bean DataSource dataSource() {
-            String url = POSTGRES == null ? LOCAL_DB : POSTGRES.getJdbcUrl();
+            String url = POSTGRES.getJdbcUrl();
             String separator = url.contains("?") ? "&" : "?";
-            String user = POSTGRES == null ? System.getProperty("promotion.test.jdbc-user", "postgres") : POSTGRES.getUsername();
-            String password = POSTGRES == null ? System.getProperty("promotion.test.jdbc-password", "") : POSTGRES.getPassword();
+            String user = POSTGRES.getUsername();
+            String password = POSTGRES.getPassword();
             DataSource source = new DriverManagerDataSource(url + separator + "currentSchema=commerce_confirmation", user, password);
             Flyway.configure().dataSource(source).schemas("commerce_confirmation").defaultSchema("commerce_confirmation").load().migrate();
             return source;

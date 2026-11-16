@@ -63,7 +63,7 @@ import static org.mockito.Mockito.when;
 
 @SpringJUnitConfig(OrderStatusFlowTest.JpaConfig.class)
 class OrderStatusFlowTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     private static final AtomicInteger ORDER_NUMBERS = new AtomicInteger();
     private static final CurrentUser ADMIN = new CurrentUser(UUID.randomUUID(), Set.of("ADMIN"), Set.of("ORDER.VIEW"));
 
@@ -89,7 +89,7 @@ class OrderStatusFlowTest {
         UUID orderId = insertOrder(from);
         ChangeOrderStatusRequest request = new ChangeOrderStatusRequest(to, "Manual reconciliation");
 
-        if (from.canMoveTo(to)) {
+        if (from.canMoveTo(to) && to != OrderStatus.COMPLETED) {
             assertThat(orderService.changeStatus(ADMIN, orderId, request).status()).isEqualTo(to);
             assertThat(statusOf(orderId)).isEqualTo(to.name());
             assertThat(jdbc().queryForList("""
