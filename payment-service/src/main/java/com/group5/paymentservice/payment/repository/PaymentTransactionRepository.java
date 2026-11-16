@@ -24,8 +24,8 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
                    session.orderGroupId, transaction.provider, transaction.txnReference, transaction.amount,
                    transaction.currency, transaction.type, transaction.status, transaction.receivedAt)
             from PaymentTransaction transaction, PaymentSession session
-            where session.id = transaction.sessionId
-            """, countQuery = "select count(transaction) from PaymentTransaction transaction")
+            where cast(transaction.type as string) in ('NORMAL', 'REFUND') and session.id = transaction.sessionId
+            """, countQuery = "select count(transaction) from PaymentTransaction transaction where cast(transaction.type as string) in ('NORMAL', 'REFUND')")
     Page<PaymentView> findViews(Pageable pageable);
 
     @Query(value = """
@@ -33,9 +33,9 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
                    session.orderGroupId, transaction.provider, transaction.txnReference, transaction.amount,
                    transaction.currency, transaction.type, transaction.status, transaction.receivedAt)
             from PaymentTransaction transaction, PaymentSession session
-            where session.id = transaction.sessionId and transaction.status = :status
+            where cast(transaction.type as string) in ('NORMAL', 'REFUND') and session.id = transaction.sessionId and transaction.status = :status
             """, countQuery = """
-            select count(transaction) from PaymentTransaction transaction where transaction.status = :status
+            select count(transaction) from PaymentTransaction transaction where cast(transaction.type as string) in ('NORMAL', 'REFUND') and transaction.status = :status
             """)
     Page<PaymentView> findViewsByStatus(@Param("status") PaymentTransactionStatus status, Pageable pageable);
 
@@ -44,7 +44,7 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
                    session.orderGroupId, transaction.provider, transaction.txnReference, transaction.amount,
                    transaction.currency, transaction.type, transaction.status, transaction.receivedAt)
             from PaymentTransaction transaction, PaymentSession session
-            where session.id = transaction.sessionId and transaction.sessionId = :sessionId
+            where cast(transaction.type as string) in ('NORMAL', 'REFUND') and session.id = transaction.sessionId and transaction.sessionId = :sessionId
             order by transaction.receivedAt, transaction.id
             """)
     List<PaymentView> findViewsBySession(@Param("sessionId") UUID sessionId);

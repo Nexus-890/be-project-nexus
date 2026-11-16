@@ -17,6 +17,8 @@ tags:
     description: "Own profile and privileged user reads."
   - name: Roles
     description: Read-only fixed Keycloak roles and client permissions.
+  - name: Sellers
+    description: Seller company profiles shared with the seller application lifecycle
 security:
   -
     bearerAuth: []
@@ -4490,6 +4492,144 @@ paths:
                     detail: USER_IDENTITY_PROVIDER_UNAVAILABLE
                     instance: /api/v1/permissions
                     code: USER_IDENTITY_PROVIDER_UNAVAILABLE
+  /api/v1/sellers/me:
+    get:
+      tags: ["Sellers"]
+      operationId: "getOwnSellerProfile"
+      summary: "Read the authenticated seller profile"
+      description: "Requires the SELLER role. Existing sellers with no seller row receive a lazy ACTIVE profile copied from their local user name and phone, reviewed by the system actor. The user UUID is the seller ID. Application and approval operations belong to #210."
+      security: [{"bearerAuth":[]}]
+      x-required-roles: ["SELLER"]
+      x-ownership: "JWT subject only; no seller ID is accepted from the caller."
+      responses:
+        "200":
+          description: "Own profile, with a lazy ACTIVE row for an existing SELLER if necessary"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SellerProfileApiResponse"
+        "401":
+          description: "Authentication is required (UNAUTHENTICATED)."
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: "string"
+              description: "Bearer challenge for JWT authentication failures."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Unauthorized"
+                status: 401
+                detail: "Authentication is required"
+                instance: "/api/v1/payments/payouts"
+                code: "UNAUTHENTICATED"
+        "403":
+          description: "The authenticated user is not allowed to perform this action (FORBIDDEN)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Forbidden"
+                status: 403
+                detail: "The authenticated user is not allowed to perform this action"
+                instance: "/api/v1/payments/payouts"
+                code: "FORBIDDEN"
+        "404":
+          description: "The local user does not exist or is deleted (USER_NOT_FOUND)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Not Found"
+                status: 404
+                detail: "The local user does not exist or is deleted"
+                instance: "/api/v1/sellers/me"
+                code: "USER_NOT_FOUND"
+    put:
+      tags: ["Sellers"]
+      operationId: "updateOwnSellerProfile"
+      summary: "Update company name and contact phone"
+      description: "Requires the SELLER role. Updates only the authenticated seller companyName/contactPhone; application status, review and audit fields cannot be changed by this request."
+      security: [{"bearerAuth":[]}]
+      x-required-roles: ["SELLER"]
+      x-ownership: "JWT subject only."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SellerProfileRequest"
+      responses:
+        "200":
+          description: "Updated seller profile"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SellerProfileApiResponse"
+        "400":
+          description: "Company name and contact phone must satisfy the request constraints (VALIDATION_FAILED)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Bad Request"
+                status: 400
+                detail: "Company name and contact phone must satisfy the request constraints"
+                instance: "/api/v1/sellers/me"
+                code: "VALIDATION_FAILED"
+        "401":
+          description: "Authentication is required (UNAUTHENTICATED)."
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: "string"
+              description: "Bearer challenge for JWT authentication failures."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Unauthorized"
+                status: 401
+                detail: "Authentication is required"
+                instance: "/api/v1/payments/payouts"
+                code: "UNAUTHENTICATED"
+        "403":
+          description: "The authenticated user is not allowed to perform this action (FORBIDDEN)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Forbidden"
+                status: 403
+                detail: "The authenticated user is not allowed to perform this action"
+                instance: "/api/v1/payments/payouts"
+                code: "FORBIDDEN"
+        "404":
+          description: "The local user does not exist or is deleted (USER_NOT_FOUND)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Not Found"
+                status: 404
+                detail: "The local user does not exist or is deleted"
+                instance: "/api/v1/sellers/me"
+                code: "USER_NOT_FOUND"
 components:
   securitySchemes:
     bearerAuth:
@@ -4989,6 +5129,77 @@ components:
         page:
           $ref: "#/components/schemas/PageInfo"
 
+    SellerProfileRequest:
+      type: "object"
+      required: ["companyName","contactPhone"]
+      properties:
+        companyName:
+          type: "string"
+          minLength: 1
+          maxLength: 200
+          pattern: "\\S"
+          description: "Trimmed, nonblank company name."
+        contactPhone:
+          type: "string"
+          minLength: 1
+          maxLength: 20
+          pattern: "\\S"
+          description: "Trimmed, nonblank contact phone."
+    SellerProfile:
+      type: "object"
+      required: ["userId","companyName","contactPhone","status","applicationNote","rejectionReason","appliedAt","reviewedBy","reviewedAt","version","createdAt","updatedAt"]
+      properties:
+        userId:
+          type: "string"
+          format: "uuid"
+        companyName:
+          type: "string"
+          maxLength: 200
+        contactPhone:
+          type: "string"
+          maxLength: 20
+        status:
+          type: "string"
+          enum: ["PENDING","ACTIVE","REJECTED"]
+        applicationNote:
+          type: "string"
+          nullable: true
+        rejectionReason:
+          type: "string"
+          nullable: true
+        appliedAt:
+          type: "string"
+          format: "date-time"
+        reviewedBy:
+          type: "string"
+          format: "uuid"
+          nullable: true
+        reviewedAt:
+          type: "string"
+          format: "date-time"
+          nullable: true
+        version:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        createdAt:
+          type: "string"
+          format: "date-time"
+        updatedAt:
+          type: "string"
+          format: "date-time"
+    SellerProfileApiResponse:
+      type: "object"
+      required: ["code","message","data"]
+      properties:
+        code:
+          type: "integer"
+          default: 0
+        message:
+          type: "string"
+          default: "response success"
+        data:
+          $ref: "#/components/schemas/SellerProfile"
 x-service: "user-service"
 x-business-error-codes:
   USER_ROLE_INVALID:

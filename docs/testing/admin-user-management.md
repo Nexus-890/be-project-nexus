@@ -157,6 +157,43 @@ it does not import the developer `.env` file. Configure the same secret for both
 processes; setting it only in the notification `.env` is insufficient.
 No new Kafka topic or cross-service SQL access is introduced.
 
+## Migration upgrade after develop integration
+
+The user-service chain keeps develop's `V8__seller.sql` and adds the identity
+operation journal as `V9__admin_identity_operation_journal.sql`. The journal SQL
+body is unchanged; existing develop migrations must retain their bytes/checksums.
+The chain has versions 1, 3, 4, 5, 6, 7, 8 and 9; V2 is intentionally absent.
+
+`SellerMigrationTest` checks a fresh chain and an upgrade from develop V8. The
+upgrade seeds a nonempty seller profile, snapshots every users/seller column and
+the complete Flyway history, requires exactly one V9 migration, and verifies that
+the snapshots and all prior history entries remain unchanged. Both paths run
+Flyway validate and then require zero migrations on rerun. The preexisting V7
+upgrade and `EnumMigrationTest` retain coverage of seller and enum compatibility.
+Byte equality of V1–V8 against the exact merged develop commit is checked during
+conflict-resolution verification, separately from these database assertions.
+
+The PostgreSQL test helper defaults to a disposable PostgreSQL 18 container. An
+isolated database can instead be selected with `admin.test.jdbc-url`,
+`admin.test.username` and `admin.test.password`; this skips container startup and
+uses the same properties as `AdminUserTransactionTest`. Use a new disposable test
+database for a run, since the tests own and write their named schemas.
+
+```powershell
+# In user-service, with JDK 21 and the isolated PostgreSQL test database available
+.\mvnw.cmd '-Duser.timezone=UTC' '-Dtest=SellerMigrationTest,EnumMigrationTest,AdminUserTransactionTest' test
+```
+
+Conflict-resolution verification on 16 November 2026 against develop `d8dbe681`:
+all seven existing user-service SQL files match develop; the journal is a 100%
+rename from V8 to V9. Local checks passed: 93 Admin/User tests (including 23
+PostgreSQL transaction/recovery), five migration/enum tests, six seller persistence
+tests and four seller controller tests. The controller tests passed on a separate
+rerun after excluding event/consumer auto-configuration from their MVC-only context.
+Gateway tests passed 88, contract inventory passed 153 operations, and user/config
+OpenAPI lint passed. PostgreSQL 18 used a disposable database; no real Keycloak,
+full running-stack acceptance or remote CI success is claimed for this resolution.
+
 ## Validation
 
 Use JDK 21 and install `lib` before building services. Unit and HTTP fixtures use

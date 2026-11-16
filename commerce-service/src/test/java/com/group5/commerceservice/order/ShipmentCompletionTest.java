@@ -77,6 +77,7 @@ class ShipmentCompletionTest {
     @Autowired private DataSource dataSource;
     @Autowired private OrderReceiptService receipts;
     @Autowired private OrderCompletionService completions;
+    @Autowired private OrderCompletionJob autoCompletion;
     @Autowired private PendingShipmentEvents pending;
     @Autowired private ShipmentRetryJob retries;
     @Autowired private PlatformTransactionManager transactions;
@@ -92,6 +93,7 @@ class ShipmentCompletionTest {
     @Test
     void pickupAndDeliveryWaitForBuyerConfirmationBeforePublishingThePersistedSnapshot() {
         Fixture order = order(OrderStatus.PAID, OrderType.STANDARD);
+        jdbc().update("UPDATE orders SET shipping_fee = 25000.00, total_amount = 325000.00 WHERE id = ?", order.id());
         send(event(order, "ShipmentPickedUp"));
         assertThat(status(order)).isEqualTo("SHIPPED");
         assertThat(history(order)).containsExactly("PAID -> SHIPPED");
@@ -118,6 +120,10 @@ class ShipmentCompletionTest {
         assertThat(payload.get("orderType").asString()).isEqualTo("STANDARD");
         assertThat(payload.get("referenceId").isNull()).isTrue();
         assertThat(payload.get("orderNumber").asString()).isEqualTo(order.number());
+        assertThat(payload.get("orderAmount").isString()).isTrue();
+        assertThat(payload.get("orderAmount").asString()).isEqualTo("325000.00");
+        assertThat(payload.get("shippingFee").isString()).isTrue();
+        assertThat(payload.get("shippingFee").asString()).isEqualTo("25000.00");
         assertThat(payload.get("orderVersion").asLong()).isEqualTo(3)
                 .isEqualTo(jdbc().queryForObject("SELECT version FROM orders WHERE id = ?", Long.class, order.id()));
         Instant storedCompletion = jdbc().queryForObject("""
@@ -134,6 +140,42 @@ class ShipmentCompletionTest {
                 UUID.class, order.id())).containsExactlyInAnyOrder(SYSTEM, order.buyerId());
         assertThat(jdbc().queryForObject("SELECT topic FROM outbox WHERE aggregate_id = ?", String.class,
                 order.id().toString())).isEqualTo(Topics.COMMERCE);
+    }
+
+    @Test
+    void scheduledCompletionPublishesTheSameMoneyAndReceiptContract() {
+        Fixture order = order(OrderStatus.SHIPPED, OrderType.STANDARD);
+        jdbc().update("UPDATE orders SET shipping_fee = 12500.50, total_amount = 312500.50 WHERE id = ?", order.id());
+        send(event(order, "ShipmentDelivered"));
+        jdbc().update("UPDATE orders SET delivered_at = now() - interval '8 days', auto_complete_at = now() - interval '1 minute' WHERE id = ?", order.id());
+
+        assertThat(autoCompletion.runOnce()).isGreaterThanOrEqualTo(1);
+        JsonNode payload = completion(order).get("payload");
+        assertThat(payload.get("orderAmount").isString()).isTrue();
+        assertThat(payload.get("orderAmount").asString()).isEqualTo("312500.50");
+        assertThat(payload.get("shippingFee").isString()).isTrue();
+        assertThat(payload.get("shippingFee").asString()).isEqualTo("12500.50");
+        assertThat(payload.get("receiptHtml").asString()).contains(order.number());
+        assertThat(payload.get("sellerId").asString()).isEqualTo(order.sellerId().toString());
+        assertThat(status(order)).isEqualTo("COMPLETED");
+        assertThat(outboxCount(order)).isEqualTo(1);
+        autoCompletion.runOnce();
+        assertThat(outboxCount(order)).isEqualTo(1);
+    }
+
+    @Test
+    void completionPublishesTheDiscountedBuyerAmountWithoutAddingVoucherFundingBack() {
+        Fixture order = order(OrderStatus.SHIPPED, OrderType.STANDARD);
+        jdbc().update("UPDATE orders SET discount_amount=40000,shipping_fee=25000,total_amount=285000 WHERE id=?", order.id());
+        jdbc().update("UPDATE order_groups SET total_amount=285000 WHERE id=?", order.groupId());
+        send(event(order, "ShipmentDelivered"));
+        confirm(order);
+
+        JsonNode payload = completion(order).get("payload");
+        assertThat(payload.get("orderAmount").asString()).isEqualTo("285000.00");
+        assertThat(payload.get("shippingFee").asString()).isEqualTo("25000.00");
+        assertThat(payload.get("receiptHtml").asString()).contains("40000.00", "285000.00");
+        assertThat(outboxCount(order)).isEqualTo(1);
     }
 
     @Test

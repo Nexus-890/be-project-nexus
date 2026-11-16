@@ -15,6 +15,8 @@ nexus:
     public-endpoints:
       - method: POST
         path: /api/v1/webhooks/sepay
+      - method: POST
+        path: /api/v1/payments/payouts/callbacks/{provider}
     jwt:
       issuer: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
       audience: nexus-services
@@ -36,3 +38,17 @@ nexus:
       transfer-content-prefix: ${SEPAY_TRANSFER_CONTENT_PREFIX:SEVQR}
       webhook:
         secret: ${SEPAY_WEBHOOK_SECRET:}
+  payout:
+    platform-fee-rate: ${PAYOUT_PLATFORM_FEE_RATE:0.00}
+    provider: ${PAYOUT_PROVIDER:sandbox}
+    account-encryption-key: ${PAYOUT_ACCOUNT_ENCRYPTION_KEY:}
+    max-attempts: ${PAYOUT_MAX_ATTEMPTS:3}
+    retry-backoff: ${PAYOUT_RETRY_BACKOFF:PT1M}
+    reconcile-interval: ${PAYOUT_RECONCILE_INTERVAL:PT1M}
+    provider-timeout: ${PAYOUT_PROVIDER_TIMEOUT:PT10S}
+    dispatch-cron: ${PAYOUT_DISPATCH_CRON:*/10 * * * * *}
+    jobs-enabled: ${PAYOUT_JOBS_ENABLED:true}
+    sandbox-outcome: ${PAYOUT_SANDBOX_OUTCOME:SUCCESS}
+    callback-secret: ${PAYOUT_CALLBACK_SECRET:}
+    provider-url: ${PAYOUT_PROVIDER_URL:}
+    provider-token: ${PAYOUT_PROVIDER_TOKEN:}
