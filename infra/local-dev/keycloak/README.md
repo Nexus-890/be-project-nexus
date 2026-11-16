@@ -88,6 +88,22 @@ holds only `realm-management` `view-users`, which notification-service needs to 
 a recipient's email before it sends a notification email. Leave the secret empty to
 skip it while `EMAIL_NOTIFICATION_ENABLED=false`.
 
+For #217, set `KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET` in the deployment environment
+for both the seed command and config-service, then re-run the existing seed command.
+It creates or updates a dedicated confidential `config-service` client with only
+`realm-management` `view-realm`; browser/password grants remain disabled. This also
+upgrades an existing realm without replacing it. Config Server starts without IAM;
+the authenticated admin config listing requires this credential and a readable realm
+and returns `503 CONFIG_IDENTITY_PROVIDER_UNAVAILABLE` otherwise.
+
+The four `KEYCLOAK_MANAGED` rows read one fresh realm snapshot per GET:
+`ssoSessionIdleTimeout` and `accessTokenLifespan` become numeric minutes (including
+fractions); `failureFactor` is the failed-attempt limit when `bruteForceProtected`
+is true, or `0` when it is disabled; `passwordPolicy` is returned verbatim. These
+are realm defaults; client-specific timeout/lifespan overrides are separate Keycloak
+settings. `configuredValue` remains the Config Server source and `defaultValue`
+remains the historical SRS value. PUT for these four keys stays read-only.
+
 Access tokens are signed with RS256 and contain:
 
 - `sub`: the imported user UUID, unchanged from the other service seeds.

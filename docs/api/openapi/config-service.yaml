@@ -17,7 +17,7 @@ paths:
         - System configuration
       operationId: listSystemConfigs
       summary: List all 57 SRS configuration keys
-      description: List all 57 SRS configuration keys. Reads the per-service Config Server source and persistent overrides. Historical SRS defaults are returned separately. Consumer refresh behavior is described in docs/testing/admin-user-management.md.
+      description: List all 57 SRS configuration keys. Reads Config Server sources and persistent overrides, and reads the four KEYCLOAK_MANAGED values from the current realm. SESSION_TIMEOUT_MINUTES is the realm SSO idle timeout and ACCESS_TOKEN_EXPIRY_MINUTES is the realm access-token lifespan, converted from seconds without truncating fractional minutes. MAX_LOGIN_ATTEMPTS is zero when brute-force protection is disabled; otherwise it is the realm failureFactor. PASSWORD_POLICY is the exact realm policy string. Historical SRS defaults and configuredValue are returned separately. An unavailable or invalid realm response fails the request with 503. Consumer refresh behavior is described in docs/testing/admin-user-management.md.
       x-required-privileges:
         - SYSTEM.CONFIG.VIEW
       x-required-roles:
@@ -30,6 +30,8 @@ paths:
           - FORBIDDEN
         "500":
           - INTERNAL_ERROR
+        "503":
+          - CONFIG_IDENTITY_PROVIDER_UNAVAILABLE
       responses:
         "200":
           description: Success.
@@ -103,6 +105,21 @@ paths:
                     detail: INTERNAL_ERROR
                     instance: /api/v1/system/configs
                     code: INTERNAL_ERROR
+        "503":
+          description: "Codes: CONFIG_IDENTITY_PROVIDER_UNAVAILABLE"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                CONFIG_IDENTITY_PROVIDER_UNAVAILABLE:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Service Unavailable
+                    status: 503
+                    detail: The effective Keycloak configuration could not be read
+                    instance: /api/v1/system/configs
+                    code: CONFIG_IDENTITY_PROVIDER_UNAVAILABLE
   /api/v1/system/configs/{key}:
     put:
       tags:
@@ -387,7 +404,7 @@ components:
             - RUNTIME
             - CONFIG_SOURCE
             - KEYCLOAK_MANAGED
-          description: RUNTIME is live retry policy. CONFIG_SOURCE follows its consumer refresh/restart behavior. KEYCLOAK_MANAGED has null value, exposes configuredValue only and rejects PUT.
+          description: RUNTIME is live retry policy. CONFIG_SOURCE follows its consumer refresh/restart behavior. KEYCLOAK_MANAGED reads value from the current realm, exposes the separate Config Server source as configuredValue and rejects PUT. No realm values are cached between requests.
     ConfigListResponse:
       type: object
       required:

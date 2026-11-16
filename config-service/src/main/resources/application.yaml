@@ -27,6 +27,12 @@ nexus:
       audience: nexus-services
       jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:18080/realms/nexus/protocol/openid-connect/certs}
   system-config:
+    keycloak:
+      server-url: ${KEYCLOAK_SERVER_URL:http://localhost:18080}
+      realm: ${KEYCLOAK_REALM:nexus}
+      client-id: config-service
+      client-secret: ${KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET:}
+      timeout: 5s
     state-file: ${SYSTEM_CONFIG_STATE_FILE:./data/system-configs.json}
     notification-url: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
     user-url: ${USER_SERVICE_URL:http://localhost:8081}

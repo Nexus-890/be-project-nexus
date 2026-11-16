@@ -48,6 +48,7 @@ class KeycloakAdminClientHttpTest {
     private HttpServer server;
     private KeycloakAdminClient client;
     private int tokens;
+    private Map<UUID, JsonNode> realmUsers;
 
     /** Tạo Admin API cục bộ và client thật với thời gian cố định để quan sát token cache. */
     @BeforeEach
@@ -112,6 +113,52 @@ class KeycloakAdminClientHttpTest {
         assertThat(body.get("enabled").asBoolean()).isFalse();
         assertThat(body.get("username").asString()).isEqualTo("original-login");
         assertThat(body.get("attributes").get("phone").get(0).asString()).isEqualTo("0900000001");
+    }
+
+    /** Realm giả lập giữ uniqueness để chuỗi tạo, đổi email và tạo lại thất bại nếu còn username cũ. */
+    @Test
+    void changedEmailFreesTheOriginalUsernameForAnotherAccount() {
+        realmUsers = new LinkedHashMap<>();
+        UUID first = client.createUser("original@nexus.local", "test-password", "First Account");
+        assertError(() -> client.createUser("original@nexus.local", "test-password", "Duplicate Account"),
+                UserErrorCode.USER_EMAIL_ALREADY_USED);
+
+        client.updateUser(first, "changed@nexus.local", "First Account", true);
+        UUID second = client.createUser("original@nexus.local", "test-password", "Second Account");
+
+        assertThat(second).isNotEqualTo(first);
+        assertThat(client.userState(first)).containsEntry("email", "changed@nexus.local")
+                .containsEntry("username", "changed@nexus.local");
+        assertThat(client.userState(second)).containsEntry("email", "original@nexus.local")
+                .containsEntry("username", "original@nexus.local");
+    }
+
+    /** Keycloak có thể chuẩn hóa username; email username vẫn phải đổi dù khác chữ hoa/thường. */
+    @ParameterizedTest
+    @CsvSource({"original@nexus.local,original@nexus.local", "original@nexus.local,Original@Nexus.Local"})
+    void emailUsernamesFollowEmailChangesDespiteCaseNormalization(String username, String previousEmail) {
+        Map<String, Object> state = account();
+        state.put("username", username);
+        state.put("email", previousEmail);
+        expect("GET", USER_PATH, 200, state);
+        expect("PUT", USER_PATH, 204, null);
+
+        client.updateUser(USER, "changed@nexus.local", "An", true);
+
+        assertThat(body(1).get("username").asString()).isEqualTo("changed@nexus.local");
+    }
+
+    /** Đổi email qua self-service cũng giải phóng username email, không chỉ endpoint quản trị. */
+    @Test
+    void selfServiceEmailChangeAlsoFreesTheOriginalUsername() {
+        realmUsers = new LinkedHashMap<>();
+        UUID first = client.createUser("original@nexus.local", "test-password", "First Account");
+
+        client.updateEmail(first, "changed@nexus.local", false);
+        UUID second = client.createUser("original@nexus.local", "test-password", "Second Account");
+
+        assertThat(second).isNotEqualTo(first);
+        assertThat(client.userState(first)).containsEntry("username", "changed@nexus.local");
     }
 
     /** Cập nhật tên đơn từ không được mất trạng thái xác minh khi email vẫn giữ nguyên. */
@@ -350,6 +397,10 @@ class KeycloakAdminClientHttpTest {
         }
         requests.add(new Request(exchange.getRequestMethod(), path, body,
                 exchange.getRequestHeaders().getFirst("Authorization")));
+        if (realmUsers != null) {
+            respondRealm(exchange, path, body);
+            return;
+        }
         Reply reply = replies.poll();
         if (reply == null || !reply.method().equals(exchange.getRequestMethod()) || !reply.path().equals(path)) {
             failures.add("Unexpected " + exchange.getRequestMethod() + " " + path + "; expected " + reply);
@@ -357,6 +408,28 @@ class KeycloakAdminClientHttpTest {
             return;
         }
         write(exchange, reply.status(), reply.body());
+    }
+
+    /** Áp dụng request lên realm có trạng thái, kiểm unique email/username độc lập với client. */
+    private void respondRealm(HttpExchange exchange, String path, String body) throws IOException {
+        String usersPath = "/admin/realms/nexus/users";
+        boolean creating = path.equals(usersPath) && exchange.getRequestMethod().equals("POST");
+        UUID id = creating ? UUID.randomUUID() : UUID.fromString(path.substring(usersPath.length() + 1));
+        if (exchange.getRequestMethod().equals("GET")) {
+            write(exchange, 200, JSON.writeValueAsString(realmUsers.get(id)));
+            return;
+        }
+        JsonNode account = JSON.readTree(body);
+        boolean conflict = realmUsers.entrySet().stream().anyMatch(entry -> !entry.getKey().equals(id)
+                && (entry.getValue().get("username").asString().equalsIgnoreCase(account.get("username").asString())
+                || entry.getValue().get("email").asString().equalsIgnoreCase(account.get("email").asString())));
+        if (conflict) {
+            write(exchange, 409, "{\"error\":\"User exists with same username or email\"}");
+            return;
+        }
+        realmUsers.put(id, account);
+        if (creating) exchange.getResponseHeaders().set("Location", usersPath + "/" + id);
+        write(exchange, creating ? 201 : 204, "");
     }
 
     /** Gửi JSON response; 204 luôn không có body để mô phỏng đúng Admin API. */

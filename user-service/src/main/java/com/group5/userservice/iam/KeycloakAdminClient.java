@@ -204,6 +204,7 @@ public class KeycloakAdminClient {
                         change.put(field, user.get(field));
                     }
                 }
+                synchronizeEmailUsername(user, change, email);
                 change.put("email", email);
                 change.put("emailVerified", emailVerified);
                 return client.put()
@@ -264,12 +265,21 @@ public class KeycloakAdminClient {
     public void updateUser(UUID userId, String email, String fullName, boolean enabled) {
         Map<String, Object> state = new LinkedHashMap<>(userState(userId));
         if (!java.util.Objects.equals(state.get("email"), email)) state.put("emailVerified", false);
+        synchronizeEmailUsername(state, state, email);
         int split = fullName.lastIndexOf(' ');
         state.put("firstName", split < 0 ? fullName : fullName.substring(0, split).strip());
         state.put("lastName", split < 0 ? "" : fullName.substring(split + 1));
         state.put("email", email);
         state.put("enabled", enabled);
         restoreUser(userId, state);
+    }
+
+    /** Giải phóng email đăng nhập cũ nhưng giữ username riêng, kể cả realm chuẩn hóa chữ thường. */
+    private static void synchronizeEmailUsername(Map<String, Object> before, Map<String, Object> change, String email) {
+        if (before.get("username") instanceof String username && before.get("email") instanceof String previousEmail
+                && username.equalsIgnoreCase(previousEmail)) {
+            change.put("username", email);
+        }
     }
 
     /** Đọc role gán trực tiếp, giữ cả built-in để không vô tình xóa chúng khi đổi role nghiệp vụ. */

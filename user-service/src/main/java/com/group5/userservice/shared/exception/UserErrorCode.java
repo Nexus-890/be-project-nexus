@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 
 /** Stable business error identifiers owned by user-service. */
 public enum UserErrorCode implements ErrorCode {
+    USER_IDENTITY_RECONCILIATION_REQUIRED(HttpStatus.SERVICE_UNAVAILABLE, "The identity change was applied remotely; local completion requires reconciliation"),
     USER_ROLE_INVALID(HttpStatus.BAD_REQUEST, "Role must belong to the fixed application role set"),
     USER_ROLE_NOT_FOUND(HttpStatus.NOT_FOUND, "Role not found"),
     USER_ACCOUNT_NOT_LOCKED(HttpStatus.CONFLICT, "Account is not locked by brute-force detection"),

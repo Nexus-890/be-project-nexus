@@ -13,6 +13,7 @@ import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -37,15 +38,18 @@ public class AdminUserService {
     private final IamProperties properties;
     private final Clock clock;
     private final TransactionTemplate transaction;
+    private final AdminIdentityOperationJournal journal;
 
     /** Tạo transaction độc lập để bắt được cả lỗi commit trước khi thực hiện hoàn tác Keycloak. */
     public AdminUserService(UserRepository users, KeycloakAdminClient keycloak, UserEventPublisher events,
-                            IamProperties properties, Clock clock, PlatformTransactionManager manager) {
+                            IamProperties properties, Clock clock, PlatformTransactionManager manager,
+                            AdminIdentityOperationJournal journal) {
         this.users = users;
         this.keycloak = keycloak;
         this.events = events;
         this.properties = properties;
         this.clock = clock;
+        this.journal = journal;
         this.transaction = new TransactionTemplate(manager);
         this.transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
@@ -151,31 +155,94 @@ public class AdminUserService {
         }));
     }
 
-    /** Flush profile và audit trước khi yêu cầu Keycloak đổi credential không thể đọc lại để hoàn tác. */
+    /** Flush local trước remote và giữ intent/xác nhận bền vững nếu SQL COMMIT sau đó thất bại. */
     public void changePassword(UUID id, String password, UUID actor) {
-        transaction.executeWithoutResult(status -> {
-            lock(id);
+        irreversible(attempt -> transaction.executeWithoutResult(status -> {
+            User user = lock(id);
             keycloak.userState(id);
             events.publish("UserPasswordChanged", id, actor, Map.of());
             users.flush();
-            // Admin API không có XA/khôi phục credential cũ; lỗi commit sau lời gọi vẫn là giới hạn phân tán.
+            attempt.operationId = journal.prepare("UserPasswordChanged", id, actor, user.getVersion());
             keycloak.resetPassword(id, password);
-        });
+            attempt.remoteSucceeded = true;
+            journal.remoteSucceeded(attempt.operationId);
+            journal.complete(attempt.operationId);
+        }));
     }
 
-    /** Mở khóa brute-force thực tế; khóa local chỉ được gỡ khi detector xác nhận đang khóa. */
+    /** Mở khóa không phát lại HTTP; journal cho phép phục hồi audit/profile sau lỗi COMMIT. */
     public void unlock(UUID id, UUID actor) {
-        transaction.executeWithoutResult(status -> {
+        irreversible(attempt -> transaction.executeWithoutResult(status -> {
             User user = lock(id);
+            long profileVersion = user.getVersion();
             keycloak.userState(id);
             if (!keycloak.isBruteForceLocked(id)) throw new DomainException(UserErrorCode.USER_ACCOUNT_NOT_LOCKED);
             if (user.getStatus() == UserStatus.LOCKED) user.setStatus(UserStatus.ACTIVE);
             users.saveAndFlush(user);
             events.publish("UserUnlocked", id, actor, Map.of());
             users.flush();
-            // Keycloak không cung cấp API khôi phục bộ đếm brute-force; gọi sau toàn bộ flush local.
+            attempt.operationId = journal.prepare("UserUnlocked", id, actor, profileVersion);
             keycloak.unlock(id);
-        });
+            attempt.remoteSucceeded = true;
+            journal.remoteSucceeded(attempt.operationId);
+            journal.complete(attempt.operationId);
+        }));
+    }
+
+    /** Worker chỉ phục hồi remote đã xác nhận; PENDING cần người vận hành kiểm tra, không retry password. */
+    @Scheduled(fixedDelayString = "${nexus.iam.reconciliation-interval:30000}")
+    public void reconcileIdentityOperations() {
+        for (var candidate : journal.confirmed()) {
+            try {
+                transaction.executeWithoutResult(status -> {
+                    // Giữ user -> journal như request gốc để không deadlock khi request vẫn đang COMMIT.
+                    var profile = users.findForProfileUpdate(candidate.userId());
+                    var pending = journal.lockConfirmed(candidate.operationId());
+                    if (pending.isEmpty()) return;
+                    var operation = pending.get();
+                    boolean currentProfile = profile.isPresent()
+                            && profile.get().getVersion() == operation.profileVersion();
+                    if (currentProfile && operation.eventType().equals("UserUnlocked")
+                            && profile.get().getStatus() == UserStatus.LOCKED) {
+                        profile.get().setStatus(UserStatus.ACTIVE);
+                        users.saveAndFlush(profile.get());
+                    }
+                    events.publish(operation.eventType(), operation.userId(), operation.actorId(), Map.of(
+                            "operationId", operation.operationId(), "reconciled", true,
+                            "profileReconciled", currentProfile,
+                            "remoteConfirmedAt", operation.remoteConfirmedAt().toString()));
+                    if (currentProfile) journal.complete(operation.operationId());
+                    else {
+                        journal.requireReview(operation.operationId());
+                        log.error("Identity operation {} requires profile review", operation.operationId());
+                    }
+                });
+            } catch (RuntimeException failure) {
+                // Không log message/body có khả năng chứa dữ liệu provider; row vẫn giữ để lần sau phục hồi.
+                log.error("Identity operation {} reconciliation failed ({})", candidate.operationId(),
+                        failure.getClass().getSimpleName());
+            }
+        }
+    }
+
+    /** Báo rõ remote đã áp dụng; journal không bị rollback cùng profile và là nguồn đối soát sau restart. */
+    private void irreversible(java.util.function.Consumer<IdentityAttempt> operation) {
+        IdentityAttempt attempt = new IdentityAttempt();
+        try {
+            operation.accept(attempt);
+        } catch (RuntimeException failure) {
+            if (!attempt.remoteSucceeded) throw failure;
+            log.error("Remote identity operation {} succeeded; local completion requires reconciliation",
+                    attempt.operationId);
+            throw new DomainException(UserErrorCode.USER_IDENTITY_RECONCILIATION_REQUIRED,
+                    UserErrorCode.USER_IDENTITY_RECONCILIATION_REQUIRED.message(),
+                    Map.of("operationId", attempt.operationId.toString()));
+        }
+    }
+
+    private static class IdentityAttempt {
+        private UUID operationId;
+        private boolean remoteSucceeded;
     }
 
     /** Khóa profile còn hiệu lực để tuần tự hóa các thay đổi quản trị trên cùng tài khoản. */

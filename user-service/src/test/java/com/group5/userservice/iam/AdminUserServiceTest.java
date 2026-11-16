@@ -40,6 +40,7 @@ class AdminUserServiceTest {
     @Mock UserEventPublisher events;
     @Mock PlatformTransactionManager manager;
     @Mock TransactionStatus tx;
+    @Mock AdminIdentityOperationJournal journal;
     private AdminUserService service;
     private IamProperties properties;
     private User user;
@@ -47,12 +48,13 @@ class AdminUserServiceTest {
     /** Chuẩn bị profile thật và transaction giả để phân biệt lỗi nghiệp vụ với lỗi commit. */
     @BeforeEach void setUp() {
         properties = new IamProperties();
-        service = new AdminUserService(users, keycloak, events, properties, CLOCK, manager);
+        service = new AdminUserService(users, keycloak, events, properties, CLOCK, manager, journal);
         lenient().when(manager.getTransaction(any(TransactionDefinition.class))).thenReturn(tx);
         user = new User(); user.setId(ID); user.setEmail("buyer@nexus.local"); user.setPhone("0900000001");
-        user.setFullName("Buyer One"); user.setGender(Gender.MALE); user.setAddress("HCM");
+        user.setVersion(0L); user.setFullName("Buyer One"); user.setGender(Gender.MALE); user.setAddress("HCM");
         user.setDateOfBirth(LocalDate.of(2000, 1, 1));
         lenient().when(users.findForProfileUpdate(ID)).thenReturn(Optional.of(user));
+        lenient().when(journal.prepare(anyString(), eq(ID), eq(ACTOR), anyLong())).thenReturn(ACTOR);
     }
 
     /** Admin tạo được profile cùng UUID Keycloak và hai audit event không chứa password. */
@@ -229,6 +231,50 @@ class AdminUserServiceTest {
         verify(keycloak, never()).unlock(any());
     }
 
+    /** Intent không commit được phải dừng trước mọi thay đổi credential remote. */
+    @Test void passwordIntentFailureStopsBeforeRemote() {
+        when(journal.prepare("UserPasswordChanged", ID, ACTOR, 0L))
+                .thenThrow(new IllegalStateException("intent-commit-failed"));
+        assertThatThrownBy(() -> service.changePassword(ID, "new-password", ACTOR))
+                .hasMessage("intent-commit-failed");
+        verify(keycloak, never()).resetPassword(any(), anyString());
+    }
+
+    /** Lỗi COMMIT sau remote trả mã đối soát, confirmation đã được ghi trước local completion. */
+    @Test void passwordCommitFailureRetainsConfirmedOperation() {
+        doThrow(new IllegalStateException("commit-failed")).when(manager).commit(tx);
+        assertThatThrownBy(() -> service.changePassword(ID, "new-password", ACTOR))
+                .isInstanceOfSatisfying(DomainException.class, failure -> {
+                    assertThat(failure.getErrorCode()).isEqualTo("USER_IDENTITY_RECONCILIATION_REQUIRED");
+                    assertThat(failure.getProperties()).containsEntry("operationId", ACTOR.toString());
+                });
+        var order = inOrder(journal, keycloak, manager);
+        order.verify(journal).prepare("UserPasswordChanged", ID, ACTOR, 0L);
+        order.verify(keycloak).resetPassword(ID, "new-password");
+        order.verify(journal).remoteSucceeded(ACTOR);
+        order.verify(journal).complete(ACTOR);
+        order.verify(manager).commit(tx);
+    }
+
+    /** Timeout giữ intent chưa xác nhận và không gọi remote lần hai. */
+    @Test void remoteTimeoutNeverConfirmsOrReplaysPassword() {
+        doThrow(new IllegalStateException("timeout")).when(keycloak).resetPassword(ID, "new-password");
+        assertThatThrownBy(() -> service.changePassword(ID, "new-password", ACTOR)).hasMessage("timeout");
+        verify(journal).prepare("UserPasswordChanged", ID, ACTOR, 0L);
+        verify(journal, never()).remoteSucceeded(any());
+        verify(journal, never()).complete(any());
+        verify(keycloak, times(1)).resetPassword(ID, "new-password");
+    }
+
+    /** Response đã thành công nhưng confirmation không lưu được vẫn giữ intent, báo cần đối soát. */
+    @Test void confirmationFailureDoesNotRepeatRemoteChange() {
+        doThrow(new IllegalStateException("database-down")).when(journal).remoteSucceeded(ACTOR);
+        assertThatThrownBy(() -> service.changePassword(ID, "new-password", ACTOR))
+                .isInstanceOfSatisfying(DomainException.class, failure ->
+                        assertThat(failure.getErrorCode()).isEqualTo("USER_IDENTITY_RECONCILIATION_REQUIRED"));
+        verify(journal, never()).complete(any());
+        verify(keycloak, times(1)).resetPassword(ID, "new-password");
+    }
     /** Chuẩn bị provider với role BUYER tồn tại và UUID identity được cấp trước khi lưu SQL. */
     private void givenCreate() {
         when(keycloak.realmRole("BUYER")).thenReturn(Optional.of(BUYER));

@@ -8,7 +8,8 @@ public enum ConfigErrorCode implements ErrorCode {
     CONFIG_KEY_UNKNOWN(HttpStatus.BAD_REQUEST, "Unknown system configuration key"),
     CONFIG_VALUE_INVALID(HttpStatus.BAD_REQUEST, "Invalid system configuration value"),
     CONFIG_KEY_EXTERNALLY_MANAGED(HttpStatus.BAD_REQUEST, "This configuration is managed by Keycloak"),
-    CONFIG_UPDATE_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "The runtime configuration could not be updated");
+    CONFIG_UPDATE_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "The runtime configuration could not be updated"),
+    CONFIG_IDENTITY_PROVIDER_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "The effective Keycloak configuration could not be read");
 
     private final HttpStatus status;
     private final String message;

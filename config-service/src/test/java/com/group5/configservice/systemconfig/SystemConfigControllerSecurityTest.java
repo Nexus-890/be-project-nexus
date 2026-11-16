@@ -116,6 +116,16 @@ class SystemConfigControllerSecurityTest {
     }
 
     @Test
+    // Không trả danh sách thành công với null/default nếu realm không đọc được.
+    void unavailableRealmReturnsNamed503Problem() throws Exception {
+        when(service.list()).thenThrow(new DomainException(ConfigErrorCode.CONFIG_IDENTITY_PROVIDER_UNAVAILABLE));
+        var response = request("GET", "/api/v1/system/configs", "ADMIN~SYSTEM.CONFIG.VIEW", null);
+        assertThat(response.statusCode()).isEqualTo(503);
+        assertThat(response.body()).contains("CONFIG_IDENTITY_PROVIDER_UNAVAILABLE");
+        assertThat(response.headers().firstValue("Content-Type").orElse("")).contains("application/problem+json");
+    }
+
+    @Test
     // Giao thức đọc cấu hình cũ vẫn đi qua security khi không có JWT và giữ 404 thật.
     void nativeProtocolIsNotTurnedIntoAnAuthenticatedApi() throws Exception {
         assertThat(request("GET", "/notification-service/default", null, null).statusCode()).isEqualTo(404);

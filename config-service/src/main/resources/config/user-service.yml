@@ -5,6 +5,7 @@ nexus:
     default-user-role: BUYER
     allow-self-registration: true
     user-soft-delete: ${USER_SOFT_DELETE:true}
+    reconciliation-interval: ${USER_IDENTITY_RECONCILIATION_INTERVAL:30000}
   keycloak:
     server-url: ${KEYCLOAK_SERVER_URL:http://localhost:18080}
     realm: nexus

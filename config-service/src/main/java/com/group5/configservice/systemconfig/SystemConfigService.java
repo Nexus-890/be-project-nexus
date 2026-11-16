@@ -26,17 +26,20 @@ public class SystemConfigService {
     private final RuntimeEnvironmentRepository environments;
     private final SystemConfigRefresher refresher;
     private final EventEnvelopeFactory events;
+    private final KeycloakRealmConfigClient keycloak;
 
     /** Nhận kho bền vững, Config Server và các client có sẵn; không truy cập DB của service khác. */
     public SystemConfigService(SystemConfigStore store, RuntimeEnvironmentRepository environments,
-                               SystemConfigRefresher refresher, EventEnvelopeFactory events) {
+                               SystemConfigRefresher refresher, EventEnvelopeFactory events, KeycloakRealmConfigClient keycloak) {
         this.store = store; this.environments = environments; this.refresher = refresher; this.events = events;
+        this.keycloak = keycloak;
     }
 
     /** Liệt kê toàn bộ key SRS, tách giá trị đang cấu hình khỏi default nguyên bản của SRS. */
     public synchronized List<ConfigResponse> list() {
         Map<String, StandardEnvironment> sources = new LinkedHashMap<>();
         Map<String, Object> values = store.values();
+        Map<String, Object> realmValues = keycloak.currentValues();
         return SystemConfigKey.all().stream().map(key -> {
             Object current = values.containsKey(key.key()) ? values.get(key.key())
                     : current(key, sources.computeIfAbsent(key.service(), this::environment));
@@ -44,8 +47,8 @@ public class SystemConfigService {
             String mode = keycloak ? "KEYCLOAK_MANAGED"
                     : key.key().equals("NOTIFICATION_RETRY_LIMIT") ? "RUNTIME" : "CONFIG_SOURCE";
             String description = key.description() + (keycloak
-                    ? "; effective value is managed in Keycloak, not through Config Server" : "");
-            return new ConfigResponse(key.key(), keycloak ? null : current, key.defaultValue(), description,
+                    ? "; effective value is read from Keycloak; configuredValue is the Config Server source" : "");
+            return new ConfigResponse(key.key(), keycloak ? realmValues.get(key.key()) : current, key.defaultValue(), description,
                     key.service(), mode, current);
         }).toList();
     }

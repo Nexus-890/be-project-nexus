@@ -439,6 +439,39 @@ class RegistrationIntegrationTest {
         assertThat(count("outbox")).isEqualTo(6);
     }
 
+    /** Email cũ được tái sử dụng sau khi Admin đổi email, kiểm cả uniqueness và đăng nhập trên realm thật. */
+    @Test
+    void adminEmailChangeAllowsAnotherAccountToUseTheOriginalEmail() throws Exception {
+        Map<String, Object> first = new LinkedHashMap<>(request("original@nexus.test", "0901234567", "EMAIL-211-A"));
+        first.put("roleCodes", List.of("BUYER"));
+        HttpResponse<String> created = admin("POST", "/api/v1/users", first);
+        assertThat(created.statusCode()).as(created.body()).isEqualTo(201);
+        UUID firstId = UUID.fromString(JSON.readTree(created.body()).get("data").get("id").asString());
+
+        HttpResponse<String> updated = admin("PUT", "/api/v1/users/" + firstId, Map.of("email", "changed@nexus.test"));
+        assertThat(updated.statusCode()).as(updated.body()).isEqualTo(200);
+        assertThat(keycloak.userState(firstId)).containsEntry("username", "changed@nexus.test")
+                .containsEntry("email", "changed@nexus.test");
+
+        Map<String, Object> second = new LinkedHashMap<>(request("original@nexus.test", "0901234568", "EMAIL-211-B"));
+        second.put("roleCodes", List.of("BUYER"));
+        HttpResponse<String> reused = admin("POST", "/api/v1/users", second);
+        assertThat(reused.statusCode()).as(reused.body()).isEqualTo(201);
+        UUID secondId = UUID.fromString(JSON.readTree(reused.body()).get("data").get("id").asString());
+
+        assertThat(secondId).isNotEqualTo(firstId);
+        assertThat(keycloak.userState(secondId)).containsEntry("username", "original@nexus.test");
+        assertThat(KeycloakTestServer.userIdByEmail("changed@nexus.test")).contains(firstId);
+        assertThat(KeycloakTestServer.userIdByEmail("original@nexus.test")).contains(secondId);
+        assertThat(KeycloakTestServer.signIn("changed@nexus.test", PASSWORD)).isNotBlank();
+        assertThat(KeycloakTestServer.signIn("original@nexus.test", PASSWORD)).isNotBlank();
+        assertThat(jdbc.queryForObject("select email from users where id=?", String.class, firstId))
+                .isEqualTo("changed@nexus.test");
+        assertThat(jdbc.queryForObject("select email from users where id=?", String.class, secondId))
+                .isEqualTo("original@nexus.test");
+        assertThat(count("outbox")).isEqualTo(5);
+    }
+
     /** Endpoint unlock xóa khóa brute-force thật, cho đăng nhập lại và trả 409 khi mở khóa lần nữa. */
     @Test
     void adminUnlockEndpointRestoresActualKeycloakSignIn() throws Exception {

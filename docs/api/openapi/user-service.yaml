@@ -3068,7 +3068,7 @@ paths:
         - Users
       operationId: adminChangePassword
       summary: Change password under Keycloak password policy
-      description: Change password under Keycloak password policy. Requires the named role and exact privilege. Keycloak owns credentials, realm roles and brute-force state; user_db stores the profile. See docs/testing/admin-user-management.md for compensation and failure boundaries.
+      description: Change password under Keycloak password policy. Requires the named role and exact privilege. Keycloak owns credentials, realm roles and brute-force state; user_db stores the profile. USER_IDENTITY_RECONCILIATION_REQUIRED means Keycloak confirmed the change but local completion failed; the durable operationId identifies the reconciliation record. Do not blindly retry the password reset. See docs/testing/admin-user-management.md for recovery and ambiguous timeout handling.
       x-required-privileges:
         - USER.CHANGE_PASSWORD
       x-required-roles:
@@ -3092,6 +3092,7 @@ paths:
           - INTERNAL_ERROR
         "503":
           - USER_IDENTITY_PROVIDER_UNAVAILABLE
+          - USER_IDENTITY_RECONCILIATION_REQUIRED
       responses:
         "204":
           description: No content; no response body.
@@ -3284,7 +3285,7 @@ paths:
                     instance: /api/v1/users/68000000-0000-4000-8000-000000000002/password
                     code: INTERNAL_ERROR
         "503":
-          description: "Service Unavailable. Codes: USER_IDENTITY_PROVIDER_UNAVAILABLE."
+          description: "Service Unavailable. Codes: USER_IDENTITY_PROVIDER_UNAVAILABLE, USER_IDENTITY_RECONCILIATION_REQUIRED. The latter confirms the remote change; use operationId for reconciliation and do not blindly retry."
           content:
             application/problem+json:
               schema:
@@ -3300,6 +3301,11 @@ paths:
                         type: string
                         enum:
                           - USER_IDENTITY_PROVIDER_UNAVAILABLE
+                          - USER_IDENTITY_RECONCILIATION_REQUIRED
+                      operationId:
+                        type: string
+                        format: uuid
+                        description: Durable identity-operation journal ID, present when local completion of a confirmed remote change needs reconciliation.
               examples:
                 USER_IDENTITY_PROVIDER_UNAVAILABLE:
                   value:
@@ -3309,6 +3315,15 @@ paths:
                     detail: USER_IDENTITY_PROVIDER_UNAVAILABLE
                     instance: /api/v1/users/68000000-0000-4000-8000-000000000002/password
                     code: USER_IDENTITY_PROVIDER_UNAVAILABLE
+                USER_IDENTITY_RECONCILIATION_REQUIRED:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Service Unavailable
+                    status: 503
+                    detail: The identity change was applied remotely; local completion requires reconciliation
+                    instance: /api/v1/users/68000000-0000-4000-8000-000000000002/password
+                    code: USER_IDENTITY_RECONCILIATION_REQUIRED
+                    operationId: 68000000-0000-4000-8000-000000000100
       parameters:
         - name: id
           in: path
@@ -3592,7 +3607,7 @@ paths:
         - Users
       operationId: adminUnlockUser
       summary: Clear a current Keycloak brute-force lock
-      description: Clear a current Keycloak brute-force lock. Requires the named role and exact privilege. Keycloak owns credentials, realm roles and brute-force state; user_db stores the profile. See docs/testing/admin-user-management.md for compensation and failure boundaries.
+      description: Clear a current Keycloak brute-force lock. Requires the named role and exact privilege. Keycloak owns credentials, realm roles and brute-force state; user_db stores the profile. USER_IDENTITY_RECONCILIATION_REQUIRED means Keycloak confirmed the unlock but local completion failed; the durable operationId identifies the reconciliation record. Do not blindly retry the unlock. See docs/testing/admin-user-management.md for recovery and ambiguous timeout handling.
       x-required-privileges:
         - USER.UPDATE
       x-required-roles:
@@ -3617,6 +3632,7 @@ paths:
           - INTERNAL_ERROR
         "503":
           - USER_IDENTITY_PROVIDER_UNAVAILABLE
+          - USER_IDENTITY_RECONCILIATION_REQUIRED
       responses:
         "204":
           description: No content; no response body.
@@ -3809,7 +3825,7 @@ paths:
                     instance: /api/v1/users/68000000-0000-4000-8000-000000000002/unlock
                     code: INTERNAL_ERROR
         "503":
-          description: "Service Unavailable. Codes: USER_IDENTITY_PROVIDER_UNAVAILABLE."
+          description: "Service Unavailable. Codes: USER_IDENTITY_PROVIDER_UNAVAILABLE, USER_IDENTITY_RECONCILIATION_REQUIRED. The latter confirms the remote change; use operationId for reconciliation and do not blindly retry."
           content:
             application/problem+json:
               schema:
@@ -3825,6 +3841,11 @@ paths:
                         type: string
                         enum:
                           - USER_IDENTITY_PROVIDER_UNAVAILABLE
+                          - USER_IDENTITY_RECONCILIATION_REQUIRED
+                      operationId:
+                        type: string
+                        format: uuid
+                        description: Durable identity-operation journal ID, present when local completion of a confirmed remote change needs reconciliation.
               examples:
                 USER_IDENTITY_PROVIDER_UNAVAILABLE:
                   value:
@@ -3834,6 +3855,15 @@ paths:
                     detail: USER_IDENTITY_PROVIDER_UNAVAILABLE
                     instance: /api/v1/users/68000000-0000-4000-8000-000000000002/unlock
                     code: USER_IDENTITY_PROVIDER_UNAVAILABLE
+                USER_IDENTITY_RECONCILIATION_REQUIRED:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Service Unavailable
+                    status: 503
+                    detail: The identity change was applied remotely; local completion requires reconciliation
+                    instance: /api/v1/users/68000000-0000-4000-8000-000000000002/unlock
+                    code: USER_IDENTITY_RECONCILIATION_REQUIRED
+                    operationId: 68000000-0000-4000-8000-000000000100
       parameters:
         - name: id
           in: path
@@ -5000,3 +5030,6 @@ x-business-error-codes:
   USER_IDENTITY_PROVIDER_UNAVAILABLE:
     status: 503
     detail: "The identity provider is unavailable"
+  USER_IDENTITY_RECONCILIATION_REQUIRED:
+    status: 503
+    detail: "The identity change was applied remotely; local completion requires reconciliation"

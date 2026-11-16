@@ -131,3 +131,19 @@ if [ -n "${KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET:-}" ]; then
 else
   echo "Skipped client notification-service: KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET is empty"
 fi
+
+# #217: config-service đọc realm bằng client riêng, không dùng credential quản trị user-service.
+if [ -n "${KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET:-}" ]; then
+  client="$(kc get clients -r nexus -q clientId=config-service --fields id --format csv --noquotes)"
+  if [ -z "$client" ]; then
+    client="$(kc create clients -r nexus -s clientId=config-service -s enabled=true -s publicClient=false \
+      -s serviceAccountsEnabled=true -s standardFlowEnabled=false -s implicitFlowEnabled=false \
+      -s directAccessGrantsEnabled=false -s clientAuthenticatorType=client-secret -i)"
+  fi
+  kc update "clients/$client" -r nexus -s "secret=$KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET" -n
+  kc add-roles -r nexus --uusername service-account-config-service --cclientid realm-management \
+    --rolename view-realm
+  echo "Seeded client config-service ($client)"
+else
+  echo "Skipped client config-service: KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET is empty"
+fi

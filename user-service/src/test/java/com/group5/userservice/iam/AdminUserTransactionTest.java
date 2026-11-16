@@ -1,6 +1,10 @@
 package com.group5.userservice.iam;
 
 import com.group5.common_core.exception.DomainException;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import com.group5.common_events.EventEnvelopeFactory;
 import com.group5.common_outbox.OutboxWriter;
 import com.group5.userservice.iam.dto.AdminCreateUserRequest;
@@ -83,6 +87,7 @@ class AdminUserTransactionTest {
     private IamProperties properties;
     private AdminUserService service;
     private JdbcTemplate jdbc;
+    private AdminIdentityOperationJournal journal;
 
     /** Chuẩn bị schema riêng và remote giả có trạng thái để quan sát hiệu ứng hoàn tác thực tế. */
     @BeforeEach
@@ -90,7 +95,7 @@ class AdminUserTransactionTest {
         jdbc = new JdbcTemplate(source);
         jdbc.execute("drop trigger if exists admin_test_commit_failure on outbox");
         jdbc.execute("alter table outbox drop constraint if exists admin_test_outbox_failure");
-        jdbc.execute("truncate users, outbox cascade");
+        jdbc.execute("truncate users, outbox, admin_identity_operations cascade");
         jdbc.update("""
                 insert into users (id,email,phone,full_name,identity_number,gender,address,date_of_birth,status)
                 values (?, 'original@nexus.local', '0900000001', 'Original User', 'ID-01', 'MALE', 'HCM', '2000-01-02', 'ACTIVE')
@@ -124,8 +129,9 @@ class AdminUserTransactionTest {
         doAnswer(call -> { identities.put(call.getArgument(0), new LinkedHashMap<>(call.getArgument(1))); return null; })
                 .when(keycloak).restoreUser(any(), any());
         properties = new IamProperties();
+        journal = new AdminIdentityOperationJournal(jdbc, Clock.fixed(NOW, ZoneOffset.UTC), manager, journalSource());
         service = new AdminUserService(users, keycloak, events, properties,
-                Clock.fixed(NOW, ZoneOffset.UTC), manager);
+                Clock.fixed(NOW, ZoneOffset.UTC), manager, journal);
     }
 
     /** Tạo tài khoản phải commit profile, role và hai audit event dùng cùng UUID với Keycloak. */
@@ -383,6 +389,142 @@ class AdminUserTransactionTest {
                 "Created User", "ID-02", "FEMALE", "HCM", "2001-01-02", List.of("SELLER", "BUYER"));
     }
 
+    /** Remote thành công rồi deferred COMMIT lỗi vẫn giữ confirmation độc lập; restart sửa audit đúng một lần. */
+    @Test
+    void passwordCommitFailureSurvivesRestartAndReconcilesOnce() {
+        failAtCommit();
+        assertThatThrownBy(() -> service.changePassword(TARGET, "never-store-this-password", ACTOR))
+                .isInstanceOfSatisfying(DomainException.class, failure ->
+                        assertThat(failure.getErrorCode()).isEqualTo("USER_IDENTITY_RECONCILIATION_REQUIRED"));
+        assertThat(auditCount()).isZero();
+        assertThat(operationState()).isEqualTo("REMOTE_SUCCEEDED");
+        assertThat(jdbc.queryForObject("select row_to_json(j)::text from admin_identity_operations j", String.class))
+                .doesNotContain("never-store-this-password", "credential");
+        verify(keycloak, org.mockito.Mockito.times(1)).resetPassword(TARGET, "never-store-this-password");
+
+        jdbc.execute("drop trigger admin_test_commit_failure on outbox");
+        restartedService().reconcileIdentityOperations();
+        restartedService().reconcileIdentityOperations();
+
+        assertThat(operationState()).isEqualTo("COMPLETED");
+        assertThat(auditCount()).isEqualTo(1);
+        assertAudit("UserPasswordChanged", TARGET);
+        assertThat(auditPayload("UserPasswordChanged").get("reconciled").asBoolean()).isTrue();
+        assertThat(auditPayload("UserPasswordChanged").get("operationId").asString())
+                .isEqualTo(jdbc.queryForObject("select operation_id::text from admin_identity_operations", String.class));
+        verify(keycloak, org.mockito.Mockito.times(1)).resetPassword(TARGET, "never-store-this-password");
+    }
+
+    /** Unlock remote không thể hoàn tác; worker phục hồi local/audit từ confirmation bền vững. */
+    @Test
+    void unlockCommitFailureReconcilesProfileAndAuditOnce() {
+        jdbc.update("update users set status='LOCKED' where id=?", TARGET);
+        when(keycloak.isBruteForceLocked(TARGET)).thenReturn(true);
+        failAtCommit();
+        assertThatThrownBy(() -> service.unlock(TARGET, ACTOR))
+                .isInstanceOfSatisfying(DomainException.class, failure ->
+                        assertThat(failure.getErrorCode()).isEqualTo("USER_IDENTITY_RECONCILIATION_REQUIRED"));
+        assertThat(snapshot(TARGET).get("status")).isEqualTo("LOCKED");
+        assertThat(auditCount()).isZero();
+        assertThat(operationState()).isEqualTo("REMOTE_SUCCEEDED");
+
+        jdbc.execute("drop trigger admin_test_commit_failure on outbox");
+        restartedService().reconcileIdentityOperations();
+        restartedService().reconcileIdentityOperations();
+
+        assertThat(snapshot(TARGET).get("status")).isEqualTo("ACTIVE");
+        assertThat(operationState()).isEqualTo("COMPLETED");
+        assertThat(auditCount()).isEqualTo(1);
+        assertAudit("UserUnlocked", TARGET);
+        verify(keycloak, org.mockito.Mockito.times(1)).unlock(TARGET);
+    }
+
+    /** Timeout có thể đã áp dụng remote: PENDING không được worker phát lại hoặc tự tạo audit thành công. */
+    @Test
+    void pendingTimeoutSurvivesRestartWithoutAutomaticReplay() {
+        doThrow(new IllegalStateException("HTTP response lost")).when(keycloak)
+                .resetPassword(TARGET, "unknown-outcome-password");
+        assertThatThrownBy(() -> service.changePassword(TARGET, "unknown-outcome-password", ACTOR))
+                .hasMessage("HTTP response lost");
+        assertThat(operationState()).isEqualTo("PENDING");
+        restartedService().reconcileIdentityOperations();
+        assertThat(operationState()).isEqualTo("PENDING");
+        assertThat(auditCount()).isZero();
+        verify(keycloak, org.mockito.Mockito.times(1)).resetPassword(TARGET, "unknown-outcome-password");
+    }
+
+    /** Worker không ghi đè trạng thái profile mới hơn; audit remote vẫn được lưu và chuyển manual review. */
+    @Test
+    void newerProfileVersionRequiresReviewWithoutOverwritingStatus() {
+        jdbc.update("update users set status='LOCKED' where id=?", TARGET);
+        when(keycloak.isBruteForceLocked(TARGET)).thenReturn(true);
+        failAtCommit();
+        assertThatThrownBy(() -> service.unlock(TARGET, ACTOR)).isInstanceOf(DomainException.class);
+        jdbc.execute("drop trigger admin_test_commit_failure on outbox");
+        jdbc.update("update users set version=version+1 where id=?", TARGET);
+
+        restartedService().reconcileIdentityOperations();
+        restartedService().reconcileIdentityOperations();
+
+        assertThat(snapshot(TARGET).get("status")).isEqualTo("LOCKED");
+        assertThat(operationState()).isEqualTo("REVIEW_REQUIRED");
+        assertThat(auditCount()).isEqualTo(1);
+        assertThat(auditPayload("UserUnlocked").get("profileReconciled").asBoolean()).isFalse();
+        verify(keycloak, org.mockito.Mockito.times(1)).unlock(TARGET);
+    }
+
+    /** Pool chỉ có một connection đang bận vẫn commit được intent/confirmation bằng connection journal riêng. */
+    @Test
+    void journalDoesNotBorrowFromExhaustedProfilePool() throws Exception {
+        String url;
+        String username;
+        try (var connection = source.getConnection()) {
+            url = connection.getMetaData().getURL();
+            username = connection.getMetaData().getUserName();
+        }
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl(url);
+        config.setUsername(username);
+        config.setPassword(((DriverManagerDataSource) source).getPassword());
+        config.setSchema("admin_transactions");
+        config.setMaximumPoolSize(1);
+        config.setMinimumIdle(0);
+        config.setConnectionTimeout(250);
+        try (var pool = new HikariDataSource(config)) {
+            var pooledJdbc = new JdbcTemplate(pool);
+            var pooledManager = new DataSourceTransactionManager(pool);
+            var journalProperties = new org.springframework.boot.jdbc.autoconfigure.DataSourceProperties();
+            journalProperties.setUrl(((DriverManagerDataSource) source).getUrl());
+            journalProperties.setUsername(username);
+            journalProperties.setPassword(((DriverManagerDataSource) source).getPassword());
+            var isolatedJournal = new AdminIdentityOperationJournal(pooledJdbc, Clock.fixed(NOW, ZoneOffset.UTC),
+                    pooledManager, journalProperties);
+            new TransactionTemplate(pooledManager).executeWithoutResult(status -> {
+                pooledJdbc.queryForObject("select count(*) from users", Integer.class);
+                assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isEqualTo(1);
+                assertThatThrownBy(pool::getConnection).isInstanceOf(java.sql.SQLTransientConnectionException.class);
+
+                UUID operation = isolatedJournal.prepare("UserPasswordChanged", TARGET, ACTOR, 0L);
+                isolatedJournal.remoteSucceeded(operation);
+                isolatedJournal.complete(operation);
+            });
+        }
+        assertThat(operationState()).isEqualTo("COMPLETED");
+    }
+    /** Restart tạo journal/service mới, hoàn toàn không giữ thông tin thất bại trong bộ nhớ. */
+    private AdminUserService restartedService() {
+        return new AdminUserService(users, keycloak, events, properties, Clock.fixed(NOW, ZoneOffset.UTC), manager,
+                new AdminIdentityOperationJournal(jdbc, Clock.fixed(NOW, ZoneOffset.UTC), manager, journalSource()));
+    }
+
+    /** DataSource khác identity resource để Spring không tái sử dụng connection transaction profile. */
+    private DriverManagerDataSource journalSource() {
+        var original = (DriverManagerDataSource) source;
+        return new DriverManagerDataSource(original.getUrl(), original.getUsername(), original.getPassword());
+    }
+    private String operationState() {
+        return jdbc.queryForObject("select state from admin_identity_operations", String.class);
+    }
     /** Đọc bộ role remote hiện tại từ fixture có trạng thái, không mặc định thành công giả. */
     private List<KeycloakAdminClient.RealmRole> assigned(UUID id) {
         return roles.getOrDefault(id, List.of());

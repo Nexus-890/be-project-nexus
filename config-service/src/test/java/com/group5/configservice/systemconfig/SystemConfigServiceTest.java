@@ -26,11 +26,14 @@ class SystemConfigServiceTest {
     private final RuntimeEnvironmentRepository repository = mock(RuntimeEnvironmentRepository.class);
     private final SystemConfigRefresher refresher = mock(SystemConfigRefresher.class);
     private final EventEnvelopeFactory events = mock(EventEnvelopeFactory.class);
+    private final KeycloakRealmConfigClient keycloak = mock(KeycloakRealmConfigClient.class);
     private final UUID actor = UUID.randomUUID();
 
     /** Fixture đọc giá trị thực tế mới hơn SRS mà không phụ thuộc env máy chạy test. */
     @BeforeEach
     void setup() {
+        when(keycloak.currentValues()).thenReturn(Map.of("SESSION_TIMEOUT_MINUTES", 60,
+                "MAX_LOGIN_ATTEMPTS", 7, "PASSWORD_POLICY", "length(12)", "ACCESS_TOKEN_EXPIRY_MINUTES", 5));
         when(repository.baseline(anyString())).thenAnswer(call -> {
             Environment environment = new Environment(call.getArgument(0), "default");
             environment.add(new PropertySource("deployed", Map.of("nexus.payment.provider", "SEPAY",
@@ -49,7 +52,7 @@ class SystemConfigServiceTest {
     @Test
     void listShowsCurrentValuesAndOriginalDefaults() throws Exception {
         try (var store = store()) {
-            var service = new SystemConfigService(store, repository, refresher, events);
+            var service = new SystemConfigService(store, repository, refresher, events, keycloak);
             assertThat(service.list()).hasSize(57).filteredOn(row -> row.key().equals("PAYMENT_PROVIDER"))
                     .singleElement().satisfies(row -> {
                         assertThat(row.value()).isEqualTo("SEPAY");
@@ -62,7 +65,7 @@ class SystemConfigServiceTest {
     @Test
     void updatePersistsValueAndTypedAuditOnlyAfterOwnerRefresh() throws Exception {
         try (var store = store()) {
-            var service = new SystemConfigService(store, repository, refresher, events);
+            var service = new SystemConfigService(store, repository, refresher, events, keycloak);
             doAnswer(call -> {
                 assertThat(store.values()).isEmpty();
                 assertThat(store.pending()).isEmpty();
@@ -83,7 +86,7 @@ class SystemConfigServiceTest {
     @Test
     void refreshFailureLeavesNoValueOrAuditAndAttemptsCompensation() throws Exception {
         try (var store = store()) {
-            var service = new SystemConfigService(store, repository, refresher, events);
+            var service = new SystemConfigService(store, repository, refresher, events, keycloak);
             doThrow(new IllegalStateException("owner down")).doNothing()
                     .when(refresher).refresh("notification-service", "admin-token");
             assertThatThrownBy(() -> service.update("NOTIFICATION_RETRY_LIMIT", 4, actor, "admin-token"))
@@ -98,7 +101,7 @@ class SystemConfigServiceTest {
     @Test
     void invalidRequestsNeverRefreshOrWrite() throws Exception {
         try (var store = store()) {
-            var service = new SystemConfigService(store, repository, refresher, events);
+            var service = new SystemConfigService(store, repository, refresher, events, keycloak);
             assertThatThrownBy(() -> service.update("NOTIFICATION_RETRY_LIMIT", "4", actor, "token"))
                     .isInstanceOf(DomainException.class);
             assertThatThrownBy(() -> service.update("DB_PASSWORD", "secret", actor, "token"))
@@ -112,7 +115,7 @@ class SystemConfigServiceTest {
     @Test
     void unchangedValueDoesNotCreateEvent() throws Exception {
         try (var store = store()) {
-            var service = new SystemConfigService(store, repository, refresher, events);
+            var service = new SystemConfigService(store, repository, refresher, events, keycloak);
             service.update("NOTIFICATION_RETRY_LIMIT", 3, actor, "token");
             verifyNoInteractions(refresher, events);
             assertThat(store.pending()).isEmpty();
@@ -121,12 +124,12 @@ class SystemConfigServiceTest {
 
     /** Không trình bày default SRS thành cấu hình Keycloak thực và không nhận PUT giả thành công. */
     @Test
-    void keycloakManagedSettingsHaveNoFabricatedEffectiveValueAndCannotBeUpdated() throws Exception {
+    void keycloakManagedSettingsUseRealmValuesAndCannotBeUpdated() throws Exception {
         try (var store = store()) {
-            var service = new SystemConfigService(store, repository, refresher, events);
+            var service = new SystemConfigService(store, repository, refresher, events, keycloak);
             assertThat(service.list()).filteredOn(row -> row.key().equals("MAX_LOGIN_ATTEMPTS"))
                     .singleElement().satisfies(row -> {
-                        assertThat(row.value()).isNull();
+                        assertThat(row.value()).isEqualTo(7);
                         assertThat(row.configuredValue()).isEqualTo(5);
                         assertThat(row.applyMode()).isEqualTo("KEYCLOAK_MANAGED");
                     });
@@ -141,7 +144,7 @@ class SystemConfigServiceTest {
     @Test
     void unsupportedConsumerSettingsFailBeforeRemoteRefresh() throws Exception {
         try (var store = store()) {
-            var service = new SystemConfigService(store, repository, refresher, events);
+            var service = new SystemConfigService(store, repository, refresher, events, keycloak);
             assertThatThrownBy(() -> service.update("PAYMENT_PROVIDER", "STRIPE", actor, "token"))
                     .isInstanceOf(DomainException.class);
             assertThatThrownBy(() -> service.update("DEFAULT_USER_ROLE", "USER", actor, "token"))

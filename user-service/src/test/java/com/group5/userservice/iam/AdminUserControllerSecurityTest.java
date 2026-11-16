@@ -148,6 +148,25 @@ class AdminUserControllerSecurityTest {
         verify(users).changePassword(ID, "long-password", ACTOR);
     }
 
+    /** Lỗi sau remote success trả operationId để đối soát, không khuyến khích phát lại password/unlock. */
+    @ParameterizedTest @ValueSource(strings = {"password", "unlock"})
+    void remoteSuccessLocalFailureReturnsReconciliationId(String action) throws Exception {
+        UUID operationId = UUID.fromString("00000000-0000-4000-8000-000000000099");
+        DomainException failure = new DomainException(UserErrorCode.USER_IDENTITY_RECONCILIATION_REQUIRED,
+                UserErrorCode.USER_IDENTITY_RECONCILIATION_REQUIRED.message(),
+                java.util.Map.of("operationId", operationId.toString()));
+        if (action.equals("password")) doThrow(failure).when(users).changePassword(ID, "long-password", ACTOR);
+        else doThrow(failure).when(users).unlock(ID, ACTOR);
+        var request = action.equals("password")
+                ? put(URL + "/password").header(HttpHeaders.AUTHORIZATION, bearer("ADMIN", "USER.CHANGE_PASSWORD"))
+                    .contentType(MediaType.APPLICATION_JSON).content("{\"newPassword\":\"long-password\"}")
+                : post(URL + "/unlock").header(HttpHeaders.AUTHORIZATION, bearer("ADMIN", "USER.UPDATE"));
+        mvc.perform(request).andExpect(status().isServiceUnavailable())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("USER_IDENTITY_RECONCILIATION_REQUIRED"))
+                .andExpect(jsonPath("$.operationId").value(operationId.toString()));
+    }
+
     /** Password không đúng policy cơ bản bị validation chặn trước khi gọi Keycloak. */
     @Test void shortPasswordIsValidationError() throws Exception {
         mvc.perform(put(URL + "/password").header(HttpHeaders.AUTHORIZATION, bearer("ADMIN", "USER.CHANGE_PASSWORD"))

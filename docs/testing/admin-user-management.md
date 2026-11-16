@@ -37,12 +37,55 @@ restore it after SQL rollback, including transaction commit failures. Remote
 compensation itself can fail; this is logged for reconciliation. Keycloak Admin
 API and PostgreSQL do not participate in a shared transaction.
 
-Password and brute-force counters have no restore operation in Keycloak. The
-service flushes profile/outbox before the final remote call and rolls SQL back
-when Keycloak rejects it. A lost remote response, process death or commit failure
-after that call cannot be made atomic with the current dependency. This remains
-a limitation against the issue's strict “neither changed” distributed-failure
-criterion; the implementation does not claim an XA guarantee.
+Password and brute-force counters have no restore operation in Keycloak. After
+flushing profile/outbox, the service commits an independent journal intent before
+the remote call. A successful response is recorded independently as
+REMOTE_SUCCEEDED; COMPLETED commits together with the original profile/outbox.
+SQL rollback therefore retains evidence of the remote result. A confirmed remote
+success followed by local failure returns USER_IDENTITY_RECONCILIATION_REQUIRED
+(503) with operationId. Do not repeat the password/unlock request on that error.
+An uncertain response leaves PENDING; do not assume the remote operation failed.
+
+The worker runs every 30 seconds (nexus.iam.reconciliation-interval in
+milliseconds), including after restart. It processes only REMOTE_SUCCEEDED and
+never repeats the remote call. It recreates the matching audit event and, for
+unlock, restores LOCKED to ACTIVE only if the profile version is unchanged.
+Audit, profile and COMPLETED commit together; repeated workers do not duplicate
+the event. If the profile changed or disappeared, it records the confirmed remote
+audit with profileReconciled=false and leaves REVIEW_REQUIRED for an operator.
+
+The durable admin_identity_operations table belongs only to user_db; it stores
+operation/actor/target identifiers, event type, profile version, state and times.
+It never stores passwords or provider response bodies. Intent and confirmation
+use brief, separate database connections built from the existing datasource
+configuration, so they can commit even while the main profile pool is full.
+Completion uses the main transaction connection. Allow capacity for these brief
+journal connections in PostgreSQL. Check unresolved records:
+
+```sql
+SELECT operation_id, user_id, actor_id, event_type, profile_version, state,
+       created_at, remote_confirmed_at
+FROM admin_identity_operations
+WHERE state <> 'COMPLETED'
+ORDER BY created_at, operation_id;
+```
+
+For REMOTE_SUCCEEDED, restore local database/outbox availability and allow the
+worker to retry; inspect its operationId log if it persists. PENDING may mean a
+crash before sending, a rejected request, a lost response, or an applied remote
+change whose confirmation could not commit. The responsible IAM operator must
+correlate the operation time, actor and target with Keycloak admin audit and
+confirm the outcome. Never infer a password from a hash or automatically resend
+it. After positively confirming success, promote only that still-PENDING record
+to REMOTE_SUCCEEDED with the verified remote_confirmed_at in a controlled local
+transaction, then let the worker recreate audit/profile. If the outcome cannot
+be established, retain the record for manual resolution. REVIEW_REQUIRED needs
+an owner decision against the current profile; do not overwrite newer account
+state or manufacture a second successful operation.
+
+This implements durable recording and reconciliation, not strict distributed
+rollback. The issue's original “neither changed” criterion still requires the
+responsible owner's approval of this recovery behavior before approval/merge.
 
 The imported realm adds `passwordHistory(1)` to reject reusing the current
 password. Existing realms must apply this policy through their normal Keycloak
@@ -64,8 +107,16 @@ BUYER/SEPAY can differ from the historical USER/STRIPE defaults. Values fall
 back to the SRS default when there is no Config Server source property.
 The four realm settings SESSION_TIMEOUT_MINUTES, MAX_LOGIN_ATTEMPTS,
 PASSWORD_POLICY and ACCESS_TOKEN_EXPIRY_MINUTES have applyMode KEYCLOAK_MANAGED:
-value is null (effective realm value not read here), configuredValue is the
-historical source value, and PUT rejects them with CONFIG_KEY_EXTERNALLY_MANAGED.
+value is read from the current realm (SSO idle timeout, brute-force failureFactor,
+passwordPolicy and accessTokenLifespan). Seconds are converted to minutes without
+integer truncation; MAX_LOGIN_ATTEMPTS is zero when brute-force protection is
+disabled. configuredValue remains the source value; PUT rejects these keys with
+CONFIG_KEY_EXTERNALLY_MANAGED. A missing credential, unavailable realm or invalid
+realm response returns CONFIG_IDENTITY_PROVIDER_UNAVAILABLE (503), rather than
+null or a fabricated default. Config Server startup does not contact Keycloak.
+Provision the dedicated config-service account with view-realm using seed-users.sh
+and KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET; see the Keycloak README. Existing
+realms need this provisioning too; realm import does not upgrade them.
 The retry limit has applyMode RUNTIME; the remaining source settings have
 applyMode CONFIG_SOURCE. This prevents a source-only change being reported as
 an applied identity-provider policy.
