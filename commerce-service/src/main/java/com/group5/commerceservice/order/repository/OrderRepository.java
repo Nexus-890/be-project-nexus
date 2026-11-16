@@ -42,6 +42,17 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecific
     @Query(value = "SELECT id FROM orders WHERE id = :id FOR UPDATE", nativeQuery = true)
     Optional<UUID> lockOrder(UUID id);
 
+    @Query(value = "SELECT id FROM orders WHERE status = 'DELIVERED' AND receipt_issue_reported_at IS NULL AND auto_complete_at <= :now ORDER BY auto_complete_at, id LIMIT 100", nativeQuery = true)
+    List<UUID> findReceiptDue(java.time.OffsetDateTime now);
+
+    @Modifying
+    @Query(value = "UPDATE orders SET delivered_at = :deliveredAt, auto_complete_at = :dueAt WHERE id = :id AND status = 'DELIVERED' AND delivered_at IS NULL", nativeQuery = true)
+    int recordDeliveredAt(UUID id, java.time.OffsetDateTime deliveredAt, java.time.OffsetDateTime dueAt);
+
+    @Modifying
+    @Query(value = "UPDATE orders SET receipt_issue_reason=:reason, receipt_issue_reported_at=:reportedAt, updated_at=now(), updated_by=:actor, version=version+1 WHERE id=:id AND status='DELIVERED' AND receipt_issue_reported_at IS NULL", nativeQuery = true)
+    int reportReceiptIssue(UUID id, String reason, java.time.OffsetDateTime reportedAt, UUID actor);
+
     @Query(value = "SELECT id FROM orders WHERE order_group_id = :groupId ORDER BY id FOR UPDATE", nativeQuery = true)
     List<UUID> lockGroupOrders(UUID groupId);
 

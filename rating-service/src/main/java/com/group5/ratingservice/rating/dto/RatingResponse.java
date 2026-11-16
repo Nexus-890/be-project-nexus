@@ -13,13 +13,15 @@ public record RatingResponse(
         short score,
         String comment,
         String raterName,
-        OffsetDateTime createdAt
+        OffsetDateTime createdAt,
+        boolean ratedByMe
 ) {
-    public static RatingResponse from(Rating rating) {
+    public static RatingResponse from(Rating rating, UUID viewerId) {
         String name = rating.getRaterName();
         return new RatingResponse(
                 rating.getId(), rating.getOrderId(), rating.getAuctionId(), rating.getScore(),
                 rating.getComment(), name == null || name.isBlank() ? "***" : name,
-                rating.getCreatedAt().withOffsetSameInstant(ZoneOffset.UTC));
+                rating.getCreatedAt().withOffsetSameInstant(ZoneOffset.UTC),
+                rating.getFromUserId().equals(viewerId));
     }
 }

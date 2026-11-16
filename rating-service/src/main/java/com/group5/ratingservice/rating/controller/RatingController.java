@@ -41,8 +41,9 @@ public class RatingController {
     public ApiResponse<List<RatingResponse>> list(
             @RequestParam UUID userId,
             @RequestParam(defaultValue = "0") @Min(0) int page,
-            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-        var result = ratings.list(userId, page, size);
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
+            CurrentUser viewer) {
+        var result = ratings.list(userId, page, size, viewer);
         return ApiResponse.page(result.getContent(), new PageInfo(
                 result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages()));
     }

@@ -103,6 +103,7 @@ paths:
                   comment: The item matched its description.
                   raterName: N***A
                   createdAt: '2026-11-16T08:00:00Z'
+                  ratedByMe: true
         '400':
           $ref: '#/components/responses/InvalidRating'
         '401':
@@ -154,6 +155,8 @@ paths:
         the end returns 200 with data:[] and actual page totals. The raterName
         field contains only the stored masked snapshot, or *** for legacy rows
         without one. Raw rater IDs and unmasked names are not returned.
+        ratedByMe is computed from the authenticated caller so a buyer can find
+        their own order review without revealing another rater's identity.
       x-catalogue-id: REP-03
       x-required-privileges:
         - REPUTATION.VIEW
@@ -220,6 +223,7 @@ paths:
                         comment: The item matched its description.
                         raterName: N***A
                         createdAt: '2026-11-16T08:00:00Z'
+                        ratedByMe: false
                     page:
                       number: 0
                       size: 20
@@ -1102,6 +1106,7 @@ components:
         - comment
         - raterName
         - createdAt
+        - ratedByMe
       properties:
         id:
           type: string
@@ -1133,6 +1138,9 @@ components:
           type: string
           format: date-time
           description: Original submission time in UTC.
+        ratedByMe:
+          type: boolean
+          description: True only when the authenticated caller submitted this rating; never supplied by the request.
     RatingEnvelope:
       type: object
       required:

@@ -331,6 +331,7 @@ class RatingServiceIntegrationTest extends RatingPostgresIntegrationTest {
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].id").value(first.toString()))
                 .andExpect(jsonPath("$.data[0].raterName").value("***"))
+                .andExpect(jsonPath("$.data[0].ratedByMe").value(false))
                 .andExpect(jsonPath("$.data[0].fromUserId").doesNotExist())
                 .andExpect(jsonPath("$.page.totalElements").value(2))
                 .andExpect(jsonPath("$.page.totalPages").value(2)).andReturn();
@@ -352,7 +353,8 @@ class RatingServiceIntegrationTest extends RatingPostgresIntegrationTest {
 
     static Stream<String> invalidListParameters() {
         String user = "?userId=" + UUID.randomUUID();
-        return Stream.of("", "?userId=not-a-uuid", user + "&page=-1", user + "&size=0", user + "&size=101");
+        return Stream.of("", "?userId=not-a-uuid", user + "&page=-1", user + "&size=0", user + "&size=101",
+                user + "&page=2147483647&size=100");
     }
 
     @Test

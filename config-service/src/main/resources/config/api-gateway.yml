@@ -204,6 +204,12 @@ nexus:
       - method: POST
         path: /api/v1/orders/{id}/cancel
         privilege: ORDER.CANCEL
+      - method: POST
+        path: /api/v1/orders/{id}/confirm-receipt
+        privilege: ORDER.VIEW
+      - method: POST
+        path: /api/v1/orders/{id}/receipt-issue
+        privilege: ORDER.VIEW
       - method: GET
         path: /api/v1/notifications
         privilege: NOTIFICATION.VIEW

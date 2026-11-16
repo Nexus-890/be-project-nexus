@@ -60,13 +60,20 @@ public class RatingService {
         }
         outbox.write("Rating", Topics.RATING,
                 envelopes.create("UserRated", rating.getId().toString(), UserRatedPayload.from(rating)));
-        return RatingResponse.from(rating);
+        return RatingResponse.from(rating, user.id());
     }
 
     @Transactional(readOnly = true)
-    public Page<RatingResponse> list(UUID userId, int page, int size) {
+    public Page<RatingResponse> list(UUID userId, int page, int size, CurrentUser viewer) {
+        if (viewer == null) {
+            throw new DomainException(RatingErrorCode.UNAUTHENTICATED);
+        }
+        if (page < 0 || size < 1 || size > 100 || (long) page * size > Integer.MAX_VALUE) {
+            throw new DomainException(RatingErrorCode.INVALID_PARAMETER);
+        }
         Sort order = Sort.by(Sort.Direction.DESC, "createdAt", "id");
-        return ratings.findByToUserId(userId, PageRequest.of(page, size, order)).map(RatingResponse::from);
+        return ratings.findByToUserId(userId, PageRequest.of(page, size, order))
+                .map(rating -> RatingResponse.from(rating, viewer.id()));
     }
 
     private static UUID recipient(RatingEligibility completion, UUID actor) {

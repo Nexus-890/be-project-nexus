@@ -50,6 +50,8 @@ Buyer và seller của một canonical completed order được đánh giá đ�
 
 `UserRated` không có comment/tên; envelope aggregateId là ratingId, Kafka key là toUserId. Consumer reputation xử lý bất đồng bộ, nên response POST không hứa điểm đã cập nhật ngay lập tức. Client đọc reputation sau khi sự kiện được xử lý; không tự tính điểm từ rating response.
 
+Response có `ratedByMe`, được tính từ JWT của người đang đọc. Buyer tìm rating của đơn bằng `orderId` và `ratedByMe=true`, không cần lộ raw rater ID cho người khác. Client gửi `orderId`, `score`, `comment`; service tự xác định đối tác từ completed-order projection.
+
 ## Policy v1
 
 Đây là các mặc định triển khai **có cấu hình**, không phải công thức số học được SRS cung cấp. Config Server khai báo tại `config/rating-service.yml`, prefix `nexus.reputation`.
