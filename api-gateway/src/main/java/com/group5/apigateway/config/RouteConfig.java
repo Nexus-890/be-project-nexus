@@ -50,7 +50,10 @@ public class RouteConfig {
                         .path(
                                 "/api/v1/carts/**",
                                 "/api/v1/checkout/**",
-                                "/api/v1/orders/**"
+                                "/api/v1/orders/**",
+                                "/api/v1/promotions/**",
+                                "/api/v1/vouchers",
+                                "/api/v1/vouchers/**"
                         )
                         // PAY-01 moved to POST /payments (#121); do not forward its obsolete commerce path.
                         .and().not(oldPayment -> oldPayment.path("/api/v1/orders/*/payment"))

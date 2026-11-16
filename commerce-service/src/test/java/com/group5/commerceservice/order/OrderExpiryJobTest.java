@@ -24,6 +24,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import com.group5.commerceservice.promotion.PromotionTestConfig;
 import org.springframework.data.domain.AuditorAware;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
@@ -214,7 +215,7 @@ class OrderExpiryJobTest {
     @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses = {CartRepository.class, OrderRepository.class})
     @EnableJpaAuditing(auditorAwareRef = "auditor")
-    @Import({OrderExpiryJob.class, OrderService.class, OrderStateMachine.class, OrderEventPublisher.class,
+    @Import({PromotionTestConfig.class, OrderExpiryJob.class, OrderService.class, OrderStateMachine.class, OrderEventPublisher.class,
             PricingService.class})
     static class JpaConfig {
         @Bean
@@ -252,9 +253,14 @@ class OrderExpiryJobTest {
         }
 
         @Bean
-        EventEnvelopeFactory eventEnvelopeFactory() {
+        Tracer tracer() {
             Tracer tracer = Mockito.mock(Tracer.class, Mockito.RETURNS_DEEP_STUBS);
             when(tracer.currentSpan().context().traceId()).thenReturn("159expiry");
+            return tracer;
+        }
+
+        @Bean
+        EventEnvelopeFactory eventEnvelopeFactory(Tracer tracer) {
             return new EventEnvelopeFactory(tracer, Clock.systemUTC());
         }
 

@@ -74,6 +74,30 @@ done
 kc update realms/nexus -s revokeRefreshToken=true -s refreshTokenMaxReuse=0
 echo "Refresh token rotation is on"
 
+# #256: V7 moved user-service role data into Keycloak; upgrade existing imports here.
+web_client="$(kc get clients -r nexus -q clientId=nexus-web --fields id --format csv --noquotes)"
+[ -n "$web_client" ] || { echo "ERROR: nexus-web client is missing" >&2; exit 1; }
+
+for privilege in PROMOTION.EVENT.MANAGE PROMOTION.EVENT.REGISTER VOUCHER.MANAGE VOUCHER.CLAIM VOUCHER.VIEW; do
+  endpoint="clients/$web_client/roles"
+  if ! kc get "$endpoint/$privilege" -r nexus >/dev/null 2>&1; then
+    kc create "$endpoint" -r nexus -s "name=$privilege" -s composite=false
+  fi
+  role_json="$(kc get "$endpoint/$privilege" -r nexus)"
+  printf '[%s]\n' "$role_json" > "$CONFIG_DIR/promotion-role.json"
+  kc create "clients/$web_client/scope-mappings/clients/$web_client" -r nexus -f "$CONFIG_DIR/promotion-role.json"
+  case "$privilege" in
+    PROMOTION.EVENT.MANAGE) roles=(ADMIN) ;;
+    PROMOTION.EVENT.REGISTER|VOUCHER.MANAGE) roles=(ADMIN SELLER) ;;
+    VOUCHER.CLAIM) roles=(ADMIN BUYER) ;;
+    VOUCHER.VIEW) roles=(ADMIN SELLER BUYER SUPPORT_STAFF) ;;
+  esac
+  for role in "${roles[@]}"; do
+    kc create "roles/$role/composites" -r nexus -f "$CONFIG_DIR/promotion-role.json"
+  done
+done
+echo "Seeded Promotions privileges"
+
 client="$(kc get clients -r nexus -q clientId=user-service --fields id --format csv --noquotes)"
 if [ -z "$client" ]; then
   client="$(kc create clients -r nexus -s clientId=user-service -s enabled=true -s publicClient=false \

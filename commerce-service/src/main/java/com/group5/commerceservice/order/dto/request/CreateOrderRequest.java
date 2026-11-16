@@ -1,17 +1,25 @@
 package com.group5.commerceservice.order.dto.request;
 
+import com.group5.commerceservice.promotion.VoucherCodes;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
+import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
 public record CreateOrderRequest(
         @NotNull @Valid ShippingAddress shippingAddress,
-        @NotNull @Pattern(regexp = "SEPAY") String paymentMethod) {
+        @NotNull @Pattern(regexp = "SEPAY") String paymentMethod,
+        String promoCode, List<String> voucherCodes) {
+
+    public CreateOrderRequest(ShippingAddress shippingAddress, String paymentMethod) {
+        this(shippingAddress, paymentMethod, null, null);
+    }
 
     public CreateOrderRequest {
         if (paymentMethod != null) {
@@ -22,10 +30,17 @@ public record CreateOrderRequest(
     /** Lưu đúng người nhận và mã địa giới GHN v3; kho/kiện sẽ bổ sung bằng dữ liệu backend. */
     public Map<String, Object> snapshot() {
         ShippingAddress address = shippingAddress;
-        return Map.of("paymentMethod", paymentMethod, "countryCode", address.countryCode(),
+        var snapshot = new HashMap<String, Object>(Map.of("paymentMethod", paymentMethod, "countryCode", address.countryCode(),
                 "recipient", Map.of("name", address.recipientName(), "phone", address.phoneNumber(),
                         "address", Map.of("line1", address.addressLine(), "wardCode", address.wardCode(),
-                                "provinceCode", address.provinceCode())));
+                                "provinceCode", address.provinceCode()))));
+        List<String> requested = requestedVouchers();
+        if (requested != null) snapshot.put("voucherCodes", requested);
+        return snapshot;
+    }
+
+    public List<String> requestedVouchers() {
+        return VoucherCodes.requested(voucherCodes, promoCode);
     }
 
     public record ShippingAddress(

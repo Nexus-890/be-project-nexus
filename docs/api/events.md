@@ -258,7 +258,31 @@ The contract cell contains only `R2` for out-of-scope names. Each R1 link resolv
 | `ShipmentStatusUpdated` | #203 shipment status standardization | [R1 — payload](#shipmentstatusupdated) |
 | `ShipmentCancelled` | #203 R1 pre-pickup cancellation | [R1 — payload](#shipmentcancelled) |
 | `InventoryStockUnavailable` | #157 late OrderPaid recovery | [R1 — payload](#inventorystockunavailable) |
+| `CheckoutStockReleaseRequested` | #256 rolled-back checkout | [R1 — payload](#checkoutstockreleaserequested) |
 | `AuctionStockRejected` | #170 auction hold rejection | [R1 — payload](#auctionstockrejected) |
+
+## Voucher usage events (#256)
+
+Commerce writes `VoucherRedeemed`, `VoucherReleased`, and `VoucherReversed`
+to `nexus.commerce.events` through its outbox. Each outbox record has aggregate type
+`VoucherUsage` and the usage UUID as its aggregate ID and partition key. The
+payload contains `usageId`, `orderId`, `voucherId`, `status`, `discountAmount`,
+`sellerFunded`, `platformFunded`, and an optional `reason`. Amounts use decimal
+strings with exactly two fractional digits.
+
+- `VoucherRedeemed` accompanies the accepted payment transition and carries the
+  amounts reserved for that order.
+- `VoucherReleased` carries the freed amounts and status `RELEASED` on buyer
+  cancellation or `EXPIRED` on payment deadline expiry.
+- `VoucherReversed` carries the reversed discount and funding shares. A full
+  order refund reverses the original allocations. The current Payment payload
+  identifies the order and refunded amount, so an amount-only partial refund
+  reverses the proportional share of the stored allocations. It leaves the
+  claimed voucher used.
+
+The voucher state change, allocation updates, and the event insert share the
+Commerce transaction. Retrying a payment receipt or a refund event leaves the
+original transitions and event IDs intact.
 
 ## Publishers and consumers
 
@@ -3157,6 +3181,28 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 ```
 
 Inventory commits the processed AuctionCreated marker and rejection outbox row together, without a hold or movement. Auction locks the matching auction and SKU and cancels only CREATED, SCHEDULED or ACTIVE. It records `cancelledBy=SYSTEM`, the all-zero system actor UUID and reason `STOCK_UNAVAILABLE`, then writes AuctionCancelled in the same transaction as the processed marker. Replays leave the cancellation and stock unchanged.
+
+### CheckoutStockReleaseRequested
+
+- Topic: `nexus.commerce.events`.
+- Publisher: Commerce #256 after voucher checkout rolls back following a successful Inventory reservation.
+- Consumer: Inventory. Apply the same reservation release rules used for order cancellation, with a dedicated processed-event marker.
+- Envelope aggregateId and Kafka key: `orderId` from the attempted reservation.
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "orderId": { "type": "string", "format": "uuid" }
+  },
+  "required": ["orderId"]
+}
+```
+
+Commerce writes one release request per attempted seller order in a new transaction after confirming the group did not persist. The event does not represent a customer cancellation or a payment change.
+
+If Commerce crashes after Inventory reserves stock but before the checkout transaction commits, no release request is guaranteed; Inventory's `ReservationExpiryJob` releases the orphaned hold after its reservation deadline and configured grace period.
 
 ### InventoryStockUnavailable
 

@@ -2,7 +2,10 @@ package com.group5.inventoryservice.inventory;
 
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.Topics;
+import com.group5.common_security.CurrentUser;
 import com.group5.inventoryservice.reservation.ReservationExpiryJob;
+import com.group5.inventoryservice.reservation.dto.request.ReserveRequest;
+import com.group5.inventoryservice.reservation.service.ReservationService;
 import jakarta.servlet.Filter;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.AfterAll;
@@ -56,6 +59,7 @@ class AuctionStockIntegrationTest {
     @Autowired AuctionStockConsumer auctionEvents;
     @Autowired OrderEventConsumer orderEvents;
     @Autowired ReservationExpiryJob expiry;
+    @Autowired ReservationService reservations;
     @Autowired WebApplicationContext context;
     @MockitoBean JwtDecoder decoder;
 
@@ -152,6 +156,26 @@ class AuctionStockIntegrationTest {
         auctionEvents.receive(auction(fixture, "AuctionSettled", Map.of("orderId", fixture.order())));
         order(fixture, "OrderCancelled");
         assertBalance(fixture, 5, 0, 0);
+        assertThat(movements(fixture)).containsExactly("RESERVE", "RELEASE");
+    }
+
+    @Test
+    void checkoutReleaseRestoresStockOnceOnEventReplay() {
+        Fixture fixture = seed();
+        reservations.reserve(new ReserveRequest(UUID.randomUUID(),
+                        List.of(new ReserveRequest.Item(fixture.order(), fixture.sku(), 1))),
+                CurrentUser.from(buyerJwt("checkout-release", fixture.buyer())));
+        assertBalance(fixture, 4, 1, 0);
+        String orderId = fixture.order().toString();
+        JsonNode payload = JsonMapper.shared().valueToTree(Map.of("orderId", orderId));
+        var event = new EventEnvelope<>(UUID.randomUUID(), "CheckoutStockReleaseRequested", orderId,
+                Instant.now(), TRACE_ID, payload);
+        orderEvents.receive(new ConsumerRecord<>(Topics.COMMERCE, 0, 0, orderId, event));
+        orderEvents.receive(new ConsumerRecord<>(Topics.COMMERCE, 0, 1, orderId, event));
+
+        assertBalance(fixture, 5, 0, 0);
+        assertThat(jdbc.queryForObject("SELECT status::text FROM inventory_reservations WHERE order_id = ?",
+                String.class, fixture.order())).isEqualTo("RELEASED");
         assertThat(movements(fixture)).containsExactly("RESERVE", "RELEASE");
     }
 

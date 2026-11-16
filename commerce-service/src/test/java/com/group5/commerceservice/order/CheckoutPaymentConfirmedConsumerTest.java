@@ -64,7 +64,8 @@ class CheckoutPaymentConfirmedConsumerTest {
     private final EntityManager entityManager = mock(EntityManager.class);
     private final Tracer tracer = mock(Tracer.class);
     private final CheckoutPaymentConfirmedConsumer consumer = new CheckoutPaymentConfirmedConsumer(
-            idempotency, groups, orders, stateMachine, events, entityManager, VALIDATOR, JsonMapper.shared(), tracer);
+            idempotency, groups, orders, stateMachine, events, entityManager, VALIDATOR, JsonMapper.shared(), tracer,
+            mock(com.group5.commerceservice.promotion.VoucherLifecycleService.class));
     private final OrderGroup group = new OrderGroup();
     private Order first;
     private Order second;
