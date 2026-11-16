@@ -57,18 +57,24 @@ public final class CommerceReceiptFixture implements AutoCloseable {
     }
 
     public OrderFixture order(String shippingAmount) {
+        return order(shippingAmount, "0.00");
+    }
+
+    public OrderFixture order(String shippingAmount, String discountAmount) {
         UUID buyer = UUID.randomUUID(), seller = UUID.randomUUID();
         BigDecimal shipping = new BigDecimal(shippingAmount);
-        BigDecimal amount = new BigDecimal("300000.00").add(shipping);
+        BigDecimal discount = new BigDecimal(discountAmount);
+        BigDecimal amount = new BigDecimal("300000.00").subtract(discount).add(shipping);
         String number = "NX-ACCEPT-" + UUID.randomUUID().toString().substring(0, 20);
         UUID group = jdbc.queryForObject("""
                 INSERT INTO order_groups(buyer_id,idempotency_key,total_amount,due_at)
                 VALUES (?,?,?,now()+interval '15 minutes') RETURNING id
                 """, UUID.class, buyer, UUID.randomUUID().toString(), amount);
         UUID id = jdbc.queryForObject("""
-                INSERT INTO orders(order_group_id,user_id,seller_id,order_number,order_type,status,subtotal,shipping_fee,total_amount,idempotency_key)
-                VALUES (?,?,?,?,'STANDARD','SHIPPED',300000,?,?,?) RETURNING id
-                """, UUID.class, group, buyer, seller, number, shipping, amount, UUID.randomUUID().toString());
+                INSERT INTO orders(order_group_id,user_id,seller_id,order_number,order_type,status,
+                    subtotal,discount_amount,shipping_fee,total_amount,idempotency_key)
+                VALUES (?,?,?,?,'STANDARD','SHIPPED',300000,?,?,?,?) RETURNING id
+                """, UUID.class, group, buyer, seller, number, discount, shipping, amount, UUID.randomUUID().toString());
         jdbc.update("""
                 INSERT INTO order_items(order_id,product_id,sku_id,product_name,sku_code,quantity,unit_price,total_price)
                 VALUES (?,?,?,'Cà phê <script>private</script> & tea','RECEIPT-SKU',2,150000,300000)

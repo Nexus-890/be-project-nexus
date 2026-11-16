@@ -53,6 +53,27 @@ neither merge nor the existing inventory stub proves stock availability.
 
 | Path | Method | Public or required privilege | Owning issue                                            |
 |---|---|---|---------------------------------------------------------|
+| `/api/v1/vouchers` | GET | Public | #256 — Claimable vouchers |
+| `/api/v1/promotions/events` | POST | PROMOTION.EVENT.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/promotions/events` | GET | VOUCHER.VIEW | #256 — Promotions and vouchers |
+| `/api/v1/promotions/events/{id}` | GET | VOUCHER.VIEW | #256 — Promotions and vouchers |
+| `/api/v1/promotions/events/{id}` | PUT | PROMOTION.EVENT.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/promotions/events/{id}/status` | PATCH | PROMOTION.EVENT.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/promotions/events/{id}/sellers` | GET | PROMOTION.EVENT.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/promotions/event-sellers/{id}` | PATCH | PROMOTION.EVENT.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/promotions/events/{id}/registrations` | POST | PROMOTION.EVENT.REGISTER | #256 — Promotions and vouchers |
+| `/api/v1/promotions/events/{id}/registrations/me` | DELETE | PROMOTION.EVENT.REGISTER | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/me` | GET | VOUCHER.VIEW | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/manage` | GET | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/{id}` | GET | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers` | POST | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/{id}` | PUT | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/{id}/status` | PATCH | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/{id}/products` | PUT | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/{id}/sellers` | POST | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/{id}/sellers/me` | DELETE | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/{id}/usages` | GET | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/{id}/claim` | POST | VOUCHER.CLAIM | #256 — Promotions and vouchers |
 | `/api/v1/auth/register` | POST | Public | #74 — User registration with a default role             |
 | `/api/v1/auth/session` | POST | Public | #252 — HttpOnly refresh cookie: sign-in exchange |
 | `/api/v1/auth/refresh` | POST | Public | #252 — HttpOnly refresh cookie: renew the access token |

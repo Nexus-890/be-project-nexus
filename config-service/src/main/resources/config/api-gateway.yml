@@ -105,6 +105,8 @@ nexus:
         path: /api/v1/inventory
       - method: GET
         path: /api/v1/inventory/{id}
+      - method: GET
+        path: /api/v1/vouchers
     protected-endpoints:
       - method: GET
         path: /api/v1/users/me
@@ -371,6 +373,66 @@ nexus:
       - method: POST
         path: /api/v1/payments/payouts/{id}/retry
         roles: [ADMIN]
+      - method: POST
+        path: /api/v1/promotions/events
+        privilege: PROMOTION.EVENT.MANAGE
+      - method: GET
+        path: /api/v1/promotions/events
+        privilege: VOUCHER.VIEW
+      - method: GET
+        path: /api/v1/promotions/events/{id}
+        privilege: VOUCHER.VIEW
+      - method: PUT
+        path: /api/v1/promotions/events/{id}
+        privilege: PROMOTION.EVENT.MANAGE
+      - method: PATCH
+        path: /api/v1/promotions/events/{id}/status
+        privilege: PROMOTION.EVENT.MANAGE
+      - method: GET
+        path: /api/v1/promotions/events/{id}/sellers
+        privilege: PROMOTION.EVENT.MANAGE
+      - method: PATCH
+        path: /api/v1/promotions/event-sellers/{id}
+        privilege: PROMOTION.EVENT.MANAGE
+      - method: POST
+        path: /api/v1/promotions/events/{id}/registrations
+        privilege: PROMOTION.EVENT.REGISTER
+      - method: DELETE
+        path: /api/v1/promotions/events/{id}/registrations/me
+        privilege: PROMOTION.EVENT.REGISTER
+      - method: GET
+        path: /api/v1/vouchers/me
+        privilege: VOUCHER.VIEW
+      - method: GET
+        path: /api/v1/vouchers/manage
+        privilege: VOUCHER.MANAGE
+      - method: GET
+        path: /api/v1/vouchers/{id}
+        privilege: VOUCHER.MANAGE
+      - method: POST
+        path: /api/v1/vouchers
+        privilege: VOUCHER.MANAGE
+      - method: PUT
+        path: /api/v1/vouchers/{id}
+        privilege: VOUCHER.MANAGE
+      - method: PATCH
+        path: /api/v1/vouchers/{id}/status
+        privilege: VOUCHER.MANAGE
+      - method: PUT
+        path: /api/v1/vouchers/{id}/products
+        privilege: VOUCHER.MANAGE
+      - method: POST
+        path: /api/v1/vouchers/{id}/sellers
+        privilege: VOUCHER.MANAGE
+      - method: DELETE
+        path: /api/v1/vouchers/{id}/sellers/me
+        privilege: VOUCHER.MANAGE
+      - method: GET
+        path: /api/v1/vouchers/{id}/usages
+        privilege: VOUCHER.MANAGE
+      - method: POST
+        path: /api/v1/vouchers/{id}/claim
+        privilege: VOUCHER.CLAIM
   gateway:
     rate-limit:
       # Có thể đổi cả hai quota qua Config Server và /actuator/refresh.

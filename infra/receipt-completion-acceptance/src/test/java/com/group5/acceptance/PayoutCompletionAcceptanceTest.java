@@ -51,6 +51,25 @@ class PayoutCompletionAcceptanceTest {
         }
     }
 
+    @Test void discountedCompletionPaysOnlyFundedAmountLessShippingWithoutVoucherCompensation() {
+        try (var commerce = new CommerceReceiptFixture(); var payment = new PaymentPayoutFixture()) {
+            // Snapshot sau giảm giá là số buyer đã trả; payout không cộng bù phần voucher của sàn.
+            var order = commerce.order("25000.00", "40000.00");
+            payment.fund(order);
+            commerce.completions.confirm(order.buyer(), order.id());
+            var actual = commerce.events(order.id()).getFirst();
+            assertThat(actual.payload().path("orderAmount").asString()).isEqualTo("285000.00");
+            assertThat(actual.payload().path("shippingFee").asString()).isEqualTo("25000.00");
+            payment.receive(actual);
+            payment.receive(actual);
+            var payout = payment.payout(order.id());
+            assertThat((BigDecimal) payout.get("order_amount")).isEqualByComparingTo("285000.00");
+            assertThat((BigDecimal) payout.get("platform_fee")).isEqualByComparingTo("0.00");
+            assertThat((BigDecimal) payout.get("net_amount")).isEqualByComparingTo("260000.00");
+            assertThat(payment.payouts(order.id())).isEqualTo(1);
+        }
+    }
+
     @Test void actualCompletedEventsCannotCreatePayoutForRefundedOrUnfundedOrders() {
         try(var commerce=new CommerceReceiptFixture();var payment=new PaymentPayoutFixture()) {
             for(String blocked:java.util.List.of("refunded","unfunded")) {

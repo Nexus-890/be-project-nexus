@@ -15,8 +15,9 @@ components with Hibernate `ddl-auto=validate`.
   consumer. Only matching paid funding qualifies, with one durable eligibility
   row and one ON_HOLD payout after replay when no bank account is verified.
   The actual serialized orderAmount/shippingFee fields determine the frozen
-  payout amounts; a nonzero shipping example proves that only the order's net
-  proceeds are payable. A reported receipt issue, refund or unfunded instruction
+  payout amounts; nonzero shipping and persisted discounted-order examples prove
+  that only the buyer-funded proceeds are payable, without platform voucher
+  compensation. A reported receipt issue, refund or unfunded instruction
   prevents payout creation.
 
 The broker hop is deliberately explicit in this module: it calls the actual

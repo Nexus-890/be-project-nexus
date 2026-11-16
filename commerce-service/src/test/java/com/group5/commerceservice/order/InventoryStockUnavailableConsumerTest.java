@@ -3,12 +3,10 @@ package com.group5.commerceservice.order;
 import com.group5.commerceservice.order.event.InventoryStockUnavailable;
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_outbox.IdempotentConsumer;
-import io.micrometer.tracing.Tracer;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -168,9 +166,5 @@ class InventoryStockUnavailableConsumerTest {
             return JsonMapper.shared();
         }
 
-        @Bean
-        Tracer tracer() {
-            return Mockito.mock(Tracer.class);
-        }
     }
 }

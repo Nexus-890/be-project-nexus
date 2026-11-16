@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class GatewayPermissionsTest {
 
     private static final Set<Row> EXPECTED_PUBLIC = Set.of(
+            new Row("/api/v1/vouchers", "GET", "Public"),
             new Row("/api/v1/auctions", "GET", "Public"),
             new Row("/api/v1/auctions/{id}", "GET", "Public"),
             new Row("/api/v1/auctions/{id}/state", "GET", "Public"),

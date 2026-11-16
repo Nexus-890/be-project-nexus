@@ -164,6 +164,21 @@ class ShipmentCompletionTest {
     }
 
     @Test
+    void completionPublishesTheDiscountedBuyerAmountWithoutAddingVoucherFundingBack() {
+        Fixture order = order(OrderStatus.SHIPPED, OrderType.STANDARD);
+        jdbc().update("UPDATE orders SET discount_amount=40000,shipping_fee=25000,total_amount=285000 WHERE id=?", order.id());
+        jdbc().update("UPDATE order_groups SET total_amount=285000 WHERE id=?", order.groupId());
+        send(event(order, "ShipmentDelivered"));
+        confirm(order);
+
+        JsonNode payload = completion(order).get("payload");
+        assertThat(payload.get("orderAmount").asString()).isEqualTo("285000.00");
+        assertThat(payload.get("shippingFee").asString()).isEqualTo("25000.00");
+        assertThat(payload.get("receiptHtml").asString()).contains("40000.00", "285000.00");
+        assertThat(outboxCount(order)).isEqualTo(1);
+    }
+
+    @Test
     void theSamePickupAndDeliveryAreAppliedOnlyOnce() {
         Fixture order = order(OrderStatus.PAID, OrderType.STANDARD);
         var pickup = event(order, "ShipmentPickedUp");
