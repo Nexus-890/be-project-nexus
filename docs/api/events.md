@@ -3202,6 +3202,8 @@ Inventory commits the processed AuctionCreated marker and rejection outbox row t
 
 Commerce writes one release request per attempted seller order in a new transaction after confirming the group did not persist. The event does not represent a customer cancellation or a payment change.
 
+If Commerce crashes after Inventory reserves stock but before the checkout transaction commits, no release request is guaranteed; Inventory's `ReservationExpiryJob` releases the orphaned hold after its reservation deadline and configured grace period.
+
 ### InventoryStockUnavailable
 
 - Topic: `nexus.inventory.events`.
