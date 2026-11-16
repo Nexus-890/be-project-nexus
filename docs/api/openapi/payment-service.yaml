@@ -792,7 +792,7 @@ paths:
       summary: "Verify or reject a bank account"
       security: [{"bearerAuth":[]}]
       x-required-roles: ["ADMIN"]
-      description: "Administrator verification only. Rejecting requires a nonblank reason. Verifying an active default account releases eligible ON_HOLD payouts automatically; no manual payout creation endpoint exists."
+      description: "Administrator verification only. expectedVersion must match the account version displayed during review; a changed account returns 409 and must be reviewed again. Rejecting requires a nonblank reason. Verifying an active default account releases eligible ON_HOLD payouts automatically; no manual payout creation endpoint exists."
       parameters: [{"name":"id","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}]
       requestBody:
         required: true
@@ -864,6 +864,19 @@ paths:
                 detail: "Bank account not found, including an account owned by another seller"
                 instance: "/api/v1/payments/payouts"
                 code: "PAYMENT_SELLER_BANK_ACCOUNT_NOT_FOUND"
+        "409":
+          description: "The bank account changed after the administrator reviewed it (PAYMENT_SELLER_BANK_ACCOUNT_CONFLICT). Reload and review the current account before retrying."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Conflict"
+                status: 409
+                detail: "Bank account changed since review; reload it before submitting a decision"
+                instance: "/api/v1/payments/seller-bank-accounts/00000000-0000-4000-8000-000000000001/verify"
+                code: "PAYMENT_SELLER_BANK_ACCOUNT_CONFLICT"
   /api/v1/payments/payouts/me:
     get:
       tags: ["Payouts"]
@@ -1491,7 +1504,7 @@ components:
           description: "Optional; true on create, preserve existing value on update."
     SellerBankVerificationRequest:
       type: "object"
-      required: ["verificationStatus"]
+      required: ["verificationStatus","expectedVersion"]
       properties:
         verificationStatus:
           type: "string"
@@ -1501,6 +1514,11 @@ components:
           minLength: 1
           maxLength: 1000
           description: "Required and nonblank when REJECTED."
+        expectedVersion:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+          description: "Version from the exact bank-account snapshot the administrator reviewed. Missing or negative is 400; stale is 409."
     SellerBankAccount:
       type: "object"
       required: ["id","sellerId","bankCode","accountLast4","accountHolderName","verificationStatus","isDefault","active","rejectionReason","verifiedBy","verifiedAt","createdAt","updatedAt","version"]

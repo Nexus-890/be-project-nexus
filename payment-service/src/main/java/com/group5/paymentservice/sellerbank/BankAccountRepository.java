@@ -79,11 +79,11 @@ public class BankAccountRepository {
         jdbc.update("UPDATE seller_bank SET is_default=true,version=version+1,updated_at=now(),updated_by=? WHERE id=?", actor, id);
     }
 
-    public void verify(UUID id, UUID actor, String status, String reason) {
-        jdbc.update("""
+    public int verify(UUID id, UUID actor, String status, String reason, long expectedVersion) {
+        return jdbc.update("""
                 UPDATE seller_bank SET verification_status=?::seller_bank_verification_status,verified_by=?,verified_at=now(),
-                    rejection_reason=?,version=version+1,updated_at=now(),updated_by=? WHERE id=?
-                """, status, actor, reason, actor, id);
+                    rejection_reason=?,version=version+1,updated_at=now(),updated_by=? WHERE id=? AND version=?
+                """, status, actor, reason, actor, id, expectedVersion);
     }
 
     private static String last4(String number) { return number.substring(number.length() - 4); }

@@ -225,10 +225,10 @@ class PayoutHttpTest extends PaymentDatabaseTestSupport {
         mvc.perform(post(BANKS + "/" + id + "/default").header(HttpHeaders.AUTHORIZATION, bearer(otherSellerId, "SELLER")))
                 .andExpect(status().isNotFound());
         mvc.perform(post(BANKS + "/" + id + "/verify").header(HttpHeaders.AUTHORIZATION, bearer(sellerId, "SELLER"))
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"verificationStatus\":\"VERIFIED\"}"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"verificationStatus\":\"VERIFIED\",\"expectedVersion\":0}"))
                 .andExpect(status().isForbidden());
         mvc.perform(post(BANKS + "/" + id + "/verify").header(HttpHeaders.AUTHORIZATION, bearer(adminId, "ADMIN"))
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"verificationStatus\":\"VERIFIED\"}"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"verificationStatus\":\"VERIFIED\",\"expectedVersion\":0}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.verificationStatus").value("VERIFIED"));
         mvc.perform(get(BANKS + "/me").header(HttpHeaders.AUTHORIZATION, bearer(otherSellerId, "SELLER")))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(0));
@@ -257,7 +257,8 @@ class PayoutHttpTest extends PaymentDatabaseTestSupport {
                 """, UUID.class, order, session, receipt, buyer, seller);
         var account = banks.create(new CurrentUser(seller, Set.of("SELLER"), Set.of()),
                 new BankAccountRequest("970415", "000000001234", "HTTP TEST SELLER", true, true));
-        banks.verify(new CurrentUser(adminId, Set.of("ADMIN"), Set.of()), account.id(), new BankVerificationRequest("VERIFIED", null));
+        banks.verify(new CurrentUser(adminId, Set.of("ADMIN"), Set.of()), account.id(),
+                new BankVerificationRequest("VERIFIED", null, account.version()));
         UUID payout = jdbc.queryForObject("""
                 INSERT INTO payouts(order_id,session_id,instruction_id,seller_id,seller_bank_id,
                     recipient_bank_code,recipient_account_encrypted,recipient_account_last4,recipient_holder_name,

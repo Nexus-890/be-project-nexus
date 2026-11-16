@@ -54,6 +54,13 @@ Verification releases the seller's held payouts as PENDING. A bank changed or
 deactivated before dispatch is checked again; it cannot authorize a send merely
 because it was verified when the payout was created.
 
+Bank verification requires `expectedVersion`, taken from the exact bank-account
+row the administrator reviewed. The service checks that version under the seller
+lock and updates with `WHERE version = expectedVersion`. A stale approval or
+rejection returns `409 PAYMENT_SELLER_BANK_ACCOUNT_CONFLICT`, writes no decision
+and releases no held payout. The administrator must reload and review the changed
+account; clients must not silently retry the decision with a newer version.
+
 Legacy completion events without the two money fields remain valid for existing
 consumers/projections, but cannot create an automatic payout. NULL shipping is
 not zero shipping. Reconcile from trusted original commerce evidence before
@@ -77,6 +84,22 @@ If lookup authoritatively returns NOT_FOUND, the provider never accepted that
 key: recovery may resend the same frozen recipient, attempt and idempotency key.
 An unknown lookup result does not authorize a new attempt. NOT_FOUND is an
 internal lookup result and is rejected in callbacks.
+
+Each reconciliation claim stores `next_reconcile_at` before any provider lookup,
+including a lookup that returns UNKNOWN/ACCEPTED or throws. Workers atomically
+claim one due row with `FOR UPDATE SKIP LOCKED`, then release the DB transaction
+before network IO. The lease covers the configured interval and lookup/send
+timeout window; an interrupted worker becomes eligible again after that lease.
+Ordering by the next due time lets later rows progress instead of repeatedly
+selecting the oldest 100 unresolved attempts. Payment V9 adds this scheduling
+column/index; existing migrations stay unchanged.
+
+The completion retry job also walks all candidate pages using the immutable
+`(recorded_at, order_id)` cursor, with an upper bound captured at the beginning
+of each run. Rejected or failed rows cannot block the next page. An immutable
+nonpositive base (`instruction amount - shipping fee`) or declared amount
+mismatch is excluded from retry candidates. A zero net caused only by the
+current configurable fee rate remains retryable when that rate changes.
 
 A confirmed bank return writes PAYOUT_RETURN/SUCCESS and sets RETURNED.
 Administrator retry is allowed only for FAILED/RETURNED, requires an

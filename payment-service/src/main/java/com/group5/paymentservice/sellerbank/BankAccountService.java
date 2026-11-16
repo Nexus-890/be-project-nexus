@@ -85,15 +85,21 @@ public class BankAccountService {
     @Transactional
     public BankAccountView verify(CurrentUser user, UUID id, BankVerificationRequest request) {
         requireRole(user, "ADMIN");
+        if (request == null || request.expectedVersion() == null || request.expectedVersion() < 0
+                || !("VERIFIED".equals(request.verificationStatus()) || "REJECTED".equals(request.verificationStatus())))
+            throw invalid();
         BankAccountView before = accounts.find(id).orElseThrow(BankAccountService::notFound);
         accounts.lockSeller(before.sellerId());
         BankAccountView account = accounts.find(id).orElseThrow(BankAccountService::notFound);
-        if (!account.active() || request == null || !("VERIFIED".equals(request.verificationStatus())
-                || "REJECTED".equals(request.verificationStatus()))) throw invalid();
+        // Khóa tuần tự hóa ghi; version bảo đảm admin đang duyệt đúng dữ liệu đã xem.
+        if (account.version() != request.expectedVersion()) throw conflict();
+        if (!account.active()) throw invalid();
         String reason = request.reason() == null ? null : request.reason().trim();
         if ("REJECTED".equals(request.verificationStatus()) && (reason == null || reason.isEmpty() || reason.length() > 1000))
             throw invalid();
-        accounts.verify(id, user.id(), request.verificationStatus(), "REJECTED".equals(request.verificationStatus()) ? reason : null);
+        int updatedRows = accounts.verify(id, user.id(), request.verificationStatus(),
+                "REJECTED".equals(request.verificationStatus()) ? reason : null, request.expectedVersion());
+        if (updatedRows != 1) throw conflict();
         BankAccountView updated = accounts.find(id).orElseThrow();
         releaseIfReady(updated);
         return updated;
@@ -126,6 +132,7 @@ public class BankAccountService {
     }
 
     private static DomainException invalid() { return new DomainException(PaymentErrorCode.SELLER_BANK_ACCOUNT_INVALID); }
+    private static DomainException conflict() { return new DomainException(PaymentErrorCode.SELLER_BANK_ACCOUNT_CONFLICT); }
     private static DomainException notFound() { return new DomainException(PaymentErrorCode.SELLER_BANK_ACCOUNT_NOT_FOUND); }
     public record BankAccountPage(List<BankAccountView> content, PageInfo page) { }
 }

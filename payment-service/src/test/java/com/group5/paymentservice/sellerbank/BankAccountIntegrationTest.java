@@ -71,7 +71,7 @@ class BankAccountIntegrationTest extends PaymentDatabaseTestSupport {
     @Test
     void changingBankDetailsClearsVerificationWhileUnchangedUpdatesKeepIt() {
         var account = accounts.create(seller, request("000012345678", true));
-        accounts.verify(admin, account.id(), new BankVerificationRequest("VERIFIED", null));
+        accounts.verify(admin, account.id(), new BankVerificationRequest("VERIFIED", null, account.version()));
         assertThat(accounts.findVerifiedDefault(seller.id())).isPresent();
         var unchanged = accounts.update(seller, account.id(), request("000012345678", true));
         assertThat(unchanged.verificationStatus()).isEqualTo("VERIFIED");
@@ -88,14 +88,14 @@ class BankAccountIntegrationTest extends PaymentDatabaseTestSupport {
     @Test
     void rejectRequiresReasonAndChangingEachIdentityFieldRequiresVerificationAgain() {
         var account = accounts.create(seller, request("000012345678", true));
-        assertThatThrownBy(() -> accounts.verify(admin, account.id(), new BankVerificationRequest("REJECTED", " ")))
+        assertThatThrownBy(() -> accounts.verify(admin, account.id(), new BankVerificationRequest("REJECTED", " ", account.version())))
                 .isInstanceOf(DomainException.class);
-        var rejected = accounts.verify(admin, account.id(), new BankVerificationRequest("REJECTED", "Name mismatch"));
+        var rejected = accounts.verify(admin, account.id(), new BankVerificationRequest("REJECTED", "Name mismatch", account.version()));
         assertThat(rejected.rejectionReason()).isEqualTo("Name mismatch");
         assertThat(rejected.verifiedBy()).isEqualTo(admin.id());
         var changed = accounts.update(seller, account.id(), new BankAccountRequest("970416", "000012345678", "TEST SELLER", true, true));
         assertThat(changed.verificationStatus()).isEqualTo("UNVERIFIED");
-        accounts.verify(admin, account.id(), new BankVerificationRequest("VERIFIED", null));
+        accounts.verify(admin, account.id(), new BankVerificationRequest("VERIFIED", null, changed.version()));
         changed = accounts.update(seller, account.id(), new BankAccountRequest("970416", "000012345678", "NEW HOLDER", true, true));
         assertThat(changed.verificationStatus()).isEqualTo("UNVERIFIED");
     }
@@ -112,13 +112,13 @@ class BankAccountIntegrationTest extends PaymentDatabaseTestSupport {
         mvc.perform(post("/api/v1/payments/seller-bank-accounts/" + account.id() + "/default").header("Authorization", "Bearer seller"))
                 .andExpect(status().isNotFound());
         mvc.perform(post("/api/v1/payments/seller-bank-accounts/" + account.id() + "/verify").header("Authorization", "Bearer seller")
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"verificationStatus\":\"VERIFIED\"}"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"verificationStatus\":\"VERIFIED\",\"expectedVersion\":" + account.version() + "}"))
                 .andExpect(status().isForbidden());
         mvc.perform(get("/api/v1/payments/seller-bank-accounts/me").header("Authorization", "Bearer buyer"))
                 .andExpect(status().isForbidden());
         mvc.perform(get("/api/v1/payments/seller-bank-accounts/me")).andExpect(status().isUnauthorized());
         mvc.perform(post("/api/v1/payments/seller-bank-accounts/" + account.id() + "/verify").header("Authorization", "Bearer admin")
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"verificationStatus\":\"VERIFIED\"}"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"verificationStatus\":\"VERIFIED\",\"expectedVersion\":" + account.version() + "}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.verificationStatus").value("VERIFIED"));
     }
 

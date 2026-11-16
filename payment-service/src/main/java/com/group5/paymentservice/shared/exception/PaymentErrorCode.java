@@ -25,6 +25,7 @@ public enum PaymentErrorCode implements ErrorCode {
     REFUND_CONFLICT(HttpStatus.CONFLICT, "Refund was changed by another request, try again"),
     SELLER_BANK_ACCOUNT_NOT_FOUND(HttpStatus.NOT_FOUND, "Seller bank account is not available"),
     SELLER_BANK_ACCOUNT_INVALID(HttpStatus.BAD_REQUEST, "Seller bank account details are invalid"),
+    SELLER_BANK_ACCOUNT_CONFLICT(HttpStatus.CONFLICT, "Bank account changed since review; reload it before submitting a decision"),
     PAYOUT_NOT_FOUND(HttpStatus.NOT_FOUND, "Payout is not available"),
     PAYOUT_INVALID_REQUEST(HttpStatus.BAD_REQUEST, "Payout request is invalid"),
     PAYOUT_NOT_RETRYABLE(HttpStatus.CONFLICT, "Only failed or returned payouts can be retried"),

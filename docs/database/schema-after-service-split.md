@@ -1655,6 +1655,8 @@ OrderRefundRequested/OrderRefundCompleted carry refundId, orderId, instructionId
 
 Partial UNIQUE `(seller_id) WHERE is_default AND active` enforces one active default, including unverified accounts. Index seller/time for own lists and active verification/time for #261. Changing bank code, number or holder clears verification and rejection metadata; changing a bank does not alter an already-sent payout snapshot. The encryption key is configuration, never a database value or API field.
 
+Admin verification requires `expectedVersion` from the reviewed row. The seller lock and compare-and-set update on `version` reject stale approve/reject decisions with `409 PAYMENT_SELLER_BANK_ACCOUNT_CONFLICT`; no verification event or held-payout release occurs on conflict.
+
 ### payment_db.payouts
 
 #257 / payment-service V7. Current payout state, exactly one row per seller order regardless of retries. It does not replace buyer payment status.
@@ -1676,6 +1678,7 @@ Partial UNIQUE `(seller_id) WHERE is_default AND active` enforces one active def
 | `status` | `payout_status` | No | ON_HOLD, PENDING, PROCESSING, UNKNOWN, SUCCEEDED, FAILED, RETURNED. |
 | `attempt_count` | `integer` | No | DEFAULT 0, CHECK >=0; no config-dependent upper bound. |
 | `next_attempt_at`, `attempt_started_at` | `timestamptz` | Yes | Due dispatch/reconcile timing and crash recovery. |
+| `next_reconcile_at` | `timestamptz` | Yes | Added in V9; next due time/lease persisted before lookup, including UNKNOWN or network failures. |
 | `provider`, `provider_reference` | `varchar(40)`, `varchar(120)` | Yes | Current attempt provider identity/reference. |
 | `transaction_id`, `return_transaction_id` | `uuid` | Yes | Local FKs to current attempt PAYOUT/PAYOUT_RETURN movements. |
 | `source_event_id` | `uuid` | No | Original OrderCompleted envelope identity. |
@@ -1685,6 +1688,8 @@ Partial UNIQUE `(seller_id) WHERE is_default AND active` enforces one active def
 | `created_by`, `updated_by` | `uuid` | No | DEFAULT all-zero system actor; no identity FK. |
 
 CHECK `platform_fee = round((order_amount - shipping_fee) * platform_fee_rate, 2)` and `net_amount = order_amount - shipping_fee - platform_fee AND net_amount > 0`. Recipient snapshot columns are all NULL or all non-NULL with a bank reference. Partial UNIQUE `(provider,provider_reference) WHERE provider_reference IS NOT NULL`; separate local FK indexes; seller/status listing indexes; PENDING due index and PROCESSING/UNKNOWN attempt-start index. Confirmation requires a provider success, not acceptance. Retry can replace the current snapshot; prior attempt history remains immutable.
+
+V9 also indexes `(provider, coalesce(next_reconcile_at, attempt_started_at), id)` for PROCESSING/UNKNOWN/SUCCEEDED. A worker claims and reschedules one due row atomically with SKIP LOCKED before contacting the provider, so unresolved rows cannot repeatedly occupy the first batch and starve later payouts. Attempt start/count remain unchanged by reconciliation scheduling.
 
 ### payment_db.payout_history
 

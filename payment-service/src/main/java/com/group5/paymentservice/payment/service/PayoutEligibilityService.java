@@ -5,6 +5,7 @@ import com.group5.common_outbox.IdempotentConsumer;
 import com.group5.paymentservice.payment.event.payload.OrderCompleted;
 import com.group5.paymentservice.payment.repository.PaymentSessionRepository;
 import com.group5.paymentservice.payment.repository.PayoutEligibilityRepository;
+import com.group5.paymentservice.payment.repository.PayoutEligibilityRepository.CompletionCursor;
 import com.group5.paymentservice.payout.PayoutService;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -61,6 +63,16 @@ public class PayoutEligibilityService {
     @Transactional(readOnly = true)
     public List<UUID> pendingIds() {
         return eligibility.findPendingOrderIds();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<CompletionCursor> pendingUpperBound() {
+        return eligibility.findPendingUpperBound();
+    }
+
+    @Transactional(readOnly = true)
+    public List<CompletionCursor> pendingBatch(CompletionCursor after, CompletionCursor upperBound) {
+        return eligibility.findPendingBatch(after, upperBound);
     }
 
     private void qualify(UUID orderId) {

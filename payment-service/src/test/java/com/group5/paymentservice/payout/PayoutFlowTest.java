@@ -424,7 +424,7 @@ class PayoutFlowTest extends PaymentDatabaseTestSupport {
                 banks.create(
                         seller,
                         new BankAccountRequest("970415", number, "TEST SELLER", true, true));
-        banks.verify(admin, b.id(), new BankVerificationRequest("VERIFIED", null));
+        banks.verify(admin, b.id(), new BankVerificationRequest("VERIFIED", null, b.version()));
     }
 
     private UUID id(Fixture f) {

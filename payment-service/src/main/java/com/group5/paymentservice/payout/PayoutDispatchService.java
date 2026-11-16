@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Map;
@@ -68,8 +69,12 @@ public class PayoutDispatchService {
     public void reconcile() {
         // Quét bù để payout không bị giữ mãi nếu sự kiện verify đến trước lúc tạo ON_HOLD.
         for (UUID sellerId : dispatches.findHeldSellersWithVerifiedDefault()) payouts.releaseHeld(sellerId);
-        var cutoff = OffsetDateTime.now(ZoneOffset.UTC).minus(properties.getProviderTimeout());
-        for (var payout : dispatches.findReconciliationDue(gateway.provider(), cutoff)) {
+        for (int processed = 0; processed < 100; processed++) {
+            var now = OffsetDateTime.now(ZoneOffset.UTC);
+            var claimed = transactions.execute(status -> dispatches.claimNextReconciliation(gateway.provider(),
+                    now.minus(properties.getProviderTimeout()), now.plus(reconciliationLease())));
+            if (claimed == null || claimed.isEmpty()) break;
+            var payout = claimed.get();
             UUID id = (UUID) payout.get("id");
             int attempt = integer(payout, "attempt_count");
             try {
@@ -85,6 +90,13 @@ public class PayoutDispatchService {
                 log.warn("Payout reconciliation retained: payoutId={} attempt={}", id, attempt);
             }
         }
+    }
+
+    private Duration reconciliationLease() {
+        // Mỗi lần chỉ nhận một dòng; lease đủ cho lookup và tối đa một lần gửi lại cùng key.
+        Duration networkWindow = properties.getProviderTimeout().multipliedBy(2).plusSeconds(5);
+        Duration interval = properties.getReconcileInterval();
+        return interval.compareTo(networkWindow) >= 0 ? interval : networkWindow;
     }
 
     private PayoutGateway.Transfer frozenTransfer(Map<String, Object> payout, int attempt) {

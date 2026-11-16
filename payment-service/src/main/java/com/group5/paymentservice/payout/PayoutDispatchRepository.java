@@ -42,6 +42,7 @@ public class PayoutDispatchRepository {
     public void startAttempt(UUID payoutId, int attempt, Map<String, Object> bank, String provider) {
         jdbc.update("""
                 UPDATE payouts SET status='PROCESSING',attempt_count=?,attempt_started_at=now(),next_attempt_at=NULL,
+                    next_reconcile_at=NULL,
                     seller_bank_id=?,recipient_bank_code=?,recipient_account_encrypted=?,recipient_account_last4=?,
                     recipient_holder_name=?,provider=?,provider_reference=NULL,transaction_id=NULL,return_transaction_id=NULL,
                     succeeded_at=NULL,returned_at=NULL,updated_at=now(),version=version+1 WHERE id=?
@@ -57,13 +58,21 @@ public class PayoutDispatchRepository {
                 """, UUID.class);
     }
 
-    public List<Map<String, Object>> findReconciliationDue(String provider, OffsetDateTime cutoff) {
+    // Đặt lịch tiếp theo ngay khi nhận việc để lookup lỗi cũng không chiếm mãi đầu hàng đợi.
+    public Optional<Map<String, Object>> claimNextReconciliation(String provider, OffsetDateTime cutoff,
+            OffsetDateTime nextReconcileAt) {
         return jdbc.queryForList("""
-                SELECT id,attempt_count,provider FROM payouts
-                WHERE provider=? AND ((status IN ('UNKNOWN','PROCESSING') AND attempt_started_at<=?)
-                   OR (status='SUCCEEDED' AND next_attempt_at<=now()))
-                ORDER BY attempt_started_at,id LIMIT 100
-                """, provider, cutoff);
+                WITH due AS (
+                    SELECT id FROM payouts
+                    WHERE provider=? AND (next_reconcile_at IS NULL OR next_reconcile_at<=now())
+                      AND ((status IN ('UNKNOWN','PROCESSING') AND attempt_started_at<=?)
+                        OR (status='SUCCEEDED' AND next_attempt_at<=now()))
+                    ORDER BY coalesce(next_reconcile_at,attempt_started_at),id
+                    LIMIT 1 FOR UPDATE SKIP LOCKED
+                )
+                UPDATE payouts p SET next_reconcile_at=? FROM due
+                WHERE p.id=due.id RETURNING p.id,p.attempt_count,p.provider
+                """, provider, cutoff, nextReconcileAt).stream().findFirst();
     }
 
     public Optional<Map<String, Object>> findUnresolvedAttempt(UUID payoutId, int attempt) {
