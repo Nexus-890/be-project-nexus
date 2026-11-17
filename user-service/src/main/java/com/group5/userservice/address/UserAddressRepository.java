@@ -26,4 +26,8 @@ public interface UserAddressRepository extends JpaRepository<UserAddress, UUID> 
             WHERE user_id = :userId AND is_default AND id <> :keepId
             """, nativeQuery = true)
     int clearDefault(@Param("userId") UUID userId, @Param("keepId") UUID keepId);
+
+    @Modifying(flushAutomatically = true)
+    @Query("delete from UserAddress a where a.userId = :userId")
+    int deleteAllOfUser(@Param("userId") UUID userId);
 }

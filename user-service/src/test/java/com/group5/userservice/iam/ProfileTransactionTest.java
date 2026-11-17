@@ -6,6 +6,7 @@ import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.Gender;
 import com.group5.userservice.iam.enums.UserStatus;
+import com.group5.userservice.phone.PhoneVerificationRepository;
 import com.group5.userservice.shared.config.IamProperties;
 import jakarta.persistence.EntityManagerFactory;
 import org.junit.jupiter.api.BeforeEach;
@@ -333,7 +334,7 @@ class ProfileTransactionTest {
     }
 
     private UserService serviceUsing(UserRepository repository) {
-        return new UserService(repository, new IamProperties(), buyerKeycloak(), transactionManager, mock(EmailVerificationService.class));
+        return new UserService(repository, new IamProperties(), buyerKeycloak(), transactionManager, mock(EmailVerificationService.class), mock(PhoneVerificationRepository.class));
     }
 
     private void assertConflict(Runnable action) {
@@ -402,7 +403,7 @@ class ProfileTransactionTest {
 
         @Bean
         UserService userService(UserRepository repository, PlatformTransactionManager manager) {
-            return new UserService(repository, new IamProperties(), buyerKeycloak(), manager, mock(EmailVerificationService.class));
+            return new UserService(repository, new IamProperties(), buyerKeycloak(), manager, mock(EmailVerificationService.class), mock(PhoneVerificationRepository.class));
         }
     }
 }

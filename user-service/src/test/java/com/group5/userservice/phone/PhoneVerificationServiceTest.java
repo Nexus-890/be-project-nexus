@@ -1,13 +1,18 @@
 package com.group5.userservice.phone;
 
 import com.group5.common_core.exception.DomainException;
+import com.group5.userservice.iam.EmailVerificationService;
+import com.group5.userservice.iam.KeycloakAdminClient;
 import com.group5.userservice.iam.UserRepository;
+import com.group5.userservice.iam.UserService;
+import com.group5.userservice.iam.dto.UpdateProfileRequest;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.Gender;
 import com.group5.userservice.phone.dto.PhoneCodeSentResponse;
 import com.group5.userservice.phone.dto.PhoneVerifiedResponse;
 import com.group5.userservice.shared.PostgresAuditingTestConfiguration;
 import com.group5.userservice.shared.PostgresTestDatabase;
+import com.group5.userservice.shared.config.IamProperties;
 import jakarta.persistence.EntityManagerFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +45,7 @@ import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import static org.mockito.Mockito.mock;
 
 @ExtendWith(SpringExtension.class)
 @ContextConfiguration(classes = PhoneVerificationServiceTest.JpaTestConfig.class)
@@ -51,6 +57,8 @@ class PhoneVerificationServiceTest {
 
     @Autowired
     private PhoneVerificationService service;
+    @Autowired
+    private UserService userService;
     @Autowired
     private UserRepository users;
     @Autowired
@@ -152,6 +160,31 @@ class PhoneVerificationServiceTest {
     }
 
     @Test
+    void aPendingCodeDoesNotWorkAfterThePhoneChangesAndChangesBack() {
+        service.send(userId);
+        String code = lastCode();
+        userService.updateOwnProfile(userId, new UpdateProfileRequest(null, null, null, null, null, "+84907654321"));
+        userService.updateOwnProfile(userId, new UpdateProfileRequest(null, null, null, null, null, "+84901234567"));
+
+        assertThat(errorOf(() -> service.confirm(userId, code))).isEqualTo("PHONE_CODE_EXPIRED");
+        assertThat(jdbc.queryForObject("select phone_verified_at is null from users", Boolean.class)).isTrue();
+
+        CLOCK.now = CLOCK.now.plusSeconds(30);
+        service.send(userId);
+        assertThat(service.confirm(userId, lastCode()).phone()).isEqualTo("+84901234567");
+    }
+
+    @Test
+    void changingThePhoneKeepsTheSendHistoryForTheLimit() {
+        for (int i = 0; i < PhoneVerificationService.MAX_SENDS; i++) {
+            service.send(userId);
+        }
+        userService.updateOwnProfile(userId, new UpdateProfileRequest(null, null, null, null, null, "+84907654321"));
+
+        assertThat(errorOf(() -> service.send(userId))).isEqualTo("PHONE_CODE_RATE_LIMITED");
+    }
+
+    @Test
     void anUnknownUserGets404() {
         assertThat(errorOf(() -> service.send(UUID.randomUUID()))).isEqualTo("USER_NOT_FOUND");
     }
@@ -229,6 +262,13 @@ class PhoneVerificationServiceTest {
                                                           PhoneVerificationRepository verifications,
                                                           PlatformTransactionManager manager) {
             return new PhoneVerificationService(users, verifications, (phone, text) -> SENT.add(text), CLOCK, manager);
+        }
+
+        @Bean
+        UserService userService(UserRepository users, PhoneVerificationRepository verifications,
+                                PlatformTransactionManager manager) {
+            return new UserService(users, new IamProperties(), mock(KeycloakAdminClient.class), manager,
+                    mock(EmailVerificationService.class), verifications);
         }
     }
 }

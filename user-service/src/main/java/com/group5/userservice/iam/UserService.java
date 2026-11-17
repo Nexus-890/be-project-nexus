@@ -4,6 +4,7 @@ import com.group5.common_core.exception.DomainException;
 import com.group5.userservice.shared.exception.UserErrorCode;
 import com.group5.userservice.iam.dto.RegisterRequest;
 import com.group5.userservice.iam.dto.UpdateProfileRequest;
+import com.group5.userservice.phone.PhoneVerificationRepository;
 import com.group5.userservice.iam.dto.UserListRequest;
 import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.entity.User;
@@ -39,14 +40,16 @@ public class UserService {
     private final KeycloakAdminClient keycloak;
     private final TransactionTemplate transaction;
     private final EmailVerificationService emailVerification;
+    private final PhoneVerificationRepository phoneVerifications;
 
     public UserService(UserRepository userRepository, IamProperties iamProperties,
                        KeycloakAdminClient keycloak, PlatformTransactionManager transactionManager,
-                       EmailVerificationService emailVerification) {
+                       EmailVerificationService emailVerification, PhoneVerificationRepository phoneVerifications) {
         this.userRepository = userRepository;
         this.iamProperties = iamProperties;
         this.keycloak = keycloak;
         this.emailVerification = emailVerification;
+        this.phoneVerifications = phoneVerifications;
         this.transaction = new TransactionTemplate(transactionManager);
         this.transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
@@ -180,6 +183,7 @@ public class UserService {
             }
             user.setPhone(request.phone());
             user.setPhoneVerifiedAt(null);
+            phoneVerifications.expirePending(userId);
         }
 
         User saved = userRepository.saveAndFlush(user);
