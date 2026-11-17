@@ -11,6 +11,8 @@ import com.group5.userservice.iam.dto.AdminCreateUserRequest;
 import com.group5.userservice.iam.dto.UpdateProfileRequest;
 import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.entity.User;
+import com.group5.userservice.seller.Seller;
+import com.group5.userservice.seller.SellerRepository;
 import com.group5.userservice.shared.PostgresAuditingTestConfiguration;
 import com.group5.userservice.shared.PostgresTestDatabase;
 import com.group5.userservice.shared.config.IamProperties;
@@ -77,6 +79,7 @@ class AdminUserTransactionTest {
     private static final KeycloakAdminClient.RealmRole SELLER = new KeycloakAdminClient.RealmRole("seller-id", "SELLER");
 
     @Autowired private UserRepository users;
+    @Autowired private SellerRepository sellers;
     @Autowired private PlatformTransactionManager manager;
     @Autowired private DataSource source;
     @Autowired private UserEventPublisher events;
@@ -130,7 +133,7 @@ class AdminUserTransactionTest {
                 .when(keycloak).restoreUser(any(), any());
         properties = new IamProperties();
         journal = new AdminIdentityOperationJournal(jdbc, Clock.fixed(NOW, ZoneOffset.UTC), manager, journalSource());
-        service = new AdminUserService(users, keycloak, events, properties,
+        service = new AdminUserService(users, sellers, keycloak, events, properties,
                 Clock.fixed(NOW, ZoneOffset.UTC), manager, journal);
     }
 
@@ -266,6 +269,86 @@ class AdminUserTransactionTest {
         assertThat(identities.get(TARGET).get("enabled")).isEqualTo(false);
         assertAudit("UserDeleted", TARGET);
         assertThat(auditPayload("UserDeleted").get("deletionMode").asString()).isEqualTo("HARD");
+    }
+
+    /** FK seller V8 phải cho phép xóa cứng; audit trước và sau xóa không phụ thuộc dòng user/seller. */
+    @Test
+    void hardDeleteWithSellerRemovesBothProfilesAndRetainsIndependentAudits() {
+        seedSeller();
+        service.update(TARGET, new UpdateProfileRequest(null, null, null, "Seller address", null), ACTOR);
+        var previousAudits = jdbc.queryForList("select * from outbox where event_type='UserUpdated'");
+        assertThat(previousAudits).hasSize(1);
+        properties.setUserSoftDelete(false);
+
+        service.delete(TARGET, ACTOR);
+
+        assertThat(countUser(TARGET)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from seller where user_id=?", Integer.class, TARGET)).isZero();
+        assertThat(identities.get(TARGET).get("enabled")).isEqualTo(false);
+        assertThat(jdbc.queryForList("select * from outbox where event_type='UserUpdated'"))
+                .isEqualTo(previousAudits);
+        assertThat(auditCount()).isEqualTo(2);
+        assertAudit("UserDeleted", TARGET);
+        assertThat(auditPayload("UserDeleted").get("deletionMode").asString()).isEqualTo("HARD");
+        verify(keycloak, never()).deleteUser(TARGET);
+    }
+
+    /** Policy xóa mềm giữ nguyên toàn bộ hồ sơ seller, chỉ đánh dấu user và vô hiệu identity. */
+    @Test
+    void softDeleteWithSellerPreservesSellerProfileAndWritesAudit() {
+        seedSeller();
+        var sellerBefore = sellerSnapshot();
+
+        service.delete(TARGET, ACTOR);
+
+        assertThat(countUser(TARGET)).isEqualTo(1);
+        assertThat(snapshot(TARGET).get("status")).isEqualTo("DELETED");
+        assertThat(snapshot(TARGET).get("deleted_at")).isNotNull();
+        assertThat(sellerSnapshot()).isEqualTo(sellerBefore);
+        assertThat(identities.get(TARGET).get("enabled")).isEqualTo(false);
+        assertThat(auditCount()).isEqualTo(1);
+        assertAudit("UserDeleted", TARGET);
+        assertThat(auditPayload("UserDeleted").get("deletionMode").asString()).isEqualTo("SOFT");
+    }
+
+    /** Audit lỗi sau khi xóa cứng phải rollback cả hai profile và khôi phục enabled Keycloak. */
+    @Test
+    void hardDeleteWithSellerOutboxFailureRestoresBothProfilesAndIdentity() {
+        seedSeller();
+        properties.setUserSoftDelete(false);
+        var userBefore = snapshot(TARGET);
+        var sellerBefore = sellerSnapshot();
+        var identityBefore = Map.copyOf(identities.get(TARGET));
+        rejectOutboxWrites();
+
+        assertThatThrownBy(() -> service.delete(TARGET, ACTOR))
+                .isInstanceOf(RuntimeException.class).hasStackTraceContaining("admin_test_outbox_failure");
+
+        assertThat(snapshot(TARGET)).isEqualTo(userBefore);
+        assertThat(sellerSnapshot()).isEqualTo(sellerBefore);
+        assertThat(identities.get(TARGET)).isEqualTo(identityBefore);
+        assertThat(auditCount()).isZero();
+        verify(keycloak).restoreUser(TARGET, identityBefore);
+    }
+
+    /** Lỗi COMMIT deferred sau mọi lệnh xóa vẫn phục hồi cả user, seller và identity remote. */
+    @Test
+    void hardDeleteWithSellerCommitFailureRestoresBothProfilesAndIdentity() {
+        seedSeller();
+        properties.setUserSoftDelete(false);
+        var userBefore = snapshot(TARGET);
+        var sellerBefore = sellerSnapshot();
+        var identityBefore = Map.copyOf(identities.get(TARGET));
+        failAtCommit();
+
+        assertThatThrownBy(() -> service.delete(TARGET, ACTOR))
+                .isInstanceOf(RuntimeException.class).hasStackTraceContaining("Forced admin transaction commit failure");
+
+        assertThat(snapshot(TARGET)).isEqualTo(userBefore);
+        assertThat(sellerSnapshot()).isEqualTo(sellerBefore);
+        assertThat(identities.get(TARGET)).isEqualTo(identityBefore);
+        assertThat(auditCount()).isZero();
+        verify(keycloak).restoreUser(TARGET, identityBefore);
     }
 
     /** Xóa thất bại ở COMMIT phải khôi phục cả dòng còn hoạt động và cờ enabled Keycloak. */
@@ -513,7 +596,7 @@ class AdminUserTransactionTest {
     }
     /** Restart tạo journal/service mới, hoàn toàn không giữ thông tin thất bại trong bộ nhớ. */
     private AdminUserService restartedService() {
-        return new AdminUserService(users, keycloak, events, properties, Clock.fixed(NOW, ZoneOffset.UTC), manager,
+        return new AdminUserService(users, sellers, keycloak, events, properties, Clock.fixed(NOW, ZoneOffset.UTC), manager,
                 new AdminIdentityOperationJournal(jdbc, Clock.fixed(NOW, ZoneOffset.UTC), manager, journalSource()));
     }
 
@@ -533,6 +616,19 @@ class AdminUserTransactionTest {
     /** Đọc bằng connection riêng để chỉ quan sát dữ liệu đã commit sau khi service trả về. */
     private Map<String, Object> snapshot(UUID id) {
         return jdbc.queryForMap("select email,phone,full_name,address,status,deleted_at,version from users where id=?", id);
+    }
+
+    /** Hồ sơ ACTIVE đầy đủ dùng đúng FK/ràng buộc V8 production, không sửa schema để xóa được user. */
+    private void seedSeller() {
+        jdbc.update("""
+                insert into seller(user_id,company_name,contact_phone,status,application_note,reviewed_by,reviewed_at)
+                values (?, 'Existing seller', '0900000001', 'ACTIVE', 'Keep seller metadata on rollback', ?, ?)
+                """, TARGET, ACTOR, java.time.OffsetDateTime.ofInstant(NOW, ZoneOffset.UTC));
+    }
+
+    /** So sánh mọi cột seller sau rollback/xóa mềm, gồm metadata xét duyệt và audit/version. */
+    private Map<String, Object> sellerSnapshot() {
+        return jdbc.queryForMap("select * from seller where user_id=?", TARGET);
     }
 
     /** Đếm dòng profile kể cả dòng đã xóa mềm, không dựa vào bộ lọc repository. */
@@ -581,7 +677,7 @@ class AdminUserTransactionTest {
 
     @TestConfiguration(proxyBeanMethods = false)
     @Import(PostgresAuditingTestConfiguration.class)
-    @EnableJpaRepositories(basePackageClasses = UserRepository.class)
+    @EnableJpaRepositories(basePackageClasses = {UserRepository.class, SellerRepository.class})
     static class JpaConfig {
         /** Dùng PostgreSQL container mặc định, hoặc JDBC test riêng khi môi trường không có Docker. */
         @Bean
@@ -601,7 +697,7 @@ class AdminUserTransactionTest {
         LocalContainerEntityManagerFactoryBean entityManagerFactory(DataSource source) {
             var factory = new LocalContainerEntityManagerFactoryBean();
             factory.setDataSource(source);
-            factory.setPackagesToScan(User.class.getPackageName());
+            factory.setPackagesToScan(User.class.getPackageName(), Seller.class.getPackageName());
             factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
             factory.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto", "validate"));
             return factory;

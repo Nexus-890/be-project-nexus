@@ -6,6 +6,7 @@ import com.group5.userservice.iam.dto.UpdateProfileRequest;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.Gender;
 import com.group5.userservice.iam.enums.UserStatus;
+import com.group5.userservice.seller.SellerRepository;
 import com.group5.userservice.shared.config.IamProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,7 @@ class AdminUserServiceTest {
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-11-14T07:00:00Z"), ZoneOffset.UTC);
     private static final KeycloakAdminClient.RealmRole BUYER = new KeycloakAdminClient.RealmRole("buyer-id", "BUYER");
     @Mock UserRepository users;
+    @Mock SellerRepository sellers;
     @Mock KeycloakAdminClient keycloak;
     @Mock UserEventPublisher events;
     @Mock PlatformTransactionManager manager;
@@ -48,7 +50,7 @@ class AdminUserServiceTest {
     /** Chuẩn bị profile thật và transaction giả để phân biệt lỗi nghiệp vụ với lỗi commit. */
     @BeforeEach void setUp() {
         properties = new IamProperties();
-        service = new AdminUserService(users, keycloak, events, properties, CLOCK, manager, journal);
+        service = new AdminUserService(users, sellers, keycloak, events, properties, CLOCK, manager, journal);
         lenient().when(manager.getTransaction(any(TransactionDefinition.class))).thenReturn(tx);
         user = new User(); user.setId(ID); user.setEmail("buyer@nexus.local"); user.setPhone("0900000001");
         user.setVersion(0L); user.setFullName("Buyer One"); user.setGender(Gender.MALE); user.setAddress("HCM");
@@ -145,17 +147,23 @@ class AdminUserServiceTest {
         verify(keycloak).updateUser(ID, user.getEmail(), user.getFullName(), false);
         verify(events).publish("UserDeleted", ID, ACTOR, Map.of("deletionMode", "SOFT"));
         verify(users, never()).delete(any(User.class));
+        verifyNoInteractions(sellers);
     }
 
-    /** Policy tắt soft delete xóa profile cứng nhưng vẫn giữ identity đã disable để có thể hoàn tác. */
-    @Test void hardDeletePolicyRemovesOnlyProfile() {
+    /** Xóa seller trước user trong cùng transaction, giữ identity đã disable và audit độc lập. */
+    @Test void hardDeletePolicyRemovesSellerBeforeUser() {
         properties.setUserSoftDelete(false);
         when(keycloak.userState(ID)).thenReturn(Map.of("enabled", true));
         service.delete(ID, ACTOR);
-        verify(users).delete(user);
+        var order = inOrder(sellers, users, events, manager);
+        order.verify(sellers).deleteById(ID);
+        order.verify(sellers).flush();
+        order.verify(users).delete(user);
+        order.verify(users).flush();
+        order.verify(events).publish("UserDeleted", ID, ACTOR, Map.of("deletionMode", "HARD"));
+        order.verify(manager).commit(tx);
         verify(keycloak).updateUser(ID, user.getEmail(), user.getFullName(), false);
         verify(keycloak, never()).deleteUser(ID);
-        verify(events).publish("UserDeleted", ID, ACTOR, Map.of("deletionMode", "HARD"));
     }
 
     /** Delete thất bại ở commit phải khôi phục enabled trên Keycloak. */

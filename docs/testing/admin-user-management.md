@@ -18,8 +18,12 @@ from Keycloak; there is no role CRUD or revived local credentials/role database.
 Email, phone and identity number use existing normalization/uniqueness behavior.
 Profile updates accept fullName, dateOfBirth, gender, address and email only.
 
-`USER_SOFT_DELETE=true` marks the profile DELETED with deletedAt;
-false removes the profile. Both disable the Keycloak identity. Missing/already
+`USER_SOFT_DELETE=true` marks the profile DELETED with deletedAt and retains any
+seller profile. With false, the service deletes the related seller profile and
+flushes it before removing the user, within the same transaction. UserDeleted
+audit remains independent of both profiles. An outbox or commit failure rolls
+back both deletions and attempts to restore the original Keycloak state.
+Both modes disable the Keycloak identity. Missing/already
 deleted profiles return 404. Unlock checks Keycloak's brute-force detector,
 clears it and restores a local LOCKED profile to ACTIVE; an unlocked target
 returns 409. A disabled account is distinct from a brute-force lock.

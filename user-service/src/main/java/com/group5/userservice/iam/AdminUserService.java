@@ -7,6 +7,7 @@ import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.Gender;
 import com.group5.userservice.iam.enums.UserStatus;
+import com.group5.userservice.seller.SellerRepository;
 import com.group5.userservice.shared.config.IamProperties;
 import com.group5.userservice.shared.exception.UserErrorCode;
 import org.hibernate.exception.ConstraintViolationException;
@@ -33,6 +34,7 @@ import java.util.function.Function;
 public class AdminUserService {
     private static final Logger log = LoggerFactory.getLogger(AdminUserService.class);
     private final UserRepository users;
+    private final SellerRepository sellers;
     private final KeycloakAdminClient keycloak;
     private final UserEventPublisher events;
     private final IamProperties properties;
@@ -41,10 +43,11 @@ public class AdminUserService {
     private final AdminIdentityOperationJournal journal;
 
     /** Tạo transaction độc lập để bắt được cả lỗi commit trước khi thực hiện hoàn tác Keycloak. */
-    public AdminUserService(UserRepository users, KeycloakAdminClient keycloak, UserEventPublisher events,
+    public AdminUserService(UserRepository users, SellerRepository sellers, KeycloakAdminClient keycloak, UserEventPublisher events,
                             IamProperties properties, Clock clock, PlatformTransactionManager manager,
                             AdminIdentityOperationJournal journal) {
         this.users = users;
+        this.sellers = sellers;
         this.keycloak = keycloak;
         this.events = events;
         this.properties = properties;
@@ -132,6 +135,9 @@ public class AdminUserService {
                 user.setDeletedAt(OffsetDateTime.now(clock));
                 users.saveAndFlush(user);
             } else {
+                // Xóa hồ sơ seller trước user để thỏa FK; cả hai cùng rollback nếu audit/commit lỗi.
+                sellers.deleteById(id);
+                sellers.flush();
                 users.delete(user);
                 users.flush();
             }
