@@ -42,7 +42,7 @@ public enum NotificationTemplate {
             "Your seller application for %s was approved. Sign in again to open your seller tools.",
             new String[]{"userId"}, "companyName"),
     SELLER_APPLICATION_REJECTED("SellerApplicationRejected", "Seller application rejected",
-            "Your seller application for %s was rejected. Reason: %s. You can update it and apply again.",
+            "Your seller application for %s was rejected. You can update it and apply again. Reason: %s",
             new String[]{"userId"}, "companyName", "reason");
 
     private final String eventType;

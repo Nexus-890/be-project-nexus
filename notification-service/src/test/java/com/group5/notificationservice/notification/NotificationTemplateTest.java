@@ -71,12 +71,13 @@ class NotificationTemplateTest {
         Notification rejected = NotificationTemplate.forEventType("SellerApplicationRejected").orElseThrow()
                 .render(JsonMapper.shared().readTree("""
                         {"userId":"%s","actorId":"00000000-0000-4000-8000-000000000004",
-                         "companyName":"Ceramic House","reason":"Business licence is missing",
+                         "companyName":"Ceramic House","reason":"Business licence is missing.",
                          "rejectedAt":"2026-11-17T04:00:00Z"}
                         """.formatted(applicant)), FRONTEND).getFirst();
         assertThat(rejected.getUserId()).isEqualTo(UUID.fromString(applicant));
         assertThat(rejected.getType()).isEqualTo("SELLER_APPLICATION_REJECTED");
-        assertThat(rejected.getContent()).contains("Ceramic House", "Business licence is missing");
+        assertThat(rejected.getContent()).isEqualTo("Your seller application for Ceramic House was rejected. "
+                + "You can update it and apply again. Reason: Business licence is missing.");
         assertThat(NotificationTemplate.forEventType("UserRoleAssigned")).isEmpty();
     }
 
