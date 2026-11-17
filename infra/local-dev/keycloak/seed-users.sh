@@ -147,3 +147,16 @@ if [ -n "${KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET:-}" ]; then
 else
   echo "Skipped client config-service: KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET is empty"
 fi
+
+if [ -n "${AUCTION_RATING_CLIENT_SECRET:-}" ]; then
+  client="$(kc get clients -r nexus -q clientId=nexus-auction-service --fields id --format csv --noquotes)"
+  if [ -z "$client" ]; then
+    client="$(kc create clients -r nexus -f /opt/nexus/auction-rating-client.json -i)"
+  else
+    kc update "clients/$client" -r nexus -f /opt/nexus/auction-rating-client.json -n
+  fi
+  kc update "clients/$client" -r nexus -s "secret=$AUCTION_RATING_CLIENT_SECRET" -n
+  echo "Seeded client nexus-auction-service ($client)"
+else
+  echo "Skipped client nexus-auction-service: AUCTION_RATING_CLIENT_SECRET is empty"
+fi

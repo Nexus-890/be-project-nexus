@@ -137,6 +137,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/system/health/brokers` | GET | SYSTEM.HEALTH.VIEW | #193 — Broker health with failure and recovery times |
 | `/api/v1/notifications/{id}/deliveries` | GET | NOTIFICATION.VIEW | #191 — Email channel and notification delivery retry |
 | `/api/v1/orders` | POST | ORDER.CREATE | #113 — Order creation from a cart; service also requires CHECKOUT.START |
+| `/api/v1/orders/{id}/shipping-confirmation` | POST | CHECKOUT.START | #172 — BUYER winner only; PENDING auction order and linked hold; same-address replay |
 | `/api/v1/payments` | POST | CHECKOUT.START | #121 — Buyer reads own order group's immutable payment session |
 | `/api/v1/orders/{id}/history` | GET | ORDER.VIEW | #116 — Order state machine and status history |
 | `/api/v1/orders` | GET | ORDER.LIST | #117 — Order read endpoints; the caller's own orders only |
@@ -645,7 +646,7 @@ The active policy table/config above remains the source for enabled endpoints.
 | --- | --- | --- | --- | --- |
 | GET | `/api/v1/auctions/{id}/state` | Public | One-second data cache; fresh serverTime; masked leader; public visibility | #168, [draft response](auction-service.yaml) |
 | POST | `/api/v1/auctions/{id}/bids` | AUCTION.BID | BUYER, not own auction; caller-scoped Idempotency-Key | #146/#147, draft until delivered |
-| POST | `/api/v1/orders/{id}/shipping-confirmation` | Authenticated; privilege decision belongs to #172 | BUYER and winner/order owner; PENDING; linked hold, address and pricing checks; repeated identical confirmation writes no second manifest | #172, proposed policy; owner must register on delivery |
+| POST | `/api/v1/orders/{id}/shipping-confirmation` | CHECKOUT.START | BUYER and winner/order owner; PENDING; linked HELD reservation, address and pricing checks; identical confirmation writes no second manifest | #172, registered |
 | POST | `/api/v1/webhooks/**` | Public callback contract family; no bearer required | Provider authentication is mandatory in each receiving service; this row does not enable a wildcard matcher | #139 design scope; concrete routes below |
 | POST | `/api/v1/webhooks/sepay` | Public, enabled | Verify signature/timestamp over raw bytes before parsing; native ACK; no payment-state change in #155 | #155, [delivered contract](openapi/payment-service.yaml) |
 | POST | `/api/v1/webhooks/carriers/ghn`, `/api/v1/webhooks/carriers/ghtk` | Public, enabled | Carrier-specific validation at shipment-service | #203/#245 |
@@ -662,8 +663,8 @@ it does not activate a runtime authorization change.
 
 The state endpoint must support two-second polling under #168's gateway test;
 neither this table nor an OpenAPI example proves rate-limit/latency acceptance.
-The shipping-confirmation policy is a proposal for #172 approval, not an
-implemented permission claim. The six event publishers/consumers and transaction
+The shipping-confirmation operation enforces CHECKOUT.START and BUYER ownership.
+The six event publishers/consumers and transaction
 handoff are in [events.md](events.md#sprint-3-handoff-139). Their Kafka consumers
 are not public HTTP endpoints.
 

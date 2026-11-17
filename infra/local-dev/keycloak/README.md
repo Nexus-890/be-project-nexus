@@ -104,6 +104,13 @@ are realm defaults; client-specific timeout/lifespan overrides are separate Keyc
 settings. `configuredValue` remains the Config Server source and `defaultValue`
 remains the historical SRS value. PUT for these four keys stays read-only.
 
+When `AUCTION_RATING_CLIENT_SECRET` is set, the seed command creates or updates
+the confidential `nexus-auction-service` client for internal rating eligibility.
+Its access token contains only the eligibility privilege and the machine marker;
+it receives no realm-management roles. Leave this optional secret empty while
+reputation enforcement is off. See [rating eligibility machine setup](../../../docs/security-keycloak/rating-eligibility.md)
+for its claims, allowlist, existing-realm provisioning and verification.
+
 Access tokens are signed with RS256 and contain:
 
 - `sub`: the imported user UUID, unchanged from the other service seeds.

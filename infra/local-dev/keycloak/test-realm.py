@@ -132,6 +132,56 @@ class RealmContractTest(unittest.TestCase):
         self.assertGreaterEqual(self.realm["ssoSessionMaxLifespan"], self.realm["ssoSessionIdleTimeout"])
 
 
+class RatingEligibilityMachineClientTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.client = json.loads((HERE / "auction-rating-client.json").read_text())
+
+    def test_client_is_confidential_and_only_allows_service_accounts(self):
+        self.assertEqual(self.client["clientId"], "nexus-auction-service")
+        self.assertEqual(self.client["clientAuthenticatorType"], "client-secret")
+        self.assertTrue(self.client["enabled"])
+        self.assertTrue(self.client["serviceAccountsEnabled"])
+        for setting in ("publicClient", "bearerOnly", "standardFlowEnabled", "implicitFlowEnabled",
+                        "directAccessGrantsEnabled", "authorizationServicesEnabled", "fullScopeAllowed"):
+            self.assertFalse(self.client[setting], setting)
+        self.assertEqual(self.client["redirectUris"], [])
+        self.assertEqual(self.client["webOrigins"], [])
+        self.assertEqual(self.client["defaultClientScopes"], ["basic"])
+        self.assertEqual(self.client["optionalClientScopes"], [])
+        self.assertNotIn("secret", self.client)
+
+    def test_access_token_has_only_the_internal_authority_and_machine_marker(self):
+        mappers = self.client["protocolMappers"]
+        self.assertEqual(len(mappers), 3)
+        claims = {mapper["config"].get("claim.name"): mapper for mapper in mappers}
+        privilege = claims["privileges"]
+        self.assertEqual(privilege["protocolMapper"], "oidc-hardcoded-claim-mapper")
+        self.assertEqual(privilege["config"]["jsonType.label"], "JSON")
+        self.assertEqual(json.loads(privilege["config"]["claim.value"]), ["RATING.ELIGIBILITY.CHECK"])
+        marker = claims["service_account"]
+        self.assertEqual(marker["protocolMapper"], "oidc-hardcoded-claim-mapper")
+        self.assertEqual(marker["config"]["jsonType.label"], "boolean")
+        self.assertEqual(marker["config"]["claim.value"], "true")
+        audience = next(mapper for mapper in mappers if mapper["protocolMapper"] == "oidc-audience-mapper")
+        self.assertEqual(audience["config"]["included.custom.audience"], "nexus-services")
+        for mapper in mappers:
+            self.assertEqual(mapper["config"]["access.token.claim"], "true")
+            self.assertEqual(mapper["config"]["id.token.claim"], "false")
+
+    def test_provisioning_is_optional_and_uses_the_secret_free_client_template(self):
+        script = (HERE / "seed-users.sh").read_text(encoding="utf-8")
+        self.assertIn('if [ -n "${AUCTION_RATING_CLIENT_SECRET:-}" ]; then', script)
+        self.assertIn('kc create clients -r nexus -f /opt/nexus/auction-rating-client.json -i', script)
+        self.assertIn('kc update "clients/$client" -r nexus -f /opt/nexus/auction-rating-client.json -n', script)
+        self.assertIn('"secret=$AUCTION_RATING_CLIENT_SECRET" -n', script)
+        compose = (HERE.parent / "compose.yaml").read_text()
+        self.assertIn('AUCTION_RATING_CLIENT_SECRET: ${AUCTION_RATING_CLIENT_SECRET:-}', compose)
+        self.assertIn('./keycloak/auction-rating-client.json:/opt/nexus/auction-rating-client.json:ro', compose)
+        example = (HERE.parent / ".env.example").read_text()
+        self.assertRegex(example, r"(?m)^AUCTION_RATING_CLIENT_SECRET=$")
+
+
 @unittest.skipIf(os.name == "nt" or not shutil.which("bash"), "Bash entry point runs on Unix")
 class SeedScriptTest(unittest.TestCase):
     def run_script(self, *args, env=None):

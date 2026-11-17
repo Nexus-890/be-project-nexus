@@ -1,0 +1,45 @@
+[ {
+  "order_id" : "8c6410dd-dd82-4067-9948-e871d82fc56b",
+  "group_id" : "59e8bc08-b458-4213-9a89-9a3176037e20",
+  "order_status" : "PENDING",
+  "group_status" : "PENDING",
+  "order_total" : "900000.00",
+  "group_total" : "900000.00",
+  "shipping_fee" : "0.00",
+  "payment_requests" : 0,
+  "paid_events" : 0,
+  "step" : "AuctionWon consumed"
+}, {
+  "order_id" : "8c6410dd-dd82-4067-9948-e871d82fc56b",
+  "group_id" : "59e8bc08-b458-4213-9a89-9a3176037e20",
+  "order_status" : "PENDING",
+  "group_status" : "PENDING",
+  "order_total" : "930000.00",
+  "group_total" : "930000.00",
+  "shipping_fee" : "30000.00",
+  "payment_requests" : 1,
+  "paid_events" : 0,
+  "step" : "Shipping confirmed"
+}, {
+  "order_id" : "8c6410dd-dd82-4067-9948-e871d82fc56b",
+  "group_id" : "59e8bc08-b458-4213-9a89-9a3176037e20",
+  "order_status" : "PAID",
+  "group_status" : "PAID",
+  "order_total" : "930000.00",
+  "group_total" : "930000.00",
+  "shipping_fee" : "30000.00",
+  "payment_requests" : 1,
+  "paid_events" : 1,
+  "step" : "CheckoutPaymentConfirmed consumed"
+}, {
+  "order_id" : "8c6410dd-dd82-4067-9948-e871d82fc56b",
+  "group_id" : "59e8bc08-b458-4213-9a89-9a3176037e20",
+  "order_status" : "PAID",
+  "group_status" : "PAID",
+  "order_total" : "930000.00",
+  "group_total" : "930000.00",
+  "shipping_fee" : "30000.00",
+  "payment_requests" : 1,
+  "paid_events" : 1,
+  "step" : "Same confirmation replayed"
+} ]

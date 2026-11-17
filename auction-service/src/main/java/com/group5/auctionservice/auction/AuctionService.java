@@ -4,6 +4,8 @@ import com.group5.auctionservice.auction.dto.AuctionResponse;
 import com.group5.auctionservice.auction.dto.CreateAuctionRequest;
 import com.group5.auctionservice.auction.dto.UpdateAuctionRequest;
 import com.group5.auctionservice.auction.dto.CancelAuctionRequest;
+import com.group5.auctionservice.reputation.EligibilityAction;
+import com.group5.auctionservice.reputation.ReputationGuard;
 import com.group5.auctionservice.shared.config.AuctionProperties;
 import com.group5.auctionservice.shared.exception.AuctionErrorCode;
 import com.group5.common_core.exception.DomainException;
@@ -42,6 +44,7 @@ public class AuctionService {
     private final AuctionCreation auctionCreation;
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
+    private final ReputationGuard reputation;
 
     @Transactional(readOnly = true)
     public AuctionResponse get(UUID id) {
@@ -94,6 +97,7 @@ public class AuctionService {
         }
         String imageUrl = requireImage(product.firstImageUrl());
         requireStock(request.skuId());
+        reputation.requireEligible(seller.id(), EligibilityAction.SELL);
 
         BigDecimal increment = request.bidIncrement() == null
                 ? properties.getDefaultBidIncrement()

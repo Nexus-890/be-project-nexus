@@ -18,6 +18,8 @@ import java.util.UUID;
 
 public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecificationExecutor<Order> {
 
+    List<Order> findByReferenceId(UUID referenceId);
+
     // Cancellation eligibility reads the group's status; fetch this to-one association with the page.
     @EntityGraph(attributePaths = "orderGroup")
     Page<Order> findByUserIdOrderByCreatedAtDescOrderNumberDesc(UUID userId, Pageable pageable);
