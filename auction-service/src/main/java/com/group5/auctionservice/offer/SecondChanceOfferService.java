@@ -44,7 +44,8 @@ public class SecondChanceOfferService {
                         String status, boolean stockReady, Instant offeredAt, Instant expiresAt,
                         Instant respondedAt, UUID orderId, Instant paymentDueAt,
                         String title, String imageUrl, String currency) { }
-    public record SellerState(UUID auctionId, boolean canOffer, Candidate candidate, List<Offer> offers) { }
+    public record SellerState(UUID auctionId, boolean canOffer, boolean eligibilityUnavailable,
+                              Candidate candidate, List<Offer> offers) { }
 
     @Transactional(readOnly = true)
     public SellerState seller(UUID id, CurrentUser seller) {
@@ -173,14 +174,16 @@ public class SecondChanceOfferService {
     private SellerState state(Auction auction) {
         List<Offer> history = jdbc.query(select()+" WHERE o.auction_id=? ORDER BY o.offered_at DESC,o.id DESC", this::row, auction.getId());
         Candidate candidate = null;
+        boolean eligibilityUnavailable = false;
         if (auction.getStatus() == AuctionStatus.PAYMENT_TIMEOUT && !hasOpen(auction.getId())) {
             try { candidate = eligibleCandidate(candidates(auction)); }
             catch (DomainException failure) {
                 // A preview outage must not hide historical offers. Writes still fail closed.
                 if (!AUCTION_REPUTATION_UNAVAILABLE.code().equals(failure.getErrorCode())) throw failure;
+                eligibilityUnavailable = true;
             }
         }
-        return new SellerState(auction.getId(), candidate != null, candidate, history);
+        return new SellerState(auction.getId(), candidate != null, eligibilityUnavailable, candidate, history);
     }
 
     private List<Candidate> candidates(Auction auction) {

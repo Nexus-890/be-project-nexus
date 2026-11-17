@@ -111,7 +111,8 @@ class SecondChanceOfferIntegrationTest {
         trace(()->{offers.expire(two.id());offers.expire(two.id());return null;});
         assertThat(events("SecondChanceDeclined")).isEqualTo(1);assertThat(events("SecondChanceExpired")).isEqualTo(1);
         assertThat(events("AuctionPaymentTimeout")).isEqualTo(1);
-        assertThat(offers.seller(auction,owner).canOffer()).isFalse();
+        var exhausted=offers.seller(auction,owner);
+        assertThat(exhausted.canOffer()).isFalse();assertThat(exhausted.eligibilityUnavailable()).isFalse();
         assertThatThrownBy(()->trace(()->offers.send(auction,owner))).isInstanceOf(DomainException.class).hasMessageContaining("No eligible");
     }
     @Test void acceptRequiresStockAndCreatesFreshRoundWhileOldOrderEventsAreHarmless() {
@@ -165,6 +166,7 @@ class SecondChanceOfferIntegrationTest {
         doThrow(new DomainException(AuctionErrorCode.AUCTION_REPUTATION_UNAVAILABLE)).when(guard).requireEligible(c,EligibilityAction.BID);
         var preview=offers.seller(auction,owner);
         assertThat(preview.canOffer()).isFalse();assertThat(preview.candidate()).isNull();
+        assertThat(preview.eligibilityUnavailable()).isTrue();
         assertThat(preview.offers()).hasSize(1);
         assertThat(preview.offers().getFirst().id()).isEqualTo(historical.id());
         assertThat(preview.offers().getFirst().status()).isEqualTo("DECLINED");
@@ -180,11 +182,29 @@ class SecondChanceOfferIntegrationTest {
         jwt("owner-preview",seller,"SELLER",List.of("AUCTION.LIST"));
         mvc.perform(get("/api/v1/auctions/"+auction+"/second-chance-offers").header("Authorization","Bearer owner-preview"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.canOffer").value(false))
+                .andExpect(jsonPath("$.data.eligibilityUnavailable").value(true))
                 .andExpect(jsonPath("$.data.candidate").isEmpty())
                 .andExpect(jsonPath("$.data.offers[0].id").value(history.id().toString()));
         jwt("other-preview",UUID.randomUUID(),"SELLER",List.of("AUCTION.LIST"));
         mvc.perform(get("/api/v1/auctions/"+auction+"/second-chance-offers").header("Authorization","Bearer other-preview"))
                 .andExpect(status().isForbidden());
+    }
+    @Test void previewDistinguishesFirstRoundOutageFromNoBiddersAndRecovery() throws Exception {
+        timeout();
+        var mvc=webAppContextSetup(context).addFilters(context.getBean("springSecurityFilterChain",jakarta.servlet.Filter.class)).build();
+        jwt("preview-state",seller,"SELLER",List.of("AUCTION.LIST"));
+        var request=get("/api/v1/auctions/"+auction+"/second-chance-offers").header("Authorization","Bearer preview-state");
+        mvc.perform(request).andExpect(status().isOk()).andExpect(jsonPath("$.data.canOffer").value(false))
+                .andExpect(jsonPath("$.data.eligibilityUnavailable").value(false)).andExpect(jsonPath("$.data.offers").isEmpty());
+        UUID bidder=UUID.randomUUID();bid(bidder,480,"PLACED");
+        doThrow(new DomainException(AuctionErrorCode.AUCTION_REPUTATION_UNAVAILABLE)).when(guard).requireEligible(bidder,EligibilityAction.BID);
+        mvc.perform(request).andExpect(status().isOk()).andExpect(jsonPath("$.data.canOffer").value(false))
+                .andExpect(jsonPath("$.data.eligibilityUnavailable").value(true)).andExpect(jsonPath("$.data.offers").isEmpty());
+        doNothing().when(guard).requireEligible(bidder,EligibilityAction.BID);
+        mvc.perform(request).andExpect(status().isOk()).andExpect(jsonPath("$.data.canOffer").value(true))
+                .andExpect(jsonPath("$.data.eligibilityUnavailable").value(false))
+                .andExpect(jsonPath("$.data.candidate.bidderId").value(bidder.toString()));
+        assertThat(events("SecondChanceOffered")).isZero();
     }
     @Test void eligibilityCallsRunWithoutTransactionOrAuctionLock() {
         timeout();UUID b=UUID.randomUUID(),c=UUID.randomUUID();bid(b,480,"PLACED");bid(c,470,"PLACED");
