@@ -15,6 +15,9 @@ import com.group5.commerceservice.checkout.dto.CheckoutPreviewResponse.Item;
 import com.group5.commerceservice.checkout.dto.CheckoutPreviewRequest;
 import com.group5.commerceservice.order.service.OrderShippingService;
 import com.group5.commerceservice.order.service.PricingService;
+import com.group5.commerceservice.promotion.VoucherCheckoutService;
+import com.group5.commerceservice.promotion.VoucherCodes;
+import com.group5.commerceservice.promotion.VoucherPricing;
 import com.group5.commerceservice.shared.config.CheckoutProperties;
 import com.group5.commerceservice.shared.exception.CommerceErrorCode;
 import com.group5.commerceservice.shared.pricing.PriceBreakdown;
@@ -44,11 +47,14 @@ public class CartPricingService {
     private final CatalogClient catalog;
     private final CheckoutProperties properties;
     private final PricingService orderPricing;
+    private final VoucherCheckoutService vouchers;
 
-    public CartPricingResponse pricing(CurrentUser user, String promoCode) {
-        PriceBreakdown price = breakdown(calculate(user, false));
+    public CartPricingResponse pricing(CurrentUser user, String promoCode, List<String> voucherCodes) {
+        Calculation result = calculate(user, false);
+        var quote = quote(user.id(), result, VoucherCodes.requested(voucherCodes, promoCode));
+        PriceBreakdown price = breakdown(result, quote, null);
         return new CartPricingResponse(price.subtotal(), price.taxAmount(), price.discountAmount(),
-                price.shippingFee(), price.total());
+                price.shippingFee(), price.total(), quote.vouchers());
     }
 
     public CartValidationResponse validate(CurrentUser user) {
@@ -58,17 +64,16 @@ public class CartPricingService {
 
     public CheckoutPreviewResponse preview(CurrentUser user, String promoCode) {
         Calculation result = calculate(user, true);
-        PriceBreakdown price = breakdown(result);
-        return new CheckoutPreviewResponse(result.items(), price.subtotal(), price.shippingFee(),
-                price.taxAmount(), price.discountAmount(), price.total(), result.issues());
+        var quote = quote(user.id(), result, VoucherCodes.requested(null, promoCode));
+        return preview(result, quote, null);
     }
 
     /** Preview và tạo đơn cùng gọi báo giá theo shop từ metadata Catalog. Không giữ tồn kho. */
     public CheckoutPreviewResponse previewCheckout(CurrentUser user, CheckoutPreviewRequest request) {
         Calculation result = calculate(user, true);
+        var quote = quote(user.id(), result, VoucherCodes.requested(request.voucherCodes(), request.promoCode()));
         if (result.issues().stream().anyMatch(issue -> issue.code() == PRODUCT_INACTIVE)) {
-            return new CheckoutPreviewResponse(result.items(), result.subtotal(), null,
-                    BigDecimal.ZERO, BigDecimal.ZERO, result.subtotal(), result.issues());
+            return preview(result, quote, null);
         }
         Map<UUID, List<OrderShippingService.Line>> sellers = new java.util.TreeMap<>();
         for (Item item : result.items()) {
@@ -81,9 +86,13 @@ public class CartPricingService {
         for (var seller : sellers.values()) {
             shipping = shipping.add(orderPricing.shippingQuote(request.shippingAddress(), seller).fee());
         }
-        PriceBreakdown price = new PriceBreakdown(result.subtotal(), BigDecimal.ZERO, BigDecimal.ZERO, shipping);
+        return preview(result, quote, shipping);
+    }
+
+    private static CheckoutPreviewResponse preview(Calculation result, VoucherPricing.Result quote, BigDecimal shipping) {
+        PriceBreakdown price = breakdown(result, quote, shipping);
         return new CheckoutPreviewResponse(result.items(), price.subtotal(), price.shippingFee(),
-                price.taxAmount(), price.discountAmount(), price.total(), result.issues());
+                price.taxAmount(), price.discountAmount(), price.total(), result.issues(), quote.vouchers());
     }
 
     public List<CartIssue> mergeIssues(CurrentUser user) {
@@ -100,8 +109,9 @@ public class CartPricingService {
             throw new DomainException(CommerceErrorCode.INVALID_PRICING_CONFIGURATION);
         }
         //lấy ra cart trước -> dựa theo cart lấy ra list các cartItem, nếu k có thì list rỗng
-        List<CartItem> listCartItem = carts.findByUserIdAndStatus(user.id(), CartStatus.ACTIVE)
-                .map(cart -> cartItems.findByCart_Id(cart.getId())).orElseGet(List::of);
+        var active = carts.findByUserIdAndStatus(user.id(), CartStatus.ACTIVE);
+        List<CartItem> listCartItem = active.map(cart -> cartItems.findByCart_Id(cart.getId())).orElseGet(List::of);
+        String cartCode = active.map(Cart::getPromoCode).orElse(null);
         if (rejectEmpty && listCartItem.isEmpty()) throw new DomainException(CommerceErrorCode.CART_EMPTY);
 
         List<Item> items = new ArrayList<>();
@@ -146,10 +156,9 @@ public class CartPricingService {
 
             items.add(new Item(line.getId(), line.getProductId(), line.getSkuId(), line.getQuantity(), unitPrice, lineTotal));
             subtotal = subtotal.add(lineTotal);
-            //chưa có promotion nên để mốt update sau
         }
 
-        return new Calculation(List.copyOf(items), subtotal, List.copyOf(issues), products, skus);
+        return new Calculation(List.copyOf(items), subtotal, List.copyOf(issues), products, skus, cartCode);
     }
 
     private CatalogSkuResponse readSku(CartItem line) {
@@ -185,11 +194,23 @@ public class CartPricingService {
         }
     }
 
-    private static PriceBreakdown breakdown(Calculation result) {
-        return new PriceBreakdown(result.subtotal(), BigDecimal.ZERO, BigDecimal.ZERO, null);
+    private VoucherPricing.Result quote(UUID buyer, Calculation result, List<String> requested) {
+        var codes = VoucherCodes.withCartFallback(requested, result.cartCode());
+        if (codes.isEmpty()) return new VoucherPricing.Result(BigDecimal.ZERO, List.of(), List.of());
+        var inactive = result.issues().stream().filter(issue -> issue.code() == PRODUCT_INACTIVE)
+                .map(CartIssue::skuId).collect(java.util.stream.Collectors.toSet());
+        var lines = result.items().stream().filter(item -> !inactive.contains(item.skuId()))
+                .map(item -> new VoucherPricing.Line(item.skuId(), item.productId(),
+                        result.products().get(item.productId()).sellerId(), item.lineTotal()))
+                .toList();
+        return vouchers.quote(buyer, lines, codes);
+    }
+
+    private static PriceBreakdown breakdown(Calculation result, VoucherPricing.Result quote, BigDecimal shipping) {
+        return new PriceBreakdown(result.subtotal(), quote.discountAmount(), BigDecimal.ZERO, shipping);
     }
 
     private record Calculation(List<Item> items, BigDecimal subtotal, List<CartIssue> issues,
                                Map<UUID, CatalogClient.ProductResponse> products,
-                               Map<UUID, CatalogSkuResponse> skus) { }
+                               Map<UUID, CatalogSkuResponse> skus, String cartCode) { }
 }

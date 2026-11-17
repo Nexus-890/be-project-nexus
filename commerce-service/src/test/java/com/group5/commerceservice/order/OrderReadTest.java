@@ -27,6 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import com.group5.commerceservice.promotion.PromotionTestConfig;
 import org.springframework.data.domain.AuditorAware;
 import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
@@ -57,7 +58,7 @@ import static org.mockito.Mockito.when;
 
 @SpringJUnitConfig(OrderReadTest.JpaConfig.class)
 class OrderReadTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     private static final AtomicInteger ORDER_NUMBERS = new AtomicInteger();
     private static final CurrentUser ADMIN = new CurrentUser(UUID.randomUUID(), Set.of("ADMIN"),
             Set.of("ORDER.VIEW", "ORDER.LIST"));
@@ -254,7 +255,7 @@ class OrderReadTest {
     @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses = {CartRepository.class, OrderRepository.class})
     @EnableJpaAuditing(auditorAwareRef = "auditor")
-    @Import({OrderService.class, OrderStateMachine.class, PricingService.class})
+    @Import({PromotionTestConfig.class, OrderService.class, OrderStateMachine.class, PricingService.class})
     static class JpaConfig {
         // Fixture báo giá tách riêng khỏi transport Shipping; các test này kiểm nghiệp vụ Order hiện hữu.
         @Bean

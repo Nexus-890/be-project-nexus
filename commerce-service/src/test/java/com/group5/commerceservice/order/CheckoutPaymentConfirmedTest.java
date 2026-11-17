@@ -18,6 +18,8 @@ import com.group5.commerceservice.order.service.OrderService;
 import com.group5.commerceservice.order.service.OrderShippingService;
 import com.group5.commerceservice.order.service.PricingService;
 import com.group5.commerceservice.order.service.RefundStatusHandler;
+import com.group5.commerceservice.order.event.OrderRefundCompleted;
+import com.group5.commerceservice.order.dto.request.CancelOrderRequest;
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.EventEnvelopeFactory;
 import com.group5.common_events.Topics;
@@ -92,7 +94,7 @@ import static org.mockito.Mockito.when;
 /** Kiểm thử PostgreSQL thật cho chuyển PAID, chống xử lý lặp, snapshot và rollback toàn nhóm đơn. */
 @SpringJUnitConfig(CheckoutPaymentConfirmedTest.JpaConfig.class)
 class CheckoutPaymentConfirmedTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     private static final AtomicInteger ORDER_NUMBERS = new AtomicInteger();
     private static final UUID SYSTEM = new UUID(0, 0);
     private static final String PAID_AT = "2026-11-10T03:00:00Z";
@@ -172,8 +174,87 @@ class CheckoutPaymentConfirmedTest {
         }
     }
 
+    @Test
+    void paymentAndRefundRecordVoucherLifecycleExactlyOnce() {
+        UUID voucher = UUID.randomUUID();
+        jdbc().update("""
+                INSERT INTO promo_vouchers (id, code, name, source_type, discount_type, discount_value, funding_type,
+                    product_scope, claim_start_at, claim_end_at, valid_from, valid_until, status)
+                VALUES (?, upper(?), 'Paid voucher', 'PLATFORM', 'FIXED', 20000, 'PLATFORM', 'ALL',
+                    now() - interval '1 day', now() + interval '1 day',
+                    now() - interval '1 day', now() + interval '1 day', 'ACTIVE')
+                """, voucher, voucher.toString());
+
+        Fixture fixture = checkoutWithTwoLevelAddress(voucher);
+        String paidAt = Instant.now().truncatedTo(ChronoUnit.MICROS).toString();
+        var instructions = fixture.orders().stream().map(id -> new Instruction(UUID.randomUUID(), id, "165000.00")).toList();
+        var payment = envelope(new CheckoutPaymentConfirmed(UUID.randomUUID(), fixture.group(), UUID.randomUUID(),
+                fixture.buyer(), "VND", "330000.00", paidAt, 1L, instructions));
+        send(payment);
+        send(payment);
+        send(envelope(payment.payload()));
+        assertThat(usageStatuses(voucher)).containsExactly("REDEEMED", "REDEEMED");
+        assertThat(voucherEventCount(voucher, "VoucherRedeemed")).isEqualTo(2);
+        assertThat(jdbc().queryForList("""
+                SELECT payload->'payload'->>'discountAmount' FROM outbox
+                WHERE event_type = 'VoucherRedeemed' AND payload->'payload'->>'voucherId' = ?
+                  AND jsonb_typeof(payload->'payload'->'discountAmount') = 'string'
+                """, String.class, voucher.toString())).containsExactly("10000.00", "10000.00");
+        assertThat(walletState(voucher)).isEqualTo("USED");
+
+        Span span = tracer.nextSpan().name("promotion-refund-test").start();
+        try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
+            CurrentUser actor = new CurrentUser(fixture.buyer(), Set.of("BUYER"), Set.of("ORDER.CANCEL"));
+            for (int i = 0; i < instructions.size(); i++) {
+                var instruction = instructions.get(i);
+                UUID order = instruction.orderId();
+                orderService.cancel(actor, order, new CancelOrderRequest("Refund voucher test"));
+                String amount = i == 0 ? instruction.amount() : "82500.00";
+                var refund = new OrderRefundCompleted(UUID.randomUUID(), order, fixture.group(), payment.payload().sessionId(),
+                        instruction.instructionId(), payment.payload().transactionId(), amount, "VND", "COMPLETED",
+                        "Refund voucher test", SYSTEM, 1L, 2L, paidAt, UUID.randomUUID(), Instant.now().toString());
+                UUID eventId = UUID.randomUUID();
+                ConsumerRecord<String, EventEnvelope<JsonNode>> record = new ConsumerRecord<>(Topics.PAYMENT, 0, 0, order.toString(),
+                        new EventEnvelope<>(eventId, "OrderRefundCompleted", order.toString(), Instant.now(),
+                                "promotion-refund", JSON.valueToTree(refund)));
+                listener.receive(record);
+                listener.receive(record);
+                assertThat(jdbc().queryForObject("""
+                        SELECT sum(reversed_discount_amount) FROM promo_voucher_usage_allocations a
+                        JOIN promo_voucher_usages u ON a.voucher_usage_id = u.id WHERE u.order_id = ?
+                        """, BigDecimal.class, order)).isEqualByComparingTo(i == 0 ? "10000" : "5000");
+            }
+        } finally {
+            span.end();
+        }
+        assertThat(usageStatuses(voucher)).containsExactly("REVERSED", "REVERSED");
+        assertThat(voucherEventCount(voucher, "VoucherReleased")).isZero();
+        assertThat(voucherEventCount(voucher, "VoucherReversed")).isEqualTo(2);
+        assertThat(walletState(voucher)).isEqualTo("USED");
+    }
+
+    private List<String> usageStatuses(UUID voucher) {
+        return jdbc().queryForList("""
+                SELECT u.status FROM promo_voucher_usages u
+                JOIN promo_customer_vouchers c ON c.id = u.customer_voucher_id WHERE c.voucher_id = ?
+                """, String.class, voucher);
+    }
+
+    private long voucherEventCount(UUID voucher, String eventType) {
+        return jdbc().queryForObject("SELECT count(*) FROM outbox WHERE event_type = ? AND payload->'payload'->>'voucherId' = ?",
+                Long.class, eventType, voucher.toString());
+    }
+
+    private String walletState(UUID voucher) {
+        return jdbc().queryForObject("SELECT status FROM promo_customer_vouchers WHERE voucher_id = ?", String.class, voucher);
+    }
+
     /** Chỉ mock các biên Catalog/Inventory/Shipping; OrderService, snapshot, lịch sử và outbox dùng code thật. */
     private Fixture checkoutWithTwoLevelAddress() {
+        return checkoutWithTwoLevelAddress(null);
+    }
+
+    private Fixture checkoutWithTwoLevelAddress(UUID voucher) {
         var buyer = new CurrentUser(UUID.randomUUID(), Set.of("BUYER"), Set.of("CHECKOUT.START", "ORDER.CREATE"));
         UUID warehouse = UUID.randomUUID();
         UUID cart = jdbc().queryForObject("INSERT INTO carts(user_id) VALUES (?) RETURNING id", UUID.class, buyer.id());
@@ -200,12 +281,17 @@ class CheckoutPaymentConfirmedTest {
         when(shipping.quote(any(), any())).thenReturn(new OrderShippingService.Quote(new BigDecimal("25000.00"),
                 new OrderShippingService.Parcel(1000, 20, 15, 10), "GHN", "STANDARD", expiry.plusDays(2)));
         var request = new CreateOrderRequest(new CreateOrderRequest.ShippingAddress(
-                "Stored recipient", "0900000138", "138 Main Street", "1003646", "1000001", "VN"), "SEPAY");
+                "Stored recipient", "0900000138", "138 Main Street", "1003646", "1000001", "VN"), "SEPAY",
+                voucher == null ? null : voucher.toString(), null);
+        if (voucher != null) jdbc().update("""
+                INSERT INTO promo_customer_vouchers (customer_id, voucher_id, status, expires_at)
+                SELECT ?, id, 'CLAIMED', valid_until FROM promo_vouchers WHERE id = ?
+                """, buyer.id(), voucher);
         Span span = tracer.nextSpan().name("checkout-two-level-address-test").start();
         try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
             var group = orderService.create(buyer, UUID.randomUUID().toString(), request).response();
             assertThat(group.orders()).hasSize(2);
-            assertThat(group.totalAmount()).isEqualByComparingTo("350000.00");
+            assertThat(group.totalAmount()).isEqualByComparingTo(voucher == null ? "350000.00" : "330000.00");
             return new Fixture(group.orderGroupId(), buyer.id(), warehouse,
                     group.orders().stream().map(order -> order.orderId()).toList(), skus);
         } finally { span.end(); }
@@ -559,7 +645,7 @@ class CheckoutPaymentConfirmedTest {
     @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses = {OrderRepository.class, CartRepository.class})
     @EnableJpaAuditing(auditorAwareRef = "auditor")
-    @Import({OrderStateMachine.class, CheckoutPaymentConfirmedConsumer.class, PaymentUnreconciledConsumer.class, PaymentEventConsumer.class,
+    @Import({com.group5.commerceservice.promotion.PromotionTestConfig.class, OrderStateMachine.class, CheckoutPaymentConfirmedConsumer.class, PaymentUnreconciledConsumer.class, PaymentEventConsumer.class,
             RefundStatusHandler.class, OrderService.class, PricingService.class})
     /** Flyway/JPA/outbox thật trên PostgreSQL; mock tracer và các biên Catalog/Inventory/Shipping, spy publisher để gây lỗi. */
     static class JpaConfig {
@@ -588,8 +674,11 @@ class CheckoutPaymentConfirmedTest {
             return tracer;
         }
         @Bean DataSource dataSource() {
-            DataSource source = new DriverManagerDataSource(POSTGRES.getJdbcUrl() + "&currentSchema=commerce_confirmation",
-                    POSTGRES.getUsername(), POSTGRES.getPassword());
+            String url = POSTGRES.getJdbcUrl();
+            String separator = url.contains("?") ? "&" : "?";
+            String user = POSTGRES.getUsername();
+            String password = POSTGRES.getPassword();
+            DataSource source = new DriverManagerDataSource(url + separator + "currentSchema=commerce_confirmation", user, password);
             Flyway.configure().dataSource(source).schemas("commerce_confirmation").defaultSchema("commerce_confirmation").load().migrate();
             return source;
         }

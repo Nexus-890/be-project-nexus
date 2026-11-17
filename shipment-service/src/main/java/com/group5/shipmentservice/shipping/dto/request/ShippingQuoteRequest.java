@@ -17,5 +17,16 @@ public record ShippingQuoteRequest(
         @NotEmpty @Size(max = 100) List<@NotNull @Valid ShippingItemRequest> items,
         @NotNull @Valid ParcelRequest parcel,
         UUID warehouseId,
-        @DecimalMin("0") @DecimalMax("5000000") @Digits(integer = 7, fraction = 0) BigDecimal insuranceValue) {
+        @DecimalMin("0") @DecimalMax("5000000") @Digits(integer = 7, fraction = 0) BigDecimal insuranceValue,
+        Boolean applyFreeShipping) {
+
+    public ShippingQuoteRequest {
+        // Request cũ không gửi cờ vẫn giữ chính sách miễn phí dựa trên giá Catalog.
+        applyFreeShipping = applyFreeShipping == null || applyFreeShipping;
+    }
+
+    public ShippingQuoteRequest(ShippingAddressRequest toAddress, List<ShippingItemRequest> items,
+                                ParcelRequest parcel, UUID warehouseId, BigDecimal insuranceValue) {
+        this(toAddress, items, parcel, warehouseId, insuranceValue, true);
+    }
 }

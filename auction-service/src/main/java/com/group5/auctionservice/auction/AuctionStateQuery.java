@@ -15,10 +15,12 @@ import java.util.UUID;
 
 @Service
 public class AuctionStateQuery {
+    private final AuctionRepository auctions;
     private final Clock clock;
     private final LoadingCache<UUID, Snapshot> snapshots;
 
     public AuctionStateQuery(AuctionRepository auctions, Clock clock) {
+        this.auctions = auctions;
         this.clock = clock;
         this.snapshots = Caffeine.newBuilder()
                 .maximumSize(10_000)
@@ -29,7 +31,16 @@ public class AuctionStateQuery {
     }
 
     public AuctionStateResponse get(UUID id) {
-        Snapshot snapshot = snapshots.get(id);
+        return response(id, snapshots.get(id));
+    }
+
+    public AuctionStateResponse getManaged(UUID id) {
+        return response(id, auctions.findByIdAndDeletedAtIsNull(id)
+                .map(Snapshot::from)
+                .orElseThrow(() -> new DomainException(AuctionErrorCode.AUCTION_NOT_FOUND)));
+    }
+
+    private AuctionStateResponse response(UUID id, Snapshot snapshot) {
         return new AuctionStateResponse(id, snapshot.currentPrice(), snapshot.bidCount(), snapshot.bidIncrement(),
                 snapshot.leaderBidderName(), snapshot.endAt(), snapshot.status(), clock.instant());
     }

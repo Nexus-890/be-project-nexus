@@ -164,6 +164,7 @@ services:
       EUREKA_INSTANCE_HOSTNAME: host.docker.internal
       EUREKA_INSTANCE_NON_SECURE_PORT: ${RATING_PORT:-8089}
       EUREKA_INSTANCE_INSTANCE_ID: rating-service:${RATING_PORT:-8089}
+      RATING_ELIGIBILITY_ALLOWED_CLIENTS: ${RATING_ELIGIBILITY_ALLOWED_CLIENTS:-nexus-auction-service}
       EUREKA_INSTANCE_HEALTH_CHECK_URL: http://host.docker.internal:${RATING_PORT:-8089}/actuator/health
       EUREKA_INSTANCE_STATUS_PAGE_URL: http://host.docker.internal:${RATING_PORT:-8089}/actuator/info
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -247,8 +248,10 @@ services:
       DEMO_BUYER_PASSWORD: ${DEMO_BUYER_PASSWORD:-}
       KEYCLOAK_USER_SERVICE_CLIENT_SECRET: ${KEYCLOAK_USER_SERVICE_CLIENT_SECRET:-}
       KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET: ${KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET:-}
+      AUCTION_RATING_CLIENT_SECRET: ${AUCTION_RATING_CLIENT_SECRET:-}
     volumes:
       - ./keycloak/seed-users.sh:/opt/nexus/seed-users.sh:ro
+      - ./keycloak/auction-rating-client.json:/opt/nexus/auction-rating-client.json:ro
     depends_on:
       auth-service:
         condition: service_healthy

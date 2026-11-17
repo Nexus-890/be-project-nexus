@@ -7,6 +7,8 @@ import com.group5.commerceservice.cart.entity.CartItem;
 import com.group5.commerceservice.cart.repository.CartItemRepository;
 import com.group5.commerceservice.cart.repository.CartRepository;
 import com.group5.commerceservice.cart.service.CartPricingService;
+import com.group5.commerceservice.promotion.VoucherCheckoutService;
+import com.group5.commerceservice.promotion.VoucherPricing;
 import com.group5.commerceservice.shared.config.CheckoutProperties;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_core.model.ApiResponse;
@@ -32,8 +34,9 @@ class CartPricingServiceTest {
     private final CartItemRepository items = mock(CartItemRepository.class);
     private final CatalogClient catalog = mock(CatalogClient.class);
     private final CheckoutProperties properties = new CheckoutProperties();
+    private final VoucherCheckoutService vouchers = mock(VoucherCheckoutService.class);
     private final CartPricingService service = new CartPricingService(carts, items, catalog, properties,
-            mock(com.group5.commerceservice.order.service.PricingService.class));
+            mock(com.group5.commerceservice.order.service.PricingService.class), vouchers);
     private final CurrentUser user = new CurrentUser(UUID.randomUUID(), Set.of("BUYER"), Set.of());
     private final Cart cart = new Cart();
     private final CartItem line = new CartItem();
@@ -61,12 +64,16 @@ class CartPricingServiceTest {
 
     @Test void allThreeOperationsUseCurrentPricesAndNeverWriteOrChangeTheSnapshot() {
         sku.setPrice(new BigDecimal("160000"));
-        var pricing = service.pricing(user, "IGNORED-D01");
+        when(vouchers.quote(eq(user.id()), anyList(), eq(List.of("UNKNOWN-D01"))))
+                .thenReturn(VoucherPricing.price(List.of(), List.of("UNKNOWN-D01"), java.util.Map.of()));
+        var pricing = service.pricing(user, "unknown-d01", null);
         var validation = service.validate(user);
-        var preview = service.preview(user, "IGNORED-D01");
+        var preview = service.preview(user, "unknown-d01");
         assertThat(pricing.subtotal()).isEqualByComparingTo("320000");
         assertThat(preview.subtotal()).isEqualByComparingTo(pricing.subtotal());
         assertThat(preview.total()).isEqualByComparingTo(pricing.total());
+        assertThat(pricing.vouchers()).extracting(VoucherPricing.Quote::reason)
+                .containsExactly(VoucherPricing.Reason.NOT_ELIGIBLE);
         assertThat(preview.items().getFirst().unitPrice()).isEqualByComparingTo("160000");
         assertThat(preview.items().getFirst().lineTotal()).isEqualByComparingTo("320000");
         assertThat(validation.valid()).isFalse();
@@ -83,7 +90,7 @@ class CartPricingServiceTest {
     }
 
     @Test void twoTimes150000Has300000SubtotalAndScaleDifferencesAreNotPriceChanges() {
-        var price = service.pricing(user, null);
+        var price = service.pricing(user, null, null);
         assertThat(price.subtotal()).isEqualByComparingTo("300000");
         assertThat(price.total()).isEqualByComparingTo("300000");
         assertThat(price.taxAmount()).isZero();
@@ -94,7 +101,7 @@ class CartPricingServiceTest {
     }
 
     @Test void pricingAndPreviewTotalsAreSubtotalMinusDiscountPlusTaxPlusShipping() {
-        var pricing = service.pricing(user, null);
+        var pricing = service.pricing(user, null, null);
         var preview = service.preview(user, null);
 
         assertThat(pricing.total()).isEqualByComparingTo(pricing.subtotal().subtract(pricing.discountAmount())
@@ -102,17 +109,18 @@ class CartPricingServiceTest {
         assertThat(preview.total()).isEqualByComparingTo(preview.subtotal().subtract(preview.discountAmount())
                 .add(preview.taxAmount()));
         assertThat(preview.total()).isEqualByComparingTo(pricing.total());
+        assertThat(pricing.vouchers()).isEmpty();
     }
 
     @Test void shippingStaysUnknownAboveFreeShippingThresholdUntilQuoteExists() {
         properties.setFreeShippingThreshold(new BigDecimal("100"));
-        assertThat(service.pricing(user, null).estimatedShippingFee()).isNull();
+        assertThat(service.pricing(user, null, null).estimatedShippingFee()).isNull();
         assertThat(service.preview(user, null).shippingFee()).isNull();
     }
 
     @Test void noActiveCartReturnsZeroPricingValidEmptyIssuesAndPreview400WithoutCreatingCart() {
         when(carts.findByUserIdAndStatus(user.id(), CartStatus.ACTIVE)).thenReturn(Optional.empty());
-        assertThat(service.pricing(user, null).subtotal()).isZero();
+        assertThat(service.pricing(user, null, null).subtotal()).isZero();
         assertThat(service.validate(user).issues()).isEmpty();
         assertThat(service.validate(user).valid()).isTrue();
         assertCode(() -> service.preview(user, null), "COMMERCE_CART_EMPTY");
@@ -184,7 +192,7 @@ class CartPricingServiceTest {
 
     @Test void malformedSkuAndProductEnvelopesAreRejected() {
         when(catalog.getSkuById(line.getSkuId())).thenReturn(ApiResponse.of(null));
-        assertCode(() -> service.pricing(user, null), "COMMERCE_INVALID_CATALOG_RESPONSE");
+        assertCode(() -> service.pricing(user, null, null), "COMMERCE_INVALID_CATALOG_RESPONSE");
         when(catalog.getSkuById(line.getSkuId())).thenReturn(ApiResponse.of(sku));
         when(catalog.getProductById(line.getProductId())).thenReturn(ApiResponse.of(null));
         assertCode(() -> service.validate(user), "COMMERCE_INVALID_CATALOG_RESPONSE");
@@ -210,7 +218,7 @@ class CartPricingServiceTest {
     }
 
     @Test void unauthenticatedCallDoesNotReadOrWriteAnything() {
-        assertCode(() -> service.pricing(null, null), "COMMERCE_UNAUTHENTICATED");
+        assertCode(() -> service.pricing(null, null, null), "COMMERCE_UNAUTHENTICATED");
         assertCode(() -> service.validate(new CurrentUser(null, Set.of(), Set.of())), "COMMERCE_UNAUTHENTICATED");
         assertCode(() -> service.preview(null, null), "COMMERCE_UNAUTHENTICATED");
         verifyNoInteractions(carts, items, catalog);

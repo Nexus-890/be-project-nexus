@@ -204,6 +204,30 @@ class Sprint3CatalogIntegrationTest {
     }
 
     @Test
+    void statusFilteredOwnerListRetainsOwnerFieldsAndSellerScope() throws Exception {
+        UUID category = category("Filtered owner products", null, 1);
+        UUID draft = product(category, "Filtered draft", "Draft edit description", "DRAFT");
+        UUID inactive = product(category, "Filtered inactive", "Inactive edit description", "INACTIVE");
+        UUID otherDraft = product(category, "Other seller draft", "Private description", "DRAFT");
+        jdbc.update("UPDATE products SET seller_id = ? WHERE id = ?", UUID.randomUUID(), otherDraft);
+        jdbc.update("UPDATE products SET auction_enable = true WHERE id = ?", draft);
+
+        mvc.perform(get(PRODUCTS + "/mine").param("status", "DRAFT")
+                        .header("Authorization", "Bearer owner"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(draft.toString()))
+                .andExpect(jsonPath("$.data[0].description").value("Draft edit description"))
+                .andExpect(jsonPath("$.data[0].auctionEnable").value(true));
+        mvc.perform(get(PRODUCTS + "/mine").param("status", "INACTIVE")
+                        .header("Authorization", "Bearer owner"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(inactive.toString()))
+                .andExpect(jsonPath("$.data[0].description").value("Inactive edit description"))
+                .andExpect(jsonPath("$.data[0].auctionEnable").value(false));
+    }
+
+    @Test
     void orderFlagsAllProductsAndProtectsDeleteWhileAuctionFlagsTrackOpenAuctions() throws Exception {
         UUID category = category("Flagged", null, 1);
         UUID first = product(category, "Flagged first", null, "ACTIVE");

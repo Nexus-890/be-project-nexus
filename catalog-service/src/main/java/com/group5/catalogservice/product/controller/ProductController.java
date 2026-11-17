@@ -12,6 +12,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import com.group5.catalogservice.product.dto.request.ChangeStatusRequest;
+import com.group5.catalogservice.product.enums.ProductStatus;
 import com.group5.common_core.model.ApiResponse;
 import com.group5.common_core.model.PageInfo;
 import org.springframework.data.domain.Page;
@@ -60,10 +61,14 @@ public class ProductController {
     @GetMapping
     public ApiResponse<List<ProductResponse>> getProductsByCategory(
             @RequestParam(required = false) UUID categoryId,
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "relevance") String sort,
+            @RequestParam(defaultValue = "all") String listingType,
+            @RequestParam(required = false) BigDecimal maxPrice,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
-        return pageResponse(productService.getProductsByCategory(categoryId, page, size));
+        return pageResponse(productService.searchProducts(categoryId, q, sort, listingType, maxPrice, page, size));
     }
 
     @GetMapping("/search")
@@ -82,10 +87,11 @@ public class ProductController {
     @PreAuthorize("hasRole('SELLER') and hasAuthority('PRODUCT.LIST')")
     public ApiResponse<List<ProductResponse>> getMyProducts(
             CurrentUser currentUser,
+            @RequestParam(required = false) ProductStatus status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
-        return pageResponse(productService.getMyProducts(currentUser, page, size));
+        return pageResponse(productService.getMyProducts(currentUser, status, page, size));
     }
 
     @GetMapping("/mine/{id}")

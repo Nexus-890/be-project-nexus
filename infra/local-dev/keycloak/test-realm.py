@@ -14,6 +14,14 @@ HERE = Path(__file__).resolve().parent
 BACKEND = HERE.parents[2]
 SQL = BACKEND / "user-service/src/main/resources/db/migration/V3__roles_and_accounts.sql"
 
+# User-service V7 dropped the historical auth tables. New privileges are seeded in Keycloak.
+PROMOTIONS = {
+    "ADMIN": ["PROMOTION.EVENT.MANAGE", "PROMOTION.EVENT.REGISTER", "VOUCHER.MANAGE", "VOUCHER.CLAIM", "VOUCHER.VIEW"],
+    "SELLER": ["PROMOTION.EVENT.REGISTER", "VOUCHER.MANAGE", "VOUCHER.VIEW"],
+    "BUYER": ["VOUCHER.CLAIM", "VOUCHER.VIEW"],
+    "SUPPORT_STAFF": ["VOUCHER.VIEW"],
+}
+
 
 def source_matrix():
     sql = SQL.read_text()
@@ -22,7 +30,9 @@ def source_matrix():
     for block in sql.split("INSERT INTO role_permissions")[1:]:
         role = re.search(r"WHERE r.code = '([^']+)'", block)[1]
         matrix[role] = re.findall(r"'([A-Z_]+(?:\.[A-Z_]+)+)'", block.split("ON CONFLICT")[0])
-    return privileges, matrix
+    for role, grants in PROMOTIONS.items():
+        matrix[role].extend(grants)
+    return privileges + PROMOTIONS["ADMIN"], matrix
 
 
 class RealmContractTest(unittest.TestCase):
@@ -31,11 +41,11 @@ class RealmContractTest(unittest.TestCase):
         cls.realm = json.loads((HERE / "realm-nexus.json").read_text())
         cls.client = cls.realm["clients"][0]
 
-    def test_exact_privileges_and_composite_matrix_from_v3(self):
+    def test_exact_privileges_and_composite_matrix_from_role_seeds(self):
         privileges, matrix = source_matrix()
         actual = [r["name"] for r in self.realm["roles"]["client"]["nexus-web"]]
-        self.assertEqual(len(privileges), 65)
-        self.assertEqual(len(actual), 65)
+        self.assertEqual(len(privileges), 70)
+        self.assertEqual(len(actual), len(privileges))
         self.assertEqual(set(actual), set(privileges))
         roles = self.realm["roles"]["realm"]
         self.assertEqual(len(roles), 4)
@@ -70,7 +80,11 @@ class RealmContractTest(unittest.TestCase):
         self.assertEqual(self.realm["defaultSignatureAlgorithm"], "RS256")
         self.assertIn("basic", self.client["defaultClientScopes"], "Keycloak 26.7 needs basic to emit sub")
         self.assertNotIn("roles", self.client["defaultClientScopes"])
-        self.assertEqual(set(self.realm["scopeMappings"][0]["roles"]), set(source_matrix()[1]))
+        privileges, matrix = source_matrix()
+        self.assertEqual(set(self.realm["scopeMappings"][0]["roles"]), set(matrix))
+        mappings = self.realm["clientScopeMappings"]["nexus-web"]
+        web_mapping = next(mapping for mapping in mappings if mapping.get("client") == "nexus-web")
+        self.assertEqual(set(web_mapping["roles"]), set(privileges))
 
     def test_demo_ids_roles_and_no_credentials(self):
         users = self.realm["users"]
@@ -115,6 +129,56 @@ class RealmContractTest(unittest.TestCase):
     def test_session_idle_timeout_covers_access_token_lifetime(self):
         self.assertGreaterEqual(self.realm["ssoSessionIdleTimeout"], self.realm["accessTokenLifespan"])
         self.assertGreaterEqual(self.realm["ssoSessionMaxLifespan"], self.realm["ssoSessionIdleTimeout"])
+
+
+class RatingEligibilityMachineClientTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.client = json.loads((HERE / "auction-rating-client.json").read_text())
+
+    def test_client_is_confidential_and_only_allows_service_accounts(self):
+        self.assertEqual(self.client["clientId"], "nexus-auction-service")
+        self.assertEqual(self.client["clientAuthenticatorType"], "client-secret")
+        self.assertTrue(self.client["enabled"])
+        self.assertTrue(self.client["serviceAccountsEnabled"])
+        for setting in ("publicClient", "bearerOnly", "standardFlowEnabled", "implicitFlowEnabled",
+                        "directAccessGrantsEnabled", "authorizationServicesEnabled", "fullScopeAllowed"):
+            self.assertFalse(self.client[setting], setting)
+        self.assertEqual(self.client["redirectUris"], [])
+        self.assertEqual(self.client["webOrigins"], [])
+        self.assertEqual(self.client["defaultClientScopes"], ["basic"])
+        self.assertEqual(self.client["optionalClientScopes"], [])
+        self.assertNotIn("secret", self.client)
+
+    def test_access_token_has_only_the_internal_authority_and_machine_marker(self):
+        mappers = self.client["protocolMappers"]
+        self.assertEqual(len(mappers), 3)
+        claims = {mapper["config"].get("claim.name"): mapper for mapper in mappers}
+        privilege = claims["privileges"]
+        self.assertEqual(privilege["protocolMapper"], "oidc-hardcoded-claim-mapper")
+        self.assertEqual(privilege["config"]["jsonType.label"], "JSON")
+        self.assertEqual(json.loads(privilege["config"]["claim.value"]), ["RATING.ELIGIBILITY.CHECK"])
+        marker = claims["service_account"]
+        self.assertEqual(marker["protocolMapper"], "oidc-hardcoded-claim-mapper")
+        self.assertEqual(marker["config"]["jsonType.label"], "boolean")
+        self.assertEqual(marker["config"]["claim.value"], "true")
+        audience = next(mapper for mapper in mappers if mapper["protocolMapper"] == "oidc-audience-mapper")
+        self.assertEqual(audience["config"]["included.custom.audience"], "nexus-services")
+        for mapper in mappers:
+            self.assertEqual(mapper["config"]["access.token.claim"], "true")
+            self.assertEqual(mapper["config"]["id.token.claim"], "false")
+
+    def test_provisioning_is_optional_and_uses_the_secret_free_client_template(self):
+        script = (HERE / "seed-users.sh").read_text(encoding="utf-8")
+        self.assertIn('if [ -n "${AUCTION_RATING_CLIENT_SECRET:-}" ]; then', script)
+        self.assertIn('kc create clients -r nexus -f /opt/nexus/auction-rating-client.json -i', script)
+        self.assertIn('kc update "clients/$client" -r nexus -f /opt/nexus/auction-rating-client.json -n', script)
+        self.assertIn('"secret=$AUCTION_RATING_CLIENT_SECRET" -n', script)
+        compose = (HERE.parent / "compose.yaml").read_text()
+        self.assertIn('AUCTION_RATING_CLIENT_SECRET: ${AUCTION_RATING_CLIENT_SECRET:-}', compose)
+        self.assertIn('./keycloak/auction-rating-client.json:/opt/nexus/auction-rating-client.json:ro', compose)
+        example = (HERE.parent / ".env.example").read_text()
+        self.assertRegex(example, r"(?m)^AUCTION_RATING_CLIENT_SECRET=$")
 
 
 @unittest.skipIf(os.name == "nt" or not shutil.which("bash"), "Bash entry point runs on Unix")

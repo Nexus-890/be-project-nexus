@@ -30,6 +30,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import com.group5.commerceservice.promotion.PromotionTestConfig;
 import org.springframework.data.domain.AuditorAware;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
@@ -59,7 +60,7 @@ import static org.mockito.Mockito.when;
 
 @SpringJUnitConfig(OrderCancellationTest.JpaConfig.class)
 class OrderCancellationTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     private static final AtomicInteger ORDER_NUMBERS = new AtomicInteger();
     private static final CancelOrderRequest CHANGED_MIND = new CancelOrderRequest("Changed my mind");
 
@@ -342,7 +343,7 @@ class OrderCancellationTest {
     @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses = {CartRepository.class, OrderRepository.class})
     @EnableJpaAuditing(auditorAwareRef = "auditor")
-    @Import({OrderService.class, OrderStateMachine.class, OrderEventPublisher.class, PricingService.class})
+    @Import({PromotionTestConfig.class, OrderService.class, OrderStateMachine.class, OrderEventPublisher.class, PricingService.class})
     static class JpaConfig {
         // Fixture báo giá tách riêng khỏi transport Shipping; các test này kiểm nghiệp vụ Order hiện hữu.
         @Bean

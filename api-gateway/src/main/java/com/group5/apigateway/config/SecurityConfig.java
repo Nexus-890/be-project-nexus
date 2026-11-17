@@ -100,7 +100,9 @@ public class SecurityConfig {
                             .filter(endpoint -> !endpoint.isPublic())
                             .forEach(endpoint -> {
                                 var rule = exchanges.pathMatchers(endpoint.method(), matcherPath(endpoint.path()));
-                                if (endpoint.allowGuest()) {
+                                if (!endpoint.roles().isEmpty()) {
+                                    rule.hasAnyRole(endpoint.roles().toArray(String[]::new));
+                                } else if (endpoint.allowGuest()) {
                                     rule.access((authentication, context) -> authentication
                                             .<AuthorizationResult>map(auth -> new AuthorizationDecision(auth instanceof AnonymousAuthenticationToken
                                                     || auth.isAuthenticated() && auth.getAuthorities().stream()
@@ -249,9 +251,15 @@ public class SecurityConfig {
         List<Endpoint> endpoints() {
             Set<String> pairs = new HashSet<>();
             publicEndpoints.forEach(endpoint ->
-                    Assert.isTrue(endpoint.isPublic(), "Public endpoints must not declare a privilege"));
-            protectedEndpoints.forEach(endpoint ->
-                    Assert.hasText(endpoint.privilege(), "Protected endpoint privilege is required"));
+                    Assert.isTrue(endpoint.isPublic(), "Public endpoints must not declare a privilege or roles"));
+            protectedEndpoints.forEach(endpoint -> {
+                boolean hasPrivilege = endpoint.privilege() != null && !endpoint.privilege().isBlank();
+                Assert.isTrue(hasPrivilege != !endpoint.roles().isEmpty(),
+                        "Protected endpoints must declare either a privilege or roles");
+                Assert.isTrue(endpoint.roles().isEmpty() || !endpoint.allowGuest(), "Role policies cannot allow guests");
+                endpoint.roles().forEach(role -> Assert.isTrue(role.matches("[A-Z][A-Z0-9_]*"),
+                        "Roles must use their unprefixed realm names"));
+            });
             return Stream.concat(publicEndpoints.stream(), protectedEndpoints.stream())
                     .peek(endpoint -> {
                         Assert.isTrue(Arrays.asList(HttpMethod.values()).contains(endpoint.method()),
@@ -265,15 +273,18 @@ public class SecurityConfig {
         }
     }
 
-    public record Endpoint(HttpMethod method, String path, String privilege, boolean allowGuest) {
+    public record Endpoint(HttpMethod method, String path, String privilege, boolean allowGuest, List<String> roles) {
         @ConstructorBinding
-        public Endpoint { }
+        public Endpoint { roles = roles == null ? List.of() : List.copyOf(roles); }
 
         public Endpoint(HttpMethod method, String path, String privilege) {
-            this(method, path, privilege, false);
+            this(method, path, privilege, false, List.of());
+        }
+        public Endpoint(HttpMethod method, String path, String privilege, boolean allowGuest) {
+            this(method, path, privilege, allowGuest, List.of());
         }
         boolean isPublic() {
-            return privilege == null;
+            return privilege == null && roles.isEmpty();
         }
     }
 }

@@ -81,6 +81,13 @@ holds only `realm-management` `view-users`, which notification-service needs to 
 a recipient's email before it sends a notification email. Leave the secret empty to
 skip it while `EMAIL_NOTIFICATION_ENABLED=false`.
 
+When `AUCTION_RATING_CLIENT_SECRET` is set, the seed command creates or updates
+the confidential `nexus-auction-service` client for internal rating eligibility.
+Its access token contains only the eligibility privilege and the machine marker;
+it receives no realm-management roles. Leave this optional secret empty while
+reputation enforcement is off. See [rating eligibility machine setup](../../../docs/security-keycloak/rating-eligibility.md)
+for its claims, allowlist, existing-realm provisioning and verification.
+
 Access tokens are signed with RS256 and contain:
 
 - `sub`: the imported user UUID, unchanged from the other service seeds.
@@ -160,6 +167,11 @@ real 900 seconds without weakening policy or manually unlocking the user.
 Startup `--import-realm` deliberately skips a realm that already exists. Editing
 `realm-nexus.json` and restarting does not overwrite an existing `nexus` realm.
 Use the isolated test project above to validate changes without touching local data.
+
+For #256, the existing seed command also installs the Promotions client privileges
+and composite role grants in an existing realm. Re-run the seed and sign in again
+to receive the new privileges in access tokens. User-service V7 removed the old
+role/permission tables, so Keycloak is the live source for these grants.
 
 To reload the JSON into a disposable local development setup, back up any needed
 Keycloak data, stop auth-service, and reset **only `auth_db`**. This deletes all

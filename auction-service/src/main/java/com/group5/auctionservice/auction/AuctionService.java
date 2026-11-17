@@ -4,6 +4,8 @@ import com.group5.auctionservice.auction.dto.AuctionResponse;
 import com.group5.auctionservice.auction.dto.CreateAuctionRequest;
 import com.group5.auctionservice.auction.dto.UpdateAuctionRequest;
 import com.group5.auctionservice.auction.dto.CancelAuctionRequest;
+import com.group5.auctionservice.reputation.EligibilityAction;
+import com.group5.auctionservice.reputation.ReputationGuard;
 import com.group5.auctionservice.shared.config.AuctionProperties;
 import com.group5.auctionservice.shared.exception.AuctionErrorCode;
 import com.group5.common_core.exception.DomainException;
@@ -42,6 +44,7 @@ public class AuctionService {
     private final AuctionCreation auctionCreation;
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
+    private final ReputationGuard reputation;
 
     @Transactional(readOnly = true)
     public AuctionResponse get(UUID id) {
@@ -58,6 +61,21 @@ public class AuctionService {
         }
         return auctions.findByVisibilityAndStatusAndDeletedAtIsNull(Auction.Visibility.PUBLIC, status, pageable)
                 .map(AuctionResponse::from);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<AuctionResponse> manage(AuctionStatus status, int page, int size) {
+        var pageable = PageRequest.of(page, size, Sort.by("createdAt").descending().and(Sort.by("id").descending()));
+        return (status == null ? auctions.findByDeletedAtIsNull(pageable)
+                : auctions.findByStatusAndDeletedAtIsNull(status, pageable))
+                .map(AuctionResponse::from);
+    }
+
+    @Transactional(readOnly = true)
+    public AuctionResponse manageGet(UUID id) {
+        return auctions.findByIdAndDeletedAtIsNull(id)
+                .map(AuctionResponse::from)
+                .orElseThrow(() -> new DomainException(AuctionErrorCode.AUCTION_NOT_FOUND));
     }
 
     @Transactional(readOnly = true)
@@ -79,6 +97,7 @@ public class AuctionService {
         }
         String imageUrl = requireImage(product.firstImageUrl());
         requireStock(request.skuId());
+        reputation.requireEligible(seller.id(), EligibilityAction.SELL);
 
         BigDecimal increment = request.bidIncrement() == null
                 ? properties.getDefaultBidIncrement()
@@ -136,9 +155,11 @@ public class AuctionService {
     }
 
     @Transactional
-    public AuctionResponse update(UUID id, UpdateAuctionRequest request, CurrentUser owner) {
+    public AuctionResponse update(UUID id, UpdateAuctionRequest request, CurrentUser actor) {
         Auction auction = lock(id);
-        requireOwner(auction, owner);
+        if (!actor.hasRole("ADMIN")) {
+            requireOwner(auction, actor);
+        }
         if ((auction.getStatus() != AuctionStatus.CREATED && auction.getStatus() != AuctionStatus.SCHEDULED)
                 || !clock.instant().isBefore(auction.getStartAt())) {
             throw new DomainException(AuctionErrorCode.AUCTION_NOT_EDITABLE);
