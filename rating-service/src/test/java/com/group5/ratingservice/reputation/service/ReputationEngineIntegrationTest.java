@@ -138,6 +138,24 @@ class ReputationEngineIntegrationTest extends RatingPostgresIntegrationTest {
     }
 
     @Test
+    void sameAuctionCanTimeoutTwoWinnersThenCompleteAnotherOffer() {
+        Order first=order(UUID.randomUUID());
+        Order second=new Order(UUID.randomUUID(),UUID.randomUUID(),first.sellerId(),first.auctionId());
+        Order third=new Order(UUID.randomUUID(),UUID.randomUUID(),first.sellerId(),first.auctionId());
+        consumer.auction(timeout(first,UUID.randomUUID(),1));
+        consumer.auction(timeout(second,UUID.randomUUID(),2));
+        consumer.auction(timeout(second,UUID.randomUUID(),3));
+        consumer.commerce(completion(third,UUID.randomUUID(),1));
+        assertThat(reputations.get(first.buyerId()).failedTransaction()).isEqualTo(1);
+        assertThat(reputations.get(second.buyerId()).failedTransaction()).isEqualTo(1);
+        assertThat(reputations.get(third.buyerId()).successfulTransaction()).isEqualTo(1);
+        assertThat(reputations.get(first.sellerId()).failedTransaction()).isZero();
+        assertThat(reputations.get(first.sellerId()).successfulTransaction()).isEqualTo(1);
+        assertThat(count("reputation_outcomes")).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM reputation_history WHERE change_type='AUCTION_PAYMENT_TIMEOUT'",Long.class)).isEqualTo(2);
+    }
+
+    @Test
     void timeoutAtTheFloorRecordsActualDeltaAndZeroDeltaHistory() {
         Order order = order(UUID.randomUUID());
         reputations.adjust(order.buyerId(), -45, "Verified correction", UUID.randomUUID(), null);

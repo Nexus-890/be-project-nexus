@@ -332,8 +332,10 @@ class BidIdempotencyTest {
             Optional<?> result = (Optional<?>) repository.answer(invocation);
             if (result.isEmpty()
                     && org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()
+                    && !org.springframework.transaction.support.TransactionSynchronizationManager.isCurrentTransactionReadOnly()
                     && misses.incrementAndGet() <= 2) {
-                // Wait after the real SELECT so neither request can see the other's committed bid yet.
+                // Only gate the business write transaction. The initial repository read also opens
+                // a read-only transaction; gating that read lets one write finish before the other starts.
                 initialMisses.await(15, TimeUnit.SECONDS);
             }
             return result;

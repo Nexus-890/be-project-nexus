@@ -60,6 +60,8 @@ class AuctionStockIntegrationTest {
     @Autowired OrderEventConsumer orderEvents;
     @Autowired ReservationExpiryJob expiry;
     @Autowired ReservationService reservations;
+    @Autowired com.group5.inventoryservice.reservation.service.OfferReservationService offerHolds;
+    @Autowired com.group5.inventoryservice.reservation.OfferHoldRetryJob holdRetry;
     @Autowired WebApplicationContext context;
     @MockitoBean JwtDecoder decoder;
 
@@ -219,6 +221,59 @@ class AuctionStockIntegrationTest {
                 VALUES (?, ?, 5, 5)
                 """, sku, warehouse);
         return new Fixture(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), sku, warehouse);
+    }
+
+    @Test
+    void offerRoundsHoldReleaseAndCommitIndependentlyOfOldEvents() {
+        Fixture f=seed(); UUID one=UUID.randomUUID(),two=UUID.randomUUID();
+        var offered=auction(f,"SecondChanceOffered",Map.of("offerId",one,"bidderId",f.buyer(),"skuId",f.sku(),"expiresAt",Instant.now().plusSeconds(3600).toString()));
+        auctionEvents.receive(offered);auctionEvents.receive(offered);
+        assertBalance(f,4,1,0);
+        auctionEvents.receive(auction(f,"SecondChanceDeclined",Map.of("offerId",one)));
+        assertBalance(f,5,0,0);
+        auctionEvents.receive(auction(f,"SecondChanceOffered",Map.of("offerId",two,"bidderId",f.buyer(),"skuId",f.sku(),"expiresAt",Instant.now().plusSeconds(3600).toString())));
+        assertBalance(f,4,1,0);
+        auctionEvents.receive(auction(f,"SecondChanceExpired",Map.of("offerId",one)));
+        auctionEvents.receive(offered); assertBalance(f,4,1,0);
+        auctionEvents.receive(auction(f,"AuctionWon",Map.of("offerId",two,"winnerId",f.buyer())));
+        auctionEvents.receive(auction(f,"AuctionSettled",Map.of("offerId",two,"orderId",f.order())));
+        order(f,"OrderPaid");order(f,"OrderPaid");assertBalance(f,4,0,1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM inventory_reservations WHERE auction_id=?",Integer.class,f.auction())).isEqualTo(2);
+        assertThat(movements(f)).containsExactly("RESERVE","RELEASE","RESERVE","COMMIT");
+    }
+
+    @Test
+    void terminalOfferBeforeOfferedDoesNotHoldAndOutOfStockPublishesRejection() {
+        Fixture f=seed();UUID expired=UUID.randomUUID();
+        auctionEvents.receive(auction(f,"SecondChanceExpired",Map.of("offerId",expired)));
+        auctionEvents.receive(auction(f,"SecondChanceOffered",Map.of("offerId",expired,"bidderId",f.buyer(),"skuId",f.sku(),"expiresAt",Instant.now().plusSeconds(3600).toString())));
+        assertBalance(f,5,0,0);
+        jdbc.update("UPDATE inventory_balances SET available_quantity=0,unavailable_quantity=5 WHERE sku_id=?",f.sku());
+        auctionEvents.receive(auction(f,"SecondChanceOffered",Map.of("offerId",UUID.randomUUID(),"bidderId",f.buyer(),"skuId",f.sku(),"expiresAt",Instant.now().plusSeconds(3600).toString())));
+        assertBalance(f,0,0,5);assertThat(inventoryEvents(f)).containsExactly("SecondChanceStockRejected");
+    }
+
+    @Test
+    void offerWaitsDurablyForThePreviousOrderCancellation() {
+        Fixture f=seed();UUID offer=UUID.randomUUID();
+        auctionEvents.receive(created(f));
+        auctionEvents.receive(auction(f,"AuctionSettled",Map.of("orderId",f.order())));
+        auctionEvents.receive(auction(f,"SecondChanceOffered",Map.of("offerId",offer,"bidderId",f.buyer(),"skuId",f.sku(),"expiresAt",Instant.now().plusSeconds(3600).toString())));
+        assertThat(offerHolds.pending()).contains(offer);assertBalance(f,4,1,0);
+        order(f,"OrderCancelled");assertBalance(f,5,0,0);
+        holdRetry.tick();assertThat(offerHolds.pending()).doesNotContain(offer);assertBalance(f,4,1,0);
+        auctionEvents.receive(auction(f,"SecondChanceExpired",Map.of("offerId",offer)));assertBalance(f,5,0,0);
+    }
+
+    @Test
+    void cancellationBeforeOfferOrderLinkReleasesWhenTheLinkArrives() {
+        Fixture f=seed();UUID offer=UUID.randomUUID();
+        auctionEvents.receive(auction(f,"SecondChanceOffered",Map.of("offerId",offer,"bidderId",f.buyer(),"skuId",f.sku(),"expiresAt",Instant.now().plusSeconds(3600).toString())));
+        order(f,"OrderCancelled");assertBalance(f,4,1,0);
+        auctionEvents.receive(auction(f,"AuctionSettled",Map.of("offerId",offer,"orderId",f.order())));
+        assertBalance(f,5,0,0);
+        auctionEvents.receive(auction(f,"AuctionSettled",Map.of("offerId",offer,"orderId",f.order())));
+        assertBalance(f,5,0,0);
     }
 
     private Map<String, Object> hold(Fixture fixture) {

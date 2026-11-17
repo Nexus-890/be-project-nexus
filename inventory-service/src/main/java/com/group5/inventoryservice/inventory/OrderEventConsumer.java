@@ -67,6 +67,7 @@ public class OrderEventConsumer {
 
     private void orderPaid(EventEnvelope<OrderPaid> event) {
         OrderPaid paid = event.payload();
+        if ("AUCTION".equals(String.valueOf(paid.orderType()))) reservations.rememberAuctionOutcome(paid.orderId(),"PAID");
         ReservationService.OrderConfirmation result = reservations.confirmOrder(paid.orderId());
         if (result.reservations() == 0) {
             log.info("ORDER_PAID_NO_RESERVATION eventId={} orderId={} orderType={}",
@@ -89,6 +90,7 @@ public class OrderEventConsumer {
 
     private void orderCancelled(EventEnvelope<OrderCancelled> event) {
         OrderCancelled cancelled = event.payload();
+        if ("AUCTION".equals(String.valueOf(cancelled.orderType()))) reservations.rememberAuctionOutcome(cancelled.orderId(),"CANCELLED");
         ReservationService.OrderRelease result = reservations.releaseOrder(cancelled.orderId());
         log.info("ORDER_CANCELLED_STOCK_RELEASED eventId={} orderId={} orderType={} reason={} released={} returned={}",
                 event.eventId(), cancelled.orderId(), cancelled.orderType(), cancelled.reason(),

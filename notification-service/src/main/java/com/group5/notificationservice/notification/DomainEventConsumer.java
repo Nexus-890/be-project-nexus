@@ -46,6 +46,7 @@ public class DomainEventConsumer {
     )
     public void receive(ConsumerRecord<String, EventEnvelope<JsonNode>> record) {
         EventEnvelope<JsonNode> envelope = record.value();
+        if (SecondChanceNotificationConsumer.isOffer(envelope.eventType())) return;
         Optional<NotificationTemplate> template = NotificationTemplate.forEventType(envelope.eventType());
         if (template.isEmpty()) {
             log.debug("NOTIFICATION_SKIPPED eventId={} eventType={} topic={} reason=no-template",

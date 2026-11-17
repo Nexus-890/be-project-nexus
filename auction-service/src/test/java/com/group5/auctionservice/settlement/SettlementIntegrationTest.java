@@ -150,7 +150,8 @@ class SettlementIntegrationTest {
         UUID auctionId = endedAuction();
         bid(auctionId, UUID.randomUUID(), 1_500_000, END.minusSeconds(1), "PLACED");
         when(decoder.decode("settlement-admin")).thenReturn(Jwt.withTokenValue("settlement-admin")
-                .header("alg", "RS256").subject(UUID.randomUUID().toString()).build());
+                .header("alg", "RS256").subject(UUID.randomUUID().toString())
+                .claim("roles",java.util.List.of("ADMIN")).claim("privileges",java.util.List.of("SYSTEM.CONFIG.UPDATE")).build());
         var mvc = webAppContextSetup(context)
                 .addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
         try {

@@ -344,6 +344,21 @@ nexus:
       - method: POST
         path: /api/v1/auctions/{id}/bids
         privilege: AUCTION.BID
+      - method: GET
+        path: /api/v1/auctions/{id}/second-chance-offers
+        privilege: AUCTION.LIST
+      - method: POST
+        path: /api/v1/auctions/{id}/second-chance-offers
+        privilege: AUCTION.UPDATE
+      - method: GET
+        path: /api/v1/auctions/offers/me
+        privilege: AUCTION.VIEW_BID_HISTORY
+      - method: POST
+        path: /api/v1/auctions/offers/{offerId}/accept
+        privilege: AUCTION.BID
+      - method: POST
+        path: /api/v1/auctions/offers/{offerId}/decline
+        privilege: AUCTION.BID
       - method: POST
         path: /api/v1/auctions/{id}/schedule
         privilege: AUCTION.UPDATE

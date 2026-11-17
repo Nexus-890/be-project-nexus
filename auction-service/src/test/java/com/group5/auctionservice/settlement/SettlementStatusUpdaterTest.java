@@ -117,7 +117,7 @@ class SettlementStatusUpdaterTest {
     @Configuration(proxyBeanMethods=false)
     @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses=AuctionRepository.class)
-    @Import({SettlementStatusUpdater.class,AuctionStateMachine.class})
+    @Import({SettlementStatusUpdater.class,AuctionStateMachine.class,com.group5.auctionservice.offer.AuctionPaymentTimeoutHandler.class})
     static class Config {
         @Bean DataSource dataSource() {
             String url=System.getProperty("settlement.test.jdbc-url"),user="postgres",password="";
@@ -135,6 +135,7 @@ class SettlementStatusUpdaterTest {
         @Bean PlatformTransactionManager transactionManager(EntityManagerFactory factory) { return new JpaTransactionManager(factory); }
         @Bean IdempotentConsumer consumer(EntityManagerFactory factory,PlatformTransactionManager tx) { return new IdempotentConsumer(SharedEntityManagerCreator.createSharedEntityManager(factory),new TransactionTemplate(tx)); }
         @Bean JsonMapper mapper() { return JSON; }
+        @Bean JdbcTemplate jdbcTemplate(DataSource source) { return new JdbcTemplate(source); }
         @Bean Tracer tracer() { var tracer=mock(Tracer.class,RETURNS_DEEP_STUBS);when(tracer.currentSpan().context().traceId()).thenReturn("172settle");return tracer; }
         @Bean OutboxWriter outbox(DataSource source,PlatformTransactionManager tx) { return new OutboxWriter(new JdbcTemplate(source),JSON,tx); }
         @Bean EventEnvelopeFactory envelopes(Tracer tracer) { return new EventEnvelopeFactory(tracer,Clock.systemUTC()); }

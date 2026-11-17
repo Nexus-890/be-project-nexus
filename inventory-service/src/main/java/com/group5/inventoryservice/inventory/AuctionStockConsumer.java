@@ -24,20 +24,29 @@ public class AuctionStockConsumer {
     private final IdempotentConsumer idempotent;
     private final ReservationService reservations;
     private final Tracer tracer;
+    private final com.group5.inventoryservice.reservation.service.OfferReservationService offerReservations;
 
     @KafkaListener(id = CONSUMER, topics = Topics.AUCTION,
             containerFactory = EventKafka.LISTENER_CONTAINER_FACTORY)
     public void receive(EventEnvelope<JsonNode> event) {
         switch (event.eventType()) {
             case "AuctionCreated" -> handle(event, this::hold);
-            case "AuctionWon" -> handle(event, message ->
-                    reservations.recordAuctionWinner(auctionId(message), uuid(message.payload(), "winnerId")));
+            case "AuctionWon" -> handle(event, message -> {
+                if(hasOffer(message)) offerReservations.winner(auctionId(message),uuid(message.payload(),"offerId"),uuid(message.payload(),"winnerId"));
+                else reservations.recordAuctionWinner(auctionId(message), uuid(message.payload(), "winnerId"));
+            });
+            case "SecondChanceOffered" -> handle(event,message->offerReservations.hold(auctionId(message),uuid(message.payload(),"offerId"),
+                    uuid(message.payload(),"bidderId"),uuid(message.payload(),"skuId"),Instant.parse(message.payload().path("expiresAt").asString())));
+            case "SecondChanceDeclined", "SecondChanceExpired" -> handle(event,message->offerReservations.release(auctionId(message),
+                    uuid(message.payload(),"offerId"),"SecondChanceDeclined".equals(message.eventType())?"DECLINED":"EXPIRED"));
             case "AuctionFailed" -> handle(event,
                     message -> reservations.releaseAuction(auctionId(message), "AUCTION_FAILED"));
             case "AuctionCancelled" -> handle(event,
                     message -> reservations.releaseAuction(auctionId(message), "AUCTION_CANCELLED"));
-            case "AuctionSettled" -> handle(event, message ->
-                    reservations.linkAuctionOrder(auctionId(message), uuid(message.payload(), "orderId")));
+            case "AuctionSettled" -> handle(event, message -> {
+                if(hasOffer(message)) offerReservations.link(auctionId(message),uuid(message.payload(),"offerId"),uuid(message.payload(),"orderId"));
+                else reservations.linkAuctionOrder(auctionId(message), uuid(message.payload(), "orderId"));
+            });
             default -> {
             }
         }
@@ -53,6 +62,10 @@ public class AuctionStockConsumer {
         } finally {
             span.end();
         }
+    }
+
+    private static boolean hasOffer(EventEnvelope<JsonNode> event) {
+        return event.payload().hasNonNull("offerId");
     }
 
     private void hold(EventEnvelope<JsonNode> event) {

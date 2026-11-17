@@ -88,6 +88,26 @@ class AuctionSettlementTest {
         verify(inventory, never()).reserve(any());
     }
 
+    @Test void subsequentOfferCreatesItsOwnOrderOnceAtOwnPriceAndDeadline() {
+        var first=won();consumer.receive(record(first));
+        jdbc().update("UPDATE orders SET status='CANCELED' WHERE reference_id=?",first.auctionId());
+        UUID nextBuyer=UUID.randomUUID(),offer=UUID.randomUUID();
+        var next=new AuctionWon(first.auctionId(),first.sellerId(),first.productId(),first.skuId(),nextBuyer,
+                "480000.00",first.currency(),first.title(),first.imageUrl(),1,Instant.now().minusSeconds(86400),
+                Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS).plusSeconds(86400),offer);
+        consumer.receive(record(next));consumer.receive(record(next));
+        assertThat(count("SELECT count(*) FROM orders WHERE reference_id=?",first.auctionId())).isEqualTo(2);
+        UUID order=jdbc().queryForObject("SELECT id FROM orders WHERE offer_id=?",UUID.class,offer);
+        assertThat(jdbc().queryForObject("SELECT user_id FROM orders WHERE id=?",UUID.class,order)).isEqualTo(nextBuyer);
+        assertThat(jdbc().queryForObject("SELECT total_amount FROM orders WHERE id=?",BigDecimal.class,order)).isEqualByComparingTo("480000.00");
+        assertThat(jdbc().queryForObject("SELECT payment_due_at FROM orders WHERE id=?",OffsetDateTime.class,order).toInstant()).isEqualTo(next.paymentDueAt().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+        consumer.receive(record(first));assertThat(count("SELECT count(*) FROM orders WHERE reference_id=?",first.auctionId())).isEqualTo(2);
+        var response=shipping.confirm(buyer(next),order,ADDRESS);
+        assertThat(response.totalAmount()).isEqualByComparingTo("510000.00");
+        var payload=JSON.readTree(jdbc().queryForObject("SELECT payload::text FROM outbox WHERE event_type='OrderCreated' AND aggregate_id=?",String.class,order.toString())).path("payload");
+        assertThat(payload.path("offerId").asString()).isEqualTo(offer.toString());
+    }
+
     @Test void rejectsNonWinnerChangedAddressAndMissingHoldWithoutManifest() {
         var won = won(); consumer.receive(record(won)); var order = order(won);
         assertThatThrownBy(() -> shipping.confirm(new CurrentUser(UUID.randomUUID(), Set.of("BUYER"), Set.of()), order, ADDRESS)).hasMessageContaining("permission");

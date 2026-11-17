@@ -4,6 +4,14 @@ import com.group5.common_core.constant.ErrorCode;
 import org.springframework.http.HttpStatus;
 
 public enum AuctionErrorCode implements ErrorCode {
+    OFFER_AUCTION_NOT_TIMED_OUT(HttpStatus.CONFLICT, "Auction is not awaiting a second chance offer"),
+    OFFER_ALREADY_OPEN(HttpStatus.CONFLICT, "An offer is already open"),
+    OFFER_NO_ELIGIBLE_BIDDER(HttpStatus.CONFLICT, "No eligible bidder remains"),
+    OFFER_EXPIRED(HttpStatus.CONFLICT, "The offer has expired"),
+    OFFER_NOT_YOURS(HttpStatus.FORBIDDEN, "This offer belongs to another buyer"),
+    OFFER_NOT_FOUND(HttpStatus.NOT_FOUND, "Offer not found"),
+    OFFER_ALREADY_RESPONDED(HttpStatus.CONFLICT, "The offer was already answered"),
+    OFFER_STOCK_PENDING(HttpStatus.CONFLICT, "Stock confirmation is pending; refresh the offer"),
     AUCTION_START_IN_PAST(HttpStatus.BAD_REQUEST, "startAt must not be in the past (5 seconds of clock skew allowed)"),
     AUCTION_INVALID_TIME_WINDOW(HttpStatus.BAD_REQUEST, "endAt must be after startAt"),
     AUCTION_DURATION_TOO_SHORT(HttpStatus.BAD_REQUEST, "Auction duration is below the configured minimum"),

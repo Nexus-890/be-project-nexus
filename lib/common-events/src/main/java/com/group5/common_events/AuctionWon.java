@@ -10,7 +10,15 @@ import java.util.UUID;
 @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
 public record AuctionWon(UUID auctionId, UUID sellerId, UUID productId, UUID skuId, UUID winnerId,
                          String finalPrice, String currency, String title, String imageUrl,
-                         int quantity, Instant endAt, Instant paymentDueAt) {
+                         int quantity, Instant endAt, Instant paymentDueAt,
+                         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                         UUID offerId) {
+    public AuctionWon(UUID auctionId, UUID sellerId, UUID productId, UUID skuId, UUID winnerId,
+                      String finalPrice, String currency, String title, String imageUrl,
+                      int quantity, Instant endAt, Instant paymentDueAt) {
+        this(auctionId, sellerId, productId, skuId, winnerId, finalPrice, currency, title, imageUrl,
+                quantity, endAt, paymentDueAt, null);
+    }
     public AuctionWon {
         Objects.requireNonNull(auctionId); Objects.requireNonNull(sellerId);
         Objects.requireNonNull(productId); Objects.requireNonNull(skuId); Objects.requireNonNull(winnerId);

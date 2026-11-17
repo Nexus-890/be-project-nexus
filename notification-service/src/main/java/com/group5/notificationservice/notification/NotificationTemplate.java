@@ -11,6 +11,16 @@ import java.util.UUID;
 
 public enum NotificationTemplate {
 
+    SECOND_CHANCE_OFFER("SecondChanceOfferReady", "Second chance offer",
+            "You have a second chance offer for auction %s at %s %s. Respond before %s.",
+            new String[]{"bidderId"}, "auctionId", "amount", "currency", "expiresAt"),
+    SECOND_CHANCE_ACCEPTED("SecondChanceAccepted", "Offer accepted",
+            "Your second chance offer %s for auction %s was accepted.", new String[]{"sellerId"}, "offerId", "auctionId"),
+    SECOND_CHANCE_DECLINED("SecondChanceDeclined", "Offer declined",
+            "Your second chance offer %s for auction %s was declined.", new String[]{"sellerId"}, "offerId", "auctionId"),
+    SECOND_CHANCE_EXPIRED("SecondChanceExpired", "Offer expired",
+            "Your second chance offer %s for auction %s expired.", new String[]{"sellerId"}, "offerId", "auctionId"),
+
     ORDER_CREATED("OrderCreated", "Order placed", "Your order %s was placed",
             new String[]{"buyerId"}, "orderNumber"),
     ORDER_COMPLETED("OrderCompleted", "Order receipt", "Your order %s is complete. Your receipt is ready.",
@@ -86,6 +96,7 @@ public enum NotificationTemplate {
         }
         Object[] values = contentFields.stream().map(field -> requiredText(payload, field)).toArray();
         String content = contentFormat.formatted(values);
+        if (this == SECOND_CHANCE_OFFER) content += " View your offers: " + frontendBaseUrl.replaceAll("/+$", "") + "/my-bids";
         if (this == SHIPMENT_DELIVERED) {
             UUID orderId = UUID.fromString(requiredText(payload, "orderId"));
             content += " Rate your order: " + frontendBaseUrl.replaceAll("/+$", "") + "/order/" + orderId;

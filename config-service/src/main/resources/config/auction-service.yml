@@ -63,6 +63,7 @@ nexus:
     max-duration-hours: ${AUCTION_MAX_DURATION_HOURS:168}
     max-active-per-seller: ${MAX_ACTIVE_AUCTIONS_PER_SELLER:5}
     payment-deadline-hours: ${AUCTION_PAYMENT_DEADLINE_HOURS:24}
+    second-chance-offer-hours: ${AUCTION_SECOND_CHANCE_OFFER_HOURS:24}
     reputation-enforcement-enabled: ${FEATURE_REPUTATION_ENFORCEMENT:false}
     rating-base-url: ${AUCTION_RATING_BASE_URL:}
     reputation:

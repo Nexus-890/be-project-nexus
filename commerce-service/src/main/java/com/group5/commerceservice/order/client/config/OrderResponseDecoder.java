@@ -29,8 +29,14 @@ public final class OrderResponseDecoder implements Decoder {
             }
             JsonNode data = root.path("data");
             if (data.isArray()) {
+                var dataType = mapper.constructType(type).containedType(0);
+                boolean linkedReservations = dataType != null && dataType.getContentType() != null
+                        && dataType.getContentType().hasRawClass(com.group5.commerceservice.order.client.InventoryReservationHttpClient.LinkedReservation.class);
                 for (JsonNode quote : data) {
-                    if (!quote.isObject() || !quote.path("fee").isNumber()
+                    if (linkedReservations) {
+                        if (!quote.isObject() || !quote.path("reservationId").isString()
+                                || !quote.path("warehouseId").isString() || !quote.path("status").isString()) throw invalid(response);
+                    } else if (!quote.isObject() || !quote.path("fee").isNumber()
                             || !quote.path("carrier").isString() || !quote.path("serviceType").isString()
                             || !quote.path("estimatedDeliveryAt").isString()) throw invalid(response);
                 }

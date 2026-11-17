@@ -27,7 +27,7 @@ public class OrderEventPublisher {
         OrderCreated payload = new OrderCreated(order.getId(), order.getUserId(), order.getOrderNumber(),
                 order.getOrderType(), order.getReferenceId(), order.getOrderGroup().getId(), order.getSellerId(),
                 order.getVersion(), order.getItems().stream().map(OrderItem::getProductId)
-                        .distinct().sorted().toList());
+                        .distinct().sorted().toList(), order.getOfferId());
         outbox.write("Order", Topics.COMMERCE,
                 envelopes.create("OrderCreated", payload.orderId().toString(), payload));
     }

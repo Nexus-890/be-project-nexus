@@ -1,0 +1,356 @@
+{
+  "info": {
+    "name": "Nexus #208 — timeout and second chance offers",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Use isolated demo data. First expire an unpaid AUCTION order via normal scheduler, verify PAYMENT_TIMEOUT and stock release in DB. Preview has no side effects. Send then read until stockReady; accept then read own offers until orderId is available. Decline and Accept are alternative branches. Token/password/service secrets are intentionally empty in the environment. This collection is prepared from delivered #208 DTOs; running the HTTP/Kafka test harness does not imply the collection itself was run live."
+  },
+  "item": [
+    {
+      "name": "1 Seller preview — no email or hold",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{sellerToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/auctions/{{auctionId}}/second-chance-offers"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\",()=>pm.response.to.have.status(200));",
+              "const body=pm.response.json();",
+              "pm.test(\"Success envelope\",()=>{pm.expect(body.code).to.eql(0);pm.expect(body).to.have.property(\"data\");});",
+              "pm.test(\"Preview shape\",()=>{pm.expect(body.data.auctionId).to.eql(pm.environment.get(\"auctionId\"));pm.expect(body.data.canOffer).to.be.a(\"boolean\");});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2 Seller sends to next bidder — writes offer",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{sellerToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/auctions/{{auctionId}}/second-chance-offers"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\",()=>pm.response.to.have.status(200));",
+              "const body=pm.response.json();",
+              "pm.test(\"Success envelope\",()=>{pm.expect(body.code).to.eql(0);pm.expect(body).to.have.property(\"data\");});",
+              "const offer=body.data.offers.find(x=>x.status===\"OFFERED\");",
+              "pm.test(\"One open offer\",()=>pm.expect(body.data.offers.filter(x=>x.status===\"OFFERED\")).to.have.lengthOf(1));",
+              "if(offer){pm.environment.set(\"offerId\",offer.id);pm.environment.set(\"offerAmount\",String(offer.amount));}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3 Read offer history until stockReady",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{sellerToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/auctions/{{auctionId}}/second-chance-offers"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\",()=>pm.response.to.have.status(200));",
+              "const body=pm.response.json();",
+              "pm.test(\"Success envelope\",()=>{pm.expect(body.code).to.eql(0);pm.expect(body).to.have.property(\"data\");});",
+              "const offer=body.data.offers.find(x=>x.status===\"OFFERED\");",
+              "pm.test(\"One open offer\",()=>pm.expect(body.data.offers.filter(x=>x.status===\"OFFERED\")).to.have.lengthOf(1));",
+              "if(offer){pm.environment.set(\"offerId\",offer.id);pm.environment.set(\"offerAmount\",String(offer.amount));}",
+              "if(offer)pm.test(\"Inventory acknowledged the hold\",()=>pm.expect(offer.stockReady).to.eql(true));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4 Buyer own offers — no other buyer data",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{buyerToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/auctions/offers/me?page=0&size=10"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\",()=>pm.response.to.have.status(200));",
+              "const body=pm.response.json();",
+              "pm.test(\"Success envelope\",()=>{pm.expect(body.code).to.eql(0);pm.expect(body).to.have.property(\"data\");});",
+              "pm.test(\"Paged array\",()=>{pm.expect(body.data).to.be.an(\"array\");pm.expect(body.page.number).to.eql(0);});",
+              "const offer=body.data.find(x=>x.id===pm.environment.get(\"offerId\"));if(offer?.orderId)pm.environment.set(\"orderId\",offer.orderId);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5A Accept — alternative to decline",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{buyerToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/auctions/offers/{{offerId}}/accept"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\",()=>pm.response.to.have.status(200));",
+              "const body=pm.response.json();",
+              "pm.test(\"Success envelope\",()=>{pm.expect(body.code).to.eql(0);pm.expect(body).to.have.property(\"data\");});",
+              "pm.test(\"Accepted with fresh deadline\",()=>{pm.expect(body.data.status).to.eql(\"ACCEPTED\");pm.expect(Date.parse(body.data.paymentDueAt)).to.be.above(Date.now());});",
+              "if(body.data.orderId)pm.environment.set(\"orderId\",body.data.orderId);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5B Decline — alternative to accept, no penalty",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{buyerToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/auctions/offers/{{offerId}}/decline"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\",()=>pm.response.to.have.status(200));",
+              "const body=pm.response.json();",
+              "pm.test(\"Success envelope\",()=>{pm.expect(body.code).to.eql(0);pm.expect(body).to.have.property(\"data\");});",
+              "pm.test(\"Declined\",()=>pm.expect(body.data.status).to.eql(\"DECLINED\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6 Refresh accepted projection — save real orderId",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{buyerToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/auctions/offers/me?page=0&size=100"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\",()=>pm.response.to.have.status(200));",
+              "const body=pm.response.json();",
+              "pm.test(\"Success envelope\",()=>{pm.expect(body.code).to.eql(0);pm.expect(body).to.have.property(\"data\");});",
+              "const accepted=body.data.find(x=>x.id===pm.environment.get(\"offerId\"));",
+              "pm.test(\"Commerce order is ready\",()=>{pm.expect(accepted?.status).to.eql(\"ACCEPTED\");pm.expect(accepted?.orderId).to.be.a(\"string\");});",
+              "if(accepted?.orderId)pm.environment.set(\"orderId\",accepted.orderId);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7 Confirm address on real new order",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{buyerToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/orders/{{orderId}}/shipping-confirmation",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"recipientName\": \"Demo Buyer\",\n  \"phoneNumber\": \"0900000000\",\n  \"addressLine\": \"1 Demo Street\",\n  \"wardCode\": \"1003646\",\n  \"provinceCode\": \"1000001\",\n  \"countryCode\": \"VN\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\",()=>pm.response.to.have.status(200));",
+              "const body=pm.response.json();",
+              "pm.test(\"Success envelope\",()=>{pm.expect(body.code).to.eql(0);pm.expect(body).to.have.property(\"data\");});",
+              "pm.environment.set(\"orderGroupId\",body.data.orderGroupId);pm.environment.set(\"paymentTotal\",String(body.data.totalAmount));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "8 Initialize normal auction payment",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{buyerToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/payments",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"orderGroupId\": \"{{orderGroupId}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 201\",()=>pm.response.to.have.status(201));",
+              "const body=pm.response.json();",
+              "pm.test(\"Payment envelope\",()=>pm.expect(body.code).to.eql(0));",
+              "if(body.data.memoCode)pm.environment.set(\"paymentMemo\",body.data.memoCode);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "9 Read the paid order after signed SePay webhook",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{buyerToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/orders/{{orderId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\",()=>pm.response.to.have.status(200));",
+              "const body=pm.response.json();",
+              "pm.test(\"Success envelope\",()=>{pm.expect(body.code).to.eql(0);pm.expect(body).to.have.property(\"data\");});",
+              "pm.test(\"Order paid\",()=>pm.expect(body.data.status).to.eql(\"PAID\"));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
