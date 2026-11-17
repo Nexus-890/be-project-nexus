@@ -5,12 +5,14 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 import java.util.List;
 import java.util.UUID;
 
 public interface BidRepository extends JpaRepository<Bid, UUID> {
+    @Transactional(readOnly = true)
     Optional<Bid> findByIdempotencyKey(String idempotencyKey);
 
     // Lấy mọi người từng bid, kể cả bid cũ/outbid; mỗi người chỉ xuất hiện một lần trong email hủy.

@@ -73,9 +73,27 @@ class OrderShippingServiceTest {
         var sent = ArgumentCaptor.forClass(ShippingQuoteHttpClient.Request.class);
         verify(http).quote(sent.capture());
         assertThat(sent.getValue().warehouseId()).isNull();
+        assertThat(sent.getValue().applyFreeShipping()).isNull();
+        assertThat(JsonMapper.shared().valueToTree(sent.getValue()).has("applyFreeShipping")).isFalse();
         assertThat(sent.getValue().toAddress()).isEqualTo(new ShippingQuoteHttpClient.Address(
                 "1000001", "1003646", "1 Main Street", "Buyer", "0901234567"));
         assertThat(sent.getValue().items()).containsExactly(new ShippingQuoteHttpClient.Item(line.skuId(), 2));
+    }
+
+    @Test
+    void auctionQuoteUsesLinkedWarehouseAndDisablesCatalogPriceFreeShipping() {
+        UUID warehouse = UUID.randomUUID();
+        when(http.quote(any())).thenReturn(ApiResponse.list(List.of(new ShippingQuoteHttpClient.Response(
+                "GHN", "STANDARD", new BigDecimal("30000"), OffsetDateTime.now().plusDays(1)))));
+
+        assertThat(service.quoteAuction(address, List.of(line(1, 1200, 30, 20, 15)), warehouse).fee())
+                .isEqualByComparingTo("30000.00");
+
+        var sent = ArgumentCaptor.forClass(ShippingQuoteHttpClient.Request.class);
+        verify(http).quote(sent.capture());
+        assertThat(sent.getValue().warehouseId()).isEqualTo(warehouse);
+        assertThat(sent.getValue().applyFreeShipping()).isFalse();
+        assertThat(JsonMapper.shared().valueToTree(sent.getValue()).get("applyFreeShipping").asBoolean()).isFalse();
     }
 
     @Test

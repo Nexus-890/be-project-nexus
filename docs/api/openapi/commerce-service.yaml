@@ -9407,6 +9407,126 @@ paths:
               merge:
                 value:
                   guestToken: v1.68000000-0000-4000-8000-000000000002.signed-owner-capability
+  /api/v1/orders/{id}/shipping-confirmation:
+    post:
+      tags: [Orders]
+      operationId: confirmAuctionShipping
+      summary: Confirm the winning auction order's shipping address
+      description: >-
+        Requires CHECKOUT.START, BUYER and winner ownership. Only an unexpired PENDING AUCTION
+        order can be confirmed. Reads the linked HELD reservation's warehouse through #170/#209;
+        an empty/unlinked hold returns 409. No new reservation is made. Uses Catalog parcel
+        measurements and Shipment quotes, preserving the AuctionWon price and payment deadline.
+        The configured nexus.checkout.free-shipping-threshold (default 1000000 VND) applies to
+        the winning final price. Saves the two-level address, warehouse, parcel, shipping fee,
+        order/group totals and one CheckoutPaymentRequested atomically. Identical normalized
+        address retries return the saved result without dependency calls or another manifest.
+        A different address or non-PENDING/expired order returns 409.
+      security:
+        - bearerAuth: []
+      x-required-privileges: [CHECKOUT.START]
+      x-required-roles: [BUYER]
+      x-ownership: Winner owns the order; no ADMIN bypass.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShippingAddress'
+            example:
+              recipientName: Winner
+              phoneNumber: '0900000000'
+              addressLine: 1 Main Street
+              wardCode: '1003646'
+              provinceCode: '1000001'
+              countryCode: VN
+      responses:
+        '200':
+          description: Shipping confirmed, or the original stored confirmation.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {type: integer}
+                  message: {type: string}
+                  data:
+                    type: object
+                    required: [orderGroupId, shippingFee, totalAmount, dueAt]
+                    properties:
+                      orderGroupId: {type: string, format: uuid}
+                      shippingFee: {type: number, minimum: 0}
+                      totalAmount: {type: number, minimum: 0}
+                      dueAt: {type: string, format: date-time}
+              example:
+                code: 0
+                message: response success
+                data:
+                  orderGroupId: c8000000-0000-4000-8000-000000000006
+                  shippingFee: 0
+                  totalAmount: 1500000
+                  dueAt: '2031-01-02T00:00:00Z'
+        '400':
+          description: 'Codes: VALIDATION_FAILED, INVALID_REQUEST_BODY, INVALID_PARAMETER, COMMERCE_INVALID_SHIPPING_ADDRESS.'
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+              example: {type: 'urn:problem:domain-error', title: Bad Request, status: 400, detail: The shipping address is invalid, instance: /api/v1/orders/id/shipping-confirmation, code: COMMERCE_INVALID_SHIPPING_ADDRESS}
+        '401':
+          description: 'Codes: UNAUTHENTICATED, COMMERCE_UNAUTHENTICATED.'
+          headers:
+            WWW-Authenticate:
+              schema: {type: string}
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        '403':
+          description: 'Codes: FORBIDDEN, COMMERCE_FORBIDDEN. Requires BUYER, CHECKOUT.START and winner ownership.'
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        '404':
+          description: 'Code: COMMERCE_ORDER_NOT_FOUND.'
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        '409':
+          description: 'Codes: COMMERCE_AUCTION_SHIPPING_CONFLICT, COMMERCE_AUCTION_HOLD_NOT_LINKED, COMMERCE_INVALID_ORDER_AMOUNT, COMMERCE_SHIPPING_METADATA_REQUIRED, COMMERCE_INVALID_PARCEL.'
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+              examples:
+                holdNotLinked:
+                  value: {type: 'urn:problem:domain-error', title: Conflict, status: 409, detail: The auction hold is not linked to this order yet, instance: /api/v1/orders/id/shipping-confirmation, code: COMMERCE_AUCTION_HOLD_NOT_LINKED}
+                shippingConflict:
+                  value: {type: 'urn:problem:domain-error', title: Conflict, status: 409, detail: The auction order cannot confirm this shipping address, instance: /api/v1/orders/id/shipping-confirmation, code: COMMERCE_AUCTION_SHIPPING_CONFLICT}
+        '422':
+          description: 'Code: COMMERCE_SHIPPING_NOT_AVAILABLE.'
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        '502':
+          description: 'Code: COMMERCE_INVALID_CATALOG_RESPONSE.'
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        '503':
+          description: 'Codes: COMMERCE_INVENTORY_UNAVAILABLE, COMMERCE_SHIPPING_UNAVAILABLE, COMMERCE_CATALOG_UNAVAILABLE.'
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+              example: {type: 'urn:problem:domain-error', title: Service Unavailable, status: 503, detail: Inventory is unavailable; retry checkout later, instance: /api/v1/orders/id/shipping-confirmation, code: COMMERCE_INVENTORY_UNAVAILABLE}
+        '500':
+          description: 'Code: INTERNAL_ERROR.'
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
 components:
   securitySchemes:
     bearerAuth:
@@ -10566,6 +10686,12 @@ components:
       additionalProperties: false
 x-service: "commerce-service"
 x-business-error-codes:
+  COMMERCE_AUCTION_SHIPPING_CONFLICT:
+    status: 409
+    detail: The auction order cannot confirm this shipping address
+  COMMERCE_AUCTION_HOLD_NOT_LINKED:
+    status: 409
+    detail: The auction hold is not linked to this order yet
   COMMERCE_PROMOTION_INVALID_REQUEST:
     status: 400
     detail: "The promotion request is invalid"
