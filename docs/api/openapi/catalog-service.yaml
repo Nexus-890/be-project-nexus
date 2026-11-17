@@ -7930,6 +7930,10 @@ components:
           format: "int32"
         path:
           type: "string"
+        description:
+          type: "string"
+          nullable: true
+          description: "Stored category description, returned for admin editing."
     CategoryTree:
       type: "object"
       required:

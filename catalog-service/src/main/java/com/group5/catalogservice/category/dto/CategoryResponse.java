@@ -14,4 +14,5 @@ public class CategoryResponse {
     private String slug;
     private Short level;
     private String path;
+    private String description;
 }

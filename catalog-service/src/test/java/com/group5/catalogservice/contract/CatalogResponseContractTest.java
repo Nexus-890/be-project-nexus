@@ -76,7 +76,7 @@ class CatalogResponseContractTest {
 
     @Test
     void categoryRoutesUseDataEnvelopeAndDeleteKeepsNoContent() throws Exception {
-        CategoryResponse category = new CategoryResponse(id, null, "Shirts", "shirts", (short) 1, "/shirts/");
+        CategoryResponse category = new CategoryResponse(id, null, "Shirts", "shirts", (short) 1, "/shirts/", "Cotton shirts");
         when(categories.create(any())).thenReturn(category);
         when(categories.update(eq(id), any())).thenReturn(category);
         when(categories.getById(id)).thenReturn(category);
@@ -88,6 +88,8 @@ class CatalogResponseContractTest {
         assertObject(patch("/api/v1/categories/{id}", id).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"Shirts\"}"), 200);
         assertObject(get("/api/v1/categories/{id}", id), 200);
+        mvc.perform(get("/api/v1/categories/{id}", id))
+                .andExpect(jsonPath("$.data.description").value("Cotton shirts"));
         mvc.perform(get("/api/v1/categories/tree"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].id").value(id.toString()))

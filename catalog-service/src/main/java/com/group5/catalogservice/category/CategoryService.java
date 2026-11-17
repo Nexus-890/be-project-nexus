@@ -375,7 +375,8 @@ public class CategoryService {
                 category.getName(),
                 category.getSlug(),
                 category.getLevel(),
-                category.getPath()
+                category.getPath(),
+                category.getDescription()
         );
     }
 
