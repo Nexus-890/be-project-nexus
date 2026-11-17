@@ -164,7 +164,8 @@ public class ProductService {
     }
 
     @Transactional(readOnly = true)
-    public Page<ProductResponse> getMyProducts(CurrentUser currentUser, ProductStatus status, int page, int size) {
+    public Page<ProductResponse> getMyProducts(CurrentUser currentUser, ProductStatus status, Boolean auctionEnable,
+                                              int page, int size) {
 
         requirePrivilege(currentUser, "PRODUCT.LIST");
 
@@ -172,13 +173,14 @@ public class ProductService {
 
         validatePagination(page, size);
 
-        log.debug("Getting seller products: sellerId={}, status={}, page={}, size={}", sellerId, status, page, size);
+        log.debug("Getting seller products: sellerId={}, status={}, auctionEnable={}, page={}, size={}",
+                sellerId, status, auctionEnable, page, size);
 
         Pageable pageable = PageRequest.of(page, size);
 
         Page<ProductResponse> responses = status == null
-                ? productRepository.findProductResponsesBySeller(sellerId, pageable)
-                : productRepository.findProductResponsesBySellerAndStatus(sellerId, status, pageable);
+                ? productRepository.findProductResponsesBySeller(sellerId, auctionEnable, pageable)
+                : productRepository.findProductResponsesBySellerAndStatus(sellerId, status, auctionEnable, pageable);
         log.debug("Finished getting seller products: sellerId={}, totalElements={}",
                 sellerId, responses.getTotalElements());
 

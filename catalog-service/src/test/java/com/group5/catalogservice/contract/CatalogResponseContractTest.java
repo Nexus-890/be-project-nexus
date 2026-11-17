@@ -112,7 +112,7 @@ class CatalogResponseContractTest {
                 id, sellerId, "Draft description", true, List.of(), List.of()));
         var page = new PageImpl<>(List.of(product), PageRequest.of(1, 2), 5);
         when(products.searchProducts(null, null, "relevance", "all", null, 1, 2)).thenReturn(page);
-        when(products.getMyProducts(actor, null, 1, 2)).thenReturn(page);
+        when(products.getMyProducts(actor, null, null, 1, 2)).thenReturn(page);
 
         String request = "{\"name\":\"Shirt\",\"categoryId\":\"" + id + "\",\"auctionEnable\":false}";
         assertObject(post("/api/v1/products").contentType(MediaType.APPLICATION_JSON).content(request), 201);
