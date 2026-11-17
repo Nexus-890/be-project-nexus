@@ -506,6 +506,7 @@ class RegistrationIntegrationTest {
         JsonNode permissions = JSON.readTree(admin("GET", "/api/v1/permissions", Map.of()).body());
         assertThat(permissions.get("data").size()).isEqualTo(70);
         assertThat(admin("PUT", "/api/v1/users/" + id, Map.of("email", "managed-new@nexus.test", "address", "New address")).statusCode()).isEqualTo(200);
+        KeycloakTestServer.markEmailVerified(id);
         assertThat(KeycloakTestServer.signIn("managed-new@nexus.test", PASSWORD)).isNotBlank();
         assertThat(admin("PUT", "/api/v1/users/" + id + "/roles", Map.of("roleCodes", List.of("SELLER"))).statusCode()).isEqualTo(200);
         assertThat(KeycloakTestServer.realmRoles(id)).contains("SELLER").doesNotContain("BUYER");
@@ -546,6 +547,8 @@ class RegistrationIntegrationTest {
         assertThat(keycloak.userState(secondId)).containsEntry("username", "original@nexus.test");
         assertThat(KeycloakTestServer.userIdByEmail("changed@nexus.test")).contains(firstId);
         assertThat(KeycloakTestServer.userIdByEmail("original@nexus.test")).contains(secondId);
+        KeycloakTestServer.markEmailVerified(firstId);
+        KeycloakTestServer.markEmailVerified(secondId);
         assertThat(KeycloakTestServer.signIn("changed@nexus.test", PASSWORD)).isNotBlank();
         assertThat(KeycloakTestServer.signIn("original@nexus.test", PASSWORD)).isNotBlank();
         assertThat(jdbc.queryForObject("select email from users where id=?", String.class, firstId))
