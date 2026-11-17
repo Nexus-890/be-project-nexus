@@ -6,4 +6,4 @@ spring:
     import:
       - optional:file:../infra/local-dev/.env[.properties]
       - optional:file:./infra/local-dev/.env[.properties]
-      - configserver:http://localhost:8888
+      - configserver:${CONFIG_SERVER_URL:http://localhost:8888}

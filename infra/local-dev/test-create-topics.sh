@@ -180,7 +180,8 @@ run_case repeat 0 ok all run
 
 run_case newtopic 0 ok missing-last run
 [ "$(wc -l < "$CASE_LOG")" = 1 ] || { echo 'newtopic should create exactly one topic' >&2; cat "$CASE_LOG" >&2; exit 1; }
-grep -q 'CREATE nexus.training.integration.v1' "$CASE_LOG"
+last_topic="$(awk -F'|' '$1 == "topic" { name = $2 } END { print name }' "$SOURCE_DIR/kafka/topics.conf")"
+grep -q "CREATE $last_topic" "$CASE_LOG"
 
 run_case mismatchpartition 1 mismatch-partition all run
 [ ! -s "$CASE_LOG" ] || { echo 'mismatchpartition should not create topics' >&2; exit 1; }

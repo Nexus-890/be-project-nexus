@@ -1,0 +1,465 @@
+name: nexus-staging
+
+x-service-build: &service-build
+  dockerfile: ../infra/staging/service.Dockerfile
+
+x-java-service: &java-service
+  restart: unless-stopped
+  networks: [nexus]
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
+
+x-service-env: &service-env
+  TZ: ${TZ}
+  CONFIG_SERVER_URL: http://config-service:8888
+  EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-service:8761/eureka/
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_USERNAME: ${DB_USERNAME}
+  DB_PASSWORD: ${DB_PASSWORD}
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_PASSWORD: ${REDIS_PASSWORD}
+  KEYCLOAK_ISSUER_URI: https://${STAGING_HOST}/realms/nexus
+  KEYCLOAK_JWK_SET_URI: http://auth-service:8080/realms/nexus/protocol/openid-connect/certs
+  KEYCLOAK_SERVER_URL: http://auth-service:8080
+  KEYCLOAK_REALM_URL: http://auth-service:8080/realms/nexus
+
+x-after-platform: &after-platform
+  config-service:
+    condition: service_healthy
+  discovery-service:
+    condition: service_healthy
+  postgres:
+    condition: service_healthy
+  kafka-init:
+    condition: service_completed_successfully
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    environment:
+      TZ: ${TZ}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ../local-dev/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "max_connections=300"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 1536m
+    restart: unless-stopped
+    networks: [nexus]
+    logging: *logging
+
+  kafka:
+    image: apache/kafka:4.3.1
+    environment:
+      TZ: ${TZ}
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    mem_limit: 1g
+    restart: unless-stopped
+    networks: [nexus]
+    logging: *logging
+
+  kafka-init:
+    image: apache/kafka:4.3.1
+    entrypoint: ["/bin/bash", "/opt/nexus/create-topics.sh"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    volumes:
+      - ../local-dev/create-topics.sh:/opt/nexus/create-topics.sh:ro
+      - ../local-dev/kafka:/opt/nexus/kafka:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
+    networks: [nexus]
+
+  redis:
+    image: redis:8-alpine
+    environment:
+      TZ: ${TZ}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes --maxmemory 192mb --maxmemory-policy noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 256m
+    restart: unless-stopped
+    networks: [nexus]
+    logging: *logging
+
+  zipkin:
+    image: openzipkin/zipkin:3.6.1
+    environment:
+      TZ: ${TZ}
+      JAVA_OPTS: -Xms128m -Xmx256m
+    ports:
+      - "127.0.0.1:${ZIPKIN_LOCAL_PORT:-9411}:9411"
+    mem_limit: 512m
+    restart: unless-stopped
+    networks: [nexus]
+    logging: *logging
+
+  mailpit:
+    image: axllent/mailpit:v1.31
+    environment:
+      TZ: ${TZ}
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    ports:
+      - "127.0.0.1:${MAILPIT_LOCAL_PORT:-8025}:8025"
+    mem_limit: 128m
+    restart: unless-stopped
+    networks: [nexus]
+    logging: *logging
+
+  auth-service:
+    image: quay.io/keycloak/keycloak:26.7.5
+    command: ["start", "--import-realm"]
+    environment:
+      TZ: ${TZ}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/auth_db
+      KC_DB_USERNAME: ${DB_USERNAME}
+      KC_DB_PASSWORD: ${DB_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HOSTNAME: https://${STAGING_HOST}
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      NEXUS_SMTP_HOST: mailpit
+      NEXUS_SMTP_PORT: "1025"
+      NEXUS_SMTP_FROM: ${MAIL_FROM}
+      JAVA_OPTS_KC_HEAP: -Xms256m -Xmx640m
+    volumes:
+      - ../local-dev/keycloak/realm-nexus.json:/opt/keycloak/data/import/nexus-realm.json:ro
+      - ../local-dev/keycloak/themes/nexus:/opt/keycloak/themes/nexus:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && read -r status <&3 && [[ $$status == *' 200 '* ]]"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
+    mem_limit: 1g
+    restart: unless-stopped
+    networks: [nexus]
+    logging: *logging
+
+  auth-seed:
+    profiles: ["tools"]
+    image: quay.io/keycloak/keycloak:26.7.5
+    entrypoint: ["/bin/bash", "/opt/nexus/staging-realm.sh"]
+    environment:
+      KEYCLOAK_SERVER_URL: http://auth-service:8080
+      STAGING_HOST: ${STAGING_HOST}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD}
+      DEMO_SELLER_PASSWORD: ${DEMO_SELLER_PASSWORD}
+      DEMO_BUYER_PASSWORD: ${DEMO_BUYER_PASSWORD}
+      KEYCLOAK_USER_SERVICE_CLIENT_SECRET: ${KEYCLOAK_USER_SERVICE_CLIENT_SECRET}
+      KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET: ${KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET:-}
+      KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET: ${KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET:-}
+      AUCTION_RATING_CLIENT_SECRET: ${AUCTION_RATING_CLIENT_SECRET:-}
+      KEYCLOAK_SMTP_HOST: mailpit
+      KEYCLOAK_SMTP_PORT: "1025"
+      KEYCLOAK_SMTP_FROM: ${MAIL_FROM}
+    volumes:
+      - ./staging-realm.sh:/opt/nexus/staging-realm.sh:ro
+      - ../local-dev/keycloak/seed-users.sh:/opt/nexus/seed-users.sh:ro
+      - ../local-dev/keycloak/auction-rating-client.json:/opt/nexus/auction-rating-client.json:ro
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    restart: "no"
+    networks: [nexus]
+
+  config-service:
+    <<: *java-service
+    image: nexus/config-service:${NEXUS_TAG}
+    build: { context: ../../config-service, <<: *service-build }
+    environment:
+      TZ: ${TZ}
+      JAVA_TOOL_OPTIONS: -Xms96m -Xmx192m -XX:MaxMetaspaceSize=128m -Xss512k
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-service:8761/eureka/
+      MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+      KEYCLOAK_SERVER_URL: http://auth-service:8080
+      KEYCLOAK_ISSUER_URI: https://${STAGING_HOST}/realms/nexus
+      KEYCLOAK_JWK_SET_URI: http://auth-service:8080/realms/nexus/protocol/openid-connect/certs
+      KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET: ${KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET:-}
+      CONFIG_AUDIT_SHARED_SECRET: ${CONFIG_AUDIT_SHARED_SECRET}
+      SYSTEM_CONFIG_STATE_FILE: /app/data/system-configs.json
+      USER_SERVICE_URL: http://user-service:8081
+      CATALOG_SERVICE_URL: http://catalog-service:8082
+      COMMERCE_SERVICE_URL: http://commerce-service:8083
+      AUCTION_SERVICE_URL: http://auction-service:8084
+      INVENTORY_SERVICE_URL: http://inventory-service:8085
+      NOTIFICATION_SERVICE_URL: http://notification-service:8086
+      PAYMENT_SERVICE_URL: http://payment-service:8087
+      SHIPMENT_SERVICE_URL: http://shipment-service:8088
+      RATING_SERVICE_URL: http://rating-service:8089
+    volumes:
+      - config-data:/app/data
+    healthcheck: &health-8888
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8888; printf 'GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    mem_limit: 448m
+
+  discovery-service:
+    <<: *java-service
+    image: nexus/discovery-service:${NEXUS_TAG}
+    build: { context: ../../discovery-service, <<: *service-build }
+    environment:
+      TZ: ${TZ}
+      JAVA_TOOL_OPTIONS: -Xms96m -Xmx192m -XX:MaxMetaspaceSize=128m -Xss512k
+      CONFIG_SERVER_URL: http://config-service:8888
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-service:8761/eureka/
+      MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+    depends_on:
+      config-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8761; printf 'GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    mem_limit: 448m
+
+  api-gateway:
+    <<: *java-service
+    image: nexus/api-gateway:${NEXUS_TAG}
+    build: { context: ../../api-gateway, <<: *service-build }
+    environment:
+      <<: *service-env
+      JAVA_TOOL_OPTIONS: -Xms128m -Xmx384m -XX:MaxMetaspaceSize=160m -Xss512k
+      SERVER_FORWARD_HEADERS_STRATEGY: native
+      NEXUS_SERVICES_CONFIG_URL: http://config-service:8888
+      FRONTEND_ORIGIN: https://${STAGING_HOST}
+      SESSION_COOKIE_SECURE: "true"
+    depends_on:
+      <<: *after-platform
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    healthcheck: &health-8080
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* || $$status == *' 401 '* ]]"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    mem_limit: 704m
+
+  user-service:
+    <<: *java-service
+    image: nexus/user-service:${NEXUS_TAG}
+    build: { context: ../../user-service, <<: *service-build }
+    environment:
+      <<: *service-env
+      JAVA_TOOL_OPTIONS: -Xms128m -Xmx320m -XX:MaxMetaspaceSize=160m -Xss512k
+      KEYCLOAK_USER_SERVICE_CLIENT_SECRET: ${KEYCLOAK_USER_SERVICE_CLIENT_SECRET}
+    depends_on:
+      <<: *after-platform
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      <<: *health-8080
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8081; printf 'GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+    mem_limit: 640m
+
+  catalog-service:
+    <<: *java-service
+    image: nexus/catalog-service:${NEXUS_TAG}
+    build: { context: ../../catalog-service, <<: *service-build }
+    environment:
+      <<: *service-env
+      JAVA_TOOL_OPTIONS: -Xms128m -Xmx384m -XX:MaxMetaspaceSize=160m -Xss512k
+      COMMERCE_SERVICE_URL: http://commerce-service:8083
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY:-}
+      SUPABASE_BUCKET: ${SUPABASE_BUCKET:-product-images}
+    depends_on: *after-platform
+    healthcheck:
+      <<: *health-8080
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8082; printf 'GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+    mem_limit: 704m
+
+  commerce-service:
+    <<: *java-service
+    image: nexus/commerce-service:${NEXUS_TAG}
+    build: { context: ../../commerce-service, <<: *service-build }
+    environment:
+      <<: *service-env
+      JAVA_TOOL_OPTIONS: -Xms128m -Xmx384m -XX:MaxMetaspaceSize=160m -Xss512k
+      ALLOW_GUEST_CART: ${ALLOW_GUEST_CART:-false}
+      CART_GUEST_TOKEN_SECRET: ${CART_GUEST_TOKEN_SECRET:-}
+      ORDER_INVENTORY_BASE_URL: http://inventory-service:8085
+      ORDER_SHIPPING_BASE_URL: http://shipment-service:8088
+    depends_on: *after-platform
+    healthcheck:
+      <<: *health-8080
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8083; printf 'GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+    mem_limit: 704m
+
+  auction-service:
+    <<: *java-service
+    image: nexus/auction-service:${NEXUS_TAG}
+    build: { context: ../../auction-service, <<: *service-build }
+    environment:
+      <<: *service-env
+      JAVA_TOOL_OPTIONS: -Xms128m -Xmx320m -XX:MaxMetaspaceSize=160m -Xss512k
+      AUCTION_RATING_BASE_URL: http://rating-service:8089
+      AUCTION_RATING_CLIENT_SECRET: ${AUCTION_RATING_CLIENT_SECRET:-}
+      AUCTION_RATING_TOKEN_URI: http://auth-service:8080/realms/nexus/protocol/openid-connect/token
+      FEATURE_REPUTATION_ENFORCEMENT: ${FEATURE_REPUTATION_ENFORCEMENT:-false}
+    depends_on: *after-platform
+    healthcheck:
+      <<: *health-8080
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8084; printf 'GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+    mem_limit: 640m
+
+  inventory-service:
+    <<: *java-service
+    image: nexus/inventory-service:${NEXUS_TAG}
+    build: { context: ../../inventory-service, <<: *service-build }
+    environment:
+      <<: *service-env
+      JAVA_TOOL_OPTIONS: -Xms128m -Xmx256m -XX:MaxMetaspaceSize=160m -Xss512k
+    depends_on: *after-platform
+    healthcheck:
+      <<: *health-8080
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8085; printf 'GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+    mem_limit: 576m
+
+  notification-service:
+    <<: *java-service
+    image: nexus/notification-service:${NEXUS_TAG}
+    build: { context: ../../notification-service, <<: *service-build }
+    environment:
+      <<: *service-env
+      JAVA_TOOL_OPTIONS: -Xms128m -Xmx320m -XX:MaxMetaspaceSize=160m -Xss512k
+      MAIL_HOST: mailpit
+      MAILPIT_SMTP_PORT: "1025"
+      NOTIFICATION_EMAIL_FROM: ${MAIL_FROM}
+      EMAIL_NOTIFICATION_ENABLED: ${EMAIL_NOTIFICATION_ENABLED:-false}
+      KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET: ${KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET:-}
+      CONFIG_AUDIT_SHARED_SECRET: ${CONFIG_AUDIT_SHARED_SECRET}
+      NEXUS_ENVIRONMENT: staging
+      NEXUS_FRONTEND_URL: https://${STAGING_HOST}
+    depends_on:
+      <<: *after-platform
+      redis:
+        condition: service_healthy
+    healthcheck:
+      <<: *health-8080
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8086; printf 'GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+    mem_limit: 640m
+
+  payment-service:
+    <<: *java-service
+    image: nexus/payment-service:${NEXUS_TAG}
+    build: { context: ../../payment-service, <<: *service-build }
+    environment:
+      <<: *service-env
+      JAVA_TOOL_OPTIONS: -Xms128m -Xmx320m -XX:MaxMetaspaceSize=160m -Xss512k
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-SEPAY}
+      SEPAY_BANK_ID: ${SEPAY_BANK_ID:-970415}
+      SEPAY_BANK_ACCOUNT: ${SEPAY_BANK_ACCOUNT:-}
+      SEPAY_ACCOUNT_NAME: ${SEPAY_ACCOUNT_NAME:-}
+      SEPAY_TRANSFER_CONTENT_PREFIX: ${SEPAY_TRANSFER_CONTENT_PREFIX-SEVQR}
+      SEPAY_WEBHOOK_SECRET: ${SEPAY_WEBHOOK_SECRET}
+      PAYOUT_ACCOUNT_ENCRYPTION_KEY: ${PAYOUT_ACCOUNT_ENCRYPTION_KEY:-}
+      PAYOUT_PROVIDER: ${PAYOUT_PROVIDER:-sandbox}
+    depends_on: *after-platform
+    healthcheck:
+      <<: *health-8080
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8087; printf 'GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+    mem_limit: 640m
+
+  shipment-service:
+    <<: *java-service
+    image: nexus/shipment-service:${NEXUS_TAG}
+    build: { context: ../../shipment-service, <<: *service-build }
+    environment:
+      <<: *service-env
+      JAVA_TOOL_OPTIONS: -Xms128m -Xmx256m -XX:MaxMetaspaceSize=160m -Xss512k
+      SHIPPING_CARRIER: ${SHIPPING_CARRIER:-NONE}
+      SHIPPING_CATALOG_BASE_URL: http://catalog-service:8082
+      SHIPPING_COMMERCE_BASE_URL: http://commerce-service:8083
+      GHN_BASE_URL: ${GHN_BASE_URL:-https://dev-online-gateway.ghn.vn}
+      GHN_SHOP_ID: ${GHN_SHOP_ID:-0}
+      GHN_TOKEN: ${GHN_TOKEN:-}
+      GHN_WEBHOOK_SECRET: ${GHN_WEBHOOK_SECRET:-}
+    depends_on: *after-platform
+    healthcheck:
+      <<: *health-8080
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8088; printf 'GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+    mem_limit: 576m
+
+  rating-service:
+    <<: *java-service
+    image: nexus/rating-service:${NEXUS_TAG}
+    build: { context: ../../rating-service, <<: *service-build }
+    environment:
+      <<: *service-env
+      JAVA_TOOL_OPTIONS: -Xms128m -Xmx256m -XX:MaxMetaspaceSize=160m -Xss512k
+      RATING_ELIGIBILITY_ALLOWED_CLIENTS: nexus-auction-service
+    depends_on: *after-platform
+    healthcheck:
+      <<: *health-8080
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8089; printf 'GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+    mem_limit: 576m
+
+networks:
+  nexus:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  kafka-data:
+  redis-data:
+  config-data:

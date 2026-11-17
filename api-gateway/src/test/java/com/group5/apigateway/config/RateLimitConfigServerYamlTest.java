@@ -27,7 +27,7 @@ class RateLimitConfigServerYamlTest {
         assertThat(yaml.getProperty("spring.config.import[1]"))
                 .isEqualTo("optional:file:./infra/local-dev/.env[.properties]");
         assertThat(yaml.getProperty("spring.config.import[2]"))
-                .isEqualTo("configserver:http://localhost:8888");
+                .isEqualTo("configserver:${CONFIG_SERVER_URL:http://localhost:8888}");
     }
 
     @Test

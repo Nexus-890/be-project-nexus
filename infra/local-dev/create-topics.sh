@@ -135,7 +135,7 @@ parse_manifest() {
         [ -z "${SEEN_TOPICS[$field1]+x}" ] || manifest_error "line $line_no duplicate topic $field1"
         [ -n "$field2" ] || manifest_error "line $line_no owner is required"
         [ -n "$field3" ] || manifest_error "line $line_no partition key is required"
-        case "$field4" in proposed|demo) ;; *) manifest_error "line $line_no status must be proposed or demo" ;; esac
+        case "$field4" in active|proposed|demo) ;; *) manifest_error "line $line_no status must be active, proposed or demo" ;; esac
         [ -n "${rest:-}" ] || manifest_error "line $line_no description is required"
         SEEN_TOPICS[$field1]=1
         TOPIC_NAMES+=("$field1")
