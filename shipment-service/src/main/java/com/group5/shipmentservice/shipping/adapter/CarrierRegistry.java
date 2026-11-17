@@ -2,6 +2,8 @@ package com.group5.shipmentservice.shipping.adapter;
 
 import com.group5.common_core.exception.DomainException;
 import com.group5.shipmentservice.shared.exception.ShipmentErrorCode;
+import com.group5.shipmentservice.shared.config.ShippingProperties;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.Comparator;
@@ -12,9 +14,16 @@ import java.util.Set;
 @Component
 public class CarrierRegistry {
     private final List<CarrierAdapter> adapters;
+    private final String quoteCarrier;
 
     //lấy ra list các adapter đã được đăng kí
     public CarrierRegistry(List<CarrierAdapter> adapters) {
+        this(adapters, null);
+    }
+
+    @Autowired
+    public CarrierRegistry(List<CarrierAdapter> adapters, ShippingProperties properties) {
+        this.quoteCarrier = properties == null ? null : properties.effectiveQuoteCarrier().name();
         Set<String> codes = new HashSet<>();
         for (CarrierAdapter adapter : adapters) {
             if (adapter.code() == null || adapter.code().isBlank()
@@ -33,7 +42,11 @@ public class CarrierRegistry {
     }
 
     public CarrierAdapter getDefaultAdapter() {
-        return adapters.stream().findFirst()
+        return getQuoteAdapters().stream().findFirst()
                 .orElseThrow(() -> new DomainException(ShipmentErrorCode.CARRIER_CONFIGURATION_ERROR));
+    }
+
+    public List<CarrierAdapter> getQuoteAdapters() {
+        return adapters.stream().filter(adapter -> quoteCarrier == null || adapter.code().equals(quoteCarrier)).toList();
     }
 }

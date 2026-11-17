@@ -1,9 +1,21 @@
-# Completion effect acceptance — #220 and #257
+# Completion effect acceptance — #220, #257 and #258
 
 This module verifies the real commerce completion transaction and its two
 downstream boundaries. It creates isolated PostgreSQL 18 databases, runs each
 service's Flyway migrations and starts its actual repositories/services/consumer
 components with Hibernate `ddl-auto=validate`.
+
+It also covers the paid-order shipment boundary in `PaidOrderShipmentAcceptanceTest`.
+The actual `CheckoutPaymentConfirmedConsumer` processes a payment confirmation
+for a persisted PENDING order and writes `OrderPaid` through the real commerce
+outbox. Its serialized payload, with no `serviceType` and a null `pickupAddress`,
+is delivered to the production shipment consumer and tracking worker against a
+separate shipment database. The real GHN adapter talks to a local HTTP provider
+fixture. These scenarios verify configured pickup preparation, a GHN code within
+one recovery-worker cycle, FAKE/NONE booking with the stored quote fee, and one
+remote order plus one fallback-history row after address fallback and timeout.
+They do not invoke the SePay webhook, submit an order in the browser or inspect
+the GHN dashboard; those remain separate manual acceptance steps.
 
 - DELIVERED and reported-issue orders have no completion outbox event, receipt
   delivery, payout eligibility or payout.
@@ -11,6 +23,9 @@ components with Hibernate `ddl-auto=validate`.
   serialized outbox envelope is passed to the production notification consumer;
   its real queue/retry/attempt logic and JavaMail sender deliver MIME over TCP to
   a local SMTP inbox. Event replay and an SMTP outage/retry are covered.
+- Repeating buyer confirmation after completion returns
+  `COMMERCE_ORDER_NOT_DELIVERED` (409), including after automatic completion;
+  the conflict does not add another completion event, receipt or payout.
 - The same actual completion envelope is passed to the production payment
   consumer. Only matching paid funding qualifies, with one durable eligibility
   row and one ON_HOLD payout after replay when no bank account is verified.
@@ -39,8 +54,8 @@ Build plain service artifacts into the local Maven repository first. A clean
 build matters when a previous build produced a Spring Boot executable jar:
 
 ```powershell
-# Run from each of commerce-service, notification-service and payment-service:
-.\mvnw.cmd clean install -DskipTests -Dspring-boot.repackage.skip=true
+# Run from each of commerce-service, notification-service, payment-service and shipment-service:
+.\mvnw.cmd clean install '-DskipTests' '-Dspring-boot.repackage.skip=true'
 
 # Run from infra/receipt-completion-acceptance:
 mvn clean verify
@@ -76,3 +91,15 @@ latest run additionally validates all three consolidated migration baselines.
 After synchronizing develop `a686c099`, all five acceptance scenarios passed
 again; commerce clean verify passed 475 tests and payment clean verify passed
 282, with the same five/three existing skips and no failures/errors.
+
+An additional `PaidOrderShipmentSandboxTest` is opt-in and skipped by the normal
+suite. With only `GHN_TOKEN` and `GHN_SHOP_ID` supplied privately in the process
+environment, run `mvn test '-Dtest=PaidOrderShipmentSandboxTest'` with
+`GHN_SANDBOX_SMOKE=true` (and the native JDBC overrides above when needed).
+It uses GHN's public `72 Lê Thánh Tôn, Phường Sài Gòn, Hồ Chí Minh` example,
+resolves its live administrative codes, processes an actual Commerce payment
+confirmation/outbox and commits a pending shipment before the immediate booking
+wakeup. One real tracking-worker cycle must obtain a GHN sandbox code. Event
+replay, another worker run and a direct client-code lookup must retain the same
+code and history count. The test reads no private pickup/recipient settings and
+does not prove the browser payment or GHN-dashboard portions of manual T3.

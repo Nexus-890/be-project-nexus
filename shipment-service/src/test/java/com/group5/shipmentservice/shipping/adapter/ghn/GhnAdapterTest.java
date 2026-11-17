@@ -5,6 +5,7 @@ import com.group5.shipmentservice.shared.config.GhnProperties;
 import com.group5.shipmentservice.shared.config.ShippingProperties;
 import com.group5.shipmentservice.shipping.adapter.model.CarrierAddress;
 import com.group5.shipmentservice.shipping.adapter.model.CarrierQuoteRequest;
+import com.group5.shipmentservice.shipping.adapter.model.CarrierShipmentRequest;
 import com.group5.shipmentservice.shipping.dto.request.ParcelRequest;
 import com.group5.shipmentservice.shipping.dto.response.LocalityResponse;
 import com.group5.shipmentservice.shipping.enums.ShippingServiceType;
@@ -31,6 +32,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.LinkedHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -62,6 +65,202 @@ class GhnAdapterTest {
     void tearDown() {
         server.stop(0);
         workers.shutdownNow();
+    }
+
+    @Test
+    void booksPaidSnapshotWithStableClientCodeFullAddressAndReturnedEstimate() {
+        response = this::bookingResponse;
+        CarrierShipmentRequest snapshot = shipmentRequest();
+        var result = adapter(3000, 3).bookShipment(snapshot, deadline());
+        assertThat(result.trackingCode()).isEqualTo("GHN123456");
+        assertThat(result.estimatedDeliveryAt().toInstant()).isEqualTo(Instant.parse("2026-11-20T16:59:59Z"));
+        assertThat(result.addressFallback()).isFalse();
+        var create = requests.stream().filter(request -> request.path().endsWith("/create")).toList();
+        assertThat(create).singleElement().satisfies(request -> {
+            assertThat(request.method()).isEqualTo("POST");
+            assertThat(request.token()).isEqualTo("token-kiem-thu");
+            assertThat(request.shopId()).isEqualTo("12345");
+            JsonNode body = mapper.readTree(request.body());
+            assertThat(body.path("client_order_code").asString()).isEqualTo(snapshot.requestId().toString());
+            assertThat(body.path("to_name").asString()).isEqualTo("Nguyễn Văn An");
+            assertThat(body.path("to_phone").asString()).isEqualTo("0901234567");
+            assertThat(body.path("to_address").asString()).isEqualTo("12 Lê Lợi, Phường Sài Gòn, Hồ Chí Minh");
+            assertThat(body.path("to_ward_name").asString()).isEqualTo("Phường Sài Gòn");
+            assertThat(body.path("to_province_name").asString()).isEqualTo("Hồ Chí Minh");
+            assertThat(body.path("is_new_to_address").asBoolean()).isTrue();
+            assertThat(body.path("is_new_from_address").asBoolean()).isTrue();
+            assertThat(body.path("from_address").asString()).isEqualTo("20 Nguyễn Huệ, Phường Sài Gòn, Hồ Chí Minh");
+            assertThat(body.path("weight").asInt()).isEqualTo(1200);
+            assertThat(body.path("length").asInt()).isEqualTo(30);
+            assertThat(body.path("width").asInt()).isEqualTo(20);
+            assertThat(body.path("height").asInt()).isEqualTo(15);
+            assertThat(body.path("service_type_id").asInt()).isEqualTo(2);
+            assertThat(body.path("payment_type_id").asInt()).isEqualTo(1);
+            assertThat(body.path("required_note").asString()).isEqualTo("KHONGCHOXEMHANG");
+            assertThat(body.path("cod_amount").asInt()).isZero();
+            assertThat(body.path("items").get(0).path("name").asString()).isEqualTo("Áo thun");
+            assertThat(body.path("items").get(0).path("quantity").asInt()).isEqualTo(2);
+            assertThat(request.body()).doesNotContain("district");
+        });
+        assertThat(requests.getFirst().path()).endsWith("/detail-by-client-code");
+    }
+
+    @Test
+    void bookingTimeoutLooksUpThePersistedCodeBeforeRetryAndCreatesOnlyOneWaybill() {
+        AtomicInteger creates = new AtomicInteger();
+        CarrierShipmentRequest snapshot = shipmentRequest();
+        response = request -> {
+            if (request.path().endsWith("/create")) {
+                creates.incrementAndGet(); // GHN committed the order, but the response is lost.
+                return new StubResponse(200, bookingResponse(request).body(), 600, null);
+            }
+            if (request.path().endsWith("/detail-by-client-code") && creates.get() > 0) {
+                assertThat(request.query()).isEqualTo("client_order_code=" + snapshot.requestId());
+                return success("{\"order_code\":\"GHN123456\",\"client_order_code\":\"" + snapshot.requestId()
+                        + "\",\"leadtime\":\"2026-11-20T16:59:59Z\"}");
+            }
+            return bookingResponse(request);
+        };
+        var result = adapter(shipping(3000, 3, 5, 30000), 150, 300000).bookShipment(snapshot, deadline());
+        assertThat(result.trackingCode()).isEqualTo("GHN123456");
+        assertThat(result.estimatedDeliveryAt().toInstant()).isEqualTo(Instant.parse("2026-11-20T16:59:59Z"));
+        assertThat(creates).hasValue(1);
+        assertThat(requests.stream().filter(request -> request.path().endsWith("/detail-by-client-code"))).hasSize(2);
+        assertThat(requests.getLast().path()).endsWith("/detail-by-client-code");
+    }
+
+    @Test
+    void retryAfterRestartFindsExistingWaybillWithoutPostingAgainAndRecoversFallbackFact() {
+        CarrierShipmentRequest snapshot = shipmentRequest();
+        response = request -> success("{\"order_code\":\"GHN123456\",\"client_order_code\":\"" + snapshot.requestId()
+                + "\",\"note\":\"" + GhnAdapter.ADDRESS_FALLBACK_NOTE + "\"}");
+        var result = adapter(3000, 3).bookShipment(snapshot, deadline());
+        assertThat(result.trackingCode()).isEqualTo("GHN123456");
+        assertThat(result.estimatedDeliveryAt()).isNull();
+        assertThat(result.addressFallback()).isTrue();
+        assertThat(requests).singleElement().satisfies(request -> {
+            assertThat(request.method()).isEqualTo("GET");
+            assertThat(request.path()).endsWith("/detail-by-client-code");
+        });
+    }
+
+    @Test
+    void transientCreateRetryKeepsClientCodeAndAlwaysLooksUpBeforePosting() {
+        AtomicInteger creates = new AtomicInteger();
+        response = request -> request.path().endsWith("/create") && creates.incrementAndGet() == 1
+                ? new StubResponse(503, "{}", 0, null) : bookingResponse(request);
+        CarrierShipmentRequest snapshot = shipmentRequest();
+        assertThat(adapter(3000, 3).createShipment(snapshot, deadline())).isEqualTo("GHN123456");
+        var mutations = requests.stream().filter(request -> request.path().endsWith("/create")
+                || request.path().endsWith("/detail-by-client-code")).toList();
+        assertThat(mutations).hasSize(4);
+        assertThat(mutations.get(0).path()).endsWith("/detail-by-client-code");
+        assertThat(mutations.get(1).path()).endsWith("/create");
+        assertThat(mutations.get(2).path()).endsWith("/detail-by-client-code");
+        assertThat(mutations.get(3).path()).endsWith("/create");
+        assertThat(mapper.readTree(mutations.get(1).body()).path("client_order_code").asString())
+                .isEqualTo(snapshot.requestId().toString());
+        assertThat(mutations.get(3).body()).isEqualTo(mutations.get(1).body());
+    }
+
+    @Test
+    void addressConflictRetriesOnceWithAreaOnlyAndReturnsHistoryFact() {
+        AtomicInteger creates = new AtomicInteger();
+        response = request -> request.path().endsWith("/create") && creates.incrementAndGet() == 1
+                ? addressConflict() : bookingResponse(request);
+        var result = adapter(3000, 3).bookShipment(shipmentRequest(), deadline());
+        assertThat(result.addressFallback()).isTrue();
+        var posts = requests.stream().filter(request -> request.path().endsWith("/create")).toList();
+        assertThat(posts).hasSize(2);
+        JsonNode full = mapper.readTree(posts.getFirst().body());
+        JsonNode fallback = mapper.readTree(posts.getLast().body());
+        assertThat(full.path("to_address").asString()).isEqualTo("12 Lê Lợi, Phường Sài Gòn, Hồ Chí Minh");
+        assertThat(fallback.path("to_address").asString()).isEqualTo("Phường Sài Gòn, Hồ Chí Minh");
+        assertThat(fallback.path("note").asString()).isEqualTo(GhnAdapter.ADDRESS_FALLBACK_NOTE);
+        assertThat(fallback.path("client_order_code")).isEqualTo(full.path("client_order_code"));
+    }
+
+    @Test
+    void aSecondAddressConflictStopsInsteadOfLooping() {
+        response = request -> request.path().endsWith("/create") ? addressConflict() : bookingResponse(request);
+        assertCode(() -> adapter(3000, 3).bookShipment(shipmentRequest(), deadline()), "SHIPMENT_INVALID_ADDRESS");
+        assertThat(requests.stream().filter(request -> request.path().endsWith("/create"))).hasSize(2);
+    }
+
+    @Test
+    void createFiveHundredsMapToCarrierUnavailableAndStopAtRetryLimit() {
+        response = request -> request.path().endsWith("/create")
+                ? new StubResponse(503, "{\"message\":\"provider-private-message\"}", 0, null) : bookingResponse(request);
+        assertThatThrownBy(() -> adapter(3000, 1).bookShipment(shipmentRequest(), deadline()))
+                .isInstanceOf(DomainException.class)
+                .satisfies(error -> assertThat(((DomainException) error).getErrorCode()).isEqualTo("SHIPMENT_CARRIER_UNAVAILABLE"))
+                .hasMessageNotContaining("provider-private-message");
+        assertThat(requests.stream().filter(request -> request.path().endsWith("/create"))).hasSize(2);
+    }
+
+    @Test
+    void lookupPermissionFailureNeverBecomesPermissionToCreateAnotherWaybill() {
+        response = request -> new StubResponse(400,
+                "{\"code\":400,\"code_message\":\"CLIENT_NOT_OWNER_OF_SHOP\",\"data\":null}", 0, null);
+        assertCode(() -> adapter(3000, 3).bookShipment(shipmentRequest(), deadline()), "SHIPMENT_CARRIER_CONFIGURATION_ERROR");
+        assertThat(requests).singleElement().satisfies(request -> assertThat(request.method()).isEqualTo("GET"));
+    }
+
+    @Test
+    void rejectsProductionBookingBeforeAnyNetworkRequest() {
+        var properties = new GhnProperties(URI.create("https://online-gateway.ghn.vn"), 12345,
+                1, GhnProperties.RequiredNote.KHONGCHOXEMHANG, 1500, 0);
+        var production = new GhnAdapter(properties, shipping(3000, 3, 5, 30000),
+                new MockEnvironment().withProperty("GHN_TOKEN", "token-kiem-thu"), mapper);
+        assertCode(() -> production.bookShipment(shipmentRequest(), deadline()), "SHIPMENT_CARRIER_CONFIGURATION_ERROR");
+        assertThat(requests).isEmpty();
+    }
+
+    @Test
+    void heavyBookingUsesSingleMeasuredParcelAndRoundsSkuDimensionsUp() {
+        response = this::bookingResponse;
+        CarrierShipmentRequest light = shipmentRequest();
+        Map<String, Object> info = new LinkedHashMap<>(light.shippingInfo());
+        info.put("parcel", Map.of("weightGrams", 20000, "lengthCm", new BigDecimal("30.2"),
+                "widthCm", 20, "heightCm", new BigDecimal("15.01")));
+        adapter(3000, 3).bookShipment(new CarrierShipmentRequest(light.requestId(), light.orderId(), light.warehouseId(),
+                "HEAVY", light.shippingFee(), info), deadline());
+        JsonNode body = mapper.readTree(requests.getLast().body());
+        assertThat(body.path("service_type_id").asInt()).isEqualTo(5);
+        assertThat(body.path("length").asInt()).isEqualTo(31);
+        assertThat(body.path("height").asInt()).isEqualTo(16);
+        assertThat(body.path("items")).hasSize(1);
+        assertThat(body.path("items").get(0).path("quantity").asInt()).isEqualTo(1);
+        assertThat(body.path("items").get(0).path("weight").asInt()).isEqualTo(20000);
+        assertThat(body.path("items").get(0).path("length").asInt()).isEqualTo(31);
+    }
+
+    private CarrierShipmentRequest shipmentRequest() {
+        return new CarrierShipmentRequest(UUID.fromString("d1000000-0000-4000-8000-000000000001"),
+                UUID.fromString("d2000000-0000-4000-8000-000000000001"), UUID.randomUUID(), "STANDARD", new BigDecimal("27500"),
+                Map.of("recipient", Map.of("name", "Nguyễn Văn An", "phone", "0901234567", "address",
+                                Map.of("line1", "12 Lê Lợi", "provinceCode", "1000001", "wardCode", "1003646")),
+                        "pickupAddress", Map.of("line1", "20 Nguyễn Huệ", "provinceCode", "1000001", "wardCode", "1003646"),
+                        "parcel", Map.of("weightGrams", 1200, "lengthCm", 30, "widthCm", 20, "heightCm", 15),
+                        "items", List.of(Map.of("skuId", UUID.randomUUID().toString(), "productName", "Áo thun", "quantity", 2))));
+    }
+
+    private StubResponse bookingResponse(CapturedRequest request) {
+        if (request.path().endsWith("/province/all")) {
+            return success("[" + locality(1000001, "Hồ Chí Minh", "province", 1, 1) + "]");
+        }
+        if (request.path().endsWith("/ward/all-by-province-id")) {
+            return success("[" + locality(1003646, "Phường Sài Gòn", "ward", 1000001, 1) + "]");
+        }
+        if (request.path().endsWith("/detail-by-client-code")) {
+            return new StubResponse(400, "{\"code\":400,\"message\":\"Đơn hàng không tồn tại\",\"data\":null}", 0, null);
+        }
+        return success("{\"order_code\":\"GHN123456\",\"expected_delivery_time\":\"2026-11-20T16:59:59Z\"}");
+    }
+
+    private StubResponse addressConflict() {
+        return new StubResponse(400, "{\"code\":400,\"code_message\":\"TO_ADDRESS_CONFLICT\","
+                + "\"message\":\"provider-private-address-conflict\",\"data\":null}", 0, null);
     }
 
     @Test

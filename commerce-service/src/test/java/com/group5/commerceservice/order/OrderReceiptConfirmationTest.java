@@ -2,6 +2,7 @@ package com.group5.commerceservice.order;
 
 import com.group5.commerceservice.order.event.OrderCompleted;
 import com.group5.commerceservice.order.event.OrderEventPublisher;
+import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.service.OrderStateMachine;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
@@ -16,6 +17,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.sql.DataSource;
 import java.time.OffsetDateTime;
+import java.time.Clock;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -39,6 +42,8 @@ class OrderReceiptConfirmationTest {
     @Autowired PlatformTransactionManager transactions;
     @Autowired DataSource source;
     @Autowired Tracer tracer;
+    @Autowired Clock clock;
+    @Autowired OrderRepository orders;
 
     @BeforeEach void cleanSpy() { reset(publisher); }
 
@@ -48,17 +53,18 @@ class OrderReceiptConfirmationTest {
                 states.move(order.id(), OrderStatus.DELIVERED, order.buyer().id(), "Shipment delivered"));
         var dates = jdbc().queryForMap("SELECT delivered_at, auto_complete_at FROM orders WHERE id=?", order.id());
         assertThat(dates.get("delivered_at")).isNotNull();
-        assertThat(jdbc().queryForObject("SELECT auto_complete_at = delivered_at + interval '7 days' FROM orders WHERE id=?", Boolean.class, order.id())).isTrue();
+        assertThat(jdbc().queryForObject("SELECT auto_complete_at = delivered_at + interval '3 days' FROM orders WHERE id=?", Boolean.class, order.id())).isTrue();
         assertThat(status(order)).isEqualTo("DELIVERED");
         assertThat(count(order, "outbox")).isZero();
         assertThat(completions.completeIfDue(order.id())).isFalse();
         assertThat(count(order, "order_status_history")).isZero();
     }
 
-    @Test void buyerConfirmationAndReplayPersistExactlyOneHistoryAndOutbox() {
+    @Test void buyerConfirmationSucceedsOnceAndReplayConflictsWithoutAnotherHistoryOrOutbox() {
         Fixture order = order("DELIVERED", false);
         confirm(order);
-        confirm(order);
+        assertThatThrownBy(() -> confirm(order)).isInstanceOf(DomainException.class)
+                .extracting("errorCode").isEqualTo("COMMERCE_ORDER_NOT_DELIVERED");
         assertThat(status(order)).isEqualTo("COMPLETED");
         assertThat(count(order, "order_status_history")).isEqualTo(1);
         assertThat(count(order, "outbox")).isEqualTo(1);
@@ -102,7 +108,8 @@ class OrderReceiptConfirmationTest {
         assertThat(job.runOnce()).isZero();
         assertThat(count(due, "order_status_history")).isEqualTo(1);
         assertThat(count(due, "outbox")).isEqualTo(1);
-        assertThat(jdbc().queryForObject("SELECT reason FROM order_status_history WHERE order_id=?", String.class, due.id())).contains("Automatically completed");
+        assertThat(jdbc().queryForObject("SELECT reason FROM order_status_history WHERE order_id=?", String.class, due.id()))
+                .isEqualTo("Completed automatically after delivery");
     }
 
     @Test void confirmationRacingSchedulerAndAnotherBuyerRequestHasOneWinner() throws Exception {
@@ -112,7 +119,11 @@ class OrderReceiptConfirmationTest {
             var futures = List.of(0, 1, 2).stream().map(index -> pool.submit(() -> {
                 ready.countDown();
                 if (!start.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Missing start");
-                traced(() -> { if (index == 0) completions.completeIfDue(order.id()); else completions.confirm(order.buyer(), order.id()); });
+                try {
+                    traced(() -> { if (index == 0) completions.completeIfDue(order.id()); else completions.confirm(order.buyer(), order.id()); });
+                } catch (DomainException alreadyCompleted) {
+                    assertThat(alreadyCompleted.getErrorCode()).isEqualTo("COMMERCE_ORDER_NOT_DELIVERED");
+                }
                 return true;
             })).toList();
             assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
@@ -122,6 +133,56 @@ class OrderReceiptConfirmationTest {
         assertThat(status(order)).isEqualTo("COMPLETED");
         assertThat(count(order, "order_status_history")).isEqualTo(1);
         assertThat(count(order, "outbox")).isEqualTo(1);
+    }
+
+    @Test void fixedClockCompletesTheDeadlineButKeepsADeadlineOneMicrosecondInTheFuture() {
+        Fixture boundary = order("DELIVERED", false);
+        Fixture future = order("DELIVERED", false);
+        OffsetDateTime now = OffsetDateTime.now(clock).truncatedTo(ChronoUnit.MICROS);
+        jdbc().update("UPDATE orders SET delivered_at=?, auto_complete_at=? WHERE id=?", now.minusDays(3), now, boundary.id());
+        jdbc().update("UPDATE orders SET delivered_at=?, auto_complete_at=? WHERE id=?", now.minusDays(3), now.plusNanos(1000), future.id());
+
+        assertThat(job.runOnce()).isGreaterThanOrEqualTo(1);
+        assertThat(status(boundary)).isEqualTo("COMPLETED");
+        assertThat(status(future)).isEqualTo("DELIVERED");
+        assertThat(completions.completeIfDue(future.id())).isFalse();
+        assertThat(count(boundary, "outbox")).isEqualTo(1);
+        assertThat(count(future, "outbox")).isZero();
+    }
+
+    @Test void twoJobInstancesRacingCompleteEachOrderWithOnlyOneHistoryAndOutbox() throws Exception {
+        Fixture first = order("DELIVERED", true);
+        Fixture second = order("DELIVERED", true);
+        var otherInstance = new OrderCompletionJob(orders, completions, tracer, clock);
+        CountDownLatch start = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var jobs = List.of(job, otherInstance).stream().map(instance -> pool.submit(() -> {
+                start.await();
+                return instance.runOnce();
+            })).toList();
+            start.countDown();
+            for (var result : jobs) result.get(20, TimeUnit.SECONDS);
+        }
+        for (var order : List.of(first, second)) {
+            assertThat(status(order)).isEqualTo("COMPLETED");
+            assertThat(count(order, "order_status_history")).isEqualTo(1);
+            assertThat(count(order, "outbox")).isEqualTo(1);
+        }
+    }
+
+    @Test void configuredBatchLimitsEachRunAndLeavesTheRemainingOrderForTheNextRun() {
+        Fixture first = order("DELIVERED", true);
+        Fixture second = order("DELIVERED", true);
+        var oneAtATime = new OrderCompletionJob(orders, completions, tracer, clock);
+        org.springframework.test.util.ReflectionTestUtils.setField(oneAtATime, "batchSize", 1);
+
+        assertThat(oneAtATime.runOnce()).isEqualTo(1);
+        assertThat(List.of(status(first), status(second))).containsExactlyInAnyOrder("COMPLETED", "DELIVERED");
+        assertThat(oneAtATime.runOnce()).isEqualTo(1);
+        for (var order : List.of(first, second)) {
+            assertThat(status(order)).isEqualTo("COMPLETED");
+            assertThat(count(order, "outbox")).isEqualTo(1);
+        }
     }
 
     @Test void failureAfterOutboxInsertionRollsBackStatusHistoryAndOutboxThenCanRetry() {

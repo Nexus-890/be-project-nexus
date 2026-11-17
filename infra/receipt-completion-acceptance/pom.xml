@@ -12,6 +12,7 @@
         <dependency><groupId>com.group5</groupId><artifactId>commerce-service</artifactId><version>0.0.1-SNAPSHOT</version><scope>test</scope></dependency>
         <dependency><groupId>com.group5</groupId><artifactId>notification-service</artifactId><version>0.0.1-SNAPSHOT</version><scope>test</scope></dependency>
         <dependency><groupId>com.group5</groupId><artifactId>payment-service</artifactId><version>0.0.1-SNAPSHOT</version><scope>test</scope></dependency>
+        <dependency><groupId>com.group5</groupId><artifactId>shipment-service</artifactId><version>0.0.1-SNAPSHOT</version><scope>test</scope></dependency>
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.testcontainers</groupId><artifactId>testcontainers-postgresql</artifactId><scope>test</scope></dependency>
     </dependencies>
