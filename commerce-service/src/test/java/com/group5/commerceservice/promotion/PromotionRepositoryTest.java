@@ -59,7 +59,9 @@ class PromotionRepositoryTest {
         source.setURL(System.getProperty("promotion.test.jdbc-url"));
         source.setUser(System.getProperty("promotion.test.jdbc-user", "postgres"));
         source.setPassword(System.getProperty("promotion.test.jdbc-password", ""));
-        Flyway.configure().dataSource(source).load().migrate();
+        String schema = "promotion_" + UUID.randomUUID().toString().replace("-", "");
+        source.setCurrentSchema(schema);
+        Flyway.configure().dataSource(source).schemas(schema).defaultSchema(schema).load().migrate();
         jdbc = JdbcClient.create(source);
         transactions = new DataSourceTransactionManager(source);
         transaction = new TransactionTemplate(transactions);
