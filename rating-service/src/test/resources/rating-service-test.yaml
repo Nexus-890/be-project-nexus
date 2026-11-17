@@ -1,0 +1,5 @@
+nexus:
+  reputation:
+    version: reputation-policy-1
+    basic-max: 59
+    trusted-max: 79

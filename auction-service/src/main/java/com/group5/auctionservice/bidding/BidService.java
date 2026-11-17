@@ -5,6 +5,8 @@ import com.group5.auctionservice.auction.AuctionRepository;
 import com.group5.auctionservice.auction.AuctionStatus;
 import com.group5.auctionservice.bidding.dto.BidResponse;
 import com.group5.auctionservice.bidding.dto.PlaceBidRequest;
+import com.group5.auctionservice.reputation.EligibilityAction;
+import com.group5.auctionservice.reputation.ReputationGuard;
 import com.group5.auctionservice.shared.exception.AuctionErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_events.EventEnvelopeFactory;
@@ -40,6 +42,7 @@ public class BidService {
     private final Clock clock;
     private final PlatformTransactionManager transactionManager;
     private final AntiSnipingPolicy antiSnipingPolicy;
+    private final ReputationGuard reputation;
 
     public record PlacementResult(boolean created, BidResponse response) {
     }
@@ -53,6 +56,19 @@ public class BidService {
             throw new DomainException(AuctionErrorCode.AUCTION_INVALID_IDEMPOTENCY_KEY);
         }
         String canonicalKey = UUID.fromString(key).toString();
+        Optional<Bid> previous = bids.findByIdempotencyKey(canonicalKey);
+        if (previous.isPresent()) {
+            return replay(auctionId, bidder, request.amount(), previous.get());
+        }
+        try {
+            reputation.requireEligible(bidder.id(), EligibilityAction.BID);
+        } catch (DomainException failure) {
+            previous = bids.findByIdempotencyKey(canonicalKey);
+            if (previous.isPresent()) {
+                return replay(auctionId, bidder, request.amount(), previous.get());
+            }
+            throw failure;
+        }
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
         transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);

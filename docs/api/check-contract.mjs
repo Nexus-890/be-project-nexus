@@ -64,6 +64,12 @@ const services = {
     'src/main/java/com/group5/shipmentservice/shipping/controller/ShipmentStatusController.java',
     'src/main/java/com/group5/shipmentservice/shipping/controller/CarrierWebhookController.java',
   ],
+  'rating-service': [
+    'src/main/java/com/group5/ratingservice/rating/controller/RatingController.java',
+    'src/main/java/com/group5/ratingservice/reputation/controller/ReputationController.java',
+    'src/main/java/com/group5/ratingservice/reputation/controller/ReputationHistoryController.java',
+    'src/main/java/com/group5/ratingservice/eligibility/controller/EligibilityController.java',
+  ],
 };
 const normalize = (route) => route.replace(/\{[^}]+\}/g, '{}');
 let total = 0;

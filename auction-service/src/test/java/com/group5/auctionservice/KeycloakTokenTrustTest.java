@@ -251,7 +251,7 @@ class KeycloakTokenTrustTest {
         when(accepted.getAmount()).thenReturn(new BigDecimal("1050000.00"));
         when(accepted.getPlacedAt()).thenReturn(Instant.parse("2026-11-05T10:00:00Z"));
         when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
-        when(bids.findByIdempotencyKey(key)).thenReturn(Optional.empty(), Optional.of(accepted));
+        when(bids.findByIdempotencyKey(key)).thenReturn(Optional.empty(), Optional.empty(), Optional.of(accepted));
         when(auctions.acceptBid(auctionId, UUID.fromString(SUBJECT), new BigDecimal("1050000.00"), "***")).thenReturn(1);
         when(bids.saveAndFlush(any())).thenReturn(accepted);
         String token = auctionToken("BUYER", List.of("AUCTION.BID"));
