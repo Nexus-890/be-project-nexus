@@ -194,6 +194,11 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/auctions/{id}/bids` | POST | AUCTION.BID | #146/#147 — Place a bid as BUYER; the bidder cannot be the auction seller. Required UUID `Idempotency-Key`; replay requires the original bidder, auction and numeric amount; a different amount returns 409 |
 | `/api/v1/auctions/{id}/schedule` | POST | AUCTION.UPDATE | #144 — Owner with SELLER role publishes a CREATED auction |
 | `/api/v1/auctions/mine` | GET | AUCTION.LIST | #198 |
+| `/api/v1/auctions/{id}/second-chance-offers` | GET | AUCTION.LIST | #208 — SELLER owner; read-only candidate/history |
+| `/api/v1/auctions/{id}/second-chance-offers` | POST | AUCTION.UPDATE | #208 — SELLER owner; one open offer, server chooses bidder/amount |
+| `/api/v1/auctions/offers/me` | GET | AUCTION.VIEW_BID_HISTORY | #208 — BUYER own offers only |
+| `/api/v1/auctions/offers/{offerId}/accept` | POST | AUCTION.BID | #208 — offered BUYER only, unexpired and stock confirmed |
+| `/api/v1/auctions/offers/{offerId}/decline` | POST | AUCTION.BID | #208 — offered BUYER only, unexpired; no penalty |
 | `/api/v1/auctions/manage` | GET | AUCTION.LIST | #260 — Back-office list of every status and visibility; service additionally requires ADMIN or SUPPORT_STAFF |
 | `/api/v1/auctions/manage/{id}` | GET | AUCTION.VIEW | #260 — Back-office read of any non-deleted auction; service additionally requires ADMIN or SUPPORT_STAFF |
 | `/api/v1/auctions/manage/{id}/state` | GET | AUCTION.VIEW | #260 — Uncached live state of any non-deleted auction; service additionally requires ADMIN or SUPPORT_STAFF |

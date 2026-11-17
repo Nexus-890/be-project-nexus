@@ -895,7 +895,7 @@ class SecurityConfigTest {
 
     // Thay path variable bằng fixture thật để kiểm tra cả policy cấu hình theo key.
     private static String concretePath(String path) {
-        return path.replace("{id}", ID).replace("{userId}", ID).replace("{imageId}", ID)
+        return path.replace("{id}", ID).replace("{userId}", ID).replace("{imageId}", ID).replace("{offerId}", ID)
                 .replace("{key}", "NOTIFICATION_RETRY_LIMIT")
                 .replace("{provider}", "sandbox");
     }
