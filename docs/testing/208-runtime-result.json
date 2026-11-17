@@ -1,0 +1,52 @@
+{
+  "run": "4d426c55",
+  "scope": "Packaged services, HTTP, PostgreSQL 18, Kafka KRaft, Mailpit; JWT/JWKS/OAuth recipient directory, Catalog, shipping quote and signed SePay transfer are controlled fixtures. No real bank transfer.",
+  "scenarios": {
+    "decline_expire_accept_pay": {
+      "auction": "01a1e983-b45f-7dc0-92d3-f4d661cbb4b7",
+      "preview_own_bid": 4800000,
+      "stock_sequence": [
+        "5/0/0",
+        "4/1/0",
+        "5/0/0",
+        "4/1/0",
+        "5/0/0",
+        "4/1/0",
+        "4/0/1"
+      ],
+      "order": "ad79aff5-19dd-412e-ade7-9ba1e31e9ae1",
+      "group": "08bfb381-eb7c-4268-923d-e002524a1e21",
+      "amount": 4600000,
+      "memo_redacted": true,
+      "paid": true,
+      "signature_verified": true
+    },
+    "accepted_timeout": {
+      "auction": "01a1e983-bbdc-7c9d-93b7-2f4e24dc2e1e",
+      "first_winner_excluded": true,
+      "next_bidder": "ea895739-7805-462c-8fde-98a98451b370",
+      "second_winner_penalties": 1,
+      "decline_expiry_penalties": 0,
+      "stock": "5/0/0"
+    },
+    "hand_published_cancellation": {
+      "auction": "dc17b5e6-796a-4507-a027-9cd36a9beac4",
+      "fixture": true,
+      "standard_ignored": true,
+      "same_event_and_new_event_replayed": true,
+      "timeout_events": 1,
+      "stock_unchanged": "5/0/0"
+    }
+  },
+  "source": "a44718873386034c8902af025fff2b32a55e3345",
+  "email": "[{\"type\":\"AUCTION_PAYMENT_TIMEOUT\",\"delivered\":8}, \r\n {\"type\":\"CHECKOUT_PAYMENT_CONFIRMED\",\"delivered\":1}, \r\n {\"type\":\"ORDER_CANCELLED\",\"delivered\":6}, \r\n {\"type\":\"ORDER_CREATED\",\"delivered\":4}, \r\n {\"type\":\"SECOND_CHANCE_ACCEPTED\",\"delivered\":2}, \r\n {\"type\":\"SECOND_CHANCE_DECLINED\",\"delivered\":1}, \r\n {\"type\":\"SECOND_CHANCE_EXPIRED\",\"delivered\":1}, \r\n {\"type\":\"SECOND_CHANCE_OFFER\",\"delivered\":4}]",
+  "databases": {
+    "auction-service": "proof208_auction_4d426c55",
+    "inventory-service": "proof208_inventory_4d426c55",
+    "commerce-service": "proof208_commerce_4d426c55",
+    "rating-service": "proof208_rating_4d426c55",
+    "notification-service": "proof208_notification_4d426c55",
+    "payment-service": "proof208_payment_4d426c55"
+  },
+  "success": true
+}
