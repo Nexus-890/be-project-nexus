@@ -76,10 +76,11 @@ public class ProductController {
     public ApiResponse<List<ProductResponse>> getMyProducts(
             CurrentUser currentUser,
             @RequestParam(required = false) ProductStatus status,
+            @RequestParam(required = false) Boolean auctionEnable,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
-        return pageResponse(productService.getMyProducts(currentUser, status, page, size));
+        return pageResponse(productService.getMyProducts(currentUser, status, auctionEnable, page, size));
     }
 
     @GetMapping("/mine/{id}")

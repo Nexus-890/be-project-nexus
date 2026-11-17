@@ -472,6 +472,6 @@ nexus:
   gateway:
     rate-limit:
       # Có thể đổi cả hai quota qua Config Server và /actuator/refresh.
-      requests-per-minute: 100
+      requests-per-minute: 1000
       # Dùng chung cho GET auction state và bid history, tính riêng theo IP.
       auction-read-requests-per-minute: 600

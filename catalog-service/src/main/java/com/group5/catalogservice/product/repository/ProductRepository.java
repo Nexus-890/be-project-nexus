@@ -141,6 +141,7 @@ public interface ProductRepository extends JpaRepository<Product, UUID>, Product
                     left join p.skuses s
                     where p.sellerId = :sellerId
                       and p.deletedAt is null
+                      and (:auctionEnable is null or p.auctionEnable = :auctionEnable)
                     group by
                         p.id,
                         p.name,
@@ -148,16 +149,19 @@ public interface ProductRepository extends JpaRepository<Product, UUID>, Product
                         p.status,
                         p.category.id,
                         p.sellerId
+                    order by p.createdAt desc, p.id
                     """,
             countQuery = """
                     select count(p)
                     from Product p
                     where p.sellerId = :sellerId
                       and p.deletedAt is null
+                      and (:auctionEnable is null or p.auctionEnable = :auctionEnable)
                     """
     )
     Page<ProductResponse> findProductResponsesBySeller(
             @Param("sellerId") UUID sellerId,
+            @Param("auctionEnable") Boolean auctionEnable,
             Pageable pageable
     );
 
@@ -178,6 +182,7 @@ public interface ProductRepository extends JpaRepository<Product, UUID>, Product
                     where p.sellerId = :sellerId
                       and p.status = :status
                       and p.deletedAt is null
+                      and (:auctionEnable is null or p.auctionEnable = :auctionEnable)
                     group by
                         p.id,
                         p.name,
@@ -185,6 +190,7 @@ public interface ProductRepository extends JpaRepository<Product, UUID>, Product
                         p.status,
                         p.category.id,
                         p.sellerId
+                    order by p.createdAt desc, p.id
                     """,
             countQuery = """
                     select count(p)
@@ -192,11 +198,13 @@ public interface ProductRepository extends JpaRepository<Product, UUID>, Product
                     where p.sellerId = :sellerId
                       and p.status = :status
                       and p.deletedAt is null
+                      and (:auctionEnable is null or p.auctionEnable = :auctionEnable)
                     """
     )
     Page<ProductResponse> findProductResponsesBySellerAndStatus(
             @Param("sellerId") UUID sellerId,
             @Param("status") ProductStatus status,
+            @Param("auctionEnable") Boolean auctionEnable,
             Pageable pageable
     );
 }

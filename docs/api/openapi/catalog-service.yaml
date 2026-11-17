@@ -4236,7 +4236,7 @@ paths:
         - "Products"
       operationId: "listOwnProducts"
       summary: "List the current seller products"
-      description: " Access: requires PRODUCT.LIST. Additional role requirement: SELLER. Ownership/business restriction: JWT subject products only; includes own nondeleted products regardless of ACTIVE status. Omitting status returns every status; status narrows the list and its page totals to that exact status."
+      description: " Access: requires PRODUCT.LIST. Additional role requirement: SELLER. Ownership/business restriction: JWT subject products only; includes own nondeleted products regardless of ACTIVE status. Omitting status returns every status; status narrows the list and its page totals to that exact status. auctionEnable narrows it the same way. Newest products come first."
       security:
         -
           bearerAuth: []
@@ -4280,6 +4280,13 @@ paths:
               - "DRAFT"
               - "INACTIVE"
               - "ACTIVE"
+        -
+          name: "auctionEnable"
+          in: "query"
+          required: false
+          description: "Optional auction listing filter; true keeps only products with auctionEnable, false only products without it. Applied before paging, so page totals count only matching products."
+          schema:
+            type: "boolean"
         -
           name: "page"
           in: "query"

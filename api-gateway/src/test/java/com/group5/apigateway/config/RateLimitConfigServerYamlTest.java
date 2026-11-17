@@ -61,10 +61,10 @@ class RateLimitConfigServerYamlTest {
         Path yamlPath = Path.of("../config-service/src/main/resources/config/api-gateway.yml");
         String yaml = Files.readString(yamlPath, StandardCharsets.UTF_8);
 
-        assertThat(yaml).contains("requests-per-minute: 100", "auction-read-requests-per-minute: 600");
+        assertThat(yaml).contains("requests-per-minute: 1000", "auction-read-requests-per-minute: 600");
 
         // Dùng giá trị khác default để bắt lỗi sai tên property trong Config Server.
-        String demoYaml = yaml.replace("requests-per-minute: 100", "requests-per-minute: 150")
+        String demoYaml = yaml.replace("requests-per-minute: 1000", "requests-per-minute: 150")
                 .replace("auction-read-requests-per-minute: 600", "auction-read-requests-per-minute: 750");
         YamlPropertiesFactoryBean yamlFactory = new YamlPropertiesFactoryBean();
         yamlFactory.setResources(new ByteArrayResource(demoYaml.getBytes(StandardCharsets.UTF_8)));

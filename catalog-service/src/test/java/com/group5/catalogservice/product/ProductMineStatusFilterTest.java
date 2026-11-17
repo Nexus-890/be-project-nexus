@@ -62,6 +62,7 @@ class ProductMineStatusFilterTest {
     private UUID inactive;
     private UUID deletedDraft;
     private UUID otherDraft;
+    private int created;
 
     @DynamicPropertySource
     static void configuration(DynamicPropertyRegistry registry) {
@@ -73,6 +74,7 @@ class ProductMineStatusFilterTest {
     @BeforeEach
     void setup() {
         drafts.clear();
+        created = 0;
         for (int index = 0; index < 3; index++) {
             drafts.add(product(SELLER, "DRAFT", false));
         }
@@ -130,6 +132,38 @@ class ProductMineStatusFilterTest {
     }
 
     @Test
+    void auctionEnableNarrowsTheListBeforeItIsPaged() throws Exception {
+        List<UUID> plain = new ArrayList<>();
+        for (int index = 0; index < 12; index++) {
+            plain.add(product(SELLER, "ACTIVE", false, false, Instant.now().minusSeconds(60 + index)));
+        }
+        UUID older = product(SELLER, "ACTIVE", false, true, Instant.now().minusSeconds(3600));
+        UUID newer = product(SELLER, "ACTIVE", false, true, Instant.now().minusSeconds(1800));
+        product(SELLER, "DRAFT", false, true, Instant.now());
+        product(OTHER_SELLER, "ACTIVE", false, true, Instant.now());
+
+        JsonNode auctions = read(get("/api/v1/products/mine").param("status", "ACTIVE").param("auctionEnable", "true")
+                .param("page", "0").param("size", "10"));
+        JsonNode rest = read(get("/api/v1/products/mine").param("status", "ACTIVE").param("auctionEnable", "false")
+                .param("size", "100"));
+
+        assertThat(ids(auctions)).containsExactly(newer, older);
+        assertThat(auctions.path("page").path("totalElements").asInt()).isEqualTo(2);
+        assertThat(ids(rest)).containsAll(plain).contains(active).doesNotContain(older, newer);
+    }
+
+    @Test
+    void theListIsNewestFirstSoPagesDoNotOverlap() throws Exception {
+        JsonNode first = read(get("/api/v1/products/mine").param("page", "0").param("size", "3"));
+        JsonNode second = read(get("/api/v1/products/mine").param("page", "1").param("size", "3"));
+
+        List<UUID> seen = new ArrayList<>(ids(first));
+        seen.addAll(ids(second));
+        assertThat(seen).doesNotHaveDuplicates().hasSize(5);
+        assertThat(ids(first).get(0)).isEqualTo(inactive);
+    }
+
+    @Test
     void anUnknownStatusIsTheServiceInvalidParameterProblem() throws Exception {
         mvc.perform(get("/api/v1/products/mine").param("status", "SOLD").header("Authorization", "Bearer seller"))
                 .andExpect(status().isBadRequest())
@@ -139,12 +173,16 @@ class ProductMineStatusFilterTest {
     }
 
     private UUID product(UUID seller, String status, boolean deleted) {
+        return product(seller, status, deleted, false, Instant.now().minusSeconds(7200 - 60L * created++));
+    }
+
+    private UUID product(UUID seller, String status, boolean deleted, boolean auction, Instant createdAt) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
-                INSERT INTO products (id, category_id, seller_id, name, slug, status, deleted_at)
-                VALUES (?, CAST(? AS uuid), ?, 'Mine status fixture', ?, CAST(? AS product_status), ?)
+                INSERT INTO products (id, category_id, seller_id, name, slug, status, deleted_at, auction_enable, created_at)
+                VALUES (?, CAST(? AS uuid), ?, 'Mine status fixture', ?, CAST(? AS product_status), ?, ?, ?)
                 """, id, CATEGORY, seller, "mine-status-test-" + id, status,
-                deleted ? Timestamp.from(Instant.now()) : null);
+                deleted ? Timestamp.from(Instant.now()) : null, auction, Timestamp.from(createdAt));
         return id;
     }
 
