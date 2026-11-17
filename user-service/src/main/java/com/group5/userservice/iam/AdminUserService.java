@@ -7,6 +7,8 @@ import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.Gender;
 import com.group5.userservice.iam.enums.UserStatus;
+import com.group5.userservice.address.UserAddressRepository;
+import com.group5.userservice.phone.PhoneVerificationRepository;
 import com.group5.userservice.seller.SellerRepository;
 import com.group5.userservice.shared.config.IamProperties;
 import com.group5.userservice.shared.exception.UserErrorCode;
@@ -41,11 +43,14 @@ public class AdminUserService {
     private final Clock clock;
     private final TransactionTemplate transaction;
     private final AdminIdentityOperationJournal journal;
+    private final PhoneVerificationRepository phoneVerifications;
+    private final UserAddressRepository addresses;
 
     /** Tạo transaction độc lập để bắt được cả lỗi commit trước khi thực hiện hoàn tác Keycloak. */
     public AdminUserService(UserRepository users, SellerRepository sellers, KeycloakAdminClient keycloak, UserEventPublisher events,
                             IamProperties properties, Clock clock, PlatformTransactionManager manager,
-                            AdminIdentityOperationJournal journal) {
+                            AdminIdentityOperationJournal journal, PhoneVerificationRepository phoneVerifications,
+                            UserAddressRepository addresses) {
         this.users = users;
         this.sellers = sellers;
         this.keycloak = keycloak;
@@ -53,6 +58,8 @@ public class AdminUserService {
         this.properties = properties;
         this.clock = clock;
         this.journal = journal;
+        this.phoneVerifications = phoneVerifications;
+        this.addresses = addresses;
         this.transaction = new TransactionTemplate(manager);
         this.transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
@@ -97,6 +104,13 @@ public class AdminUserService {
                 if (users.existsByEmailAndIdNot(request.email(), id)) throw new DomainException(UserErrorCode.USER_EMAIL_ALREADY_USED);
                 user.setEmail(request.email()); changed.add("email");
             }
+            if (request.phone() != null && !request.phone().equals(user.getPhone())) {
+                if (users.existsByPhoneAndIdNot(request.phone(), id)) throw new DomainException(UserErrorCode.USER_PHONE_ALREADY_USED);
+                user.setPhone(request.phone());
+                user.setPhoneVerifiedAt(null);
+                phoneVerifications.expirePending(id);
+                changed.add("phone");
+            }
             if (request.fullName() != null && !request.fullName().equals(user.getFullName())) {
                 user.setFullName(request.fullName()); changed.add("fullName");
             }
@@ -136,6 +150,8 @@ public class AdminUserService {
                 users.saveAndFlush(user);
             } else {
                 // Xóa hồ sơ seller trước user để thỏa FK; cả hai cùng rollback nếu audit/commit lỗi.
+                phoneVerifications.deleteAllOfUser(id);
+                addresses.deleteAllOfUser(id);
                 sellers.deleteById(id);
                 sellers.flush();
                 users.delete(user);

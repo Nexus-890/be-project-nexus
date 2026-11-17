@@ -5,6 +5,7 @@ import com.group5.userservice.iam.dto.UserListRequest;
 import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.UserStatus;
+import com.group5.userservice.phone.PhoneVerificationRepository;
 import com.group5.userservice.shared.config.IamProperties;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
@@ -187,7 +188,7 @@ class UserListQueryTest {
         @Bean
         UserService userService(UserRepository repository, KeycloakAdminClient keycloak,
                                 PlatformTransactionManager manager) {
-            return new UserService(repository, new IamProperties(), keycloak, manager);
+            return new UserService(repository, new IamProperties(), keycloak, manager, mock(EmailVerificationService.class), mock(PhoneVerificationRepository.class));
         }
     }
 }

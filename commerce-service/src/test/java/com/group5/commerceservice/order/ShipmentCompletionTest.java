@@ -48,6 +48,7 @@ import javax.sql.DataSource;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -83,6 +84,7 @@ class ShipmentCompletionTest {
     @Autowired private PlatformTransactionManager transactions;
     @Autowired private ShipmentStatusHandler handler;
     @Autowired private Tracer tracer;
+    @Autowired private Clock clock;
 
     @BeforeEach
     void resetPublisher() {
@@ -147,7 +149,9 @@ class ShipmentCompletionTest {
         Fixture order = order(OrderStatus.SHIPPED, OrderType.STANDARD);
         jdbc().update("UPDATE orders SET shipping_fee = 12500.50, total_amount = 312500.50 WHERE id = ?", order.id());
         send(event(order, "ShipmentDelivered"));
-        jdbc().update("UPDATE orders SET delivered_at = now() - interval '8 days', auto_complete_at = now() - interval '1 minute' WHERE id = ?", order.id());
+        OffsetDateTime now = OffsetDateTime.now(clock);
+        jdbc().update("UPDATE orders SET delivered_at = ?, auto_complete_at = ? WHERE id = ?",
+                now.minusDays(8), now.minusMinutes(1), order.id());
 
         assertThat(autoCompletion.runOnce()).isGreaterThanOrEqualTo(1);
         JsonNode payload = completion(order).get("payload");
@@ -191,7 +195,8 @@ class ShipmentCompletionTest {
         assertThat(status(order)).isEqualTo("DELIVERED");
         assertThat(outboxCount(order)).isZero();
         confirm(order);
-        confirm(order);
+        assertThatThrownBy(() -> confirm(order)).isInstanceOf(com.group5.common_core.exception.DomainException.class)
+                .extracting("errorCode").isEqualTo("COMMERCE_ORDER_NOT_DELIVERED");
 
         assertThat(history(order)).hasSize(3);
         assertThat(outboxCount(order)).isEqualTo(1);
@@ -499,13 +504,24 @@ class ShipmentCompletionTest {
     @EnableJpaRepositories(basePackageClasses = OrderRepository.class)
     @EnableJpaAuditing(auditorAwareRef = "auditor")
     @Import({OrderStateMachine.class, ShipmentStatusHandler.class, ShipmentEventConsumer.class,
-            OrderReceiptRenderer.class, OrderReceiptService.class, PendingShipmentEvents.class, ShipmentRetryJob.class,
-            OrderCompletionService.class, OrderCompletionJob.class})
+            OrderReceiptRenderer.class, OrderReceiptService.class, PendingShipmentEvents.class, ShipmentRetryJob.class})
     static class JpaConfig {
         @Bean AuditorAware<UUID> auditor() { return new CurrentUserAuditor(); }
         @Bean JsonMapper jsonMapper() { return JsonMapper.shared(); }
         @Bean Validator validator() { return Validation.buildDefaultValidatorFactory().getValidator(); }
         @Bean JdbcTemplate jdbcTemplate(DataSource source) { return new JdbcTemplate(source); }
+        @Bean Clock completionClock() { return Clock.fixed(Instant.now(), ZoneOffset.UTC); }
+
+        @Bean OrderCompletionService completionService(OrderRepository orders, OrderStateMachine states,
+                OrderEventPublisher events, OrderReceiptRenderer receipts, EntityManagerFactory factory, Clock clock) {
+            return new OrderCompletionService(orders, states, events, receipts,
+                    SharedEntityManagerCreator.createSharedEntityManager(factory), clock);
+        }
+
+        @Bean OrderCompletionJob completionJob(OrderRepository orders, OrderCompletionService completions,
+                Tracer tracer, Clock clock) {
+            return new OrderCompletionJob(orders, completions, tracer, clock);
+        }
 
         @Bean
         Tracer tracer() {

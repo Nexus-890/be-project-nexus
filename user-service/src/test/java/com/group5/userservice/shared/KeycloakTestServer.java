@@ -3,6 +3,7 @@ package com.group5.userservice.shared;
 import org.testcontainers.containers.Container;
 import org.testcontainers.containers.ExecConfig;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.MountableFile;
 import tools.jackson.databind.JsonNode;
@@ -52,7 +53,18 @@ public final class KeycloakTestServer {
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NEVER)
             .build();
+    private static final Pattern ACTION_LINK = Pattern.compile("https?://[^\\s\"<>]*/login-actions/action-token[^\\s\"<>]*");
+    private static final Pattern PROCEED_LINK = Pattern.compile("href=\"([^\"]*login-actions/action-token[^\"]*)\"");
+    private static final Network NETWORK = Network.newNetwork();
+    private static final GenericContainer<?> MAILPIT = new GenericContainer<>("axllent/mailpit:v1.31")
+            .withNetwork(NETWORK)
+            .withNetworkAliases("mailpit")
+            .withExposedPorts(8025)
+            .waitingFor(Wait.forHttp("/livez").forPort(8025));
     private static final GenericContainer<?> KEYCLOAK = new GenericContainer<>("quay.io/keycloak/keycloak:26.7.5")
+            .withNetwork(NETWORK)
+            .withEnv("NEXUS_SMTP_HOST", "mailpit")
+            .withEnv("NEXUS_SMTP_PORT", "1025")
             .withCommand("start-dev", "--import-realm")
             .withEnv("KC_BOOTSTRAP_ADMIN_USERNAME", ADMIN)
             .withEnv("KC_BOOTSTRAP_ADMIN_PASSWORD", ADMIN_PASSWORD)
@@ -66,6 +78,7 @@ public final class KeycloakTestServer {
                     .withStartupTimeout(Duration.ofMinutes(4)));
 
     static {
+        MAILPIT.start();
         KEYCLOAK.start();
         seed();
     }
@@ -83,6 +96,49 @@ public final class KeycloakTestServer {
 
     public static String jwkSetUri() {
         return issuer() + "/protocol/openid-connect/certs";
+    }
+
+    public static void deleteAllMail() {
+        mailpit("DELETE", "/api/v1/messages");
+    }
+
+    /** Text bodies of the mail Mailpit received for this address, newest first. */
+    public static List<String> mailTo(String email) {
+        List<String> bodies = new ArrayList<>();
+        JsonNode found = mailpit("GET", "/api/v1/search?query="
+                + URLEncoder.encode("to:\"" + email + "\"", StandardCharsets.UTF_8));
+        for (JsonNode message : found.get("messages")) {
+            bodies.add(mailpit("GET", "/api/v1/message/" + message.get("ID").asString()).get("Text").asString());
+        }
+        return bodies;
+    }
+
+    public static String actionLink(String mailText) {
+        Matcher link = ACTION_LINK.matcher(mailText);
+        if (!link.find()) {
+            throw new IllegalStateException("Expected a Keycloak action link in the email");
+        }
+        return link.group().replace("&amp;", "&");
+    }
+
+    /** Opens an emailed Keycloak action link like a browser and returns the last page. */
+    public static String openActionLink(String link) throws Exception {
+        Map<String, String> cookies = new LinkedHashMap<>();
+        String next = link;
+        String body = "";
+        for (int step = 0; step < 5 && next != null; step++) {
+            HttpResponse<String> response = send(HttpRequest.newBuilder(URI.create(next)).GET(), cookies);
+            body = response.body();
+            String location = response.headers().firstValue("Location").orElse(null);
+            if (response.statusCode() / 100 == 3 && location != null && !location.startsWith("http://localhost:3000")) {
+                next = URI.create(next).resolve(location).toString();
+            } else {
+                Matcher proceed = PROCEED_LINK.matcher(body);
+                next = response.statusCode() == 200 && proceed.find()
+                        ? URI.create(next).resolve(proceed.group(1).replace("&amp;", "&")).toString() : null;
+            }
+        }
+        return body;
     }
 
     public static void deleteRegisteredUsers() {
@@ -128,6 +184,7 @@ public final class KeycloakTestServer {
     public static void markEmailVerified(UUID userId) {
         ObjectNode user = (ObjectNode) admin("GET", "/users/" + userId, null);
         user.put("emailVerified", true);
+        user.putArray("requiredActions");
         admin("PUT", "/users/" + userId, user.toString());
     }
 
@@ -196,6 +253,19 @@ public final class KeycloakTestServer {
             }
         } catch (Exception exception) {
             throw new IllegalStateException("Cannot seed the Keycloak test realm", exception);
+        }
+    }
+
+    private static JsonNode mailpit(String method, String path) {
+        try {
+            HttpResponse<String> response = send(HttpRequest.newBuilder(URI.create("http://" + MAILPIT.getHost() + ":"
+                    + MAILPIT.getMappedPort(8025) + path)).method(method, HttpRequest.BodyPublishers.noBody()), null);
+            if (response.statusCode() >= 300) {
+                throw new IllegalStateException(method + " " + path + " returned HTTP " + response.statusCode());
+            }
+            return response.body().trim().startsWith("{") ? JSON.readTree(response.body()) : JSON.createObjectNode();
+        } catch (Exception exception) {
+            throw new IllegalStateException("Mailpit call failed: " + method + " " + path, exception);
         }
     }
 

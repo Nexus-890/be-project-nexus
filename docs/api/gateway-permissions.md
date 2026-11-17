@@ -75,6 +75,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/vouchers/{id}/usages` | GET | VOUCHER.MANAGE | #256 — Promotions and vouchers |
 | `/api/v1/vouchers/{id}/claim` | POST | VOUCHER.CLAIM | #256 — Promotions and vouchers |
 | `/api/v1/auth/register` | POST | Public | #74 — User registration with a default role             |
+| `/api/v1/auth/verification-email` | POST | Public | #210 / #262 — Resend the email verification link (one per address per minute, same answer for unknown addresses) |
 | `/api/v1/auth/session` | POST | Public | #252 — HttpOnly refresh cookie: sign-in exchange |
 | `/api/v1/auth/refresh` | POST | Public | #252 — HttpOnly refresh cookie: renew the access token |
 | `/api/v1/auth/logout` | POST | Public | #252 — HttpOnly refresh cookie: sign out |
@@ -88,6 +89,13 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/skus/{id}` | GET | Public | #86 / #100 — SKU reads and product visibility           |
 | `/api/v1/users/me` | GET | PROFILE.VIEW | #75 — Own profile: read and update                      |
 | `/api/v1/users/me` | PUT | PROFILE.UPDATE | #75 — Own profile: read and update                      |
+| `/api/v1/users/me/phone/verification` | POST | PROFILE.UPDATE | #210 / #263 — Send a phone verification code |
+| `/api/v1/users/me/phone/verification/confirm` | POST | PROFILE.UPDATE | #210 / #263 — Confirm the phone verification code |
+| `/api/v1/users/me/addresses` | GET | PROFILE.VIEW | #210 / #265 — Own address book |
+| `/api/v1/users/me/addresses` | POST | PROFILE.UPDATE | #210 / #265 — Own address book |
+| `/api/v1/users/me/addresses/{id}` | PUT | PROFILE.UPDATE | #210 / #265 — Own address book |
+| `/api/v1/users/me/addresses/{id}` | DELETE | PROFILE.UPDATE | #210 / #265 — Own address book |
+| `/api/v1/users/me/addresses/{id}/default` | POST | PROFILE.UPDATE | #210 / #265 — Own address book |
 | `/api/v1/users` | GET | USER.LIST | #76 — Admin user list and user by id                    |
 | `/api/v1/users` | POST | USER.CREATE | #211 — service also requires ADMIN |
 | `/api/v1/users/{id}` | PUT | USER.UPDATE | #211 — ADMIN or SUPPORT_STAFF |
@@ -102,6 +110,11 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/system/configs/{key}` | PUT | SYSTEM.CONFIG.UPDATE | #211 — config-service; ADMIN |
 | `/api/v1/sellers/me` | GET | Roles: SELLER | #257 — Seller's own profile; existing SELLER users are bootstrapped lazily |
 | `/api/v1/sellers/me` | PUT | Roles: SELLER | #257 — Own company name and contact phone only |
+| `/api/v1/sellers/applications` | POST | Roles: BUYER | #264 — Apply, or re-apply after a rejection |
+| `/api/v1/sellers/applications/me` | GET | Roles: BUYER, SELLER | #264 — Own application status; `data` is null when none |
+| `/api/v1/sellers/applications` | GET | Roles: ADMIN | #264 — Review queue, filter by `status`, paged |
+| `/api/v1/sellers/applications/{userId}/approve` | POST | Roles: ADMIN | #264 — Grants SELLER in Keycloak; a new token carries it |
+| `/api/v1/sellers/applications/{userId}/reject` | POST | Roles: ADMIN | #264 — Reason is required and shown to the applicant |
 | `/api/v1/payments/seller-bank-accounts` | POST | Roles: SELLER | #257 — Seller identity comes from the authenticated user |
 | `/api/v1/payments/seller-bank-accounts/me` | GET | Roles: SELLER | #257 — Own accounts, masked to last four digits |
 | `/api/v1/payments/seller-bank-accounts/{id}` | PUT | Roles: SELLER | #257 — Owning seller only; another seller receives 404 |
@@ -171,7 +184,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/shipments/{id}/status` | PATCH | SHIPPING.UPDATE_STATUS | #203 — shipment-service |
 | `/api/v1/shipments/{id}/override` | POST | SHIPPING.MANUAL_OVERRIDE | #203 — shipment-service; reason required downstream |
 | `/api/v1/ratings` | POST | REPUTATION.RATE | #212 — rating-service; completed-order eligibility checked downstream |
-| `/api/v1/orders/{id}/confirm-receipt` | POST | ORDER.VIEW | #258 / #220 — BUYER role and own-order checks downstream; locked DELIVERED → COMPLETED, idempotent completed replay |
+| `/api/v1/orders/{id}/confirm-receipt` | POST | ORDER.VIEW | #258 / #220 — BUYER role and own-order checks downstream; locked DELIVERED → COMPLETED; repeated confirmation returns 409 COMMERCE_ORDER_NOT_DELIVERED |
 | `/api/v1/orders/{id}/receipt-issue` | POST | ORDER.VIEW | #258 / #220 — BUYER role and own-order checks; persist a receipt issue under the completion lock and pause completion until D11 resolution |
 | `/api/v1/ratings` | GET | REPUTATION.VIEW | #212 — rating-service; userId is a query parameter |
 | `/api/v1/reputations/{userId}` | GET | REPUTATION.VIEW | #213 — rating-service |

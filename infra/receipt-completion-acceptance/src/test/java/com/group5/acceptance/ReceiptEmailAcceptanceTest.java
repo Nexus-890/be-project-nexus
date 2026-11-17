@@ -36,7 +36,8 @@ class ReceiptEmailAcceptanceTest {
             var order = commerce.order();
             assertThat(commerce.events(order.id())).isEmpty(); assertNoReceipt(notification);
             commerce.completions.confirm(order.buyer(), order.id());
-            commerce.completions.confirm(order.buyer(), order.id());
+            assertThatThrownBy(() -> commerce.completions.confirm(order.buyer(), order.id()))
+                    .isInstanceOf(DomainException.class).extracting("errorCode").isEqualTo("COMMERCE_ORDER_NOT_DELIVERED");
             assertThat(commerce.status(order)).isEqualTo("COMPLETED");
             assertThat(commerce.events(order.id())).hasSize(1);
             var envelope = commerce.events(order.id()).getFirst();
@@ -81,11 +82,12 @@ class ReceiptEmailAcceptanceTest {
             commerce.due(order);
             assertThat(commerce.job.runOnce()).isEqualTo(1);
             assertThat(commerce.job.runOnce()).isZero();
-            commerce.completions.confirm(order.buyer(), order.id());
+            assertThatThrownBy(() -> commerce.completions.confirm(order.buyer(), order.id()))
+                    .isInstanceOf(DomainException.class).extracting("errorCode").isEqualTo("COMMERCE_ORDER_NOT_DELIVERED");
             assertThat(commerce.status(order)).isEqualTo("COMPLETED");
             assertThat(commerce.events(order.id())).hasSize(1);
             assertThat(commerce.jdbc.queryForObject("SELECT reason FROM order_status_history WHERE order_id=? AND new_status='COMPLETED'", String.class, order.id()))
-                    .isEqualTo("Automatically completed after the receipt confirmation period");
+                    .isEqualTo("Completed automatically after delivery");
             var envelope = commerce.events(order.id()).getFirst();
             notification.receive(envelope); notification.receive(envelope);
             assertThat(notification.job.runOnce()).isEqualTo(1);

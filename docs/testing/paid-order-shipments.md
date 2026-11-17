@@ -37,16 +37,20 @@ truy vấn shipment nằm trong `shipping.repository.ShipmentRepository`; histor
 `shipping.job`. Kết quả tạo nội bộ là nested record
 `ShipmentCreationService.CreationResult`.
 
-Carrier tạm lỗi, adapter chưa hỗ trợ tạo tracking, hoặc snapshot chưa có số đo
-kiện/địa chỉ lấy hàng giữ `PENDING_TRACKING` và `trackingCode=null`. Job retry
-chỉ bổ sung tracking cho shipment hiện có; không phát `ShipmentCreated` lần hai.
-Không tự tạo số đo, địa chỉ hoặc số điện thoại để gọi carrier. Fake cấp mã ổn
-định cho cùng request identity; GHN create/tracking thật không thuộc #202.
-Tracking retry xử lý carrier phục hồi, không tự cung cấp parcel/pickup còn
-thiếu. #202 chưa có endpoint hoàn tất dữ liệu chuẩn bị: snapshot có hai trường
-này null vẫn chờ chuẩn bị. Publisher cần cung cấp snapshot chuẩn bị đầy đủ và
-tin cậy để tạo tracking thành công; thay đổi snapshot đã tiếp nhận cần contract
-correction/backfill được thống nhất riêng.
+Carrier tạm lỗi hoặc snapshot thiếu số đo kiện/địa chỉ người nhận hợp lệ giữ
+`PENDING_TRACKING` và `trackingCode=null`. Job retry xử lý shipment hiện có,
+không phát `ShipmentCreated` lần hai. Fake cấp mã ổn định theo cùng request
+identity; #258 bổ sung GHN sandbox booking và đối soát timeout.
+
+Event `OrderPaid` thực tế không gửi `serviceType` và có thể gửi
+`pickupAddress=null`. Khi tạo hoặc retry, GHN/FAKE suy ra dịch vụ còn trống
+từ `parcel.weightGrams` đã chốt: dưới 20.000g là STANDARD, từ 20.000g là HEAVY.
+Pickup còn trống chỉ được bổ sung từ cấu hình cho đúng `warehouseId`; default
+pickup chỉ dùng khi kho khớp `default-warehouse-id`. Worker cũng phục hồi được
+shipment pending cũ bị thiếu các trường dispatch này, giữ nguyên UUID, carrier
+và service đã lưu. Nếu không có cấu hình pickup tin cậy cho kho đó, shipment
+vẫn pending. Không tự tạo số đo, người nhận, số điện thoại hoặc mã địa giới;
+parcel hoặc địa chỉ người nhận còn thiếu vẫn cần dữ liệu hợp lệ từ publisher.
 
 Các HTTP operation nằm trong [OpenAPI](../api/openapi/shipment-service.yaml):
 
@@ -95,12 +99,15 @@ lấy từ request hoặc lựa chọn tin cậy/cấu hình. Carrier chưa đă
 Kho override cần pickup tin cậy được cấu hình riêng; thiếu kho/pickup cần chọn
 trả 404 `SHIPMENT_WAREHOUSE_NOT_FOUND`. Không lấy pickup của kho cũ cho kho mới
 và không biến tên ward/city legacy thành mã địa giới GHN. Địa chỉ legacy có
-recipient và line1 nhưng thiếu mã, parcel hoặc pickup chỉ tạo shipment pending
-chuẩn bị; retry không tự bổ sung dữ liệu đó.
+recipient và line1 nhưng thiếu mã hoặc parcel vẫn chỉ tạo shipment pending
+chuẩn bị. Pickup còn trống có thể lấy từ cấu hình đúng kho; không có cấu hình
+tin cậy vẫn pending. Retry không tự tạo parcel hoặc mã địa giới người nhận.
 
 Nếu shipment đã tồn tại, các lựa chọn gửi phải khớp giá trị đã lưu; khác trả
-409 `SHIPMENT_IDEMPOTENCY_CONFLICT`. Carrier/service/kho không đổi sau khi
-request identity đã được commit, kể cả khi tracking update rollback.
+409 `SHIPMENT_IDEMPOTENCY_CONFLICT`. Carrier/service/kho đã có không bị thay
+sau khi request identity đã được commit, kể cả khi tracking update rollback.
+Service còn trống và pickup còn thiếu chỉ được bổ sung theo quy tắc chuẩn bị
+booking ở trên; request identity luôn giữ nguyên.
 
 List mặc định `page=0&size=20`, size từ 1 đến 100; bộ lọc tùy chọn `orderId`
 và `status`. Kết quả sắp theo thời điểm tạo giảm dần và id. JSON 2xx luôn dùng
@@ -112,16 +119,20 @@ chuyển tiếp vẫn dùng enum của gateway theo contract chung.
 
 Khởi động PostgreSQL 18, Kafka/topic init, config-service, discovery-service và
 shipment-service theo [README](../../../README.md). Cấu hình
-`SHIPPING_CARRIER=FAKE` trong môi trường local/test. Không tự chuyển FAKE khi
+`SHIPPING_BOOKING_CARRIER=FAKE` trong môi trường local/test (hoặc cấu hình cũ
+`SHIPPING_CARRIER=FAKE`). Có thể dùng `SHIPPING_QUOTE_CARRIER=GHN` để giữ phí
+GHN thật; xem [cấu hình báo phí](shipping-quotes.md). Đặt booking GHN để tạo
+vận đơn sandbox thật, hoặc NONE để tắt booking. Không tự chuyển FAKE khi
 carrier thật lỗi. Build lại `lib` trước shipment-service khi thư viện chung đổi.
 
 Consumer bật mặc định với `nexus.shipping.order-paid-consumer-enabled=true`;
 có thể tắt khi chưa hoàn tất backfill/contract của publisher. Tracking retry
 poll theo `nexus.shipping.tracking-retry-poll-ms` (mặc định 5000), backoff nền
 `nexus.shipping.tracking-retry-backoff-ms` (mặc định 30000); retry dùng backoff
-tăng dần tới tối đa một giờ. Snapshot chưa đủ chuẩn bị được giữ ở pending;
-retry không bổ sung dữ liệu thiếu và không fabricate dữ liệu. Message sai schema được giữ retry, không đánh dấu
-processed như đã thành công.
+tăng dần tới tối đa một giờ. Retry có thể điền service và pickup còn thiếu theo
+parcel đã chốt/cấu hình đúng kho; thiếu parcel, người nhận hợp lệ hoặc cấu hình
+pickup tin cậy vẫn pending. Không fabricate dữ liệu. Message sai schema được
+giữ retry, không đánh dấu processed như đã thành công.
 
 Fixture bên dưới giữ đủ các trường của schema `OrderPaid` trong event
 catalogue. `P01/D01/W01` là mã tổng hợp cho fake, không phải địa chỉ hợp lệ để
@@ -250,7 +261,7 @@ Không xóa dữ liệu lịch sử của môi trường dùng chung chỉ để
 | Carrier tạm lỗi rồi phục hồi | PENDING_TRACKING được lưu; retry cùng request identity bổ sung tracking, xóa lịch retry, không thêm creation event |
 | Transaction tạo shipment/outbox rollback | Không có shipment/marker/outbox, carrier chưa được gọi; event có thể xử lý lại |
 | Carrier thành công nhưng transaction cập nhật tracking rollback | Shipment pending đã tồn tại; retry dùng lại shipment.id, fake trả cùng tracking |
-| Parcel/pickup chưa có | PENDING_TRACKING; retry không tự bổ sung dữ liệu, #202 chưa có endpoint hoàn tất chuẩn bị |
+| Service/pickup chưa có | GHN/FAKE suy ra service từ parcel đã chốt, pickup chỉ lấy từ cấu hình đúng warehouse; worker điền các trường còn trống và giữ identity; thiếu nguồn tin cậy vẫn PENDING_TRACKING |
 | Buyer A đọc shipment của A/B | A được 200; B trả 404; list/totals không chứa dữ liệu của B |
 | ADMIN/SUPPORT_STAFF đọc có privilege | Nhìn thấy shipment ngoài buyerId của mình |
 | Buyer có CREATE privilege gọi manual POST | 403 SHIPMENT_FORBIDDEN; không gọi service tạo, không lộ shipment |
@@ -296,8 +307,9 @@ Content-Type: application/json
 ```
 
 Kỳ vọng 201 với Location và ApiResponse. Buyer/fee/recipient/items phải khớp
-snapshot của commerce. Nếu snapshot có parcel/pickup/mã địa giới đầy đủ, fake
-có thể cấp tracking sau commit; nếu chưa đủ, shipment vẫn pending chuẩn bị.
+snapshot của commerce. Nếu snapshot có parcel và mã địa giới đầy đủ, pickup có
+sẵn hoặc cấu hình tin cậy cho đúng kho, fake có thể cấp tracking sau commit;
+nếu chưa đủ, shipment vẫn pending chuẩn bị.
 Gửi lại cùng body/key phải trả cùng id mà không thêm outbox. Sau đó giao
 `OrderPaid` cho cùng order để kiểm tra consumer không tạo thêm shipment/event.
 Các token trong ví dụ là placeholder, không lưu bearer vào evidence.

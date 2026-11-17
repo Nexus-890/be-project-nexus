@@ -19,7 +19,7 @@ public class CarrierService {
     }
 
     public List<CarrierResponse> getCarriers() {
-        var adapters = carrierRegistry.getAdapters();
+        var adapters = carrierRegistry.getQuoteAdapters();
         String defaultCode = adapters.isEmpty() ? null : carrierRegistry.getDefaultAdapter().code();
         return adapters.stream()
                 .map(adapter -> new CarrierResponse(adapter.code(), adapter.name(),

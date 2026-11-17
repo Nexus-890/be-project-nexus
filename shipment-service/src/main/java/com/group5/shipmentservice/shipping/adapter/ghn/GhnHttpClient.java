@@ -7,6 +7,8 @@ import com.group5.shipmentservice.shared.exception.ShipmentErrorCode;
 import com.group5.shipmentservice.shipping.resilience.ShippingDeadline;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -22,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 class GhnHttpClient {
+    private static final Logger log = LoggerFactory.getLogger(GhnHttpClient.class);
     private final GhnProperties properties;
     private final ShippingProperties shipping;
     private final String token;
@@ -40,15 +43,30 @@ class GhnHttpClient {
     }
 
     JsonNode get(String path, ShippingDeadline deadline) {
-        return request(path, null, deadline);
+        return request(path, null, deadline, shipping.retryLimit());
     }
 
     JsonNode post(String path, Object body, ShippingDeadline deadline) {
-        return request(path, mapper.writeValueAsString(body), deadline);
+        return request(path, mapper.writeValueAsString(body), deadline, shipping.retryLimit());
     }
 
-    private JsonNode request(String path, String body, ShippingDeadline deadline) {
-        for (int attempt = 0; attempt <= shipping.retryLimit(); attempt++) {
+    /** A create timeout is uncertain: the adapter must look up the client code before retrying. */
+    JsonNode postOnce(String path, Object body, ShippingDeadline deadline) {
+        return request(path, mapper.writeValueAsString(body), deadline, 0);
+    }
+
+    JsonNode findByClientCode(String clientOrderCode, ShippingDeadline deadline) {
+        try {
+            return get("/shiip/public-api/v2/shipping-order/detail-by-client-code?client_order_code="
+                    + java.net.URLEncoder.encode(clientOrderCode, java.nio.charset.StandardCharsets.UTF_8), deadline);
+        } catch (GhnProviderException error) {
+            if (error.isOrderNotFound()) return null;
+            throw error;
+        }
+    }
+
+    private JsonNode request(String path, String body, ShippingDeadline deadline, int retryLimit) {
+        for (int attempt = 0; attempt <= retryLimit; attempt++) {
             Duration timeout = attemptTimeout(deadline);
             HttpRequest.Builder builder = HttpRequest.newBuilder(properties.baseUrl().resolve(path))
                     .timeout(timeout)
@@ -66,7 +84,8 @@ class GhnHttpClient {
                 HttpResponse<String> response = pending.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
                 int status = response.statusCode();
                 if (status == 429 || status >= 500) {
-                    retryOrThrow(attempt, deadline, retryDelay(response, attempt));
+                    logTransientFailure(status, response.body());
+                    retryOrThrow(attempt, retryLimit, deadline, retryDelay(response, attempt));
                     continue;
                 }
                 if (status == 401 || status == 403) {
@@ -85,7 +104,8 @@ class GhnHttpClient {
                 }
                 int providerStatus = code.intValue();
                 if (providerStatus == 429 || providerStatus >= 500) {
-                    retryOrThrow(attempt, deadline, backoff(attempt));
+                    logProviderFailure(providerStatus, envelope);
+                    retryOrThrow(attempt, retryLimit, deadline, backoff(attempt));
                     continue;
                 }
                 if (providerStatus != 200) {
@@ -101,7 +121,7 @@ class GhnHttpClient {
                 return data;
             } catch (TimeoutException error) {
                 pending.cancel(true);
-                retryOrThrow(attempt, deadline, backoff(attempt));
+                retryOrThrow(attempt, retryLimit, deadline, backoff(attempt));
             } catch (ExecutionException error) {
                 pending.cancel(true);
                 Throwable cause = error.getCause();
@@ -114,7 +134,7 @@ class GhnHttpClient {
                 if (!(cause instanceof IOException)) {
                     throw unavailable();
                 }
-                retryOrThrow(attempt, deadline, backoff(attempt));
+                retryOrThrow(attempt, retryLimit, deadline, backoff(attempt));
             } catch (InterruptedException error) {
                 pending.cancel(true);
                 Thread.currentThread().interrupt();
@@ -152,8 +172,8 @@ class GhnHttpClient {
         }
     }
 
-    private void retryOrThrow(int attempt, ShippingDeadline deadline, Duration delay) {
-        if (attempt >= shipping.retryLimit() || deadline.remainingOrThrow().compareTo(delay.plusMillis(1)) <= 0) {
+    private void retryOrThrow(int attempt, int retryLimit, ShippingDeadline deadline, Duration delay) {
+        if (attempt >= retryLimit || deadline.remainingOrThrow().compareTo(delay.plusMillis(1)) <= 0) {
             throw unavailable();
         }
         try {
@@ -177,8 +197,20 @@ class GhnHttpClient {
 
     private DomainException providerError(String path, int status, JsonNode envelope) {
         String code = envelope.path("code_message").asString("");
+        String message = envelope.path("message").asString("");
+        logProviderFailure(status, envelope);
         if (status == 401 || status == 403 || code.startsWith("CLIENT_") || code.contains("TOKEN")) {
             return new DomainException(ShipmentErrorCode.CARRIER_CONFIGURATION_ERROR);
+        }
+        if (path.startsWith("/shiip/public-api/v2/shipping-order/detail-by-client-code?")) {
+            String normalized = message.strip().toLowerCase(java.util.Locale.ROOT);
+            boolean missing = (status == 400 || status == 404) && ("ORDER_NOT_FOUND".equals(code)
+                    || "ORDER_NOT_EXIST".equals(code) || normalized.contains("đơn hàng không tồn tại")
+                    || normalized.contains("order not found") || normalized.contains("order does not exist"));
+            return new GhnProviderException(ShipmentErrorCode.INVALID_CARRIER_RESPONSE, code, missing);
+        }
+        if (path.equals("/shiip/public-api/v2/shipping-order/create") && "TO_ADDRESS_CONFLICT".equals(code)) {
+            return new GhnProviderException(ShipmentErrorCode.INVALID_ADDRESS, code, false);
         }
         if (path.equals("/shiip/public-api/v2/switch-status/cancel")) {
             return new DomainException(ShipmentErrorCode.CARRIER_CANCELLATION_REJECTED);
@@ -197,6 +229,22 @@ class GhnHttpClient {
             return new DomainException(ShipmentErrorCode.INVALID_ADDRESS);
         }
         return invalidResponse();
+    }
+
+    private void logTransientFailure(int status, String body) {
+        try {
+            logProviderFailure(status, parse(body));
+        } catch (RuntimeException ignored) {
+            log.warn("GHN rejected request status={}", status);
+        }
+    }
+
+    private void logProviderFailure(int status, JsonNode envelope) {
+        // The provider detail is diagnostic only. Never include it in DomainException/client properties.
+        String code = envelope.path("code_message").asString("").replaceAll("[^A-Za-z0-9_-]", "");
+        String diagnostic = envelope.path("message").asString("").replace(token, "[redacted]").replaceAll("[\\r\\n]", " ");
+        log.warn("GHN rejected request status={} providerCode={} message={}", status,
+                code, diagnostic.substring(0, Math.min(diagnostic.length(), 500)));
     }
 
     private DomainException invalidResponse() {

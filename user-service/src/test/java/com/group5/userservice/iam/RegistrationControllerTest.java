@@ -31,9 +31,10 @@ class RegistrationControllerTest {
     private static final String REGISTER = "/api/v1/auth/register";
 
     private final UserService userService = mock(UserService.class);
+    private final EmailVerificationService emailVerification = mock(EmailVerificationService.class);
 
     private final MockMvc mockMvc = MockMvcBuilders
-            .standaloneSetup(new AuthController(userService))
+            .standaloneSetup(new AuthController(userService, emailVerification))
             .setControllerAdvice(new GlobalExceptionHandler(null))
             .build();
 
@@ -152,7 +153,7 @@ class RegistrationControllerTest {
                 LocalDate.parse("2000-01-01"),
                 List.of("BUYER"),
                 UserStatus.ACTIVE,
-                OffsetDateTime.parse("2026-01-02T03:04:05Z"));
+                OffsetDateTime.parse("2026-01-02T03:04:05Z"), null);
     }
 
     private String validJson() {

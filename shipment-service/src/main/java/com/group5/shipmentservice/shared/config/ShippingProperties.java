@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.validation.annotation.Validated;
 
 import java.math.BigDecimal;
@@ -25,10 +26,25 @@ public record ShippingProperties(
         @DefaultValue("") String catalogBaseUrl,
         UUID defaultWarehouseId,
         @DefaultValue PickupAddress defaultPickup,
-        Map<UUID, PickupAddress> pickups) {
+        Map<UUID, PickupAddress> pickups,
+        CarrierMode quoteCarrier,
+        CarrierMode bookingCarrier) {
+    @ConstructorBinding
     public ShippingProperties {
         pickups = pickups == null ? Map.of() : Map.copyOf(pickups);
     }
+
+    public ShippingProperties(CarrierMode carrier, int apiTimeoutMs, int retryLimit, int retryBackoffMs,
+                              BigDecimal freeShippingThreshold, int breakerFailureThreshold, int breakerOpenMs,
+                              String catalogBaseUrl, UUID defaultWarehouseId, PickupAddress defaultPickup,
+                              Map<UUID, PickupAddress> pickups) {
+        this(carrier, apiTimeoutMs, retryLimit, retryBackoffMs, freeShippingThreshold, breakerFailureThreshold,
+                breakerOpenMs, catalogBaseUrl, defaultWarehouseId, defaultPickup, pickups, null, null);
+    }
+
+    public CarrierMode effectiveQuoteCarrier() { return quoteCarrier == null ? carrier : quoteCarrier; }
+
+    public CarrierMode effectiveBookingCarrier() { return bookingCarrier == null ? carrier : bookingCarrier; }
 
     public enum CarrierMode {
         NONE,

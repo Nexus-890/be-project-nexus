@@ -40,7 +40,7 @@ public class DomainEventConsumer {
     }
 
     @KafkaListener(
-            topics = {Topics.COMMERCE, Topics.CATALOG, Topics.PAYMENT, Topics.SHIPMENT, Topics.AUCTION},
+            topics = {Topics.USER, Topics.COMMERCE, Topics.CATALOG, Topics.PAYMENT, Topics.SHIPMENT, Topics.AUCTION},
             groupId = "${nexus.notification.group-id}",
             containerFactory = EventKafka.LISTENER_CONTAINER_FACTORY
     )

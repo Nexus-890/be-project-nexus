@@ -1,10 +1,12 @@
 package com.group5.acceptance;
 
 import com.group5.common_events.EventEnvelope;
+import com.group5.common_core.exception.DomainException;
 import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Reads actual committed commerce outbox records and runs the production downstream consumer. */
 class PayoutCompletionAcceptanceTest {
@@ -15,7 +17,8 @@ class PayoutCompletionAcceptanceTest {
             assertThat(commerce.events(order.id())).isEmpty();assertThat(payment.eligible(order.id())).isZero();
             assertThat(payment.payouts(order.id())).isZero();
             commerce.completions.confirm(order.buyer(),order.id());
-            commerce.completions.confirm(order.buyer(),order.id());
+            assertThatThrownBy(() -> commerce.completions.confirm(order.buyer(), order.id()))
+                    .isInstanceOf(DomainException.class).extracting("errorCode").isEqualTo("COMMERCE_ORDER_NOT_DELIVERED");
             var records=commerce.events(order.id());assertThat(records).hasSize(1);
             var actual=records.getFirst();payment.receive(actual);payment.receive(actual);
             assertThat(actual.payload().path("orderAmount").asString()).isEqualTo("325000.00");
