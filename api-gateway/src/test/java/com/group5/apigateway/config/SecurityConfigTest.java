@@ -630,6 +630,29 @@ class SecurityConfigTest {
     }
 
     @Test
+    void adminPayoutAndBankCollectionsRejectSellerAndSupportAndRouteAdminToPayment() {
+        for (String path : List.of("/api/v1/payments/payouts", "/api/v1/payments/seller-bank-accounts")) {
+            int before = SERVICE_LOG.size();
+            client.get().uri(path).exchange().expectStatus().isUnauthorized();
+            for (String role : List.of("BUYER", "SELLER", "SUPPORT_STAFF")) {
+                client.get().uri(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                                claims -> claims.claim("roles", List.of(role)).claim("privileges", List.of("ORDER.REFUND"))))
+                        .exchange().expectStatus().isForbidden();
+            }
+            assertThat(SERVICE_LOG).hasSize(before);
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                            claims -> claims.claim("roles", List.of("ADMIN"))))
+                    .exchange().expectStatus().isOk();
+            assertThat(SERVICE_LOG).hasSize(before + 1).contains("GET " + path);
+            var exchange = MockServerWebExchange.from(MockServerHttpRequest.get(path));
+            var routes = routeLocator.getRoutes().filterWhen(route -> route.getPredicate().apply(exchange))
+                    .collectList().block();
+            assertThat(routes).hasSize(1);
+            assertThat(routes.getFirst().getUri().toString()).isEqualTo("lb://payment-service");
+        }
+    }
+
+    @Test
     void auctionScheduleRequiresUpdatePrivilegeAndDoesNotInheritPublicGet() {
         String path = "/api/v1/auctions/" + ID + "/schedule";
         client.post().uri(path).exchange().expectStatus().isUnauthorized();

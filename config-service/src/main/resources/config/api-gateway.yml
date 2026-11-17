@@ -446,6 +446,9 @@ nexus:
         path: /api/v1/payments/seller-bank-accounts
         roles: [SELLER]
       - method: GET
+        path: /api/v1/payments/seller-bank-accounts
+        roles: [ADMIN]
+      - method: GET
         path: /api/v1/payments/seller-bank-accounts/me
         roles: [SELLER]
       - method: PUT
@@ -460,6 +463,9 @@ nexus:
       - method: GET
         path: /api/v1/payments/payouts/me
         roles: [SELLER]
+      - method: GET
+        path: /api/v1/payments/payouts
+        roles: [ADMIN]
       - method: GET
         path: /api/v1/payments/payouts/{id}
         roles: [SELLER, ADMIN]
