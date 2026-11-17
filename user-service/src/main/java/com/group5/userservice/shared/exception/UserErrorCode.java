@@ -27,7 +27,10 @@ public enum UserErrorCode implements ErrorCode {
     PHONE_CODE_EXPIRED(HttpStatus.BAD_REQUEST, "The verification code has expired; ask for a new one"),
     PHONE_CODE_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Too many codes or attempts; try again later"),
     ADDRESS_LIMIT_REACHED(HttpStatus.CONFLICT, "An account keeps at most 10 addresses"),
-    ADDRESS_NOT_FOUND(HttpStatus.NOT_FOUND, "Address not found");
+    ADDRESS_NOT_FOUND(HttpStatus.NOT_FOUND, "Address not found"),
+    SELLER_APPLICATION_EXISTS(HttpStatus.CONFLICT, "An open or approved seller application already exists"),
+    SELLER_APPLICATION_NOT_PENDING(HttpStatus.CONFLICT, "Only a pending seller application can be decided"),
+    SELLER_APPLICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "Seller application not found");
 
     private final HttpStatus status;
     private final String message;

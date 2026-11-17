@@ -102,7 +102,7 @@ class DomainEventConsumerTest {
         // Kiểm tra cấu hình listener thật: gọi receive trực tiếp không phát hiện thiếu subscription.
         KafkaListener listener = DomainEventConsumer.class.getMethod("receive", ConsumerRecord.class)
                 .getAnnotation(KafkaListener.class);
-        assertThat(listener.topics()).contains(Topics.COMMERCE, Topics.CATALOG, Topics.PAYMENT,
+        assertThat(listener.topics()).contains(Topics.USER, Topics.COMMERCE, Topics.CATALOG, Topics.PAYMENT,
                 Topics.SHIPMENT, Topics.AUCTION);
     }
 

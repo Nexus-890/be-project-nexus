@@ -73,6 +73,7 @@ import static org.mockito.Mockito.doThrow;
 class RegistrationIntegrationTest {
     private static final String REGISTER = "/api/v1/auth/register";
     private static final String RESEND = "/api/v1/auth/verification-email";
+    private static final String APPLICATIONS = "/api/v1/sellers/applications";
     private static final String PASSWORD = "registered-password-123!";
     private static final Path TEMP = createTestFiles();
     private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -103,6 +104,7 @@ class RegistrationIntegrationTest {
         jdbc.update("delete from user_addresses");
         jdbc.update("delete from phone_verifications");
         jdbc.update("delete from verification_email_sends");
+        jdbc.update("delete from seller");
         jdbc.update("delete from users");
         jdbc.update("delete from outbox");
         KeycloakTestServer.deleteRegisteredUsers();
@@ -569,6 +571,113 @@ class RegistrationIntegrationTest {
         assertThat(KeycloakTestServer.signIn("unlock@nexus.test", PASSWORD)).isNotBlank();
         assertThat(admin("POST", "/api/v1/users/" + id + "/unlock", Map.of()).statusCode()).isEqualTo(409);
         assertThat(jdbc.queryForObject("select count(*) from outbox where event_type='UserUnlocked'", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void approvedSellerApplicationGivesTheSellerRoleInTheNextToken() throws Exception {
+        UUID id = verifiedBuyer("apply@nexus.test", "0901234567", "APPLY-264");
+        String buyerToken = KeycloakTestServer.signIn("apply@nexus.test", PASSWORD);
+        assertThat(JSON.readTree(get(APPLICATIONS + "/me", buyerToken).body()).get("data").isNull()).isTrue();
+
+        HttpResponse<String> applied = send("POST", APPLICATIONS, application("Apply Company"), buyerToken);
+        assertThat(applied.statusCode()).as(applied.body()).isEqualTo(201);
+        JsonNode created = JSON.readTree(applied.body()).get("data");
+        assertThat(created.get("id").asString()).isEqualTo(id.toString());
+        assertThat(created.get("status").asString()).isEqualTo("PENDING");
+        assertThat(created.get("reason").isNull()).isTrue();
+
+        HttpResponse<String> second = send("POST", APPLICATIONS, application("Second Company"), buyerToken);
+        assertThat(second.statusCode()).isEqualTo(409);
+        assertThat(JSON.readTree(second.body()).get("code").asString()).isEqualTo("SELLER_APPLICATION_EXISTS");
+        assertThat(get(APPLICATIONS, buyerToken).statusCode()).isEqualTo(403);
+        assertThat(send("POST", APPLICATIONS + "/" + id + "/approve", Map.of(), buyerToken).statusCode()).isEqualTo(403);
+
+        HttpResponse<String> queue = admin("GET", APPLICATIONS + "?status=PENDING&page=0&size=10", null);
+        assertThat(queue.statusCode()).as(queue.body()).isEqualTo(200);
+        assertThat(JSON.readTree(queue.body()).get("data").get(0).get("id").asString()).isEqualTo(id.toString());
+        assertThat(JSON.readTree(queue.body()).get("page").get("totalElements").asInt()).isEqualTo(1);
+
+        HttpResponse<String> approved = admin("POST", APPLICATIONS + "/" + id + "/approve", Map.of());
+        assertThat(approved.statusCode()).as(approved.body()).isEqualTo(200);
+        assertThat(JSON.readTree(approved.body()).get("data").get("status").asString()).isEqualTo("ACTIVE");
+        assertThat(KeycloakTestServer.realmRoles(id)).contains("BUYER", "SELLER");
+        assertThat(jdbc.queryForObject("select reviewed_by is not null and reviewed_at is not null from seller where user_id=?",
+                Boolean.class, id)).isTrue();
+        assertThat(admin("POST", APPLICATIONS + "/" + id + "/approve", Map.of()).statusCode()).isEqualTo(409);
+
+        assertThat(get("/api/v1/sellers/me", buyerToken).statusCode()).isEqualTo(403);
+        String sellerToken = KeycloakTestServer.signIn("apply@nexus.test", PASSWORD);
+        HttpResponse<String> profile = get("/api/v1/sellers/me", sellerToken);
+        assertThat(profile.statusCode()).as(profile.body()).isEqualTo(200);
+        assertThat(JSON.readTree(profile.body()).get("data").get("companyName").asString()).isEqualTo("Apply Company");
+        assertThat(jdbc.queryForList("select event_type from outbox where aggregate_id=? order by occurred_at",
+                String.class, id.toString())).contains("UserRoleAssigned", "SellerApplicationApproved");
+    }
+
+    @Test
+    void rejectedApplicantSeesTheReasonAndCanApplyAgain() throws Exception {
+        UUID id = verifiedBuyer("rejected@nexus.test", "0901234568", "REJECT-264");
+        String token = KeycloakTestServer.signIn("rejected@nexus.test", PASSWORD);
+        assertThat(send("POST", APPLICATIONS, application("Reject Company"), token).statusCode()).isEqualTo(201);
+        assertThat(admin("POST", APPLICATIONS + "/" + id + "/reject", Map.of("reason", " ")).statusCode()).isEqualTo(400);
+
+        HttpResponse<String> rejected = admin("POST", APPLICATIONS + "/" + id + "/reject",
+                Map.of("reason", "Business licence is missing"));
+        assertThat(rejected.statusCode()).as(rejected.body()).isEqualTo(200);
+        JsonNode own = JSON.readTree(get(APPLICATIONS + "/me", token).body()).get("data");
+        assertThat(own.get("status").asString()).isEqualTo("REJECTED");
+        assertThat(own.get("reason").asString()).isEqualTo("Business licence is missing");
+        assertThat(KeycloakTestServer.realmRoles(id)).contains("BUYER").doesNotContain("SELLER");
+        assertThat(admin("POST", APPLICATIONS + "/" + id + "/reject", Map.of("reason", "again")).statusCode())
+                .isEqualTo(409);
+
+        HttpResponse<String> again = send("POST", APPLICATIONS, application("Licensed Company"), token);
+        assertThat(again.statusCode()).as(again.body()).isEqualTo(201);
+        JsonNode resubmitted = JSON.readTree(again.body()).get("data");
+        assertThat(resubmitted.get("status").asString()).isEqualTo("PENDING");
+        assertThat(resubmitted.get("reason").isNull()).isTrue();
+        assertThat(resubmitted.get("companyName").asString()).isEqualTo("Licensed Company");
+        assertThat(count("seller")).isEqualTo(1);
+    }
+
+    @Test
+    void keycloakFailureLeavesTheApplicationPending() throws Exception {
+        UUID id = verifiedBuyer("pending@nexus.test", "0901234569", "PENDING-264");
+        String token = KeycloakTestServer.signIn("pending@nexus.test", PASSWORD);
+        assertThat(send("POST", APPLICATIONS, application("Pending Company"), token).statusCode()).isEqualTo(201);
+        doThrow(new DomainException(UserErrorCode.USER_IDENTITY_PROVIDER_UNAVAILABLE))
+                .when(keycloak).replaceRealmRoles(org.mockito.ArgumentMatchers.eq(id), org.mockito.ArgumentMatchers.anyList());
+        try {
+            HttpResponse<String> failed = admin("POST", APPLICATIONS + "/" + id + "/approve", Map.of());
+            assertThat(failed.statusCode()).isEqualTo(503);
+            assertThat(JSON.readTree(failed.body()).get("code").asString()).isEqualTo("USER_IDENTITY_PROVIDER_UNAVAILABLE");
+        } finally {
+            org.mockito.Mockito.reset(keycloak);
+        }
+        assertThat(jdbc.queryForObject("select status::text from seller where user_id=?", String.class, id))
+                .isEqualTo("PENDING");
+        assertThat(KeycloakTestServer.realmRoles(id)).doesNotContain("SELLER");
+        assertThat(jdbc.queryForObject("select count(*) from outbox where event_type in ('UserRoleAssigned','SellerApplicationApproved')",
+                Integer.class)).isZero();
+    }
+
+    private UUID verifiedBuyer(String email, String phone, String identity) throws Exception {
+        HttpResponse<String> registered = post(REGISTER, request(email, phone, identity));
+        assertThat(registered.statusCode()).as(registered.body()).isEqualTo(201);
+        UUID id = KeycloakTestServer.userIdByEmail(email).orElseThrow();
+        KeycloakTestServer.markEmailVerified(id);
+        return id;
+    }
+
+    private static Map<String, String> application(String companyName) {
+        return Map.of("companyName", companyName, "phone", "0912345678", "note", "We sell handmade ceramics online.");
+    }
+
+    private HttpResponse<String> send(String method, String path, Map<?, ?> body, String token) throws Exception {
+        return HTTP.send(HttpRequest.newBuilder(uri(path)).timeout(Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + token).header("Content-Type", "application/json")
+                .method(method, HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body))).build(),
+                HttpResponse.BodyHandlers.ofString());
     }
 
     /** Gửi request quản trị bằng token lấy qua đăng nhập PKCE thật của demo Admin. */

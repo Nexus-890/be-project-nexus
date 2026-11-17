@@ -10,6 +10,23 @@ fact for automatic payouts. `PayoutSucceeded` and `PayoutFailed` describe the
 outbound result independently of buyer PAID state. Sandbox events explicitly
 carry `simulated: true`; they do not prove a bank transfer.
 
+## Seller application events (#264, 17 November 2026)
+
+user-service writes both events to `nexus.user.events` through its outbox, with
+aggregate type `User` and the applicant's user ID as aggregate ID and Kafka key.
+notification-service sends the applicant an in-app and email notification and
+records the event log.
+
+| Event | Payload |
+| --- | --- |
+| `SellerApplicationApproved` | `userId`, `actorId` (reviewing Admin), `companyName`, `approvedAt` |
+| `SellerApplicationRejected` | `userId`, `actorId` (reviewing Admin), `companyName`, `reason`, `rejectedAt` |
+
+Approval also writes `UserRoleAssigned` with the previous and resulting role
+sets when SELLER is added in Keycloak. Both events commit with the application
+status change; if Keycloak fails, the role change is undone and neither event is
+written.
+
 ## Sprint 3 handoff (#139)
 
 The six contracts below are the #139 handoff for [#171](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/171), [#172](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/172) and their downstream owners. This section was checked against SRS 3.5.3 and the current issue requirements on 2026-11-10. It retains the existing schemas; contract review is separate from implementing or running the flow.
@@ -359,6 +376,8 @@ Issue numbers identify implementation ownership, not completed runtime behavior.
 | `UserUpdated` | `nexus.user.events` | [#211](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/211) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit |
 | `UserDeleted` | `nexus.user.events` | [#211](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/211) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit |
 | `UserRoleAssigned` | `nexus.user.events` | [#211](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/211) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit |
+| `SellerApplicationApproved` | `nexus.user.events` | #264 | notification-service #264: notify the applicant; #192 event log |
+| `SellerApplicationRejected` | `nexus.user.events` | #264 | notification-service #264: notify the applicant with the reason; #192 event log |
 | `CategoryCreated` | `nexus.catalog.events` | [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): skip/no template; no notification recipient; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `CategoryUpdated` | `nexus.catalog.events` | [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): skip/no template; no notification recipient; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `CategoryDeleted` | `nexus.catalog.events` | [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): skip/no template; no notification recipient; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |

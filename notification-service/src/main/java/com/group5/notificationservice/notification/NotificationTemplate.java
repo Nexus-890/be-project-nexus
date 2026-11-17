@@ -37,7 +37,13 @@ public enum NotificationTemplate {
             new String[]{"bidderIds", "sellerId"}, "auctionId", "reason"),
     AUCTION_PAYMENT_TIMEOUT("AuctionPaymentTimeout", "Auction payment deadline passed",
             "The payment deadline for auction %s has passed. Order: %s.",
-            new String[]{"winnerId", "sellerId"}, "auctionId", "orderId");
+            new String[]{"winnerId", "sellerId"}, "auctionId", "orderId"),
+    SELLER_APPLICATION_APPROVED("SellerApplicationApproved", "Seller application approved",
+            "Your seller application for %s was approved. Sign in again to open your seller tools.",
+            new String[]{"userId"}, "companyName"),
+    SELLER_APPLICATION_REJECTED("SellerApplicationRejected", "Seller application rejected",
+            "Your seller application for %s was rejected. Reason: %s. You can update it and apply again.",
+            new String[]{"userId"}, "companyName", "reason");
 
     private final String eventType;
     private final List<String> recipientFields;

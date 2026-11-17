@@ -607,9 +607,11 @@ class SecurityConfigTest {
             if (endpoint.roles().isEmpty()) continue;
             String path = concretePath(endpoint.path());
             client.method(endpoint.method()).uri(path).exchange().expectStatus().isUnauthorized();
+            String outsider = java.util.stream.Stream.of("BUYER", "SUPPORT_STAFF", "SELLER")
+                    .filter(role -> !endpoint.roles().contains(role)).findFirst().orElseThrow();
             client.method(endpoint.method()).uri(path)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
-                            claims -> claims.claim("roles", List.of("BUYER"))))
+                            claims -> claims.claim("roles", List.of(outsider))))
                     .exchange().expectStatus().isForbidden();
             for (String role : endpoint.roles()) {
                 client.method(endpoint.method()).uri(path)

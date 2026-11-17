@@ -108,6 +108,11 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/system/configs/{key}` | PUT | SYSTEM.CONFIG.UPDATE | #211 — config-service; ADMIN |
 | `/api/v1/sellers/me` | GET | Roles: SELLER | #257 — Seller's own profile; existing SELLER users are bootstrapped lazily |
 | `/api/v1/sellers/me` | PUT | Roles: SELLER | #257 — Own company name and contact phone only |
+| `/api/v1/sellers/applications` | POST | Roles: BUYER | #264 — Apply, or re-apply after a rejection |
+| `/api/v1/sellers/applications/me` | GET | Roles: BUYER, SELLER | #264 — Own application status; `data` is null when none |
+| `/api/v1/sellers/applications` | GET | Roles: ADMIN | #264 — Review queue, filter by `status`, paged |
+| `/api/v1/sellers/applications/{userId}/approve` | POST | Roles: ADMIN | #264 — Grants SELLER in Keycloak; a new token carries it |
+| `/api/v1/sellers/applications/{userId}/reject` | POST | Roles: ADMIN | #264 — Reason is required and shown to the applicant |
 | `/api/v1/payments/seller-bank-accounts` | POST | Roles: SELLER | #257 — Seller identity comes from the authenticated user |
 | `/api/v1/payments/seller-bank-accounts/me` | GET | Roles: SELLER | #257 — Own accounts, masked to last four digits |
 | `/api/v1/payments/seller-bank-accounts/{id}` | PUT | Roles: SELLER | #257 — Owning seller only; another seller receives 404 |

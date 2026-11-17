@@ -57,6 +57,30 @@ class NotificationTemplateTest {
     }
 
     @Test
+    void sellerApplicationDecisionsNotifyTheApplicant() {
+        String applicant = "00000000-0000-4000-8000-000000000003";
+        Notification approved = NotificationTemplate.forEventType("SellerApplicationApproved").orElseThrow()
+                .render(JsonMapper.shared().readTree("""
+                        {"userId":"%s","actorId":"00000000-0000-4000-8000-000000000004",
+                         "companyName":"Ceramic House","approvedAt":"2026-11-17T04:00:00Z"}
+                        """.formatted(applicant)), FRONTEND).getFirst();
+        assertThat(approved.getUserId()).isEqualTo(UUID.fromString(applicant));
+        assertThat(approved.getType()).isEqualTo("SELLER_APPLICATION_APPROVED");
+        assertThat(approved.getContent()).contains("Ceramic House", "approved");
+
+        Notification rejected = NotificationTemplate.forEventType("SellerApplicationRejected").orElseThrow()
+                .render(JsonMapper.shared().readTree("""
+                        {"userId":"%s","actorId":"00000000-0000-4000-8000-000000000004",
+                         "companyName":"Ceramic House","reason":"Business licence is missing",
+                         "rejectedAt":"2026-11-17T04:00:00Z"}
+                        """.formatted(applicant)), FRONTEND).getFirst();
+        assertThat(rejected.getUserId()).isEqualTo(UUID.fromString(applicant));
+        assertThat(rejected.getType()).isEqualTo("SELLER_APPLICATION_REJECTED");
+        assertThat(rejected.getContent()).contains("Ceramic House", "Business licence is missing");
+        assertThat(NotificationTemplate.forEventType("UserRoleAssigned")).isEmpty();
+    }
+
+    @Test
     void orderCreatedWithoutBuyerIsRejected() {
         assertThatThrownBy(() -> NotificationTemplate.ORDER_CREATED.render(
                 JsonMapper.shared().readTree("{\"orderNumber\":\"NX-1\"}"), FRONTEND))

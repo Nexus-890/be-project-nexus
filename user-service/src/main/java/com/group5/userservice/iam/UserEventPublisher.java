@@ -27,6 +27,8 @@ public class UserEventPublisher {
                 case "UserRegistered" -> "registeredAt";
                 case "UserPasswordChanged" -> "changedAt";
                 case "UserUnlocked" -> "unlockedAt";
+                case "SellerApplicationApproved" -> "approvedAt";
+                case "SellerApplicationRejected" -> "rejectedAt";
                 default -> "updatedAt";
             };
             payload.put(timestamp, instant.toString());

@@ -7754,6 +7754,419 @@ paths:
                 detail: "The local user does not exist or is deleted"
                 instance: "/api/v1/sellers/me"
                 code: "USER_NOT_FOUND"
+  /api/v1/sellers/applications:
+    post:
+      tags: ["Sellers"]
+      operationId: "applyForSeller"
+      summary: "Apply to become a seller"
+      description: "Requires the BUYER role. Creates a PENDING application keyed by the caller's user ID. A REJECTED applicant may apply again; the same row returns to PENDING with the old reason and review cleared."
+      security: [{"bearerAuth":[]}]
+      x-required-roles: ["BUYER"]
+      x-ownership: "JWT subject only."
+      x-error-codes: ["VALIDATION_FAILED","SELLER_APPLICATION_EXISTS","USER_NOT_FOUND"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SellerApplicationRequest"
+      responses:
+        "201":
+          description: "Application stored as PENDING"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SellerApplicationApiResponse"
+        "400":
+          description: "companyName, phone and note must satisfy the request constraints (VALIDATION_FAILED)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Bad Request"
+                status: 400
+                detail: "companyName, phone and note must satisfy the request constraints"
+                instance: "/api/v1/sellers/applications"
+                code: "VALIDATION_FAILED"
+        "401":
+          description: "Authentication is required (UNAUTHENTICATED)."
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: "string"
+              description: "Bearer challenge for JWT authentication failures."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Unauthorized"
+                status: 401
+                detail: "Authentication is required"
+                instance: "/api/v1/sellers/applications"
+                code: "UNAUTHENTICATED"
+        "403":
+          description: "The authenticated user is not allowed to perform this action (FORBIDDEN)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Forbidden"
+                status: 403
+                detail: "The authenticated user is not allowed to perform this action"
+                instance: "/api/v1/sellers/applications"
+                code: "FORBIDDEN"
+        "404":
+          description: "User not found (USER_NOT_FOUND)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Not Found"
+                status: 404
+                detail: "User not found"
+                instance: "/api/v1/sellers/applications"
+                code: "USER_NOT_FOUND"
+        "409":
+          description: "An open or approved seller application already exists (SELLER_APPLICATION_EXISTS)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Conflict"
+                status: 409
+                detail: "An open or approved seller application already exists"
+                instance: "/api/v1/sellers/applications"
+                code: "SELLER_APPLICATION_EXISTS"
+    get:
+      tags: ["Sellers"]
+      operationId: "listSellerApplications"
+      summary: "List seller applications for review"
+      description: "Requires the ADMIN role. Ordered by appliedAt, oldest first."
+      security: [{"bearerAuth":[]}]
+      x-required-roles: ["ADMIN"]
+      x-error-codes: ["INVALID_PARAMETER"]
+      parameters:
+        - name: "status"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+            enum: ["PENDING","ACTIVE","REJECTED"]
+        - name: "page"
+          in: "query"
+          required: false
+          schema:
+            type: "integer"
+            minimum: 0
+            default: 0
+        - name: "size"
+          in: "query"
+          required: false
+          schema:
+            type: "integer"
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        "200":
+          description: "One page of applications"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SellerApplicationPageResponse"
+        "400":
+          description: "page must be at least 0 and size between 1 and 100 (INVALID_PARAMETER)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Bad Request"
+                status: 400
+                detail: "page must be at least 0 and size between 1 and 100"
+                instance: "/api/v1/sellers/applications"
+                code: "INVALID_PARAMETER"
+        "401":
+          description: "Authentication is required (UNAUTHENTICATED)."
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: "string"
+              description: "Bearer challenge for JWT authentication failures."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Unauthorized"
+                status: 401
+                detail: "Authentication is required"
+                instance: "/api/v1/sellers/applications"
+                code: "UNAUTHENTICATED"
+        "403":
+          description: "The authenticated user is not allowed to perform this action (FORBIDDEN)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Forbidden"
+                status: 403
+                detail: "The authenticated user is not allowed to perform this action"
+                instance: "/api/v1/sellers/applications"
+                code: "FORBIDDEN"
+  /api/v1/sellers/applications/me:
+    get:
+      tags: ["Sellers"]
+      operationId: "getOwnSellerApplication"
+      summary: "Read the caller's own seller application"
+      description: "Requires the BUYER or SELLER role. data is null when the caller never applied. reason is present only for REJECTED."
+      security: [{"bearerAuth":[]}]
+      x-required-roles: ["BUYER","SELLER"]
+      x-ownership: "JWT subject only."
+      responses:
+        "200":
+          description: "Own application, or null"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OptionalSellerApplicationApiResponse"
+        "401":
+          description: "Authentication is required (UNAUTHENTICATED)."
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: "string"
+              description: "Bearer challenge for JWT authentication failures."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Unauthorized"
+                status: 401
+                detail: "Authentication is required"
+                instance: "/api/v1/sellers/applications/me"
+                code: "UNAUTHENTICATED"
+        "403":
+          description: "The authenticated user is not allowed to perform this action (FORBIDDEN)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Forbidden"
+                status: 403
+                detail: "The authenticated user is not allowed to perform this action"
+                instance: "/api/v1/sellers/applications/me"
+                code: "FORBIDDEN"
+  /api/v1/sellers/applications/{userId}/approve:
+    post:
+      tags: ["Sellers"]
+      operationId: "approveSellerApplication"
+      summary: "Approve a pending seller application"
+      description: "Requires the ADMIN role. Sets the application ACTIVE and adds the SELLER realm role in Keycloak while keeping the user's other application roles. The user gets SELLER in the next token they obtain. If Keycloak fails the application stays PENDING. Publishes UserRoleAssigned and SellerApplicationApproved."
+      security: [{"bearerAuth":[]}]
+      x-required-roles: ["ADMIN"]
+      x-error-codes: ["SELLER_APPLICATION_NOT_FOUND","SELLER_APPLICATION_NOT_PENDING","USER_ROLE_NOT_FOUND","USER_IDENTITY_PROVIDER_UNAVAILABLE"]
+      parameters:
+        - name: "userId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+      responses:
+        "200":
+          description: "Approved application"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SellerApplicationApiResponse"
+        "401":
+          description: "Authentication is required (UNAUTHENTICATED)."
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: "string"
+              description: "Bearer challenge for JWT authentication failures."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Unauthorized"
+                status: 401
+                detail: "Authentication is required"
+                instance: "/api/v1/sellers/applications/3f0c2a1e-7b7d-4f55-9a43-2d2f6b8a9c10/approve"
+                code: "UNAUTHENTICATED"
+        "403":
+          description: "The authenticated user is not allowed to perform this action (FORBIDDEN)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Forbidden"
+                status: 403
+                detail: "The authenticated user is not allowed to perform this action"
+                instance: "/api/v1/sellers/applications/3f0c2a1e-7b7d-4f55-9a43-2d2f6b8a9c10/approve"
+                code: "FORBIDDEN"
+        "404":
+          description: "Seller application not found (SELLER_APPLICATION_NOT_FOUND)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Not Found"
+                status: 404
+                detail: "Seller application not found"
+                instance: "/api/v1/sellers/applications/3f0c2a1e-7b7d-4f55-9a43-2d2f6b8a9c10/approve"
+                code: "SELLER_APPLICATION_NOT_FOUND"
+        "409":
+          description: "Only a pending seller application can be decided (SELLER_APPLICATION_NOT_PENDING)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Conflict"
+                status: 409
+                detail: "Only a pending seller application can be decided"
+                instance: "/api/v1/sellers/applications/3f0c2a1e-7b7d-4f55-9a43-2d2f6b8a9c10/approve"
+                code: "SELLER_APPLICATION_NOT_PENDING"
+        "503":
+          description: "The identity provider is unavailable (USER_IDENTITY_PROVIDER_UNAVAILABLE)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Service Unavailable"
+                status: 503
+                detail: "The identity provider is unavailable"
+                instance: "/api/v1/sellers/applications/3f0c2a1e-7b7d-4f55-9a43-2d2f6b8a9c10/approve"
+                code: "USER_IDENTITY_PROVIDER_UNAVAILABLE"
+  /api/v1/sellers/applications/{userId}/reject:
+    post:
+      tags: ["Sellers"]
+      operationId: "rejectSellerApplication"
+      summary: "Reject a pending seller application"
+      description: "Requires the ADMIN role. The reason is stored and shown to the applicant, who may apply again. Publishes SellerApplicationRejected."
+      security: [{"bearerAuth":[]}]
+      x-required-roles: ["ADMIN"]
+      x-error-codes: ["VALIDATION_FAILED","SELLER_APPLICATION_NOT_FOUND","SELLER_APPLICATION_NOT_PENDING"]
+      parameters:
+        - name: "userId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectSellerApplication"
+      responses:
+        "200":
+          description: "Rejected application"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SellerApplicationApiResponse"
+        "400":
+          description: "reason is required (VALIDATION_FAILED)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Bad Request"
+                status: 400
+                detail: "reason is required"
+                instance: "/api/v1/sellers/applications/3f0c2a1e-7b7d-4f55-9a43-2d2f6b8a9c10/reject"
+                code: "VALIDATION_FAILED"
+        "401":
+          description: "Authentication is required (UNAUTHENTICATED)."
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: "string"
+              description: "Bearer challenge for JWT authentication failures."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Unauthorized"
+                status: 401
+                detail: "Authentication is required"
+                instance: "/api/v1/sellers/applications/3f0c2a1e-7b7d-4f55-9a43-2d2f6b8a9c10/reject"
+                code: "UNAUTHENTICATED"
+        "403":
+          description: "The authenticated user is not allowed to perform this action (FORBIDDEN)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Forbidden"
+                status: 403
+                detail: "The authenticated user is not allowed to perform this action"
+                instance: "/api/v1/sellers/applications/3f0c2a1e-7b7d-4f55-9a43-2d2f6b8a9c10/reject"
+                code: "FORBIDDEN"
+        "404":
+          description: "Seller application not found (SELLER_APPLICATION_NOT_FOUND)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Not Found"
+                status: 404
+                detail: "Seller application not found"
+                instance: "/api/v1/sellers/applications/3f0c2a1e-7b7d-4f55-9a43-2d2f6b8a9c10/reject"
+                code: "SELLER_APPLICATION_NOT_FOUND"
+        "409":
+          description: "Only a pending seller application can be decided (SELLER_APPLICATION_NOT_PENDING)."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: "urn:problem:domain-error"
+                title: "Conflict"
+                status: 409
+                detail: "Only a pending seller application can be decided"
+                instance: "/api/v1/sellers/applications/3f0c2a1e-7b7d-4f55-9a43-2d2f6b8a9c10/reject"
+                code: "SELLER_APPLICATION_NOT_PENDING"
 components:
   securitySchemes:
     bearerAuth:
@@ -8544,6 +8957,97 @@ components:
           default: "response success"
         data:
           $ref: "#/components/schemas/SellerProfile"
+    SellerApplicationRequest:
+      type: "object"
+      required: ["companyName","phone","note"]
+      properties:
+        companyName:
+          type: "string"
+          minLength: 2
+          maxLength: 150
+          description: "Trimmed."
+        phone:
+          type: "string"
+          pattern: "^\\+?[0-9]{7,15}$"
+          description: "Trimmed contact phone."
+        note:
+          type: "string"
+          minLength: 10
+          maxLength: 1000
+          description: "Trimmed description of what the shop sells."
+    RejectSellerApplication:
+      type: "object"
+      required: ["reason"]
+      properties:
+        reason:
+          type: "string"
+          minLength: 1
+          maxLength: 1000
+          pattern: "\\S"
+    SellerApplication:
+      type: "object"
+      required: ["id","companyName","phone","note","status","reason"]
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+          description: "The applicant's user ID."
+        companyName:
+          type: "string"
+        phone:
+          type: "string"
+        note:
+          type: "string"
+          description: "Empty string for lazily created seller rows that had no note."
+        status:
+          type: "string"
+          enum: ["PENDING","ACTIVE","REJECTED"]
+        reason:
+          type: "string"
+          nullable: true
+          description: "Rejection reason; null unless status is REJECTED."
+    SellerApplicationApiResponse:
+      type: "object"
+      required: ["code","message","data"]
+      properties:
+        code:
+          type: "integer"
+          default: 0
+        message:
+          type: "string"
+          default: "response success"
+        data:
+          $ref: "#/components/schemas/SellerApplication"
+    OptionalSellerApplicationApiResponse:
+      type: "object"
+      required: ["code","message","data"]
+      properties:
+        code:
+          type: "integer"
+          default: 0
+        message:
+          type: "string"
+          default: "response success"
+        data:
+          allOf:
+            - $ref: "#/components/schemas/SellerApplication"
+          nullable: true
+    SellerApplicationPageResponse:
+      type: "object"
+      required: ["code","message","data","page"]
+      properties:
+        code:
+          type: "integer"
+          default: 0
+        message:
+          type: "string"
+          default: "response success"
+        data:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/SellerApplication"
+        page:
+          $ref: "#/components/schemas/PageInfo"
 x-service: "user-service"
 x-business-error-codes:
   USER_ROLE_INVALID:
@@ -8610,3 +9114,12 @@ x-business-error-codes:
   USER_IDENTITY_RECONCILIATION_REQUIRED:
     status: 503
     detail: "The identity change was applied remotely; local completion requires reconciliation"
+  SELLER_APPLICATION_EXISTS:
+    status: 409
+    detail: "An open or approved seller application already exists"
+  SELLER_APPLICATION_NOT_PENDING:
+    status: 409
+    detail: "Only a pending seller application can be decided"
+  SELLER_APPLICATION_NOT_FOUND:
+    status: 404
+    detail: "Seller application not found"

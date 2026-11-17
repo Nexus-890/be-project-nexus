@@ -409,6 +409,21 @@ nexus:
         path: /api/v1/sellers/me
         roles: [SELLER]
       - method: POST
+        path: /api/v1/sellers/applications
+        roles: [BUYER]
+      - method: GET
+        path: /api/v1/sellers/applications/me
+        roles: [BUYER, SELLER]
+      - method: GET
+        path: /api/v1/sellers/applications
+        roles: [ADMIN]
+      - method: POST
+        path: /api/v1/sellers/applications/{userId}/approve
+        roles: [ADMIN]
+      - method: POST
+        path: /api/v1/sellers/applications/{userId}/reject
+        roles: [ADMIN]
+      - method: POST
         path: /api/v1/payments/seller-bank-accounts
         roles: [SELLER]
       - method: GET
