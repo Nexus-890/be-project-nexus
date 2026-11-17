@@ -9,6 +9,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import tools.jackson.databind.JsonNode;
@@ -26,17 +27,20 @@ public class DomainEventConsumer {
     private final IdempotentConsumer idempotentConsumer;
     private final NotificationRepository notificationRepository;
     private final List<NotificationChannel> channels;
+    private final String frontendBaseUrl;
 
     public DomainEventConsumer(IdempotentConsumer idempotentConsumer,
                                NotificationRepository notificationRepository,
-                               List<NotificationChannel> channels) {
+                               List<NotificationChannel> channels,
+                               @Value("${nexus.notification.frontend-base-url:http://localhost:3000}") String frontendBaseUrl) {
         this.idempotentConsumer = idempotentConsumer;
         this.notificationRepository = notificationRepository;
         this.channels = channels;
+        this.frontendBaseUrl = frontendBaseUrl;
     }
 
     @KafkaListener(
-            topics = {Topics.COMMERCE, Topics.CATALOG},
+            topics = {Topics.COMMERCE, Topics.CATALOG, Topics.PAYMENT, Topics.SHIPMENT, Topics.AUCTION},
             groupId = "${nexus.notification.group-id}",
             containerFactory = EventKafka.LISTENER_CONTAINER_FACTORY
     )
@@ -50,8 +54,11 @@ public class DomainEventConsumer {
         }
 
         boolean handled = idempotentConsumer.handle(CONSUMER, envelope, event -> {
-            Notification notification = notificationRepository.save(template.get().render(event.payload()));
-            channels.forEach(channel -> channel.send(notification));
+            // Marker, mọi notification và delivery cùng transaction: fan-out lỗi thì rollback toàn bộ.
+            for (Notification rendered : template.get().render(event.payload(), frontendBaseUrl)) {
+                Notification notification = notificationRepository.save(rendered);
+                channels.forEach(channel -> channel.send(notification));
+            }
         });
         if (handled) {
             log.info("NOTIFICATION_CREATED eventId={} eventType={} aggregateId={}",

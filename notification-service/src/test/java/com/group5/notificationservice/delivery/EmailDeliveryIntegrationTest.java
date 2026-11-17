@@ -2,16 +2,26 @@ package com.group5.notificationservice.delivery;
 
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.Topics;
+import com.group5.common_outbox.IdempotentConsumer;
 import com.group5.notificationservice.eventlog.EventLogRepository;
+import com.group5.notificationservice.health.BrokerHealthJob;
+import com.group5.notificationservice.health.HealthEventWriter;
+import com.group5.notificationservice.health.KafkaBrokerProbe;
 import com.group5.notificationservice.notification.DomainEventConsumer;
+import com.group5.notificationservice.notification.NotificationChannel;
+import com.group5.notificationservice.notification.NotificationRepository;
 import com.group5.notificationservice.shared.config.DeliveryProperties;
 import jakarta.servlet.Filter;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -40,10 +50,13 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -51,6 +64,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup;
 
+// Bài test email không chạy health job hay kết nối Redis/Kafka của luồng giám sát broker.
+@MockitoBean(types = {BrokerHealthJob.class, HealthEventWriter.class, KafkaBrokerProbe.class})
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.location=optional:classpath:/notification-email-delivery-test.properties",
         "spring.cloud.config.enabled=false", "spring.cloud.config.import-check.enabled=false",
@@ -63,6 +78,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
         "nexus.security.jwt.issuer=user-service", "nexus.security.jwt.audience=nexus-services",
         "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/jwks", "management.tracing.export.enabled=false",
         "nexus.notification.email-enabled=true",
+        "nexus.notification.frontend-base-url=http://localhost:3000",
         "nexus.notification.delivery.retry-limit=3",
         "nexus.notification.delivery.base-delay=0ms", "nexus.notification.delivery.max-delay=0ms",
         "nexus.notification.delivery.poll-interval=1h",
@@ -81,19 +97,29 @@ class EmailDeliveryIntegrationTest {
 
     private static final UUID BUYER = UUID.randomUUID();
     private static final UUID STRANGER = UUID.randomUUID();
+    private static final UUID SELLER = UUID.randomUUID();
+    private static final UUID SECOND_BIDDER = UUID.randomUUID();
+    private static final UUID ORDER = UUID.randomUUID();
+    private static final UUID ORDER_GROUP = UUID.randomUUID();
+    private static final UUID AUCTION = UUID.randomUUID();
     private static final String BUYER_EMAIL = "buyer.one@example.com";
+    private static final String SELLER_EMAIL = "seller.one@example.com";
+    private static final String SECOND_BIDDER_EMAIL = "bidder.two@example.com";
     private static final int CLOSED_PORT = 1;
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
+    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
     @Autowired private WebApplicationContext context;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private DomainEventConsumer consumer;
     @Autowired private DeliveryRetryJob job;
-    @Autowired private JavaMailSenderImpl mailSender;
+    @Autowired private JavaMailSender mailSender;
     @Autowired private DeliveryService deliveryService;
     @Autowired private DeliveryProperties properties;
     @Autowired private EmailSender sender;
     @Autowired private EventLogRepository eventLogs;
+    @Autowired private IdempotentConsumer idempotentConsumer;
+    @Autowired private NotificationRepository notifications;
+    @Autowired private EmailChannel emailChannel;
     @MockitoBean private RecipientDirectory recipients;
     @MockitoBean private JwtDecoder decoder;
     private MockMvc mvc;
@@ -111,14 +137,256 @@ class EmailDeliveryIntegrationTest {
     void setup() throws Exception {
         jdbc.update("DELETE FROM notifications");
         jdbc.update("DELETE FROM event_logs");
+        jdbc.update("DELETE FROM notification_preferences");
         mailpit("DELETE", "/api/v1/messages");
-        mailSender.setPort(MAILPIT.getMappedPort(1025));
+        smtpPort(MAILPIT.getMappedPort(1025));
         reset(recipients, decoder);
         when(recipients.emailOf(BUYER)).thenReturn(BUYER_EMAIL);
+        when(recipients.emailOf(SELLER)).thenReturn(SELLER_EMAIL);
+        when(recipients.emailOf(SECOND_BIDDER)).thenReturn(SECOND_BIDDER_EMAIL);
         when(decoder.decode("buyer")).thenReturn(token("buyer", BUYER, List.of("NOTIFICATION.VIEW")));
         when(decoder.decode("stranger")).thenReturn(token("stranger", STRANGER, List.of("NOTIFICATION.VIEW")));
         when(decoder.decode("no-privilege")).thenReturn(token("no-privilege", BUYER, List.of()));
         mvc = webAppContextSetup(context).addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
+    }
+
+    @ParameterizedTest(name = "{0}: một email cho buyer dù event được giao lại")
+    @MethodSource("singleRecipientEvents")
+    void newBuyerEventsSendTheirContentOnceThroughMailpit(String eventType, String topic, String type,
+                                                         String subject, String expectedContent) throws Exception {
+        // Dùng consumer, processed_events, DB delivery và SMTP Mailpit thật; chỉ việc tra email là fixture.
+        ConsumerRecord<String, EventEnvelope<JsonNode>> record = domainRecord(topic, eventType, sample(eventType));
+
+        consumer.receive(record);
+        consumer.receive(record);
+
+        assertThat(jdbc.queryForList("SELECT user_id FROM notifications WHERE type = ?", UUID.class, type))
+                .containsExactly(BUYER);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_deliveries", Long.class)).isEqualTo(1);
+        assertThat(processedCount(record)).isEqualTo(1);
+        assertThat(job.runOnce()).isEqualTo(1);
+        List<JsonNode> inbox = messages();
+        assertThat(inbox).hasSize(1);
+        JsonNode email = message(inbox.getFirst());
+        assertThat(email.get("To").get(0).get("Address").asString()).isEqualTo(BUYER_EMAIL);
+        assertThat(email.get("Subject").asString()).isEqualTo(subject);
+        assertThat(email.get("Text").asString()).contains(expectedContent);
+        assertThat(jdbc.queryForList("SELECT status::text FROM notification_deliveries", String.class))
+                .containsExactly("SENT");
+
+        // Replay sau khi SMTP thành công cũng không tạo notification hay email mới.
+        consumer.receive(record);
+        assertThat(job.runOnce()).isZero();
+        assertThat(messages()).hasSize(1);
+        assertThat(processedCount(record)).isEqualTo(1);
+    }
+
+    @Test
+    void cancelledAuctionSendsOnceToEveryDistinctBidderAndSeller() throws Exception {
+        ConsumerRecord<String, EventEnvelope<JsonNode>> record = domainRecord(Topics.AUCTION, "AuctionCancelled",
+                sample("AuctionCancelled"));
+        // BUYER xuất hiện hai lần trong bidderIds nhưng chỉ được tạo một notification/delivery.
+        consumer.receive(record);
+        consumer.receive(record);
+
+        assertThat(jdbc.queryForList("SELECT user_id FROM notifications", UUID.class))
+                .containsExactlyInAnyOrder(BUYER, SECOND_BIDDER, SELLER);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_deliveries", Long.class)).isEqualTo(3);
+        assertThat(processedCount(record)).isEqualTo(1);
+        assertThat(job.runOnce()).isEqualTo(3);
+
+        List<JsonNode> inbox = messages();
+        assertThat(inbox).hasSize(3);
+        assertThat(inbox.stream().map(email -> email.get("To").get(0).get("Address").asString()).toList())
+                .containsExactlyInAnyOrder(BUYER_EMAIL, SECOND_BIDDER_EMAIL, SELLER_EMAIL);
+        for (JsonNode summary : inbox) {
+            JsonNode email = message(summary);
+            assertThat(email.get("Subject").asString()).isEqualTo("Auction cancelled");
+            assertThat(email.get("Text").asString()).contains(AUCTION.toString(), "ADMIN_CANCELLED");
+        }
+        consumer.receive(record);
+        assertThat(job.runOnce()).isZero();
+        assertThat(messages()).hasSize(3);
+    }
+
+    @Test
+    void auctionTimeoutSendsOnlyToWinnerAndSeller() throws Exception {
+        ConsumerRecord<String, EventEnvelope<JsonNode>> record = domainRecord(Topics.AUCTION, "AuctionPaymentTimeout",
+                sample("AuctionPaymentTimeout"));
+        // Bidder thua có mặt trong dữ liệu bổ sung nhưng không phải người nhận của timeout.
+        consumer.receive(record);
+        consumer.receive(record);
+
+        assertThat(jdbc.queryForList("SELECT user_id FROM notifications", UUID.class))
+                .containsExactlyInAnyOrder(BUYER, SELLER);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_deliveries", Long.class)).isEqualTo(2);
+        assertThat(processedCount(record)).isEqualTo(1);
+        assertThat(job.runOnce()).isEqualTo(2);
+        List<JsonNode> inbox = messages();
+        assertThat(inbox).hasSize(2);
+        assertThat(inbox.stream().map(email -> email.get("To").get(0).get("Address").asString()).toList())
+                .containsExactlyInAnyOrder(BUYER_EMAIL, SELLER_EMAIL);
+        for (JsonNode summary : inbox) {
+            JsonNode email = message(summary);
+            assertThat(email.get("Subject").asString()).isEqualTo("Auction payment deadline passed");
+            assertThat(email.get("Text").asString()).contains(AUCTION.toString(), ORDER.toString(), "deadline");
+        }
+        assertThat(job.runOnce()).isZero();
+        assertThat(messages()).hasSize(2);
+    }
+
+    @Test
+    void oneBidderOptingOutDoesNotSuppressOtherAuctionRecipients() throws Exception {
+        preference(BUYER, "AUCTION_CANCELLED", "EMAIL", false);
+        ConsumerRecord<String, EventEnvelope<JsonNode>> record = domainRecord(Topics.AUCTION, "AuctionCancelled",
+                sample("AuctionCancelled"));
+        // Preference thuộc từng người nhận: cả ba vẫn có in-app, chỉ buyer tắt bị SKIPPED.
+        consumer.receive(record);
+        consumer.receive(record);
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notifications", Long.class)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("""
+                SELECT d.status::text FROM notification_deliveries d JOIN notifications n ON n.id = d.notification_id
+                WHERE n.user_id = ?
+                """, String.class, BUYER)).isEqualTo("SKIPPED");
+        assertThat(job.runOnce()).isEqualTo(2);
+        assertThat(messages().stream().map(email -> email.get("To").get(0).get("Address").asString()).toList())
+                .containsExactlyInAnyOrder(SECOND_BIDDER_EMAIL, SELLER_EMAIL);
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM notification_delivery_attempts a
+                JOIN notification_deliveries d ON d.id = a.delivery_id JOIN notifications n ON n.id = d.notification_id
+                WHERE n.user_id = ?
+                """, Long.class, BUYER)).isZero();
+        assertThat(processedCount(record)).isEqualTo(1);
+    }
+
+    @Test
+    void fanoutFailureRollsBackEveryRecipientAndMarkerThenTheSameEventCanRetry() throws Exception {
+        AtomicInteger recipientsSeen = new AtomicInteger();
+        NotificationChannel failOnSecondRecipient = notification -> {
+            // Lỗi sau khi đã ghi delivery đầu và notification thứ hai phải rollback toàn transaction.
+            if (recipientsSeen.incrementAndGet() == 2) {
+                throw new IllegalStateException("Fanout fixture failure");
+            }
+        };
+        DomainEventConsumer failingConsumer = new DomainEventConsumer(idempotentConsumer, notifications,
+                List.of(emailChannel, failOnSecondRecipient), "http://localhost:3000");
+        ConsumerRecord<String, EventEnvelope<JsonNode>> record = domainRecord(Topics.AUCTION, "AuctionCancelled",
+                sample("AuctionCancelled"));
+
+        assertThatThrownBy(() -> failingConsumer.receive(record))
+                .isInstanceOf(IllegalStateException.class).hasMessage("Fanout fixture failure");
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notifications", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_deliveries", Long.class)).isZero();
+        assertThat(processedCount(record)).isZero();
+        assertThat(messages()).isEmpty();
+        consumer.receive(record);
+        consumer.receive(record);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notifications", Long.class)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_deliveries", Long.class)).isEqualTo(3);
+        assertThat(processedCount(record)).isEqualTo(1);
+        assertThat(job.runOnce()).isEqualTo(3);
+        assertThat(messages()).hasSize(3);
+    }
+
+    @Test
+    void disabledEmailPreferenceKeepsTheNotificationButSkipsDeliveryWithoutAnAttempt() throws Exception {
+        // Tắt đúng loại EMAIL trước khi nhận event: vẫn có thông báo trong ứng dụng để người dùng đọc.
+        preference(BUYER, "ORDER_CREATED", "EMAIL", false);
+
+        UUID notificationId = receiveOrderCreated("NX-259-DISABLED");
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notifications WHERE id = ?", Long.class,
+                notificationId)).isEqualTo(1);
+        assertThat(delivery(notificationId).get("status")).isEqualTo("SKIPPED");
+        assertThat(delivery(notificationId).get("next_attempt_at")).isNull();
+        assertThat(delivery(notificationId).get("attempt_count")).isEqualTo(0);
+        assertThat(job.runOnce()).isZero();
+        assertThat(attempts(notificationId)).isEmpty();
+        assertThat(messages()).isEmpty();
+        verifyNoInteractions(recipients);
+    }
+
+    @Test
+    void preferencesForAnotherUserTypeOrChannelDoNotDisableEmail() throws Exception {
+        // Mặc định vẫn bật khi không có preference khớp cả ba chiều người dùng, loại và kênh.
+        preference(STRANGER, "ORDER_CREATED", "EMAIL", false);
+        preference(BUYER, "ORDER_COMPLETED", "EMAIL", false);
+        preference(BUYER, "ORDER_CREATED", "PUSH", false);
+        UUID notificationId = receiveOrderCreated("NX-259-DEFAULT");
+
+        assertThat(delivery(notificationId).get("status")).isEqualTo("PENDING");
+        assertThat(job.runOnce()).isEqualTo(1);
+        assertThat(delivery(notificationId).get("status")).isEqualTo("SENT");
+        assertThat(messages()).hasSize(1);
+    }
+
+    @Test
+    void explicitlyEnabledPreferenceStillDeliversEmail() throws Exception {
+        // Một preference bật phải giữ nguyên đường gửi SMTP hiện có.
+        preference(BUYER, "ORDER_CREATED", "EMAIL", true);
+        UUID notificationId = receiveOrderCreated("NX-259-ENABLED");
+
+        assertThat(job.runOnce()).isEqualTo(1);
+        assertThat(delivery(notificationId).get("status")).isEqualTo("SENT");
+        assertThat(messages()).hasSize(1);
+    }
+
+    @Test
+    void disablingAfterQueueingSkipsTheEmailBeforeStartingAnAttempt() throws Exception {
+        UUID notificationId = receiveOrderCreated("NX-259-QUEUED");
+        // Preference thay đổi lúc email còn chờ; worker phải đọc lại thay vì dùng quyết định lúc nhận event.
+        preference(BUYER, "ORDER_CREATED", "EMAIL", false);
+
+        assertThat(job.runOnce()).isZero();
+
+        assertThat(delivery(notificationId).get("status")).isEqualTo("SKIPPED");
+        assertThat(delivery(notificationId).get("attempt_count")).isEqualTo(0);
+        assertThat(attempts(notificationId)).isEmpty();
+        assertThat(messages()).isEmpty();
+        verifyNoInteractions(recipients);
+    }
+
+    @Test
+    void disablingAfterSmtpFailureStopsFurtherRetries() throws Exception {
+        UUID notificationId = receiveOrderCreated("NX-259-RETRY");
+        smtpPort(CLOSED_PORT);
+        assertThat(job.runOnce()).isEqualTo(1);
+        // Giữ lịch sử lần lỗi trước đó nhưng không gửi lại khi người dùng đã tắt loại email này.
+        preference(BUYER, "ORDER_CREATED", "EMAIL", false);
+        smtpPort(MAILPIT.getMappedPort(1025));
+
+        assertThat(job.runOnce()).isZero();
+
+        assertThat(delivery(notificationId).get("status")).isEqualTo("SKIPPED");
+        assertThat(delivery(notificationId).get("attempt_count")).isEqualTo(1);
+        assertThat(delivery(notificationId).get("next_attempt_at")).isNull();
+        assertThat(attempts(notificationId)).extracting(row -> row.get("error_code"))
+                .containsExactly("SMTP_UNAVAILABLE");
+        assertThat(messages()).isEmpty();
+    }
+
+    @Test
+    void disablingDuringRecipientLookupClosesTheClaimWithoutSending() throws Exception {
+        UUID notificationId = receiveOrderCreated("NX-259-LOOKUP");
+        // Mô phỏng preference bị tắt trong lúc gọi Keycloak; kiểm tra cuối trước SMTP phải ngăn email.
+        when(recipients.emailOf(BUYER)).thenAnswer(invocation -> {
+            preference(BUYER, "ORDER_CREATED", "EMAIL", false);
+            return BUYER_EMAIL;
+        });
+
+        assertThat(job.runOnce()).isEqualTo(1);
+
+        assertThat(delivery(notificationId).get("status")).isEqualTo("SKIPPED");
+        assertThat(delivery(notificationId).get("next_attempt_at")).isNull();
+        assertThat(attempts(notificationId)).singleElement().satisfies(row -> {
+            assertThat(row.get("status")).isEqualTo("FAILED");
+            assertThat(row.get("error_code")).isEqualTo("PREFERENCE_DISABLED");
+            assertThat(row.get("retryable")).isEqualTo(false);
+        });
+        assertThat(messages()).isEmpty();
+        assertThat(job.runOnce()).isZero();
     }
 
     @Test
@@ -158,7 +426,7 @@ class EmailDeliveryIntegrationTest {
     void smtpDownThenBackRetriesOnceAndSendsExactlyOneEmail() throws Exception {
         UUID notificationId = receiveOrderCreated("NX-20261104-0002");
 
-        mailSender.setPort(CLOSED_PORT);
+        smtpPort(CLOSED_PORT);
         job.runOnce();
         assertThat(delivery(notificationId).get("status")).isEqualTo("PENDING");
         Map<String, Object> first = attempts(notificationId).getFirst();
@@ -166,7 +434,7 @@ class EmailDeliveryIntegrationTest {
         assertThat(first.get("error_code")).isEqualTo("SMTP_UNAVAILABLE");
         assertThat(first.get("retryable")).isEqualTo(true);
 
-        mailSender.setPort(MAILPIT.getMappedPort(1025));
+        smtpPort(MAILPIT.getMappedPort(1025));
         job.runOnce();
         assertThat(delivery(notificationId).get("status")).isEqualTo("SENT");
         assertThat(attempts(notificationId)).extracting(row -> row.get("status"))
@@ -191,7 +459,7 @@ class EmailDeliveryIntegrationTest {
                 Instant.now(), "4bf92f3577b34da6a3ce929d0e0e4736", payload);
         ConsumerRecord<String, EventEnvelope<JsonNode>> record =
                 new ConsumerRecord<>(Topics.COMMERCE, 0, 0L, orderId.toString(), envelope);
-        mailSender.setPort(CLOSED_PORT);
+        smtpPort(CLOSED_PORT);
 
         consumer.receive(record);
         consumer.receive(record);
@@ -211,7 +479,7 @@ class EmailDeliveryIntegrationTest {
         assertThat(job.runOnce()).isEqualTo(1);
         assertThat(attempts(notificationId)).extracting(row -> row.get("error_code"))
                 .containsExactly("SMTP_UNAVAILABLE");
-        mailSender.setPort(MAILPIT.getMappedPort(1025));
+        smtpPort(MAILPIT.getMappedPort(1025));
         assertThat(job.runOnce()).isEqualTo(1);
 
         List<JsonNode> inbox = messages();
@@ -232,7 +500,7 @@ class EmailDeliveryIntegrationTest {
     @Test
     void afterTheRetryLimitTheDeliveryIsFailedAndNeverSentAgain() throws Exception {
         UUID notificationId = receiveOrderCreated("NX-20261104-0003");
-        mailSender.setPort(CLOSED_PORT);
+        smtpPort(CLOSED_PORT);
 
         for (int i = 0; i < 3; i++) {
             job.runOnce();
@@ -242,7 +510,7 @@ class EmailDeliveryIntegrationTest {
         assertThat(failed.get("attempt_count")).isEqualTo(3);
         assertThat(failed.get("next_attempt_at")).isNull();
 
-        mailSender.setPort(MAILPIT.getMappedPort(1025));
+        smtpPort(MAILPIT.getMappedPort(1025));
         assertThat(job.runOnce()).isZero();
         assertThat(attempts(notificationId)).hasSize(3)
                 .allSatisfy(row -> assertThat(row.get("status")).isEqualTo("FAILED"));
@@ -358,9 +626,9 @@ class EmailDeliveryIntegrationTest {
     @Test
     void theOwnerReadsTheAttemptsWithoutTheEmailAndOthersAreRefused() throws Exception {
         UUID notificationId = receiveOrderCreated("NX-20261104-0007");
-        mailSender.setPort(CLOSED_PORT);
+        smtpPort(CLOSED_PORT);
         job.runOnce();
-        mailSender.setPort(MAILPIT.getMappedPort(1025));
+        smtpPort(MAILPIT.getMappedPort(1025));
         job.runOnce();
 
         mvc.perform(get("/api/v1/notifications/{id}/deliveries", notificationId).header("Authorization", "Bearer buyer"))
@@ -393,6 +661,84 @@ class EmailDeliveryIntegrationTest {
                 .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
     }
 
+    // Từng dòng kiểm tra một loại buyer event, subject và phần nội dung đặc trưng tới SMTP.
+    private static Stream<Arguments> singleRecipientEvents() {
+        return Stream.of(
+                Arguments.of("CheckoutPaymentConfirmed", Topics.PAYMENT, "CHECKOUT_PAYMENT_CONFIRMED",
+                        "Payment received", "Payment received for order group " + ORDER_GROUP + ": 125000.00 VND"),
+                Arguments.of("ShipmentPickedUp", Topics.SHIPMENT, "SHIPMENT_CREATED", "Order shipped",
+                        "has shipped with GHN. Tracking code: TRACK-259"),
+                Arguments.of("ShipmentDelivered", Topics.SHIPMENT, "SHIPMENT_DELIVERED", "Order delivered",
+                        "Rate your order: http://localhost:3000/order/" + ORDER),
+                Arguments.of("ShipmentFailed", Topics.SHIPMENT, "SHIPMENT_FAILED", "Delivery problem",
+                        "Delivery failed for order " + ORDER + ". Please contact Support"),
+                Arguments.of("ShipmentReturned", Topics.SHIPMENT, "SHIPMENT_RETURNED", "Delivery problem",
+                        "Your order " + ORDER + " was returned. Please contact Support"),
+                Arguments.of("OrderRefundRequested", Topics.PAYMENT, "ORDER_REFUND_REQUESTED", "Refund requested",
+                        "Refund requested for order " + ORDER + ": 125000.00 VND. Reason: BUYER_REQUESTED"),
+                Arguments.of("OrderRefundCompleted", Topics.PAYMENT, "ORDER_REFUND_COMPLETED", "Refund sent",
+                        "Refund sent for order " + ORDER + ": 125000.00 VND"),
+                Arguments.of("OrderCancelled", Topics.COMMERCE, "ORDER_CANCELLED", "Order cancelled",
+                        "Your order NX-259-CANCELLED was cancelled"));
+    }
+
+    // Chỉ cung cấp dữ kiện notification dùng từ event; không gọi payment/carrier thật trong bài test này.
+    private static JsonNode sample(String eventType) {
+        Map<String, ?> payload = switch (eventType) {
+            case "CheckoutPaymentConfirmed" -> Map.of("sessionId", UUID.randomUUID(), "orderGroupId", ORDER_GROUP,
+                    "buyerId", BUYER, "totalAmount", "125000.00", "currency", "VND");
+            case "ShipmentPickedUp", "ShipmentDelivered", "ShipmentFailed", "ShipmentReturned" ->
+                    Map.of("shipmentId", UUID.randomUUID(), "orderId", ORDER, "buyerId", BUYER,
+                            "carrier", "GHN", "trackingCode", "TRACK-259");
+            case "OrderRefundRequested", "OrderRefundCompleted" -> Map.of("refundId", UUID.randomUUID(),
+                    "orderId", ORDER, "buyerId", BUYER, "amount", "125000.00", "currency", "VND",
+                    "reason", "BUYER_REQUESTED");
+            case "OrderCancelled" -> Map.of("orderId", ORDER, "orderNumber", "NX-259-CANCELLED", "buyerId", BUYER,
+                    "reason", "PAYMENT_DEADLINE_EXPIRED");
+            case "AuctionCancelled" -> Map.of("auctionId", AUCTION, "sellerId", SELLER,
+                    "bidderIds", List.of(BUYER, BUYER, SECOND_BIDDER), "reason", "ADMIN_CANCELLED");
+            case "AuctionPaymentTimeout" -> Map.of("auctionId", AUCTION, "orderId", ORDER, "winnerId", BUYER,
+                    "sellerId", SELLER, "bidderIds", List.of(SECOND_BIDDER));
+            default -> throw new IllegalArgumentException("No notification fixture for " + eventType);
+        };
+        return JsonMapper.shared().valueToTree(payload);
+    }
+
+    private static ConsumerRecord<String, EventEnvelope<JsonNode>> domainRecord(String topic, String eventType,
+                                                                               JsonNode payload) {
+        // Payment sở hữu cả session và refund; refund vẫn dùng orderId theo contract publisher hiện có.
+        String aggregateField = switch (eventType) {
+            case "CheckoutPaymentConfirmed" -> "sessionId";
+            case "OrderRefundRequested", "OrderRefundCompleted" -> "orderId";
+            case "AuctionCancelled", "AuctionPaymentTimeout" -> "auctionId";
+            case "ShipmentPickedUp", "ShipmentDelivered", "ShipmentFailed", "ShipmentReturned" -> "shipmentId";
+            default -> "orderId";
+        };
+        String aggregateId = payload.path(aggregateField).asString();
+        EventEnvelope<JsonNode> event = new EventEnvelope<>(UUID.randomUUID(), eventType, aggregateId,
+                Instant.now(), "4bf92f3577b34da6a3ce929d0e0e4736", payload);
+        String key = topic.equals(Topics.SHIPMENT) ? ORDER.toString() : aggregateId;
+        return new ConsumerRecord<>(topic, 0, 0L, key, event);
+    }
+
+    private int processedCount(ConsumerRecord<String, EventEnvelope<JsonNode>> record) {
+        return jdbc.queryForObject("SELECT count(*) FROM processed_events WHERE event_id = ? AND consumer = ?",
+                Integer.class, record.value().eventId(), "notification-domain-events");
+    }
+
+    private static JsonNode message(JsonNode summary) throws Exception {
+        return JsonMapper.shared().readTree(mailpit("GET", "/api/v1/message/" + summary.get("ID").asString()));
+    }
+
+    // Chỉ ghi preference của DB notification trong test; không thay cấu hình hay dữ liệu dịch vụ người dùng.
+    private void preference(UUID userId, String type, String channel, boolean enabled) {
+        jdbc.update("""
+                INSERT INTO notification_preferences (user_id, notification_type, channel, enabled)
+                VALUES (?, ?, CAST(? AS notification_channel), ?)
+                ON CONFLICT (user_id, notification_type, channel) DO UPDATE SET enabled = EXCLUDED.enabled
+                """, userId, type, channel, enabled);
+    }
+
     private UUID receiveOrderCreated(String orderNumber) {
         UUID orderId = UUID.randomUUID();
         JsonNode payload = JsonMapper.shared().readTree("""
@@ -410,6 +756,11 @@ class EmailDeliveryIntegrationTest {
                 SELECT id, status::text AS status, attempt_count, next_attempt_at
                 FROM notification_deliveries WHERE notification_id = ? AND channel = 'EMAIL'
                 """, notificationId);
+    }
+
+    // Inject interface do Spring công bố; chỉ đổi cổng trên SMTP implementation của bài test.
+    private void smtpPort(int port) {
+        assertThat(mailSender).isInstanceOfSatisfying(JavaMailSenderImpl.class, smtp -> smtp.setPort(port));
     }
 
     private List<Map<String, Object>> attempts(UUID notificationId) {
@@ -442,8 +793,11 @@ class EmailDeliveryIntegrationTest {
     private static String mailpit(String method, String path) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create("http://" + MAILPIT.getHost() + ":"
                         + MAILPIT.getMappedPort(8025) + path))
+                .timeout(Duration.ofSeconds(10))
                 .method(method, HttpRequest.BodyPublishers.noBody()).build();
-        return HTTP.send(request, HttpResponse.BodyHandlers.ofString()).body();
+        HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).as("Mailpit %s %s", method, path).isBetween(200, 299);
+        return response.body();
     }
 
     private static final class FakeClock extends Clock {

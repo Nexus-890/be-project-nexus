@@ -248,7 +248,7 @@ class KeycloakTokenTrustTest {
         when(accepted.getAuctionId()).thenReturn(auctionId);when(accepted.getBidderId()).thenReturn(UUID.fromString(SUBJECT));
         when(accepted.getAmount()).thenReturn(new BigDecimal("1050000.00"));when(accepted.getRequestedAt()).thenReturn(requested);
         when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
-        when(bids.findByIdempotencyKey(key)).thenReturn(Optional.empty(),Optional.of(accepted));
+        when(bids.findByIdempotencyKey(key)).thenReturn(Optional.empty(), Optional.empty(), Optional.of(accepted));
         com.group5.auctionservice.auction.Auction auction=mock(com.group5.auctionservice.auction.Auction.class);
         when(auctions.findAvailableById(auctionId)).thenReturn(Optional.of(auction));when(auctions.currentWallTime()).thenReturn(requested);
         when(auction.getSellerId()).thenReturn(UUID.randomUUID());when(auction.getStatus()).thenReturn(com.group5.auctionservice.auction.AuctionStatus.ACTIVE);

@@ -9,6 +9,9 @@ import com.group5.auctionservice.TestPostgres;
 import com.group5.auctionservice.auction.Auction;
 import com.group5.auctionservice.auction.AuctionRepository;
 import com.group5.auctionservice.shared.config.AuctionProperties;
+import com.group5.auctionservice.reputation.EligibilityAction;
+import com.group5.auctionservice.reputation.EligibilityClient;
+import com.group5.auctionservice.reputation.ReputationGuard;
 import com.group5.common_events.EventEnvelopeFactory;
 import com.group5.common_outbox.OutboxWriter;
 import com.group5.common_security.CurrentUserAuditor;
@@ -23,6 +26,7 @@ import jakarta.servlet.Filter;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.context.annotation.*;
@@ -46,8 +50,12 @@ import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 
 import tools.jackson.databind.json.JsonMapper;
 
+import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import javax.sql.DataSource;
 
@@ -56,6 +64,7 @@ import javax.sql.DataSource;
 @org.springframework.test.context.web.WebAppConfiguration
 class BidPlacementIntegrationTest {
     private static final TestPostgres POSTGRES = new TestPostgres();
+    private static final BigDecimal MINIMUM = new BigDecimal("1050000.00");
     private static final Instant NOW = Instant.parse("2026-11-06T10:00:00Z");
 
     static {
@@ -64,11 +73,15 @@ class BidPlacementIntegrationTest {
 
     @Autowired private WebApplicationContext context;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private AuctionProperties properties;
+    @Autowired private EligibilityClient eligibility;
     private MockMvc client;
 
     /** Giữ security filter thật để kiểm tra authentication và ownership trước controller. */
     @BeforeEach
     void setup() {
+        reset(eligibility);
+        properties.setReputationEnforcementEnabled(false);
         client =
                 MockMvcBuilders.webAppContextSetup(context)
                         .addFilters(context.getBean("springSecurityFilterChain", Filter.class))
@@ -218,6 +231,178 @@ class BidPlacementIntegrationTest {
         }
     }
 
+    /** Reputation thấp trả403 trước khi giữ key hoặc lưu QUEUED; đủ điều kiện có thể retry cùng key. */
+    @Test
+    void lowReputationBidReturns403WithoutConsumingKeyOrChangingAnyAuctionState() throws Exception {
+        properties.setReputationEnforcementEnabled(true);
+        UUID auction = auction("ACTIVE");
+        UUID bidder = UUID.randomUUID();
+        UUID key = UUID.randomUUID();
+        Snapshot before = snapshot(auction);
+        when(eligibility.check(bidder, EligibilityAction.BID)).thenReturn(
+                new EligibilityClient.Decision(bidder, EligibilityAction.BID, false, 39, "BASIC", 40,
+                        "Reputation score 39 is below 40 required for BID", "reputation-policy-1"));
+        client.perform(reputationRequest(auction, bidder, key, MINIMUM.toPlainString()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("AUCTION_REPUTATION_TOO_LOW"))
+                .andExpect(jsonPath("$.detail").value("Reputation score 39 is below 40 required for BID"));
+        assertThat(snapshot(auction)).isEqualTo(before);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bids WHERE idempotency_key=?", Long.class, key.toString())).isZero();
+        doReturn(eligible(bidder)).when(eligibility).check(bidder, EligibilityAction.BID);
+        client.perform(reputationRequest(auction, bidder, key, MINIMUM.toPlainString()))
+                .andExpect(status().isAccepted());
+    }
+
+    /** Lỗi hoặc response eligibility sai không đổi bid/deadline/outbox; retry đủ điều kiện chỉ nhận202. */
+    @ParameterizedTest
+    @CsvSource({"false", "true"})
+    void unavailableOrMalformedEligibilityLeavesBidDeadlineOutboxAndKeyUntouched(boolean malformed) throws Exception {
+        properties.setReputationEnforcementEnabled(true);
+        UUID auction = auction("ACTIVE");
+        UUID bidder = UUID.randomUUID();
+        UUID key = UUID.randomUUID();
+        Snapshot before = snapshot(auction);
+        if (malformed) {
+            when(eligibility.check(bidder, EligibilityAction.BID)).thenReturn(
+                    new EligibilityClient.Decision(UUID.randomUUID(), EligibilityAction.BID, true, 50, "NEW", 40,
+                            "Wrong user", "reputation-policy-1"));
+        } else {
+            when(eligibility.check(bidder, EligibilityAction.BID)).thenThrow(new IllegalStateException("Fake timeout"));
+        }
+        client.perform(reputationRequest(auction, bidder, key, MINIMUM.toPlainString()))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("AUCTION_REPUTATION_UNAVAILABLE"));
+        assertThat(snapshot(auction)).isEqualTo(before);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bids WHERE idempotency_key=?", Long.class, key.toString())).isZero();
+        doReturn(eligible(bidder)).when(eligibility).check(bidder, EligibilityAction.BID);
+        client.perform(reputationRequest(auction, bidder, key, MINIMUM.toPlainString()))
+                .andExpect(status().isAccepted());
+    }
+
+    /** Tắt enforcement thì POST vẫn nhận QUEUED mà không gọi rating-service. */
+    @Test
+    void enforcementOffSkipsEligibilityEvenWhenItsClientWouldFail() throws Exception {
+        UUID auction = auction("ACTIVE");
+        when(eligibility.check(any(), any())).thenThrow(new IllegalStateException("Client must not be called"));
+        client.perform(request(auction, UUID.randomUUID(), MINIMUM.toPlainString()))
+                .andExpect(status().isAccepted());
+        verify(eligibility, never()).check(any(), any());
+    }
+
+    /** Replay biên nhận202 bỏ qua lỗi eligibility về sau nhưng vẫn chống dùng key sai payload hoặc bidder. */
+    @Test
+    void acceptedBidReplayBypassesLaterEligibilityOutageAndKeepsConflictChecks() throws Exception {
+        properties.setReputationEnforcementEnabled(true);
+        UUID auction = auction("ACTIVE");
+        UUID bidder = UUID.randomUUID();
+        UUID key = UUID.randomUUID();
+        when(eligibility.check(bidder, EligibilityAction.BID)).thenReturn(eligible(bidder));
+        MvcResult accepted = client.perform(reputationRequest(auction, bidder, key, MINIMUM.toPlainString()))
+                .andExpect(status().isAccepted()).andReturn();
+        Snapshot before = snapshot(auction);
+        reset(eligibility);
+        when(eligibility.check(any(), any())).thenThrow(new IllegalStateException("Later outage"));
+        MvcResult replay = client.perform(reputationRequest(auction, bidder, key, MINIMUM.toPlainString()))
+                .andExpect(status().isAccepted()).andReturn();
+        assertThat(JsonMapper.shared().readTree(replay.getResponse().getContentAsString()).path("data"))
+                .isEqualTo(JsonMapper.shared().readTree(accepted.getResponse().getContentAsString()).path("data"));
+        client.perform(reputationRequest(auction, bidder, key, "1100000"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("AUCTION_IDEMPOTENCY_KEY_CONFLICT"));
+        client.perform(reputationRequest(auction, UUID.randomUUID(), key, MINIMUM.toPlainString()))
+                .andExpect(status().isConflict());
+        verify(eligibility, never()).check(any(), any());
+        assertThat(snapshot(auction)).isEqualTo(before);
+    }
+
+    /** Một POST đã commit QUEUED trong lúc eligibility của bản trùng lỗi phải replay đúng biên nhận. */
+    @Test
+    void aBidCommittedDuringEligibilityFailureIsReplayedWithoutASecondMutation() throws Exception {
+        properties.setReputationEnforcementEnabled(true);
+        UUID auction = auction("ACTIVE");
+        UUID bidder = UUID.randomUUID();
+        UUID key = UUID.randomUUID();
+        CountDownLatch firstChecking = new CountDownLatch(1);
+        CountDownLatch firstCommitted = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        when(eligibility.check(bidder, EligibilityAction.BID)).thenAnswer(call -> {
+            if (calls.incrementAndGet() == 1) {
+                firstChecking.countDown();
+                if (!firstCommitted.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Commit timed out");
+                throw new IllegalStateException("Eligibility failed after the accepted bid committed");
+            }
+            return eligible(bidder);
+        });
+        try (var workers = Executors.newFixedThreadPool(1)) {
+            var waiting = workers.submit(() -> client.perform(reputationRequest(auction, bidder, key, MINIMUM.toPlainString()))
+                    .andReturn().getResponse().getStatus());
+            assertThat(firstChecking.await(5, TimeUnit.SECONDS)).isTrue();
+            try {
+                client.perform(reputationRequest(auction, bidder, key, MINIMUM.toPlainString()))
+                        .andExpect(status().isAccepted());
+            } finally {
+                firstCommitted.countDown();
+            }
+            assertThat(waiting.get(10, TimeUnit.SECONDS)).isEqualTo(202);
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM bids WHERE auction_id=?", Long.class, auction)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox WHERE aggregate_id=? AND event_type='BidRequested'",
+                Long.class, auction.toString())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT bid_count FROM auctions WHERE id=?", Integer.class, auction)).isZero();
+    }
+
+    /** Eligibility chậm không cho phép dùng timestamp cũ để nhận bid sau deadline. */
+    @Test
+    void eligibilityDelayCannotUseAStaleTransactionTimestampToAcceptAnExpiredAuction() throws Exception {
+        properties.setReputationEnforcementEnabled(true);
+        UUID auction = auction("ACTIVE");
+        UUID bidder = UUID.randomUUID();
+        CountDownLatch checking = new CountDownLatch(1);
+        CountDownLatch deadlinePassed = new CountDownLatch(1);
+        when(eligibility.check(bidder, EligibilityAction.BID)).thenAnswer(call -> {
+            checking.countDown();
+            if (!deadlinePassed.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Deadline transition timed out");
+            return eligible(bidder);
+        });
+        try (var workers = Executors.newFixedThreadPool(1)) {
+            var request = workers.submit(() -> client.perform(reputationRequest(auction, bidder,
+                    UUID.randomUUID(), MINIMUM.toPlainString())).andReturn().getResponse().getStatus());
+            assertThat(checking.await(5, TimeUnit.SECONDS)).isTrue();
+            Snapshot expired;
+            try {
+                jdbc.update("UPDATE auctions SET end_at=clock_timestamp()-interval '1 millisecond' WHERE id=?", auction);
+                expired = snapshot(auction);
+            } finally {
+                deadlinePassed.countDown();
+            }
+            assertThat(request.get(10, TimeUnit.SECONDS)).isEqualTo(409);
+            assertThat(snapshot(auction)).isEqualTo(expired);
+        }
+    }
+
+    /** Quyết định hợp lệ của client fixture, không thay thế quy tắc kiểm tra trong ReputationGuard. */
+    private static EligibilityClient.Decision eligible(UUID bidder) {
+        return new EligibilityClient.Decision(bidder, EligibilityAction.BID, true, 50, "NEW", 40,
+                "Reputation score meets the BID minimum", "reputation-policy-1");
+    }
+
+    /** Gửi request cùng key cố định để kiểm tra retry và replay sau eligibility. */
+    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder reputationRequest(
+            UUID auction, UUID bidder, UUID key, String amount) {
+        return post("/api/v1/auctions/{id}/bids", auction)
+                .header("Authorization", "Bearer " + bidder)
+                .header("Idempotency-Key", key.toString())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"amount\":" + amount + "}");
+    }
+
+    /** Snapshot cả auction, request và outbox đã commit để phát hiện ghi nửa chừng. */
+    private Snapshot snapshot(UUID auction) {
+        return new Snapshot(jdbc.queryForMap("SELECT * FROM auctions WHERE id = ?", auction),
+                jdbc.queryForList("SELECT * FROM bids WHERE auction_id = ? ORDER BY id", auction),
+                jdbc.queryForList("SELECT * FROM outbox WHERE aggregate_id = ? ORDER BY id", auction.toString()));
+    }
+
+    private record Snapshot(Map<String, Object> auction, List<Map<String, Object>> bids, List<Map<String, Object>> events) { }
+
     /** Tạo request HTTP có đủ key và buyer token của fixture. */
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request(
             UUID auction, UUID bidder, String amount) {
@@ -285,6 +470,18 @@ VALUES(?,?,?,?,'Queue HTTP',1000000,50000,1000000,now()-interval '1 hour',now()+
         @Bean
         AuctionProperties auctionProperties() {
             return new AuctionProperties();
+        }
+
+        /** Client giả chỉ dành cho HTTP fixture, ReputationGuard vẫn dùng implementation thật. */
+        @Bean
+        EligibilityClient eligibilityClient() {
+            return mock(EligibilityClient.class);
+        }
+
+        /** Dùng cùng properties để bật/tắt enforcement trong từng trường hợp. */
+        @Bean
+        ReputationGuard reputationGuard(AuctionProperties properties, EligibilityClient client) {
+            return new ReputationGuard(properties, client);
         }
 
         @Bean

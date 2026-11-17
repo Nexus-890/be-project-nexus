@@ -122,6 +122,40 @@ class ShippingQuoteServiceTest {
     }
 
     @Test
+    void auctionCanRequestRawCarrierFeeEvenWhenCurrentCatalogPriceQualifiesForFreeShipping() {
+        ShippingProperties properties = new ShippingProperties(ShippingProperties.CarrierMode.FAKE,
+                3000, 3, 100, new BigDecimal("1000000"), 5, 30000,
+                "http://catalog-service", WAREHOUSE,
+                new PickupAddress("1000001", "1003646", "Địa chỉ lấy hàng kiểm thử"), Map.of());
+        CarrierExecutor realExecutor = new CarrierExecutor(properties);
+        CarrierRegistry registry = new CarrierRegistry(List.of(new FakeCarrierAdapter()));
+        when(catalog.getSubtotal(anyList(), any())).thenReturn(new BigDecimal("1500000"));
+        ShippingQuoteService service = new ShippingQuoteService(properties, registry,
+                new ShippingAddressService(registry, realExecutor), catalog, realExecutor);
+        ShippingQuoteRequest baseline = request();
+        ShippingQuoteRequest auctionQuote = new ShippingQuoteRequest(baseline.toAddress(), baseline.items(),
+                baseline.parcel(), baseline.warehouseId(), baseline.insuranceValue(), false);
+
+        assertThat(service.quote(auctionQuote)).singleElement()
+                .satisfies(quote -> assertThat(quote.fee()).isEqualByComparingTo("30000"));
+        // Không thay hành vi các caller cũ: giá Catalog đủ ngưỡng vẫn được miễn phí.
+        assertThat(service.quote(baseline)).singleElement()
+                .satisfies(quote -> assertThat(quote.fee()).isEqualByComparingTo(BigDecimal.ZERO));
+        ShippingQuoteRequest nullFlag = new ShippingQuoteRequest(baseline.toAddress(), baseline.items(),
+                baseline.parcel(), baseline.warehouseId(), baseline.insuranceValue(), null);
+        assertThat(nullFlag.applyFreeShipping()).isTrue();
+        assertThat(service.quote(nullFlag)).singleElement()
+                .satisfies(quote -> assertThat(quote.fee()).isEqualByComparingTo(BigDecimal.ZERO));
+        var oldJson = tools.jackson.databind.json.JsonMapper.shared().valueToTree(baseline).deepCopy();
+        ((tools.jackson.databind.node.ObjectNode) oldJson).remove("applyFreeShipping");
+        ShippingQuoteRequest oldClientRequest = tools.jackson.databind.json.JsonMapper.shared()
+                .treeToValue(oldJson, ShippingQuoteRequest.class);
+        assertThat(oldClientRequest.applyFreeShipping()).isTrue();
+        assertThat(service.quote(oldClientRequest)).singleElement()
+                .satisfies(quote -> assertThat(quote.fee()).isEqualByComparingTo(BigDecimal.ZERO));
+    }
+
+    @Test
     void declaredInsuranceAndActualItemCountsArePreparedIndependentlyOfCatalogSubtotal() {
         ShippingProperties properties = new ShippingProperties(ShippingProperties.CarrierMode.FAKE,
                 3000, 3, 100, new BigDecimal("1000000"), 5, 30000,

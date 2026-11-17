@@ -6,12 +6,14 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import java.time.Instant;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 public interface BidRepository extends JpaRepository<Bid, UUID> {
+    @Transactional(readOnly = true)
     Optional<Bid> findByIdempotencyKey(String idempotencyKey);
 
     /** Truy vấn có ownership ngay trong DB để không tiết lộ request của bidder khác. */
@@ -32,6 +34,9 @@ public interface BidRepository extends JpaRepository<Bid, UUID> {
     /** Winner chỉ xét bid thật sự được áp dụng, không chọn request QUEUED hoặc REJECTED. */
     Optional<Bid> findFirstByAuctionIdAndStatusInOrderByAmountDescPlacedAtAscIdAsc(UUID auctionId, List<Bid.Status> statuses);
 
+    /** Chỉ người đã đặt bid hợp lệ được đưa vào danh sách nhận email hủy. */
+    @Query("select distinct b.bidderId from Bid b where b.auctionId = :auctionId and cast(b.status as string) not in ('QUEUED', 'REJECTED') order by b.bidderId")
+    List<UUID> findDistinctBidderIdsByAuctionId(UUID auctionId);
 
     @Query("""
             select new com.group5.auctionservice.bidding.dto.BidHistoryItem(b.amount, b.bidderName, b.placedAt)

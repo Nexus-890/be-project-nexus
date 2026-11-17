@@ -70,7 +70,7 @@ The #203 update on 2026-11-11 adds ShipmentStatusUpdated and ShipmentCancelled a
 
 The #157 update on 2026-11-14 adds InventoryStockUnavailable as an R1 contract: inventory publishes it when a late OrderPaid finds an expired hold whose stock is no longer available, and commerce cancels and refunds that paid order.
 
-**CheckoutPaymentConfirmed is the authoritative payment confirmation event for R1**, using one immutable session per order group under #250. **PaymentConfirmed is deferred to R2 and must not be published or consumed as an alternative payment-state event during R1.** Its schema, example and historical #186 ownership references are retained only for traceability, not as an R1 compatibility publication. UserPasswordChanged, UserPasswordReset and UserLoggedIn remain R2 here; Keycloak owns their authentication events (#210/ADR-009).
+**CheckoutPaymentConfirmed is the authoritative payment confirmation event for R1**, using one immutable session per order group under #250. **PaymentConfirmed is deferred to R2 and must not be published or consumed as an alternative payment-state event during R1.** Its schema, example and historical #186 ownership references are retained only for traceability, not as an R1 compatibility publication. UserPasswordReset and UserLoggedIn remain R2 here; Keycloak owns authentication events (#210/ADR-009). #211 publishes UserRegistered, UserPasswordChanged and UserUnlocked for administrative actions only, without credentials.
 
 | Source | Use in this revision |
 | --- | --- |
@@ -175,10 +175,66 @@ Complete group manifest envelope example for a hand-published contract test (syn
 - Domain publishers commit business changes and OutboxWriter rows in their own database transaction (#104). The relay preserves eventId/occurredAt/traceId/payload across retries. Delivery is at least once; an ACK/crash race can redeliver. Kafka, carrier calls, Keycloak and another service's DB are outside that SQL transaction.
 - Consumers use IdempotentConsumer (#105) with `(eventId, consumer)`. The marker and business effects commit together; missing prerequisites/failed effects roll back or remain in durable retry. Domain uniqueness/version guards also prevent the same operation arriving under another eventId. The eight-topic #192 logger is a real consuming issue for every domain event; an event with no business handler is now **log-only**, rather than the old publisher-only classification.
 - Kafka keys are explicit per contract. A shared key only orders one partition/topic; it does not order commerce versus payment/shipment/auction topics. Version/business membership checks remain necessary. Event schema version, orderVersion, groupVersion, sessionVersion and instructionVersion are distinct concepts.
-- All properties listed in a schema are required; null is allowed only explicitly. Draft 7, `additionalProperties=true`, UUID strings and UTC ISO-8601 timestamps ending in Z follow #103. Consumers dispatch by envelope.eventType and validate before effects. Breaking new required snapshots need coordinated producer/consumer rollout and historical replay/backfill; additive-property tolerance alone does not make missing required fields compatible.
+- Base properties listed in a schema are required unless explicitly documented as an optional additive extension; the schema's `required` array is authoritative. Null is allowed only explicitly. Draft 7, `additionalProperties=true`, UUID strings and UTC ISO-8601 timestamps ending in Z follow #103. Consumers dispatch by envelope.eventType and validate before effects. Breaking new required snapshots need coordinated producer/consumer rollout and historical replay/backfill; additive-property tolerance alone does not make missing required fields compatible.
 - All money fields use JSON decimal strings with exactly two fractional digits and pattern `^\d+\.\d{2}$`, matching the commerce OpenAPI convention (for example, `"1500000.00"`). This includes BidPlaced.amount and AuctionWon.finalPrice; AuctionWon is written by #170. Parse with BigDecimal/Decimal; never calculate money through float/double. The wire pattern does not restrict integer length or leading zeros; producers and consumers must still enforce numeric(19,2) storage bounds and business amount rules. Amounts, membership, chronology, actor authority and state transitions also need semantic checks beyond JSON Schema.
-- **Non-Kafka records:** NotificationCreated/Sent/Failed and the four health transitions have topic `none`. #191/#193 create EventEnvelope records via the #192 in-process recorder, without a Kafka outbox row or extra topic; local effects/logs can share notification_db transactions. A broker outage must not prevent its own health failure/recovery log. Redis health state and PostgreSQL logs still need durable handoff/retry; they are not one atomic transaction. The `none` topic on SystemConfigUpdated requires a separate durable internal handoff from the #217 owner to #192, explicitly pending review below.
+- **Non-Kafka records:** NotificationCreated/Sent/Failed and the four health transitions have topic `none`. #191/#193 create EventEnvelope records via the #192 in-process recorder, without a Kafka outbox row or extra topic; local effects/logs can share notification_db transactions. A broker outage must not prevent its own health failure/recovery log. Redis health state and PostgreSQL logs still need durable handoff/retry; they are not one atomic transaction. SystemConfigUpdated retains topic `none`; #211 implements the durable signed internal handoff from config-service to the #192 recorder described below.
 - #192 stores the original logical envelope payload once by eventId; JSONB is not byte-for-byte HTTP evidence. Derive operator_id from payload.actorId for user/role/refund/config audit and derive aggregate type/producer from this catalogue. Never overwrite a duplicate eventId with different content. Actor IDs describe the original action, not the viewer or technical recorder. Passwords/tokens/provider keys and full notification bodies/addresses are excluded from these audit/delivery contracts.
+
+## Event email notifications (#259)
+
+Checked against publisher ownership and the #259 review on 2026-11-16. The issue's older
+COMMERCE label for payment/refund events does not change their existing
+`nexus.payment.events` topic or move the refund publisher into commerce-service.
+DomainEventConsumer keeps COMMERCE/CATALOG and also subscribes to PAYMENT,
+SHIPMENT and AUCTION. No HTTP endpoint or response shape is added.
+
+| Event | Topic constant | Recipients | Email content |
+| --- | --- | --- | --- |
+| CheckoutPaymentConfirmed | PAYMENT | `buyerId` | Payment received for `orderGroupId`, `totalAmount` and `currency`; one group receipt, not one per seller. |
+| ShipmentPickedUp | SHIPMENT | `buyerId` | Order shipped, with the persisted `carrier` and nonempty `trackingCode`. |
+| ShipmentDelivered | SHIPMENT | `buyerId` | Delivered, with a link to the frontend order page to rate the order (#221). |
+| ShipmentFailed / ShipmentReturned | SHIPMENT | `buyerId` | Delivery problem and an instruction to contact Support. |
+| OrderRefundRequested | PAYMENT | `buyerId` | Refund requested, seller order, amount, currency and reason. |
+| OrderRefundCompleted | PAYMENT | `buyerId` | Refund sent, seller order, amount and currency. |
+| AuctionCancelled | AUCTION | Distinct union of `bidderIds` and `sellerId` | Auction cancelled and reason. An empty bidder list still notifies the seller. |
+| AuctionPaymentTimeout | AUCTION | Distinct union of `winnerId` and `sellerId` | Auction payment deadline passed and the affected order. |
+
+ShipmentCreated records creation while tracking may still be pending and does not
+trigger an email. The shipped email uses ShipmentPickedUp, after tracking has been
+assigned; assigning tracking alone does not republish ShipmentCreated. Its
+persisted notification type and EMAIL preference key remain `SHIPMENT_CREATED` so existing opt-outs still apply to the email triggered by ShipmentPickedUp.
+
+Every known distinct recipient receives one notification and one EMAIL delivery per causal
+event. The existing processed-events claim, all recipient notifications and the
+delivery rows commit in the same notification_db transaction. Redelivery of the
+same eventId creates no additional notification or email. Recipient email addresses
+come from KeycloakRecipientDirectory using the user UUID; an event never supplies
+the destination email. SMTP uses the existing delivery/retry pipeline after commit.
+
+`buyerId` on the two refund events and `bidderIds` on AuctionCancelled are additive
+v1 extensions: new publishers always populate them, while the schema leaves them
+out of `required` so historical payloads and existing consumers remain compatible.
+For historical refund payloads with absent or null buyerId, the email handler
+completes the processed marker without a notification or delivery; it never guesses
+the buyer from actorId or orderId. Historical AuctionCancelled payloads with absent
+or null bidderIds notify the required valid sellerId once, without inventing
+bidders. Replaying either historical form creates no additional notifications.
+Present but malformed recipient values, including a non-array bidderIds, are still
+rejected before saving any recipient and roll back the processed marker for retry.
+Other required recipient fields retain strict validation. New auction cancellation
+publishers read distinct bidders from local bids in the same transaction as
+cancellation/outbox, under the auction lock.
+
+Before delivery, EMAIL preferences are checked by user and notification type.
+An explicitly disabled preference creates a SKIPPED delivery with no SMTP send;
+an absent preference keeps the existing enabled default. #259 explicitly requires
+this behavior, superseding the local SRS v1.0 §3.2.3 and endpoint catalogue's older
+mandatory order/payment-email wording for this scope. Preferences UI/history and
+SMS stay outside #259. Outbid remains the separate R2 #253 event.
+
+At the 2026-11-15 issue check, #172 and #208 are still open. The templates support
+their contracts; that does not claim their publishers are merged or that a live
+winner/timeout flow has passed. See [the #259 verification runbook](../testing/event-email-notifications.md).
 
 ## Event inventory
 
@@ -188,10 +244,10 @@ The contract cell contains only `R2` for out-of-scope names. Each R1 link resolv
 
 | # | Event | Contract |
 | --- | --- | --- |
-| 1 | `UserRegistered` | R2 |
+| 1 | `UserRegistered` | R1 — #211 administrative creation |
 | 2 | `UserUpdated` | [R1 — payload](#userupdated) |
 | 3 | `UserDeleted` | [R1 — payload](#userdeleted) |
-| 4 | `UserPasswordChanged` | R2 |
+| 4 | `UserPasswordChanged` | R1 — #211 administrative password update |
 | 5 | `UserPasswordReset` | R2 |
 | 6 | `UserLoggedIn` | R2 |
 | 7 | `UserLoggedOut` | R2 |
@@ -344,7 +400,7 @@ Issue numbers identify implementation ownership, not completed runtime behavior.
 | `ReputationScoreUpdated` | `nexus.rating.events` | [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `ReputationPenaltyApplied` | `nexus.rating.events` | [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `TrustLevelChanged` | `nexus.rating.events` | [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
-| `SystemConfigUpdated` | `none` | [#217](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/217) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): audit through the proposed durable internal handoff; delivery/owner review below |
+| `SystemConfigUpdated` | `none` | [#217](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/217) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): audit through the durable HMAC-signed internal handoff in #211 |
 | `SystemHealthCheckFailed` | `none` | [#193](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/193) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log; no Kafka dependency |
 | `SystemHealthCheckRecovered` | `none` | [#193](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/193) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log; no Kafka dependency |
 | `MessageBrokerUnavailable` | `none` | [#193](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/193) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): record locally in event log; no Kafka dependency |
@@ -1848,13 +1904,14 @@ evidence. Provider account details, ciphertext, keys and free-form errors are ab
 
 - Topic: `nexus.payment.events`.
 - Publisher: [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247).
-- Consumer: commerce-service [#116](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/116): move CANCELED -> REFUND_REQUESTED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit.
+- Consumer: commerce-service [#116](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/116): move CANCELED -> REFUND_REQUESTED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit; notification-service [#259](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/259): email the buyer using the additive buyerId.
 - Envelope aggregateId: `orderId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
 | --- | --- |
 | `refundId` | The one R1 refund operation for this seller order. |
 | `orderId` | Cancelled, funded seller order. |
+| `buyerId` | Additive v1 recipient UUID from the local funded payment instruction; new publishers always supply it. Optional only for historical schema compatibility. |
 | `orderGroupId` | Context only; this refund does not refund sibling orders. |
 | `sessionId` | Shared payment session, resolved from the local instruction. |
 | `instructionId` | Local funded instruction for this order. |
@@ -1881,6 +1938,10 @@ evidence. Provider account details, ciphertext, keys and free-form errors are ab
       "format": "uuid"
     },
     "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "buyerId": {
       "type": "string",
       "format": "uuid"
     },
@@ -1962,6 +2023,7 @@ evidence. Provider account details, ciphertext, keys and free-form errors are ab
 {
   "refundId": "00000000-0000-4000-8000-000000000030",
   "orderId": "00000000-0000-4000-8000-000000000001",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
   "orderGroupId": "00000000-0000-4000-8000-000000000020",
   "sessionId": "00000000-0000-4000-8000-000000000021",
   "instructionId": "00000000-0000-4000-8000-000000000022",
@@ -1979,17 +2041,20 @@ evidence. Provider account details, ciphertext, keys and free-form errors are ab
 
 #247 creates the REQUESTED refund and this outbox row atomically. actorId is refunds.requested_by; automatic compensation uses the system UUID and stable system:cancel-refund:{orderId} identity. At most one refund exists per order, including an API request racing an automatic cancellation. If an amount is supplied, preserve it exactly after validating against the funded instruction; if omitted, resolve that child's budget. Never use the entire session receipt as each seller's refund. No bank transfer has completed yet. Commerce validates the status transition and tracks refund identity/version so late REQUESTED redelivery cannot undo REFUNDED.
 
+#259 resolves buyerId from the refund's local payment instruction (PaymentInstruction.buyerId) in the publisher transaction, not from actorId or a commerce database lookup. It is an optional additive property in the v1 schema, always populated by new events. For a historical absent or null buyerId, notification consumes and marks the event processed without creating a notification or guessing a recipient. A present malformed buyerId still fails validation; other existing consumers may continue to ignore the field.
+
 ### OrderRefundCompleted
 
 - Topic: `nexus.payment.events`.
 - Publisher: [#247](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/247).
-- Consumer: commerce-service [#116](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/116): move REFUND_REQUESTED -> REFUNDED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit.
+- Consumer: commerce-service [#116](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/116): move REFUND_REQUESTED -> REFUNDED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit; notification-service [#259](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/259): email the buyer using the additive buyerId.
 - Envelope aggregateId: `orderId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
 | --- | --- |
 | `refundId` | The one R1 refund operation for this seller order. |
 | `orderId` | Cancelled, funded seller order. |
+| `buyerId` | Additive v1 recipient UUID from the local funded payment instruction; new publishers always supply it. Optional only for historical schema compatibility. |
 | `orderGroupId` | Context only; this refund does not refund sibling orders. |
 | `sessionId` | Shared payment session, resolved from the local instruction. |
 | `instructionId` | Local funded instruction for this order. |
@@ -2018,6 +2083,10 @@ evidence. Provider account details, ciphertext, keys and free-form errors are ab
       "format": "uuid"
     },
     "orderId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "buyerId": {
       "type": "string",
       "format": "uuid"
     },
@@ -2110,6 +2179,7 @@ evidence. Provider account details, ciphertext, keys and free-form errors are ab
 {
   "refundId": "00000000-0000-4000-8000-000000000030",
   "orderId": "00000000-0000-4000-8000-000000000001",
+  "buyerId": "00000000-0000-4000-8000-000000000002",
   "orderGroupId": "00000000-0000-4000-8000-000000000020",
   "sessionId": "00000000-0000-4000-8000-000000000021",
   "instructionId": "00000000-0000-4000-8000-000000000022",
@@ -2128,6 +2198,8 @@ evidence. Provider account details, ciphertext, keys and free-form errors are ab
 ```
 
 #247 atomically commits Support's completion, its outgoing ledger reference and outbox. actorId is completed_by. Preserve requestedAt and incoming funding evidence; completedAt >= requestedAt. Amount/currency/order/instruction must agree with the original refund. Repeating completion adds no ledger row/event. On missing REQUESTED prerequisites, retain durable retry; do not skip the state machine or mark a failed handler processed.
+
+#259 resolves buyerId from the refund's local payment instruction (PaymentInstruction.buyerId) in the publisher transaction, not from actorId or a commerce database lookup. It is an optional additive property in the v1 schema, always populated by new events. For a historical absent or null buyerId, notification consumes and marks the event processed without creating a notification or guessing a recipient. A present malformed buyerId still fails validation; other existing consumers may continue to ignore the field.
 
 ### AuctionCreated
 
@@ -2397,13 +2469,14 @@ evidence. Provider account details, ciphertext, keys and free-form errors are ab
 
 - Topic: `nexus.auction.events`.
 - Publisher: [#197](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/197).
-- Consumer: inventory-service [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209): release the auction hold; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Consumer: inventory-service [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209): release the auction hold; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log; notification-service [#259](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/259): email each distinct bidder and the seller.
 - Envelope aggregateId: `auctionId`; Kafka key: `auctionId`.
 
 | Payload field | Meaning |
 | --- | --- |
 | `auctionId` | Cancelled auction UUID. |
 | `sellerId` | Auction seller. |
+| `bidderIds` | Additive v1 array of distinct bidder UUIDs read from local bids in the cancellation transaction. Empty when there are no bids; optional only for historical schema compatibility. |
 | `productId` | Stored product context. |
 | `skuId` | Stored SKU context. |
 | `actorId` | Authenticated action actor UUID, or the fixed system UUID for a job/consumer; never a viewer-supplied actor. |
@@ -2427,6 +2500,14 @@ evidence. Provider account details, ciphertext, keys and free-form errors are ab
     "sellerId": {
       "type": "string",
       "format": "uuid"
+    },
+    "bidderIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      }
     },
     "productId": {
       "type": "string",
@@ -2485,6 +2566,10 @@ evidence. Provider account details, ciphertext, keys and free-form errors are ab
 {
   "auctionId": "00000000-0000-4000-8000-000000000003",
   "sellerId": "00000000-0000-4000-8000-000000000004",
+  "bidderIds": [
+    "00000000-0000-4000-8000-000000000002",
+    "00000000-0000-4000-8000-000000000012"
+  ],
   "productId": "00000000-0000-4000-8000-000000000006",
   "skuId": "00000000-0000-4000-8000-000000000005",
   "actorId": "00000000-0000-0000-0000-000000000000",
@@ -2496,6 +2581,8 @@ evidence. Provider account details, ciphertext, keys and free-form errors are ab
 ```
 
 #197 commits cancellation/reason/actor/outbox through the state machine. Seller permission requires no valid bids; Admin permission and final-state restrictions remain service checks. #209 releases only an existing HELD auction reservation once and emits InventoryReleased in that local transaction. Never release stock twice when AuctionFailed/cancellation/redelivery race; do not manufacture an order ID before settlement.
+
+#259 snapshots SELECT DISTINCT bidder_id from bids while the cancellation holds the auction lock, in the same transaction as the accepted state transition and outbox row. Notification takes the distinct union of bidderIds and sellerId; repeated bids, or a seller UUID repeated in the array, cannot send a second email to that user. Historical absent or null bidderIds notify the required valid sellerId once and complete processing without inferring bidders. A present non-array or malformed bidder UUID is rejected. This optional v1 schema extension does not change the existing cancellation eligibility rules or add cross-service database access.
 
 ### AuctionEnded
 
@@ -2813,7 +2900,7 @@ With no bids, #170/#171 commit FAILED and AuctionFailed together with reason=NO_
 
 - Topic: `nexus.auction.events`.
 - Publisher: [#208](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/208).
-- Consumer: rating-service [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213): apply the late-payment penalty to the winner once; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Consumer: rating-service [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213): apply the late-payment penalty to the winner once; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log; notification-service [#259](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/259): email the winner and seller once each.
 - Envelope aggregateId: `auctionId`; Kafka key: `auctionId`.
 
 | Payload field | Meaning |
@@ -3494,7 +3581,7 @@ Inventory handles OrderPaid with the order's reservation rows locked. When an EX
 
 - Topic: `nexus.shipment.events`.
 - Publisher: [#202](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/202).
-- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log creation; no order-state move; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recognize/log creation; no order-state move; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log. #259 does not send email for this creation fact; ShipmentPickedUp supplies the shipped email's carrier and tracking code.
 - Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
@@ -3933,7 +4020,7 @@ The payload uses the same history/version/source/actor fields as ShipmentPickedU
 
 - Topic: `nexus.shipment.events`.
 - Publisher: [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203).
-- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): PAID -> SHIPPED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): PAID -> SHIPPED; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log; notification-service [#259](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/259): email the buyer the carrier and tracking code as SHIPMENT_CREATED.
 - Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
@@ -4251,7 +4338,7 @@ The payload uses the same history/version/source/actor fields as ShipmentPickedU
 
 - Topic: `nexus.shipment.events`.
 - Publisher: [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203).
-- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recover SHIPPED if PAID, then DELIVERED; #258 confirms receipt or completes after the deadline before publishing OrderCompleted once; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): recover SHIPPED if PAID, then DELIVERED; #258 confirms receipt or completes after the deadline before publishing OrderCompleted once; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log; notification-service [#259](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/259): email delivery confirmation and a link to rate the order.
 - Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
@@ -4410,7 +4497,7 @@ The payload uses the same history/version/source/actor fields as ShipmentPickedU
 
 - Topic: `nexus.shipment.events`.
 - Publisher: [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203).
-- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): confirm PAID -> SHIPPED if the pickup event was missed; no new order state is introduced; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): confirm PAID -> SHIPPED if the pickup event was missed; no new order state is introduced; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log; notification-service [#259](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/259): email the buyer to contact Support about failed delivery.
 - Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
@@ -4562,7 +4649,7 @@ The payload uses the same history/version/source/actor fields as ShipmentPickedU
 
 - Topic: `nexus.shipment.events`.
 - Publisher: [#203](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/203).
-- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): confirm PAID -> SHIPPED if the pickup event was missed; no new order state is introduced; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Consumer: commerce-service [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204): confirm PAID -> SHIPPED if the pickup event was missed; no new order state is introduced; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log; notification-service [#259](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/259): email the buyer to contact Support about the returned parcel.
 - Envelope aggregateId: `shipmentId`; Kafka key: `orderId`.
 
 | Payload field | Meaning |
@@ -5572,7 +5659,7 @@ The payload uses the same history/version/source/actor fields as ShipmentPickedU
 - Publisher: [#217](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/217).
 - Consumer: notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): audit through the proposed durable internal handoff; delivery/owner review below.
 - Envelope aggregateId: `configKey`; Kafka key: `none` (non-Kafka recording).
-- Review status: Record shape specified; #217 owner and durable non-Kafka delivery to #192 require lane sign-off (ADR-009 open question).
+- Implementation #211: config-service persists configuration plus pending audit, retries a signed `POST /internal/v1/system-config-audit`, and removes the pending envelope only after notification-service commits and returns 204. The gateway does not route this internal endpoint.
 
 | Payload field | Meaning |
 | --- | --- |
@@ -5654,7 +5741,7 @@ The payload uses the same history/version/source/actor fields as ShipmentPickedU
 }
 ```
 
-#217 requires old/new values and actor for #192 audit. Reject unknown keys/wrong types before changing configuration. Topic is none under ADR-009/#186, so do not assign a ninth topic or assume the recorder shares config-service's DB. Proposed delivery is an authenticated internal handoff to the #192 recorder with stable eventId and durable retry; the #217 service owner/route and durability boundary must be confirmed by both lanes. Do not acknowledge successful audit delivery until persisted, and do not claim a cross-service SQL transaction or an existing internal endpoint. This contract defines the record shape; the owning implementation supplies the durable handoff.
+#211 requires typed old/new values and actor for #192 audit. Topic remains `none`; the Config Server state file stores the same pending eventId across retry/restart. The internal receiver verifies HMAC-SHA256 using CONFIG_AUDIT_SHARED_SECRET, requires SystemConfigUpdated, and writes through EventLogRecorder with source_topic null. The existing event_id unique constraint deduplicates a lost ACK/replay. Configuration and a remote recorder are not one SQL transaction. See [the runbook](../testing/admin-user-management.md) for persistent disk, refresh, crash recovery and deployment requirements.
 
 ### SystemHealthCheckFailed
 
@@ -6380,7 +6467,7 @@ The publisher reads `dueAt` and each `paymentDueAt` from the refreshed persisted
 
 - Topic: `nexus.payment.events`.
 - Publisher: [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156).
-- Consumer: commerce-service [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156), [#116](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/116): validate the whole group and commit valid child PAID/history/OrderPaid atomically; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
+- Consumer: commerce-service [#156](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/156), [#116](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/116): validate the whole group and commit valid child PAID/history/OrderPaid atomically; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log; notification-service [#259](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/259): email the buyer one group payment receipt.
 - Envelope aggregateId: `sessionId`; Kafka key: `orderGroupId`.
 - Review status: Authoritative R1 group-payment contract confirmed by MR !82 review under #250 (one immutable session per order group). PaymentConfirmed is deferred to R2, not an alternative R1 confirmation.
 
@@ -6806,6 +6893,8 @@ Eligibility and anti-sniping use database `requested_at`, not consumer wall time
 
 For state delivery, each instance subscribes to `nexus.auction.events` under a distinct `auction-stream-<instance-id>` group with latest offsets. AuctionStarted, BidPlaced, AuctionEnded, AuctionWon, AuctionFailed, AuctionCancelled, AuctionSettled and AuctionPaymentTimeout trigger a 200 ms coalesced read after invalidating the one-second state cache. No processed_events marker is used for this broadcast: every instance must see the same event. The SSE event is named `state`, id is the auction version from the same cached snapshot, and data is exactly the GET/state data without ApiResponse. Heartbeats have no id. Reconnection always receives current state; historical event replay is unnecessary.
 
-## Administrative identity recovery — #211
+### Administrative identity events added by #211
 
-For password/unlock remote success followed by a local commit failure, user-service retains an independent identity-operation journal. Its recovery worker emits the original UserPasswordChanged/UserUnlocked fact with additional operationId, reconciled=true, profileReconciled and remoteConfirmedAt metadata. The original changedAt/unlockedAt names remain present; remoteConfirmedAt records the verified remote response time. Audit/profile and journal completion share one local transaction. PENDING is an uncertain remote outcome and requires manual review; the worker never replays the remote change. See docs/testing/admin-user-management.md for the recovery procedure and the pending owner decision on the strict distributed-failure criterion.
+UserRegistered, UserPasswordChanged and UserUnlocked use `nexus.user.events`, aggregateId/Kafka key `userId`, and the standard EventEnvelope. Their payloads contain UUID `userId`, UUID `actorId` and a UTC timestamp: `registeredAt`, `changedAt` or `unlockedAt`, respectively. UserRegistered additionally contains the assigned fixed `roles` array. The user-service common-outbox write shares the profile transaction. These are administrative audit records; password values, hashes, reset tokens and complete profile/contact data are excluded. All three are included in the notification audit view through a new migration; previous authentication event deferrals do not suppress these administrative actions.
+
+For password/unlock remote success followed by a local commit failure, user-service retains an independent identity-operation journal. Its recovery worker emits the original UserPasswordChanged/UserUnlocked fact with additional `operationId`, `reconciled=true`, `profileReconciled`, and `remoteConfirmedAt` metadata. `changedAt`/`unlockedAt` is the audit recovery time in this case; `remoteConfirmedAt` records the confirmed remote response time. The outbox write and journal completion/review state commit together, so recovery emits at most one fact for that operation. The worker never repeats the password/unlock HTTP call. An unconfirmed remote result is retained for manual reconciliation and does not emit a successful event. See [the administrative recovery runbook](../testing/admin-user-management.md).

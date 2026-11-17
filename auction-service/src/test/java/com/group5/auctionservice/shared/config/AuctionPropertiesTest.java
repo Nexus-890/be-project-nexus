@@ -41,6 +41,7 @@ class AuctionPropertiesTest {
             AuctionProperties properties = context.getBean(AuctionProperties.class);
             assertThat(AopUtils.isAopProxy(properties)).isTrue();
             assertThat(properties.isAntiSnipingEnabled()).isTrue();
+            assertThat(properties.isReputationEnforcementEnabled()).isFalse();
             assertThat(properties.getAntiSnipingExtensionMinutes()).isEqualTo(5);
             assertThat(properties.getAntiSnipingMaxExtensionMinutes()).isEqualTo(30);
             assertThat(properties.getMinDurationMinutes()).isEqualTo(60);
@@ -54,6 +55,7 @@ class AuctionPropertiesTest {
     void explicitAuctionAndAntiSnipingSettingsBindThroughTheProductionBean() {
         runner.withPropertyValues(
                 "nexus.auction.anti-sniping-enabled=false",
+                "nexus.auction.reputation-enforcement-enabled=true",
                 "nexus.auction.anti-sniping-extension-minutes=2",
                 "nexus.auction.anti-sniping-max-extension-minutes=7",
                 "nexus.auction.min-duration-minutes=120",
@@ -64,6 +66,7 @@ class AuctionPropertiesTest {
                     assertThat(context).hasNotFailed();
                     AuctionProperties properties = context.getBean(AuctionProperties.class);
                     assertThat(properties.isAntiSnipingEnabled()).isFalse();
+                    assertThat(properties.isReputationEnforcementEnabled()).isTrue();
                     assertThat(properties.getAntiSnipingExtensionMinutes()).isEqualTo(2);
                     assertThat(properties.getAntiSnipingMaxExtensionMinutes()).isEqualTo(7);
                     assertThat(properties.getMinDurationMinutes()).isEqualTo(120);

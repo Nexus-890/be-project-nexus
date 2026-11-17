@@ -24,6 +24,26 @@ public class PricingService {
     private final CatalogClient catalogClient;
     private final OrderShippingService shipping;
 
+    @Value("${nexus.checkout.free-shipping-threshold:1000000}")
+    private BigDecimal freeShippingThreshold = new BigDecimal("1000000");
+
+    public OrderShippingService.Quote auctionShippingQuote(ShippingAddress address, UUID skuId,
+                                                           UUID productId, UUID warehouseId, BigDecimal finalPrice) {
+        CatalogSkuResponse sku;
+        try {
+            var response = catalogClient.getSkuById(skuId);
+            sku = response == null ? null : response.data();
+        } catch (FeignException error) {
+            throw new DomainException(CommerceErrorCode.CATALOG_UNAVAILABLE);
+        }
+        if (sku == null || !skuId.equals(sku.getId()) || !productId.equals(sku.getProductId())) {
+            throw new DomainException(CommerceErrorCode.INVALID_CATALOG_RESPONSE);
+        }
+        var quote = shipping.quoteAuction(address, List.of(new OrderShippingService.Line(skuId, 1, sku)), warehouseId);
+        BigDecimal fee = finalPrice.compareTo(freeShippingThreshold) >= 0 ? new BigDecimal("0.00") : quote.fee();
+        return new OrderShippingService.Quote(fee, quote.parcel(), quote.carrier(), quote.serviceType(), quote.estimatedDeliveryAt());
+    }
+
     /** Preview và tạo đơn dùng chung một nguồn phí, không nhận giá vận chuyển do client gửi lên. */
     public OrderShippingService.Quote shippingQuote(ShippingAddress address, List<OrderShippingService.Line> lines) {
         return shipping.quote(address, lines);

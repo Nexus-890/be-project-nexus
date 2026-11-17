@@ -65,8 +65,14 @@ done
 for i in "${!names[@]}"; do
   key="${keys[$i]}"
   # Keep the password inside a value= argument, including when it starts with '-'.
-  kc update "users/${ids[$i]}/reset-password" -r nexus \
-    -s type=password -s "value=${!key}" -s temporary=false -n
+  # Policy history(1) từ chối đúng mật khẩu hiện tại; đây là trạng thái seed đã hoàn tất khi chạy lại.
+  if ! kc update "users/${ids[$i]}/reset-password" -r nexus \
+      -s type=password -s "value=${!key}" -s temporary=false -n 2>"$CONFIG_DIR/password-error"; then
+    if ! grep -Eq 'invalidPasswordHistoryMessage|must not be equal to any of last 1 passwords' "$CONFIG_DIR/password-error"; then
+      echo "ERROR: cannot set demo credential; check Keycloak password policy and connectivity" >&2
+      exit 1
+    fi
+  fi
   echo "Seeded ${names[$i]}@nexus.local (${ids[$i]})"
 done
 
@@ -106,7 +112,8 @@ if [ -z "$client" ]; then
 fi
 kc update "clients/$client" -r nexus -s "secret=$KEYCLOAK_USER_SERVICE_CLIENT_SECRET" -n
 kc add-roles -r nexus --uusername service-account-user-service --cclientid realm-management \
-  --rolename manage-users --rolename view-users --rolename query-users --rolename view-realm
+  --rolename manage-users --rolename view-users --rolename query-users --rolename view-realm \
+  --rolename query-clients --rolename view-clients
 echo "Seeded client user-service ($client)"
 
 # CLIENT RIÊNG CHO notification-service: CHỈ ĐƯỢC ĐỌC USER (view-users) ĐỂ LẤY EMAIL NGƯỜI NHẬN (#191)
@@ -123,4 +130,33 @@ if [ -n "${KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET:-}" ]; then
   echo "Seeded client notification-service ($client)"
 else
   echo "Skipped client notification-service: KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET is empty"
+fi
+
+# #217: config-service đọc realm bằng client riêng, không dùng credential quản trị user-service.
+if [ -n "${KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET:-}" ]; then
+  client="$(kc get clients -r nexus -q clientId=config-service --fields id --format csv --noquotes)"
+  if [ -z "$client" ]; then
+    client="$(kc create clients -r nexus -s clientId=config-service -s enabled=true -s publicClient=false \
+      -s serviceAccountsEnabled=true -s standardFlowEnabled=false -s implicitFlowEnabled=false \
+      -s directAccessGrantsEnabled=false -s clientAuthenticatorType=client-secret -i)"
+  fi
+  kc update "clients/$client" -r nexus -s "secret=$KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET" -n
+  kc add-roles -r nexus --uusername service-account-config-service --cclientid realm-management \
+    --rolename view-realm
+  echo "Seeded client config-service ($client)"
+else
+  echo "Skipped client config-service: KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET is empty"
+fi
+
+if [ -n "${AUCTION_RATING_CLIENT_SECRET:-}" ]; then
+  client="$(kc get clients -r nexus -q clientId=nexus-auction-service --fields id --format csv --noquotes)"
+  if [ -z "$client" ]; then
+    client="$(kc create clients -r nexus -f /opt/nexus/auction-rating-client.json -i)"
+  else
+    kc update "clients/$client" -r nexus -f /opt/nexus/auction-rating-client.json -n
+  fi
+  kc update "clients/$client" -r nexus -s "secret=$AUCTION_RATING_CLIENT_SECRET" -n
+  echo "Seeded client nexus-auction-service ($client)"
+else
+  echo "Skipped client nexus-auction-service: AUCTION_RATING_CLIENT_SECRET is empty"
 fi

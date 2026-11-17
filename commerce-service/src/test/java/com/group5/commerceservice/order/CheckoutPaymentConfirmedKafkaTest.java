@@ -125,7 +125,7 @@ class CheckoutPaymentConfirmedKafkaTest {
         jdbc.update("UPDATE orders SET status = 'CANCELED' WHERE id = ?", order);
         var refund = new OrderRefundCompleted(UUID.randomUUID(), order, group, payment.sessionId(), instruction,
                 payment.transactionId(), "8900.00", "VND", "COMPLETED", "Kafka test refund", new UUID(0, 0),
-                1L, 2L, now.toString(), UUID.randomUUID(), Instant.now().toString());
+                1L, 2L, now.toString(), UUID.randomUUID(), Instant.now().toString(), buyer);
         var event = new EventEnvelope<>(UUID.randomUUID(), "OrderRefundCompleted", order.toString(), Instant.now(),
                 "5be44b49b86e4401a9f76c4016f56e9f", refund);
         kafka.send(Topics.PAYMENT, order.toString(), event).get(10, TimeUnit.SECONDS);

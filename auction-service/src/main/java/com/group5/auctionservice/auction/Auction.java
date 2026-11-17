@@ -93,6 +93,18 @@ public class Auction extends AuditedEntity {
 
     private Instant paymentDueAt;
 
+    private UUID orderId;
+
+    private Instant settledAt;
+
+    public void recordSettlement(UUID orderId, Instant settledAt) {
+        if (status != AuctionStatus.SETTLED || this.orderId != null) {
+            throw new IllegalStateException("Auction must transition to SETTLED first");
+        }
+        this.orderId = java.util.Objects.requireNonNull(orderId);
+        this.settledAt = java.util.Objects.requireNonNull(settledAt);
+    }
+
     @Column(length = 20)
     private String cancelledBy;
 

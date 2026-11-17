@@ -212,7 +212,7 @@ class CheckoutPaymentConfirmedTest {
                 String amount = i == 0 ? instruction.amount() : "82500.00";
                 var refund = new OrderRefundCompleted(UUID.randomUUID(), order, fixture.group(), payment.payload().sessionId(),
                         instruction.instructionId(), payment.payload().transactionId(), amount, "VND", "COMPLETED",
-                        "Refund voucher test", SYSTEM, 1L, 2L, paidAt, UUID.randomUUID(), Instant.now().toString());
+                        "Refund voucher test", SYSTEM, 1L, 2L, paidAt, UUID.randomUUID(), Instant.now().toString(), fixture.buyer());
                 UUID eventId = UUID.randomUUID();
                 ConsumerRecord<String, EventEnvelope<JsonNode>> record = new ConsumerRecord<>(Topics.PAYMENT, 0, 0, order.toString(),
                         new EventEnvelope<>(eventId, "OrderRefundCompleted", order.toString(), Instant.now(),

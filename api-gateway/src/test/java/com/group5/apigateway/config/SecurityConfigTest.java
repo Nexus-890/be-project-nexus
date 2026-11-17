@@ -81,6 +81,53 @@ import static org.mockito.Mockito.when;
         })
 class SecurityConfigTest {
     @Test
+    // Kiểm tra từng API quản trị từ chối thiếu token/quyền và chuyển tiếp bearer khi đủ quyền.
+    void adminOperationsRequireExactPrivilegesAtGateway() {
+        String[][] operations = {
+                {"POST", "/api/v1/users", "USER.CREATE"},
+                {"PUT", "/api/v1/users/" + ID, "USER.UPDATE"},
+                {"DELETE", "/api/v1/users/" + ID, "USER.DELETE"},
+                {"PUT", "/api/v1/users/" + ID + "/password", "USER.CHANGE_PASSWORD"},
+                {"PUT", "/api/v1/users/" + ID + "/roles", "USER.UPDATE"},
+                {"POST", "/api/v1/users/" + ID + "/unlock", "USER.UPDATE"},
+                {"GET", "/api/v1/roles", "ROLE.LIST"},
+                {"GET", "/api/v1/roles/" + ID, "ROLE.VIEW"},
+                {"GET", "/api/v1/permissions", "ROLE.VIEW"},
+                {"GET", "/api/v1/system/configs", "SYSTEM.CONFIG.VIEW"},
+                {"PUT", "/api/v1/system/configs/NOTIFICATION_RETRY_LIMIT", "SYSTEM.CONFIG.UPDATE"}
+        };
+        for (String[] operation : operations) {
+            HttpMethod method = HttpMethod.valueOf(operation[0]);
+            client.method(method).uri(operation[1]).exchange().expectStatus().isUnauthorized();
+            String missing = "Bearer " + token(SIGNING_KEY, claims -> { });
+            client.method(method).uri(operation[1]).header(HttpHeaders.AUTHORIZATION, missing)
+                    .exchange().expectStatus().isForbidden();
+            String allowed = "Bearer " + token(SIGNING_KEY,
+                    claims -> claims.claim("privileges", List.of(operation[2])));
+            client.method(method).uri(operation[1]).header(HttpHeaders.AUTHORIZATION, allowed)
+                    .exchange().expectStatus().isOk();
+        }
+        assertThat(SERVICE_LOG).hasSize(operations.length);
+        assertThat(FORWARDED_TOKENS).hasSize(operations.length);
+    }
+
+    @Test
+    // Kiểm tra đường dẫn role và cấu hình đến đúng service, tránh route trả nhầm 404.
+    void adminRoutesSelectOwningServices() {
+        for (String path : List.of("/api/v1/roles", "/api/v1/roles/" + ID, "/api/v1/permissions")) {
+            var route = routeLocator.getRoutes().filter(r -> r.getId().equals("user-service")).blockFirst();
+            assertThat(route).isNotNull();
+            assertThat(Mono.from(route.getPredicate().apply(MockServerWebExchange.from(
+                    MockServerHttpRequest.get(path)))).block()).as(path).isTrue();
+        }
+        var route = routeLocator.getRoutes().filter(r -> r.getId().equals("system-config-service")).blockFirst();
+        assertThat(route).isNotNull();
+        assertThat(route.getUri().getPort()).isEqualTo(DOWNSTREAM.getAddress().getPort());
+        assertThat(Mono.from(route.getPredicate().apply(MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/v1/system/configs")))).block()).isTrue();
+    }
+
+    @Test
     void mineRoutesRequireTheirPrivilegesAndForwardBearer() {
         for (String path : List.of("/api/v1/auctions/mine", "/api/v1/bids/mine")) {
             client.get().uri(path).exchange().expectStatus().isUnauthorized();
@@ -169,6 +216,7 @@ class SecurityConfigTest {
         });
         registry.add("spring.security.oauth2.resourceserver.jwt.jwk-set-uri",
                 () -> "http://127.0.0.1:" + JWKS.getAddress().getPort() + "/.well-known/jwks.json");
+        registry.add("nexus.services.config-url", () -> "http://127.0.0.1:" + DOWNSTREAM.getAddress().getPort());
     }
 
     @BeforeEach
@@ -873,8 +921,10 @@ class SecurityConfigTest {
         assertThat(SERVICE_LOG).isEmpty();
     }
 
+    // Thay path variable bằng fixture thật để kiểm tra cả policy cấu hình theo key.
     private static String concretePath(String path) {
         return path.replace("{id}", ID).replace("{bidId}", ID).replace("{userId}", ID).replace("{imageId}", ID)
+                .replace("{key}", "NOTIFICATION_RETRY_LIMIT")
                 .replace("{provider}", "sandbox");
     }
 

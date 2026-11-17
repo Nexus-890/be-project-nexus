@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 
 import com.group5.auctionservice.auction.*;
 import com.group5.auctionservice.bidding.dto.PlaceBidRequest;
+import com.group5.auctionservice.reputation.ReputationGuard;
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.EventEnvelopeFactory;
 import com.group5.common_events.Topics;
@@ -39,6 +40,7 @@ class BidServiceAntiSnipingTest {
     @Mock EventEnvelopeFactory envelopes;
     @Mock AntiSnipingPolicy policy;
     @Mock PlatformTransactionManager transactions;
+    @Mock ReputationGuard reputation;
     private BidService service;
 
     /**
@@ -51,7 +53,7 @@ class BidServiceAntiSnipingTest {
                 .thenReturn(new SimpleTransactionStatus());
         service =
                 new BidService(
-                        auctions, bids, outbox, envelopes, Clock.systemUTC(), transactions, policy);
+                        auctions, bids, outbox, envelopes, Clock.systemUTC(), transactions, policy, reputation);
     }
 
     /** Consumer lấy khóa xử lý trước, update giá rồi mới gia hạn bằng requestedAt. */
@@ -159,7 +161,7 @@ class BidServiceAntiSnipingTest {
                         () -> service.place(AUCTION, "bad-key", new PlaceBidRequest(AMOUNT), BUYER))
                 .extracting("errorCode")
                 .isEqualTo("AUCTION_INVALID_IDEMPOTENCY_KEY");
-        verifyNoInteractions(transactions, auctions, bids, policy, envelopes, outbox);
+        verifyNoInteractions(transactions, auctions, bids, policy, envelopes, outbox, reputation);
     }
 
     /** Fixture QUEUED giữ requestedAt độc lập với thời gian consumer. */

@@ -127,7 +127,10 @@ class BidIdempotencyTest {
         doAnswer(
                         i -> {
                             Optional<?> value = (Optional<?>) answer.answer(i);
-                            if (value.isEmpty() && misses.incrementAndGet() <= 2)
+                            if (value.isEmpty()
+                                    && org.springframework.transaction.support.TransactionSynchronizationManager
+                                            .isActualTransactionActive()
+                                    && misses.incrementAndGet() <= 2)
                                 barrier.await(10, TimeUnit.SECONDS);
                             return value;
                         })
@@ -711,6 +714,16 @@ VALUES(?,?,?,?, 'Queue integration','https://example.test/item.png',1000000,5000
         @Bean
         AuctionProperties auctionProperties() {
             return new AuctionProperties();
+        }
+
+        /** Fixture queue không gọi rating-service; các trường hợp chặn reputation có test HTTP riêng. */
+        @Bean
+        com.group5.auctionservice.reputation.ReputationGuard reputationGuard(AuctionProperties properties) {
+            return new com.group5.auctionservice.reputation.ReputationGuard(
+                    properties,
+                    (user, action) -> {
+                        throw new IllegalStateException("Enforcement is disabled in this fixture");
+                    });
         }
 
         @Bean
