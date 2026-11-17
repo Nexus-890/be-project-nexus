@@ -23,6 +23,38 @@ security:
     bearerAuth: []
 paths:
   /api/v1/categories:
+    get:
+      tags: [Categories]
+      operationId: listFlatCategories
+      summary: List categories as a flat page
+      description: Filter nondeleted categories by accent-insensitive and case-insensitive name or slug, direct parent and exact level. SQL wildcard characters in q are literal.
+      security: []
+      x-catalogue-id: CAT-05
+      parameters:
+        - name: q
+          in: query
+          schema: {type: string, maxLength: 150}
+        - name: parentId
+          in: query
+          schema: {type: string, format: uuid}
+        - name: level
+          in: query
+          schema: {type: integer, minimum: 0, maximum: 32767}
+        - $ref: '#/components/parameters/CatalogSearchPage'
+        - $ref: '#/components/parameters/CatalogSearchSize'
+      responses:
+        '200':
+          description: Category page ordered by name and ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlatCategoryPage'
+        '400':
+          description: Invalid query parameters
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
     post:
       tags:
         - "Categories"
@@ -2604,7 +2636,7 @@ paths:
         - "Products"
       operationId: "listProducts"
       summary: "Search visible products with filters and stable ordering"
-      description: "Only ACTIVE/nondeleted products. q is a trimmed case-insensitive literal product-title substring (SQL wildcard characters are literal). Filters combine with AND before pagination. Relevance ranks exact title, title prefix, then substring, newest first within each rank. Every ordering ends with UUID ascending. Price ordering uses the lowest SKU price, null prices last. maxPrice requires at least one SKU at or below the ceiling and retains the full min/max response range. listingType maps to persisted auctionEnable, not active auction state. An unmatched search returns empty data[] and zero totals. Access: public (a supplied invalid bearer token is rejected). Ownership/business restriction: None."
+      description: "Legacy compatibility endpoint for existing title-substring clients. Buyer frontend search and browsing use GET /api/v1/products/search for accent-insensitive full-text name/description matching. This endpoint retains its original matching and sort parameters. Only ACTIVE/nondeleted products. q is a trimmed case-insensitive literal product-title substring (SQL wildcard characters are literal). Filters combine with AND before pagination. Relevance ranks exact title, title prefix, then substring, newest first within each rank. Every ordering ends with UUID ascending. Price ordering uses the lowest SKU price, null prices last. maxPrice requires at least one SKU at or below the ceiling and retains the full min/max response range. listingType maps to persisted auctionEnable, not active auction state. An unmatched search returns empty data[] and zero totals. Access: public (a supplied invalid bearer token is rejected). Ownership/business restriction: None."
       security: []
       x-required-privileges: []
       x-required-roles: []
@@ -4230,6 +4262,60 @@ paths:
                     detail: "The service did not answer in time"
                     instance: "/api/v1/products/c8000000-0000-4000-8000-000000000002"
                     code: "GATEWAY_TIMEOUT"
+  /api/v1/products/search:
+    get:
+      tags: [Products]
+      operationId: searchProducts
+      summary: Search public products
+      description: >-
+        Canonical buyer frontend search and browsing endpoint. Find a phrase in the name or description of nondeleted ACTIVE products,
+        ignoring accents and case. The final normalized word is a prefix, so iph matches iPhone and ao th matches Áo thun.
+        Earlier words remain complete and adjacent in the same field. Query operators are treated as literal input,
+        and punctuation-only queries return no matches. An empty q browses the filtered catalog. Price filters
+        require the same ACTIVE SKU to satisfy every supplied bound (inclusive); inactive variants do not match.
+        Displayed minPrice/maxPrice retain the full ACTIVE variant range. Price sort uses the lowest
+        ACTIVE SKU price, with unpriced products last. listingType filters persisted auctionEnable, not live auction state.
+        The legacy GET /api/v1/products retains literal title-substring matching for compatibility; new clients use this endpoint.
+        Relevance weights name matches above description matches. Remaining ties use newest and ID.
+      security: []
+      x-catalogue-id: PRD-08
+      parameters:
+        - name: q
+          in: query
+          schema: {type: string, maxLength: 255}
+        - name: categoryId
+          in: query
+          schema: {type: string, format: uuid}
+        - name: listingType
+          in: query
+          schema: {type: string, enum: [all, buy-now, auction], default: all}
+        - name: minPrice
+          in: query
+          schema: {type: number, minimum: 0}
+        - name: maxPrice
+          in: query
+          schema: {type: number, minimum: 0}
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [relevance, price_asc, price_desc, newest]
+            default: relevance
+        - $ref: '#/components/parameters/CatalogSearchPage'
+        - $ref: '#/components/parameters/CatalogSearchSize'
+      responses:
+        '200':
+          description: Product search page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListProductsResponse'
+        '400':
+          description: Invalid parameters or minimum price above maximum price
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/products/mine:
     get:
       tags:
@@ -4328,6 +4414,8 @@ paths:
                         sellerId: "68000000-0000-4000-8000-000000000002"
                         minPrice: 150000.5
                         maxPrice: 150000.5
+                        description: "Owner-editable product description"
+                        auctionEnable: false
                     page:
                       number: 0
                       size: 10
@@ -7830,6 +7918,15 @@ paths:
                     instance: "/api/v1/products/69000000-0000-4000-8000-000000000201/images/order"
                     code: "INTERNAL_ERROR"
 components:
+  parameters:
+    CatalogSearchPage:
+      name: page
+      in: query
+      schema: {type: integer, minimum: 0, default: 0}
+    CatalogSearchSize:
+      name: size
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 100, default: 10}
   securitySchemes:
     bearerAuth:
       type: "http"
@@ -8451,6 +8548,31 @@ components:
         page:
           $ref: "#/components/schemas/PageInfo"
       additionalProperties: false
+    FlatCategoryPage:
+      type: object
+      required: [code, message, data, page]
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+    OwnerProduct:
+      allOf:
+        - $ref: '#/components/schemas/Product'
+        - type: object
+          required: [description, auctionEnable]
+          properties:
+            description:
+              type: string
+              nullable: true
+            auctionEnable:
+              type: boolean
     ListOwnProductsResponse:
       type: "object"
       required:
@@ -8470,7 +8592,7 @@ components:
         data:
           type: "array"
           items:
-            $ref: "#/components/schemas/Product"
+            $ref: "#/components/schemas/OwnerProduct"
         page:
           $ref: "#/components/schemas/PageInfo"
       additionalProperties: false

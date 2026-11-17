@@ -2,10 +2,12 @@ package com.group5.catalogservice.product.repository;
 import com.group5.catalogservice.product.dto.response.ProductResponse;
 import com.group5.catalogservice.product.entity.Product;
 import com.group5.catalogservice.product.entity.ProductImage;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -24,6 +26,9 @@ public interface ProductRepository extends JpaRepository<Product, UUID>, Product
     List<ProductImage> findImagesForProducts(@Param("productIds") Collection<UUID> productIds);
 
     Optional<Product> findByIdAndDeletedAtIsNull(UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<Product> findForDeleteByIdAndDeletedAtIsNull(UUID id);
 
     /**
      * Product Detail.

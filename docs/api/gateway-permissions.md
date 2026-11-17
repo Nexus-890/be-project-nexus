@@ -79,6 +79,8 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/auth/refresh` | POST | Public | #252 — HttpOnly refresh cookie: renew the access token |
 | `/api/v1/auth/logout` | POST | Public | #252 — HttpOnly refresh cookie: sign out |
 | `/api/v1/products` | GET | Public | #99 / #220 — Database search, listing type, price ceiling and stable sorting before pagination |
+| `/api/v1/products/search` | GET | Public | #215 — Full-text product search |
+| `/api/v1/categories` | GET | Public | #215 — Flat category list |
 | `/api/v1/products/{id}` | GET | Public | #83 — Product create, update and read                   |
 | `/api/v1/categories/{id}` | GET | Public | #80 — Category create, update and read                  |
 | `/api/v1/categories/tree` | GET | Public | #81 — Category tree endpoint                            |
