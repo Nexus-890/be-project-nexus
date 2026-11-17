@@ -122,6 +122,39 @@ nexus:
         path: /api/v1/users/me
         privilege: PROFILE.UPDATE
       - method: POST
+        path: /api/v1/users
+        privilege: USER.CREATE
+      - method: PUT
+        path: /api/v1/users/{id}
+        privilege: USER.UPDATE
+      - method: DELETE
+        path: /api/v1/users/{id}
+        privilege: USER.DELETE
+      - method: PUT
+        path: /api/v1/users/{id}/password
+        privilege: USER.CHANGE_PASSWORD
+      - method: PUT
+        path: /api/v1/users/{id}/roles
+        privilege: USER.UPDATE
+      - method: POST
+        path: /api/v1/users/{id}/unlock
+        privilege: USER.UPDATE
+      - method: GET
+        path: /api/v1/roles
+        privilege: ROLE.LIST
+      - method: GET
+        path: /api/v1/roles/{id}
+        privilege: ROLE.VIEW
+      - method: GET
+        path: /api/v1/permissions
+        privilege: ROLE.VIEW
+      - method: GET
+        path: /api/v1/system/configs
+        privilege: SYSTEM.CONFIG.VIEW
+      - method: PUT
+        path: /api/v1/system/configs/{key}
+        privilege: SYSTEM.CONFIG.UPDATE
+      - method: POST
         path: /api/v1/products
         privilege: PRODUCT.CREATE
       - method: GET

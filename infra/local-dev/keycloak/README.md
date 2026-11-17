@@ -71,15 +71,38 @@ The seed command also creates the confidential `user-service` client (#238) when
 is missing and sets its secret from `KEYCLOAK_USER_SERVICE_CLIENT_SECRET`. Only its
 service account is enabled; browser, implicit and password grants are off. The
 service account holds the `realm-management` roles `manage-users`, `view-users`,
-`query-users` and `view-realm`, which user-service needs to create accounts,
-assign the registration role and read role mappings. The client is not in
+`query-users`, `view-realm`, `query-clients` and `view-clients`, which user-service
+needs to administer accounts, read fixed realm roles and read client-role privileges
+for #211. The seed leaves other client service accounts unchanged. The client is not in
 `realm-nexus.json`, so an existing realm gets it on the next seed run.
+
+The imported password policy includes `passwordHistory(1)` so admin password reset
+rejects reuse of the current password. Existing realms require the same policy update
+in Keycloak before rollout; importing source again does not update an existing realm.
+Repeated demo seeding treats only Keycloak's explicit current-password history
+rejection as an already completed reset; other policy and transport failures stop seed.
 
 When `KEYCLOAK_NOTIFICATION_SERVICE_CLIENT_SECRET` is set, the seed command also
 creates the confidential `notification-service` client (#191). Its service account
 holds only `realm-management` `view-users`, which notification-service needs to read
 a recipient's email before it sends a notification email. Leave the secret empty to
 skip it while `EMAIL_NOTIFICATION_ENABLED=false`.
+
+For #217, set `KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET` in the deployment environment
+for both the seed command and config-service, then re-run the existing seed command.
+It creates or updates a dedicated confidential `config-service` client with only
+`realm-management` `view-realm`; browser/password grants remain disabled. This also
+upgrades an existing realm without replacing it. Config Server starts without IAM;
+the authenticated admin config listing requires this credential and a readable realm
+and returns `503 CONFIG_IDENTITY_PROVIDER_UNAVAILABLE` otherwise.
+
+The four `KEYCLOAK_MANAGED` rows read one fresh realm snapshot per GET:
+`ssoSessionIdleTimeout` and `accessTokenLifespan` become numeric minutes (including
+fractions); `failureFactor` is the failed-attempt limit when `bruteForceProtected`
+is true, or `0` when it is disabled; `passwordPolicy` is returned verbatim. These
+are realm defaults; client-specific timeout/lifespan overrides are separate Keycloak
+settings. `configuredValue` remains the Config Server source and `defaultValue`
+remains the historical SRS value. PUT for these four keys stays read-only.
 
 When `AUCTION_RATING_CLIENT_SECRET` is set, the seed command creates or updates
 the confidential `nexus-auction-service` client for internal rating eligibility.

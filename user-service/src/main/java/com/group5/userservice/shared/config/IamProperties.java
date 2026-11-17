@@ -9,6 +9,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @Setter
 public class IamProperties {
 
+    private boolean userSoftDelete = true;
+
     private String defaultUserRole = "BUYER";
 
     private boolean allowSelfRegistration = true;

@@ -89,6 +89,17 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/users/me` | GET | PROFILE.VIEW | #75 — Own profile: read and update                      |
 | `/api/v1/users/me` | PUT | PROFILE.UPDATE | #75 — Own profile: read and update                      |
 | `/api/v1/users` | GET | USER.LIST | #76 — Admin user list and user by id                    |
+| `/api/v1/users` | POST | USER.CREATE | #211 — service also requires ADMIN |
+| `/api/v1/users/{id}` | PUT | USER.UPDATE | #211 — ADMIN or SUPPORT_STAFF |
+| `/api/v1/users/{id}` | DELETE | USER.DELETE | #211 — service also requires ADMIN |
+| `/api/v1/users/{id}/password` | PUT | USER.CHANGE_PASSWORD | #211 — service also requires ADMIN |
+| `/api/v1/users/{id}/roles` | PUT | USER.UPDATE | #211 — service also requires ADMIN |
+| `/api/v1/users/{id}/unlock` | POST | USER.UPDATE | #211 — ADMIN or SUPPORT_STAFF |
+| `/api/v1/roles` | GET | ROLE.LIST | #211 — read-only Keycloak roles; ADMIN or SUPPORT_STAFF |
+| `/api/v1/roles/{id}` | GET | ROLE.VIEW | #211 — read-only Keycloak role detail; ADMIN or SUPPORT_STAFF |
+| `/api/v1/permissions` | GET | ROLE.VIEW | #211 — read-only Keycloak client roles; ADMIN or SUPPORT_STAFF |
+| `/api/v1/system/configs` | GET | SYSTEM.CONFIG.VIEW | #211 — config-service; ADMIN |
+| `/api/v1/system/configs/{key}` | PUT | SYSTEM.CONFIG.UPDATE | #211 — config-service; ADMIN |
 | `/api/v1/sellers/me` | GET | Roles: SELLER | #257 — Seller's own profile; existing SELLER users are bootstrapped lazily |
 | `/api/v1/sellers/me` | PUT | Roles: SELLER | #257 — Own company name and contact phone only |
 | `/api/v1/payments/seller-bank-accounts` | POST | Roles: SELLER | #257 — Seller identity comes from the authenticated user |

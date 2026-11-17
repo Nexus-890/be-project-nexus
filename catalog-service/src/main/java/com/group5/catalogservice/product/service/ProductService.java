@@ -152,18 +152,19 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public Page<ProductResponse> search(String q, UUID categoryId, BigDecimal minPrice, BigDecimal maxPrice,
-                                        String sort, int page, int size) {
+                                        String sort, String listingType, int page, int size) {
         validatePagination(page, size);
-        if (size > 100 || q.length() > 200 || !SEARCH_SORTS.contains(sort)
+        if (size > 100 || q.length() > 255 || !SEARCH_SORTS.contains(sort)
+                || !List.of("all", "buy-now", "auction").contains(listingType)
+                || (long) page * size > Integer.MAX_VALUE
                 || minPrice != null && minPrice.signum() < 0
                 || maxPrice != null && maxPrice.signum() < 0
                 || minPrice != null && maxPrice != null && minPrice.compareTo(maxPrice) > 0) {
             throw new DomainException(CatalogErrorCode.DATA_INVALID);
         }
-        Page<ProductResponse> results = productRepository.search(q.strip(), categoryId, minPrice, maxPrice,
-                sort, PageRequest.of(page, size)).map(row -> new ProductResponse(row.getId(), row.getName(),
-                row.getSlug(), ProductStatus.ACTIVE, row.getCategoryId(), row.getSellerId(),
-                row.getMinPrice(), row.getMaxPrice()));
+        Boolean auctionEnabled = listingType.equals("all") ? null : listingType.equals("auction");
+        Page<ProductResponse> results = productRepository.searchFullText(categoryId, q.strip(), sort, auctionEnabled,
+                minPrice, maxPrice, PageRequest.of(page, size));
         return attachImages(results);
     }
 

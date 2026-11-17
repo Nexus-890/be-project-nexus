@@ -1,7 +1,7 @@
 package com.group5.catalogservice.product;
 
 import com.group5.catalogservice.product.event.ProductFlagsConsumer;
-import com.group5.catalogservice.product.repository.ProductRepository;
+import com.group5.catalogservice.product.repository.FullTextProductQuery;
 import com.group5.common_events.EventEnvelope;
 import jakarta.servlet.Filter;
 import org.junit.jupiter.api.AfterAll;
@@ -10,8 +10,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.core.ConnectionCallback;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -55,7 +55,6 @@ class Sprint3CatalogIntegrationTest {
     private static PostgreSQLContainer postgres;
 
     @Autowired JdbcTemplate jdbc;
-    @Autowired NamedParameterJdbcTemplate namedJdbc;
     @Autowired ProductFlagsConsumer flags;
     @Autowired WebApplicationContext context;
     @MockitoBean JwtDecoder decoder;
@@ -144,13 +143,91 @@ class Sprint3CatalogIntegrationTest {
                 """, category, owner);
         product(category, "Bình giữ nhiệt QuasarXYZ", null, "ACTIVE");
         jdbc.execute("VACUUM (ANALYZE) products");
-        var parameters = new MapSqlParameterSource("q", "nhiet quasarxyz")
-                .addValue("categoryId", null).addValue("minPrice", null).addValue("maxPrice", null)
-                .addValue("sort", "relevance");
-        List<String> plan = namedJdbc.queryForList("EXPLAIN (ANALYZE, BUFFERS) "
-                + ProductRepository.SEARCH_QUERY + " LIMIT 10", parameters, String.class);
-        assertThat(plan).anySatisfy(line -> assertThat(line).contains("Bitmap Index Scan on idx_products_name_search"));
-        assertThat(plan).anySatisfy(line -> assertThat(line).contains("Bitmap Index Scan on idx_products_description_search"));
+        var query = FullTextProductQuery.of(null, "nhiet quasarxyz", "relevance", null,
+                null, null, PageRequest.of(0, 10));
+        jdbc.execute((ConnectionCallback<Void>) connection -> {
+            try (var statement = connection.createStatement()) {
+                statement.execute("SET plan_cache_mode = force_generic_plan");
+                statement.execute("PREPARE sprint3_search(text, integer, bigint) AS " + query.content()
+                        .replace(":q", "$1").replace(":limit", "$2").replace(":offset", "$3"));
+                statement.execute("PREPARE sprint3_count(text) AS " + query.count().replace(":q", "$1"));
+                for (int i = 0; i < 20; i++) {
+                    try (var rows = statement.executeQuery("EXECUTE sprint3_search('nhiet quasarxyz', 10, 0)")) {
+                        assertThat(rows.next()).isTrue();
+                        assertThat(rows.next()).isFalse();
+                    }
+                }
+                for (String prepared : List.of("sprint3_search('nhiet quasarxyz', 10, 0)",
+                        "sprint3_count('nhiet quasarxyz')")) {
+                    var plan = new java.util.ArrayList<String>();
+                    try (var rows = statement.executeQuery("EXPLAIN (ANALYZE, BUFFERS) EXECUTE " + prepared)) {
+                        while (rows.next()) plan.add(rows.getString(1));
+                    }
+                    assertThat(plan).anySatisfy(line -> assertThat(line).contains("Bitmap Index Scan on idx_products_name_search"));
+                    assertThat(plan).anySatisfy(line -> assertThat(line).contains("Bitmap Index Scan on idx_products_description_search"));
+                }
+            } finally {
+                try (var statement = connection.createStatement()) {
+                    statement.execute("DEALLOCATE ALL");
+                    statement.execute("RESET plan_cache_mode");
+                }
+            }
+            return null;
+        });
+    }
+
+    @Test
+    void priceBoundsMustMatchTheSameActiveSkuAndPreserveDisplayedRange() throws Exception {
+        UUID category = category("Price range regression", null, 1);
+        UUID match = product(category, "Variant price probe", null, "ACTIVE");
+        sku(match, 100000, "ACTIVE");
+        sku(match, 500000, "ACTIVE");
+        sku(match, 250000, "INACTIVE");
+        for (String[] bounds : List.of(new String[]{"300000", "600000"}, new String[]{"450000", "600000"},
+                new String[]{"500000", "500000"})) {
+            mvc.perform(get(PRODUCTS + "/search").param("categoryId", category.toString())
+                            .param("minPrice", bounds[0]).param("maxPrice", bounds[1]))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(1))
+                    .andExpect(jsonPath("$.data[0].id").value(match.toString()))
+                    .andExpect(jsonPath("$.data[0].minPrice").value(100000))
+                    .andExpect(jsonPath("$.data[0].maxPrice").value(500000));
+        }
+        mvc.perform(get(PRODUCTS + "/search").param("categoryId", category.toString()).param("minPrice", "300000"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(1));
+        mvc.perform(get(PRODUCTS + "/search").param("categoryId", category.toString())
+                        .param("minPrice", "200000").param("maxPrice", "300000"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(0))
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
+    void canonicalSearchCombinesListingTypeWithAccentInsensitiveDescriptionSearch() throws Exception {
+        UUID category = category("Canonical shop search", null, 1);
+        UUID auction = product(category, "Auction result", "Áo thun cotton", "ACTIVE");
+        product(category, "Buy now result", "ÁO THUN cotton", "ACTIVE");
+        jdbc.update("UPDATE products SET auction_enable = true WHERE id = ?", auction);
+        mvc.perform(get(PRODUCTS + "/search").param("categoryId", category.toString())
+                        .param("q", "ao thun").param("listingType", "auction"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(auction.toString()));
+        mvc.perform(get(PRODUCTS + "/search").param("listingType", "invalid"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void categorySearchIgnoresAccentsWhileEscapingLiteralWildcards() throws Exception {
+        UUID parent = category("Accent regression", null, 1);
+        UUID child = category("Áo nam 50%_sale!", parent, 2);
+        category("Áo nam 50XXsale!", parent, 2);
+        for (String q : List.of("ao nam", "ÁO NAM")) {
+            mvc.perform(get("/api/v1/categories").param("q", q).param("parentId", parent.toString())
+                            .param("level", "2").param("size", "1"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(2));
+        }
+        mvc.perform(get("/api/v1/categories").param("q", "ao nam 50%_sale!")
+                        .param("parentId", parent.toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(child.toString()));
     }
 
     @Test
@@ -276,7 +353,7 @@ class Sprint3CatalogIntegrationTest {
 
     private void sku(UUID product, int price, String status) {
         jdbc.update("INSERT INTO skus (product_id, sku_code, color, price, status) VALUES (?, ?, ?, ?, ?::sku_status)",
-                product, UUID.randomUUID().toString(), status, price, status);
+                product, UUID.randomUUID().toString(), UUID.randomUUID().toString(), price, status);
     }
 
     private boolean flag(UUID product, String column) {

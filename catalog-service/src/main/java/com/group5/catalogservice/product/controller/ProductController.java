@@ -78,9 +78,10 @@ public class ProductController {
             @RequestParam(required = false) BigDecimal minPrice,
             @RequestParam(required = false) BigDecimal maxPrice,
             @RequestParam(defaultValue = "relevance") String sort,
+            @RequestParam(defaultValue = "all") String listingType,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
-        return pageResponse(productService.search(q, categoryId, minPrice, maxPrice, sort, page, size));
+        return pageResponse(productService.search(q, categoryId, minPrice, maxPrice, sort, listingType, page, size));
     }
 
     @GetMapping("/mine")

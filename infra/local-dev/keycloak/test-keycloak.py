@@ -162,6 +162,31 @@ def verify_token(base, token):
     return claims
 
 
+def verify_admin_catalogues(base, service_token, matrix):
+    # Kiểm chứng service account thật có quyền đọc UUID realm role và đủ 65 quyền của nexus-web.
+    admin_url = f"{base}/admin/realms/nexus"
+    status, _, body = http(admin_url + "/roles?first=0&max=500", token=service_token)
+    check(status == 200, "user-service cannot list realm roles")
+    roles = [role for role in json.loads(body) if role["name"] in matrix]
+    check({role["name"] for role in roles} == set(matrix), "Missing fixed application realm role")
+    for role in roles:
+        status, _, body = http(admin_url + "/roles-by-id/" + role["id"], token=service_token)
+        check(status == 200 and json.loads(body)["name"] == role["name"], "user-service cannot read role by UUID")
+        status, _, body = http(admin_url + "/roles/" + role["name"] + "/composites", token=service_token)
+        check(status == 200, "user-service cannot read role composite privileges")
+        privileges = {entry["name"] for entry in json.loads(body) if entry.get("clientRole") and "." in entry["name"]}
+        check(privileges == set(matrix[role["name"]]), "Role privilege catalogue differs from SRS matrix")
+    status, _, body = http(admin_url + "/clients?clientId=nexus-web", token=service_token)
+    check(status == 200, "user-service service account cannot query nexus-web client")
+    clients = json.loads(body)
+    check(len(clients) == 1, "Expected exactly one nexus-web client")
+    status, _, body = http(admin_url + "/clients/" + clients[0]["id"] + "/roles?first=0&max=500", token=service_token)
+    check(status == 200, "user-service service account cannot read nexus-web client roles")
+    privileges = {entry["name"] for entry in json.loads(body) if "." in entry["name"]}
+    check(len(privileges) == 65, "Expected all 65 SRS client privileges")
+    print("PASS: user-service service account reads fixed realm roles, role UUIDs, composites and 65 client privileges", flush=True)
+
+
 def run(full_lockout, config_only=False):
     project = "nexus-236-test-" + secrets.token_hex(4)
     with tempfile.TemporaryDirectory(prefix=project) as tmp:
@@ -237,13 +262,15 @@ def run(full_lockout, config_only=False):
                 "grant_type": "client_credentials", "client_id": "user-service",
                 "client_secret": values["KEYCLOAK_USER_SERVICE_CLIENT_SECRET"]})
             check(status == 200, "user-service client_credentials grant failed")
-            status, _, body = http(f"{base}/admin/realms/nexus/roles/BUYER", token=json.loads(body)["access_token"])
+            service_token = json.loads(body)["access_token"]
+            status, _, body = http(f"{base}/admin/realms/nexus/roles/BUYER", token=service_token)
             check(status == 200 and json.loads(body)["name"] == "BUYER", "user-service service account cannot read realm roles")
             print("PASS: seed-users.sh provisions the confidential user-service client and its service account", flush=True)
             spec = importlib.util.spec_from_file_location("realm_contract", HERE / "test-realm.py")
             contracts = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(contracts)
             matrix = contracts.source_matrix()[1]
+            verify_admin_catalogues(base, service_token, matrix)
             for i, role in enumerate(("ADMIN", "SELLER", "BUYER"), 1):
                 code, verifier = authorization(base, role.lower() + "@nexus.local", values[f"DEMO_{role}_PASSWORD"])
                 check(code, f"{role} login failed")
@@ -294,8 +321,12 @@ def run(full_lockout, config_only=False):
                 status, _, _ = http(admin_url + f"/users/{policy_id}/reset-password", {"type": "password", "value": password, "temporary": False}, admin_token, "PUT")
                 check(status == 400, "Invalid password passed realm policy")
             admin(f"/users/{policy_id}/reset-password", {"type": "password", "value": "abcdefgh", "temporary": False}, "PUT")
+            # Cùng mật khẩu phải bị provider từ chối mà không cần đọc hash từ user_db.
+            status, _, _ = http(admin_url + f"/users/{policy_id}/reset-password",
+                                {"type": "password", "value": "abcdefgh", "temporary": False}, service_token, "PUT")
+            check(status == 400, "Reusing the current password bypassed passwordHistory(1)")
             admin(f"/users/{policy_id}", method="DELETE")
-            print("PASS: STANDARD baseline rejects short/blank and accepts 8-character password", flush=True)
+            print("PASS: STANDARD baseline rejects short/blank/current passwords and accepts a new 8-character password", flush=True)
 
             for attempt in range(1, 6):
                 code, _ = authorization(base, "seller@nexus.local", secrets.token_urlsafe(20))
@@ -322,6 +353,17 @@ def run(full_lockout, config_only=False):
                 print("PASS: still blocked at 890s; successful login after 903s", flush=True)
             else:
                 print("SKIP: wall-clock recovery; use --full-lockout for the complete 15-minute acceptance check", flush=True)
+                # Quyền mở khóa phải thuộc service account của user-service, không mượn token master admin.
+                lock_path = admin_url + f"/attack-detection/brute-force/users/{SELLER_ID}"
+                status, _, body = http(lock_path, token=service_token)
+                check(status == 200 and json.loads(body)["disabled"], "user-service cannot verify the brute-force lock")
+                status, _, _ = http(lock_path, token=service_token, method="DELETE")
+                check(status == 204, "user-service cannot clear brute-force failures")
+                status, _, body = http(lock_path, token=service_token)
+                check(status == 200 and not json.loads(body)["disabled"], "Manual unlock did not clear the brute-force lock")
+                code, verifier = authorization(base, "seller@nexus.local", values["DEMO_SELLER_PASSWORD"])
+                check(code and exchange(base, code, verifier)[0] == 200, "User could not sign in after manual unlock")
+                print("PASS: user-service service account clears the lock and the user signs in immediately", flush=True)
         finally:
             compose("down", "--volumes", "--remove-orphans")
             print(f"Cleaned up only {project} resources", flush=True)

@@ -6,10 +6,15 @@ import { resolve } from 'node:path';
 // schemas/examples; this check prevents delivered route inventory from drifting.
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const services = {
+  'config-service': [
+    'src/main/java/com/group5/configservice/systemconfig/SystemConfigController.java',
+  ],
   'api-gateway': [
     'src/main/java/com/group5/apigateway/session/SessionController.java',
   ],
   'user-service': [
+    'src/main/java/com/group5/userservice/iam/AdminUserController.java',
+    'src/main/java/com/group5/userservice/iam/RoleController.java',
     'src/main/java/com/group5/userservice/iam/AuthController.java',
     'src/main/java/com/group5/userservice/iam/UserController.java',
     'src/main/java/com/group5/userservice/seller/SellerController.java',

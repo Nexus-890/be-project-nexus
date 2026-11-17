@@ -7,6 +7,7 @@ import com.group5.auctionservice.auction.dto.CancelAuctionRequest;
 import com.group5.auctionservice.reputation.EligibilityAction;
 import com.group5.auctionservice.reputation.ReputationGuard;
 import com.group5.auctionservice.shared.config.AuctionProperties;
+import com.group5.auctionservice.bidding.BidRepository;
 import com.group5.auctionservice.shared.exception.AuctionErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
@@ -44,6 +45,7 @@ public class AuctionService {
     private final AuctionCreation auctionCreation;
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
+    private final BidRepository bids;
     private final ReputationGuard reputation;
 
     @Transactional(readOnly = true)
@@ -210,7 +212,9 @@ public class AuctionService {
         // Flush once before the event so its version is the committed entity version.
         auctions.flush();
         outbox.write("Auction", Topics.AUCTION,
-                envelopes.create("AuctionCancelled", auction.getId().toString(), AuctionCancelled.from(auction)));
+                // Snapshot bidder trong transaction đang giữ khóa auction, cho cả hủy thủ công và hủy hệ thống.
+                envelopes.create("AuctionCancelled", auction.getId().toString(),
+                        AuctionCancelled.from(auction, bids.findDistinctBidderIdsByAuctionId(auction.getId()))));
     }
 
     private Auction lock(UUID id) {

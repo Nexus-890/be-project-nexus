@@ -8,6 +8,9 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 public interface ProductSearchRepository {
+    Page<ProductResponse> searchFullText(UUID categoryId, String keyword, String sort, Boolean auctionEnabled,
+                                         BigDecimal minPrice, BigDecimal maxPrice, Pageable pageable);
+
     Page<ProductResponse> searchVisibleProducts(UUID categoryId, String keyword, String sort,
                                                Boolean auctionEnabled, BigDecimal maxPrice, Pageable pageable);
 }

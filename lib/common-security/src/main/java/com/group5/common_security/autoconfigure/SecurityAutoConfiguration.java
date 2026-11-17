@@ -17,6 +17,8 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.security.authorization.AuthorityAuthorizationManager;
+import org.springframework.security.authorization.AuthorizationManagers;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -31,6 +33,7 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
@@ -117,6 +120,11 @@ public class SecurityAutoConfiguration {
                 .authorizeHttpRequests(requests -> {
                     requests.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll();
                     requests.requestMatchers(HttpMethod.GET, MONITORING_PATHS).permitAll();
+                    // Refresh thay đổi cấu hình đang chạy: luôn kiểm tra cả role và privilege trước whitelist public.
+                    requests.requestMatchers(HttpMethod.POST, "/actuator/refresh")
+                            .access(AuthorizationManagers.allOf(
+                                    AuthorityAuthorizationManager.<RequestAuthorizationContext>hasRole("ADMIN"),
+                                    AuthorityAuthorizationManager.<RequestAuthorizationContext>hasAuthority("SYSTEM.CONFIG.UPDATE")));
                     for (NexusSecurityProperties.PublicEndpoint endpoint : properties.getPublicEndpoints()) {
                         HttpMethod method = method(endpoint);
                         String path = required(endpoint.getPath(), "nexus.security.public-endpoints[].path");

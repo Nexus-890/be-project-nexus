@@ -58,7 +58,7 @@ public class DeliveryRetryJob {
         try {
             String email = recipients.emailOf(claim.recipientId());
             if (!deliveries.stillOwns(claim, clock.instant())) {
-                log.warn("NOTIFICATION_DELIVERY_LEASE_LOST deliveryId={} attempt={}",
+                log.info("NOTIFICATION_DELIVERY_NOT_SENDABLE deliveryId={} attempt={}",
                         claim.deliveryId(), claim.attemptNumber());
                 return;
             }

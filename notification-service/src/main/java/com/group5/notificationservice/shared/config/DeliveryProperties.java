@@ -9,6 +9,8 @@ import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.cloud.context.config.annotation.RefreshScope;
+import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 
@@ -16,6 +18,8 @@ import java.time.Duration;
 @Setter
 @Validated
 @ConfigurationProperties(prefix = "nexus.notification.delivery")
+@Component
+@RefreshScope
 public class DeliveryProperties {
 
     @Min(1)

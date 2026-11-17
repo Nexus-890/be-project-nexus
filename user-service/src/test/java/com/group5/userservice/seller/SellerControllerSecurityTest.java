@@ -152,7 +152,9 @@ class SellerControllerSecurityTest {
     }
     @Configuration(proxyBeanMethods = false)
     @EnableAutoConfiguration(exclude = {DataSourceAutoConfiguration.class, HibernateJpaAutoConfiguration.class,
-            DataJpaRepositoriesAutoConfiguration.class, FlywayAutoConfiguration.class, KafkaAutoConfiguration.class})
+            DataJpaRepositoriesAutoConfiguration.class, FlywayAutoConfiguration.class, KafkaAutoConfiguration.class,
+            com.group5.common_events.autoconfigure.EventsAutoConfiguration.class,
+            com.group5.common_outbox.autoconfigure.IdempotentConsumerAutoConfiguration.class})
     static class Config {
         @Bean SellerService sellerService() { return mock(SellerService.class); }
         @Bean SellerController controller(SellerService service) { return new SellerController(service); }

@@ -8,11 +8,16 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 
 public interface BidRepository extends JpaRepository<Bid, UUID> {
     @Transactional(readOnly = true)
     Optional<Bid> findByIdempotencyKey(String idempotencyKey);
+
+    // Lấy mọi người từng bid, kể cả bid cũ/outbid; mỗi người chỉ xuất hiện một lần trong email hủy.
+    @Query("select distinct b.bidderId from Bid b where b.auctionId = :auctionId order by b.bidderId")
+    List<UUID> findDistinctBidderIdsByAuctionId(UUID auctionId);
 
     // Earlier bids win ties. ID breaks ties at an identical placement timestamp.
     Optional<Bid> findFirstByAuctionIdAndStatusNotOrderByAmountDescPlacedAtAscIdAsc(

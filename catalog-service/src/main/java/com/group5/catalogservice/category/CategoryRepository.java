@@ -20,13 +20,15 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
     boolean existsByParentIdAndDeletedAtIsNull(UUID parentId);
     List<Category> findAllByDeletedAtIsNull();
 
-    @Query("""
-            SELECT c FROM Category c
-            WHERE c.deletedAt IS NULL
-              AND (:parentId IS NULL OR c.parentId = :parentId)
-              AND (:level IS NULL OR c.level = :level)
-              AND (lower(c.name) LIKE :pattern ESCAPE '!' OR lower(c.slug) LIKE :pattern ESCAPE '!')
-            """)
+    String FLAT_FILTER = """
+            FROM categories c WHERE c.deleted_at IS NULL
+              AND (CAST(:parentId AS uuid) IS NULL OR c.parent_id = :parentId)
+              AND (CAST(:level AS smallint) IS NULL OR c.level = :level)
+              AND (lower(public.unaccent(c.name)) LIKE lower(public.unaccent(:pattern)) ESCAPE '!'
+                   OR lower(public.unaccent(c.slug)) LIKE lower(public.unaccent(:pattern)) ESCAPE '!')
+            """;
+
+    @Query(value = "SELECT c.* " + FLAT_FILTER, countQuery = "SELECT count(*) " + FLAT_FILTER, nativeQuery = true)
     Page<Category> findFlat(String pattern, UUID parentId, Short level, Pageable pageable);
 
     List<Category> findByPathStartingWithAndIdNot(String path, UUID id);

@@ -358,7 +358,7 @@ public class RefundService {
                 instruction.getSession().getOrderGroupId(), instruction.getSession().getId(), instruction.getId(),
                 instruction.getFundedTransaction().getId(), money(refund.getAmount()), refund.getCurrency(),
                 refund.getStatus().name(), refund.getReason(), actorId, refund.getVersion(),
-                instruction.getVersion(), refund.getRequestedAt().toInstant().toString());
+                instruction.getVersion(), refund.getRequestedAt().toInstant().toString(), instruction.getBuyerId());
     }
 
     // refundVersion = 1 KHI COMPLETED -> COMMERCE BỎ QUA EVENT CŨ HƠN BẢN ĐÃ ÁP DỤNG
@@ -368,7 +368,7 @@ public class RefundService {
                 instruction.getFundedTransaction().getId(), money(refund.getAmount()), refund.getCurrency(),
                 refund.getStatus().name(), refund.getReason(), actorId, refund.getVersion(),
                 instruction.getVersion(), refund.getRequestedAt().toInstant().toString(),
-                refund.getCompletedTransactionId(), refund.getCompletedAt().toInstant().toString());
+                refund.getCompletedTransactionId(), refund.getCompletedAt().toInstant().toString(), instruction.getBuyerId());
     }
 
     static String money(BigDecimal amount) {

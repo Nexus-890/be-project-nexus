@@ -1,0 +1,35 @@
+{
+  "created": {
+    "eventType": "ShipmentCreated",
+    "payload": {
+      "shipmentId": "25900000-0000-4000-8000-000000000001",
+      "orderId": "25900000-0000-4000-8000-000000000002",
+      "buyerId": "25900000-0000-4000-8000-000000000003",
+      "warehouseId": "25900000-0000-4000-8000-000000000004",
+      "carrier": "FAKE",
+      "trackingCode": null,
+      "status": "PENDING_TRACKING",
+      "shipmentVersion": 0,
+      "createdAt": "2026-11-16T00:00:00Z"
+    }
+  },
+  "pickedUp": {
+    "eventType": "ShipmentPickedUp",
+    "payload": {
+      "shipmentId": "25900000-0000-4000-8000-000000000001",
+      "orderId": "25900000-0000-4000-8000-000000000002",
+      "buyerId": "25900000-0000-4000-8000-000000000003",
+      "warehouseId": "25900000-0000-4000-8000-000000000004",
+      "carrier": "FAKE",
+      "trackingCode": "FAKE-25900000-0000-4000-8000-000000000001",
+      "status": "SHIPPED",
+      "historyId": "25900000-0000-4000-8000-000000000007",
+      "shipmentVersion": 2,
+      "source": "MANUAL",
+      "carrierEventId": null,
+      "actorId": "25900000-0000-4000-8000-000000000006",
+      "changedAt": "2026-11-16T00:05:00Z",
+      "reason": "Carrier picked up"
+    }
+  }
+}
