@@ -16,6 +16,10 @@ import java.util.UUID;
 public interface PaymentInstructionRepository extends JpaRepository<PaymentInstruction, UUID> {
     List<PaymentInstruction> findBySessionIdOrderByOrderId(UUID sessionId);
 
+    Optional<PaymentInstruction> findByOrderId(UUID orderId);
+
+    boolean existsBySessionOrderGroupIdAndSellerIdIsNull(UUID orderGroupId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select instruction from PaymentInstruction instruction where instruction.session.id = :sessionId order by instruction.orderId")
     List<PaymentInstruction> findSessionForUpdate(@Param("sessionId") UUID sessionId);

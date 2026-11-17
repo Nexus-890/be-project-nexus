@@ -1,6 +1,10 @@
 package com.group5.auctionservice.auction;
 
 import com.group5.auctionservice.TestPostgres;
+import com.group5.auctionservice.reputation.EligibilityAction;
+import com.group5.auctionservice.reputation.EligibilityClient;
+import com.group5.auctionservice.shared.config.AuctionProperties;
+import com.group5.common_core.model.ApiResponse;
 import jakarta.servlet.Filter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -9,6 +13,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -34,6 +39,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doReturn;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -46,7 +54,8 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
         "spring.cloud.config.enabled=false", "spring.cloud.config.import-check.enabled=false",
         "spring.cloud.discovery.enabled=false", "eureka.client.enabled=false",
         "spring.kafka.listener.auto-startup=false", "spring.kafka.admin.auto-create=false",
-        "spring.jpa.open-in-view=false", "nexus.outbox.relay.enabled=false",
+        "nexus.auction.settlement.enabled=false",
+        "nexus.outbox.relay.enabled=false",
         "nexus.security.jwt.issuer=http://localhost:18080/realms/nexus",
         "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/certs"
 })
@@ -56,8 +65,12 @@ class AuctionLimitsIntegrationTest {
 
     @Autowired private WebApplicationContext context;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private Environment environment;
+    @Autowired private AuctionProperties properties;
     @MockitoBean private JwtDecoder decoder;
     @MockitoBean private AuctionCatalog catalog;
+    @MockitoBean private AuctionInventoryClient inventory;
+    @MockitoBean private EligibilityClient eligibility;
     private final Map<UUID, UUID> productIdsBySku = new ConcurrentHashMap<>();
     private final Map<UUID, CatalogClient.Product> products = new ConcurrentHashMap<>();
     private MockMvc client;
@@ -73,6 +86,8 @@ class AuctionLimitsIntegrationTest {
 
     @BeforeEach
     void setup() {
+        assertThat(environment.getProperty("spring.jpa.open-in-view", Boolean.class)).isFalse();
+        properties.setReputationEnforcementEnabled(false);
         client = webAppContextSetup(context)
                 .addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
         seller = UUID.randomUUID();
@@ -80,6 +95,8 @@ class AuctionLimitsIntegrationTest {
         when(decoder.decode("seller")).thenReturn(token("seller", seller));
         when(decoder.decode("other")).thenReturn(token("other", otherSeller));
         when(catalog.requireProduct(any())).thenAnswer(call -> products.get(call.getArgument(0)));
+        when(inventory.available(any())).thenAnswer(call ->
+                ApiResponse.of(new AuctionInventoryClient.Stock(call.getArgument(0), 5)));
     }
 
     @ParameterizedTest
@@ -160,7 +177,7 @@ class AuctionLimitsIntegrationTest {
         UUID productId = productIdsBySku.computeIfAbsent(sku, ignored -> UUID.randomUUID());
         UUID owner = token.equals("seller") ? seller : otherSeller;
         products.putIfAbsent(productId, new CatalogClient.Product(owner, "Catalog auction",
-                List.of(new CatalogClient.Sku(sku)), List.of()));
+                List.of(new CatalogClient.Sku(sku)), List.of(new CatalogClient.Image("https://example.com/auction.png"))));
         Instant start = Instant.now().plusSeconds(3600);
         String body = """
                 {"productId":"%s","skuId":"%s","title":"Auction limits","startingPrice":100000,
@@ -168,6 +185,62 @@ class AuctionLimitsIntegrationTest {
                 """.formatted(productId, sku, start, start.plusSeconds(7200));
         return client.perform(post("/api/v1/auctions").header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    @Test
+    void lowReputationSellerCannotCreateAuctionOrPublishAuctionCreated() throws Exception {
+        properties.setReputationEnforcementEnabled(true);
+        when(eligibility.check(seller, EligibilityAction.SELL)).thenReturn(
+                new EligibilityClient.Decision(seller, EligibilityAction.SELL, false, 49, "BASIC", 50,
+                        "Reputation score 49 is below 50 required for SELL", "reputation-policy-1"));
+        UUID sku = UUID.randomUUID();
+        create("seller", sku).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("AUCTION_REPUTATION_TOO_LOW"))
+                .andExpect(jsonPath("$.detail").value("Reputation score 49 is below 50 required for SELL"));
+        assertNoSellerWrites();
+        doReturn(sellerEligible()).when(eligibility).check(seller, EligibilityAction.SELL);
+        create("seller", sku).andExpect(status().isCreated());
+        assertThat(countForSku(sku)).isEqualTo(1);
+    }
+
+    @Test
+    void ratingOutagePreventsCreationWithoutAnyWriteAndAllowsRetryAfterRecovery() throws Exception {
+        properties.setReputationEnforcementEnabled(true);
+        when(eligibility.check(seller, EligibilityAction.SELL)).thenThrow(new IllegalStateException("Rating unavailable"));
+        UUID sku = UUID.randomUUID();
+        create("seller", sku).andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("AUCTION_REPUTATION_UNAVAILABLE"));
+        assertNoSellerWrites();
+        doReturn(sellerEligible()).when(eligibility).check(seller, EligibilityAction.SELL);
+        create("seller", sku).andExpect(status().isCreated());
+    }
+
+    @Test
+    void mismatchedDecisionCannotCreateAnAuction() throws Exception {
+        properties.setReputationEnforcementEnabled(true);
+        when(eligibility.check(seller, EligibilityAction.SELL)).thenReturn(
+                new EligibilityClient.Decision(seller, EligibilityAction.BID, true, 50, "NEW", 40,
+                        "Wrong action", "reputation-policy-1"));
+        create("seller", UUID.randomUUID()).andExpect(status().isServiceUnavailable());
+        assertNoSellerWrites();
+    }
+
+    @Test
+    void flagOffCreatesWithoutCallingEligibility() throws Exception {
+        when(eligibility.check(any(), any())).thenThrow(new IllegalStateException("Must be skipped"));
+        create("seller", UUID.randomUUID()).andExpect(status().isCreated());
+        verify(eligibility, never()).check(any(), any());
+    }
+
+    private EligibilityClient.Decision sellerEligible() {
+        return new EligibilityClient.Decision(seller, EligibilityAction.SELL, true, 50, "NEW", 50,
+                "Reputation score meets the SELL minimum", "reputation-policy-1");
+    }
+
+    private void assertNoSellerWrites() {
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM auctions WHERE seller_id=?", Long.class, seller)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox WHERE payload->'payload'->>'sellerId'=?",
+                Long.class, seller.toString())).isZero();
     }
 
     private static ResultActions conflict(ResultActions result, String code) throws Exception {

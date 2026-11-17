@@ -20,5 +20,7 @@ public record OrderRefundRequested(
         @NotNull UUID actorId,
         @PositiveOrZero long refundVersion,
         long instructionVersion,
-        String requestedAt) {
+        String requestedAt,
+        // Không bắt buộc để consumer vẫn xử lý event cũ chưa có người nhận email.
+        UUID buyerId) {
 }

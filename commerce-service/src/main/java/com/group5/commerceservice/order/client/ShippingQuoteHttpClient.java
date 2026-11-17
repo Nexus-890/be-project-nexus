@@ -18,7 +18,13 @@ public interface ShippingQuoteHttpClient {
     @PostMapping("/api/v1/shipping/quotes")
     ApiResponse<List<Response>> quote(@RequestBody Request request);
 
-    record Request(Address toAddress, List<Item> items, Parcel parcel, UUID warehouseId) { }
+    record Request(Address toAddress, List<Item> items, Parcel parcel, UUID warehouseId,
+                   @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                   Boolean applyFreeShipping) {
+        public Request(Address toAddress, List<Item> items, Parcel parcel, UUID warehouseId) {
+            this(toAddress, items, parcel, warehouseId, null);
+        }
+    }
     record Address(String provinceCode, String wardCode, String line1, String recipientName, String recipientPhone) { }
     record Item(UUID skuId, int quantity) { }
     record Response(String carrier, String serviceType, BigDecimal fee, OffsetDateTime estimatedDeliveryAt) { }

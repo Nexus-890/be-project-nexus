@@ -97,6 +97,14 @@ user-service/
 
 Each direct sub-package of the root package is one feature. Inside it, files are **flat**.
 
+`rating-service` uses nested responsibility packages inside its `rating`, `reputation`
+and `eligibility` features, as explicitly requested for readability. Place its classes in
+`controller`, `service`, `repository`, `entity`, `dto`, `event` and the relevant
+`config`, `policy`, `model`, `enums`, `backfill`, `security` or `util` package.
+Keep these packages inside their owning feature and mirror them under `src/test`.
+Shared error handling remains under `shared/exception`. The flat examples below
+continue to describe the other services.
+
 ```
 iam/
 ├─ User.java                  @Entity

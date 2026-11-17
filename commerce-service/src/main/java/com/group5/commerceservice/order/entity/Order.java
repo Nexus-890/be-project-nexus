@@ -82,6 +82,20 @@ public class Order {
     @Column(name = "paid_at")
     private OffsetDateTime paidAt;
 
+    @Column(name = "delivered_at")
+    private OffsetDateTime deliveredAt;
+
+    @Column(name = "auto_complete_at")
+    private OffsetDateTime autoCompleteAt;
+
+    @Column(name = "receipt_issue_reason", length = 500)
+    private String receiptIssueReason;
+
+    @Column(name = "receipt_issue_reported_at")
+    private OffsetDateTime receiptIssueReportedAt;
+    @Column(name = "payment_note")
+    private String paymentNote;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 

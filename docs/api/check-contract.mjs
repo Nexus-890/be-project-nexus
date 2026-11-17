@@ -6,14 +6,20 @@ import { resolve } from 'node:path';
 // schemas/examples; this check prevents delivered route inventory from drifting.
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const services = {
+  'config-service': [
+    'src/main/java/com/group5/configservice/systemconfig/SystemConfigController.java',
+  ],
   'api-gateway': [
     'src/main/java/com/group5/apigateway/session/SessionController.java',
   ],
   'user-service': [
+    'src/main/java/com/group5/userservice/iam/AdminUserController.java',
+    'src/main/java/com/group5/userservice/iam/RoleController.java',
     'src/main/java/com/group5/userservice/iam/AuthController.java',
     'src/main/java/com/group5/userservice/iam/UserController.java',
     'src/main/java/com/group5/userservice/phone/PhoneVerificationController.java',
     'src/main/java/com/group5/userservice/address/AddressController.java',
+    'src/main/java/com/group5/userservice/seller/SellerController.java',
   ],
   'catalog-service': [
     'src/main/java/com/group5/catalogservice/category/CategoryController.java',
@@ -27,6 +33,10 @@ const services = {
     'src/main/java/com/group5/commerceservice/order/controller/OrderController.java',
     'src/main/java/com/group5/commerceservice/order/controller/OrderShippingSnapshotController.java',
     'src/main/java/com/group5/commerceservice/order/OrderReceiptController.java',
+    'src/main/java/com/group5/commerceservice/order/OrderReceiptConfirmationController.java',
+    'src/main/java/com/group5/commerceservice/order/AuctionShippingController.java',
+    'src/main/java/com/group5/commerceservice/promotion/MegaSaleEventController.java',
+    'src/main/java/com/group5/commerceservice/promotion/VoucherController.java',
   ],
   'notification-service': [
     'src/main/java/com/group5/notificationservice/notification/NotificationController.java',
@@ -39,11 +49,15 @@ const services = {
     'src/main/java/com/group5/paymentservice/payment/controller/PaymentController.java',
     'src/main/java/com/group5/paymentservice/payment/controller/RefundController.java',
     'src/main/java/com/group5/paymentservice/payment/controller/SepayWebhookController.java',
+    'src/main/java/com/group5/paymentservice/sellerbank/BankAccountController.java',
+    'src/main/java/com/group5/paymentservice/payout/PayoutController.java',
+    'src/main/java/com/group5/paymentservice/payout/PayoutCallbackController.java',
   ],
   'inventory-service': [
     'src/main/java/com/group5/inventoryservice/inventory/InventoryController.java',
     'src/main/java/com/group5/inventoryservice/warehouse/controller/WarehouseController.java',
     'src/main/java/com/group5/inventoryservice/reservation/controller/ReservationController.java',
+    'src/main/java/com/group5/inventoryservice/reservation/controller/InternalReservationController.java',
   ],
   'auction-service': [
     'src/main/java/com/group5/auctionservice/auction/AuctionController.java',
@@ -56,6 +70,12 @@ const services = {
     'src/main/java/com/group5/shipmentservice/shipping/controller/ShipmentController.java',
     'src/main/java/com/group5/shipmentservice/shipping/controller/ShipmentStatusController.java',
     'src/main/java/com/group5/shipmentservice/shipping/controller/CarrierWebhookController.java',
+  ],
+  'rating-service': [
+    'src/main/java/com/group5/ratingservice/rating/controller/RatingController.java',
+    'src/main/java/com/group5/ratingservice/reputation/controller/ReputationController.java',
+    'src/main/java/com/group5/ratingservice/reputation/controller/ReputationHistoryController.java',
+    'src/main/java/com/group5/ratingservice/eligibility/controller/EligibilityController.java',
   ],
 };
 const normalize = (route) => route.replace(/\{[^}]+\}/g, '{}');

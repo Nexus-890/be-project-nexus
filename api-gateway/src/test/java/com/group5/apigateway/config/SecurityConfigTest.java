@@ -59,7 +59,11 @@ import reactor.core.publisher.Mono;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest(classes = SecurityConfigTest.TestApplication.class,
@@ -75,6 +79,53 @@ import static org.mockito.Mockito.when;
                 "spring.security.oauth2.resourceserver.jwt.audiences[0]=nexus-services"
         })
 class SecurityConfigTest {
+    @Test
+    // Kiểm tra từng API quản trị từ chối thiếu token/quyền và chuyển tiếp bearer khi đủ quyền.
+    void adminOperationsRequireExactPrivilegesAtGateway() {
+        String[][] operations = {
+                {"POST", "/api/v1/users", "USER.CREATE"},
+                {"PUT", "/api/v1/users/" + ID, "USER.UPDATE"},
+                {"DELETE", "/api/v1/users/" + ID, "USER.DELETE"},
+                {"PUT", "/api/v1/users/" + ID + "/password", "USER.CHANGE_PASSWORD"},
+                {"PUT", "/api/v1/users/" + ID + "/roles", "USER.UPDATE"},
+                {"POST", "/api/v1/users/" + ID + "/unlock", "USER.UPDATE"},
+                {"GET", "/api/v1/roles", "ROLE.LIST"},
+                {"GET", "/api/v1/roles/" + ID, "ROLE.VIEW"},
+                {"GET", "/api/v1/permissions", "ROLE.VIEW"},
+                {"GET", "/api/v1/system/configs", "SYSTEM.CONFIG.VIEW"},
+                {"PUT", "/api/v1/system/configs/NOTIFICATION_RETRY_LIMIT", "SYSTEM.CONFIG.UPDATE"}
+        };
+        for (String[] operation : operations) {
+            HttpMethod method = HttpMethod.valueOf(operation[0]);
+            client.method(method).uri(operation[1]).exchange().expectStatus().isUnauthorized();
+            String missing = "Bearer " + token(SIGNING_KEY, claims -> { });
+            client.method(method).uri(operation[1]).header(HttpHeaders.AUTHORIZATION, missing)
+                    .exchange().expectStatus().isForbidden();
+            String allowed = "Bearer " + token(SIGNING_KEY,
+                    claims -> claims.claim("privileges", List.of(operation[2])));
+            client.method(method).uri(operation[1]).header(HttpHeaders.AUTHORIZATION, allowed)
+                    .exchange().expectStatus().isOk();
+        }
+        assertThat(SERVICE_LOG).hasSize(operations.length);
+        assertThat(FORWARDED_TOKENS).hasSize(operations.length);
+    }
+
+    @Test
+    // Kiểm tra đường dẫn role và cấu hình đến đúng service, tránh route trả nhầm 404.
+    void adminRoutesSelectOwningServices() {
+        for (String path : List.of("/api/v1/roles", "/api/v1/roles/" + ID, "/api/v1/permissions")) {
+            var route = routeLocator.getRoutes().filter(r -> r.getId().equals("user-service")).blockFirst();
+            assertThat(route).isNotNull();
+            assertThat(Mono.from(route.getPredicate().apply(MockServerWebExchange.from(
+                    MockServerHttpRequest.get(path)))).block()).as(path).isTrue();
+        }
+        var route = routeLocator.getRoutes().filter(r -> r.getId().equals("system-config-service")).blockFirst();
+        assertThat(route).isNotNull();
+        assertThat(route.getUri().getPort()).isEqualTo(DOWNSTREAM.getAddress().getPort());
+        assertThat(Mono.from(route.getPredicate().apply(MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/v1/system/configs")))).block()).isTrue();
+    }
+
     @Test
     void mineRoutesRequireTheirPrivilegesAndForwardBearer() {
         for (String path : List.of("/api/v1/auctions/mine", "/api/v1/bids/mine")) {
@@ -114,6 +165,8 @@ class SecurityConfigTest {
     private SecurityConfig.GatewaySecurityProperties permissions;
     @Autowired
     private RouteLocator routeLocator;
+    @Autowired
+    private RedisWindowRateLimiter rateLimiter;
     private WebTestClient client;
 
     @DynamicPropertySource
@@ -125,10 +178,12 @@ class SecurityConfigTest {
         });
         registry.add("spring.security.oauth2.resourceserver.jwt.jwk-set-uri",
                 () -> "http://127.0.0.1:" + JWKS.getAddress().getPort() + "/.well-known/jwks.json");
+        registry.add("nexus.services.config-url", () -> "http://127.0.0.1:" + DOWNSTREAM.getAddress().getPort());
     }
 
     @BeforeEach
     void setUp() {
+        clearInvocations(rateLimiter);
         SERVICE_LOG.clear();
         FORWARDED_TOKENS.clear();
         DOMAIN_LOG.clear();
@@ -517,7 +572,7 @@ class SecurityConfigTest {
     @Test
     void everyDocumentedPrivilegeIsRequiredAndSufficient() {
         for (SecurityConfig.Endpoint endpoint : permissions.endpoints()) {
-            if (endpoint.isPublic()) {
+            if (endpoint.isPublic() || !endpoint.roles().isEmpty()) {
                 continue;
             }
             String path = concretePath(endpoint.path());
@@ -543,6 +598,32 @@ class SecurityConfigTest {
                     .exchange().expectStatus().isOk().expectBody(String.class)
                     .value(body -> assertThat(body).isNotEmpty());
             assertThat(SERVICE_LOG).hasSize(requests + 1);
+        }
+    }
+
+    @Test
+    void sellerAndPayoutPoliciesRequireAConfiguredRealmRoleAndPreserveTheirOwnerRoute() {
+        for (SecurityConfig.Endpoint endpoint : permissions.endpoints()) {
+            if (endpoint.roles().isEmpty()) continue;
+            String path = concretePath(endpoint.path());
+            client.method(endpoint.method()).uri(path).exchange().expectStatus().isUnauthorized();
+            client.method(endpoint.method()).uri(path)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                            claims -> claims.claim("roles", List.of("BUYER"))))
+                    .exchange().expectStatus().isForbidden();
+            for (String role : endpoint.roles()) {
+                client.method(endpoint.method()).uri(path)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                                claims -> claims.claim("roles", List.of(role))))
+                        .exchange().expectStatus().isOk();
+            }
+            if (path.startsWith("/api/v1/sellers")) {
+                var exchange = MockServerWebExchange.from(MockServerHttpRequest.get(path));
+                var routes = routeLocator.getRoutes().filterWhen(route -> route.getPredicate().apply(exchange))
+                        .collectList().block();
+                assertThat(routes).hasSize(1);
+                assertThat(routes.getFirst().getUri().toString()).isEqualTo("lb://user-service");
+            }
         }
     }
 
@@ -599,10 +680,26 @@ class SecurityConfigTest {
     }
 
     @Test
+    void auctionStateAndBidHistoryAreAnonymousButBidPlacementStillRequiresPrivilege() {
+        String auction = "/api/v1/auctions/" + ID;
+        client.get().uri(auction + "/state").exchange().expectStatus().isOk();
+        client.get().uri(auction + "/bids").exchange().expectStatus().isOk();
+        client.post().uri(auction + "/bids").exchange().expectStatus().isUnauthorized();
+        client.post().uri(auction + "/bids")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                        c -> c.claim("privileges", List.of("AUCTION.LIST"))))
+                .exchange().expectStatus().isForbidden();
+        assertThat(SERVICE_LOG).containsExactly("GET " + auction + "/state", "GET " + auction + "/bids");
+        verify(rateLimiter, times(2)).isAllowed("auction-read", "gateway-test-client");
+        verify(rateLimiter, never()).isAllowed("auction-service", "gateway-test-client");
+    }
+
+    @Test
     void literalRoutesSwaggerActuatorAndUnknownPathsAreNotPublic() {
         for (String path : List.of("/api/v1/products/mine", "/api/v1/products/search",
                 "/api/v1/products/discovery", "/api/v1/products/not-a-uuid",
-                "/api/v1/auctions/mine", "/api/v1/auctions/not-a-uuid", "/api/v1/auctions/" + ID + "/bids",
+                "/api/v1/auctions/mine", "/api/v1/auctions/not-a-uuid", "/api/v1/auctions/not-a-uuid/bids",
+                "/api/v1/auctions/not-a-uuid/state",
                 "/api/v1/categories", "/swagger-ui.html", "/actuator/health", "/unrouted")) {
             client.get().uri(path).exchange().expectStatus().isUnauthorized();
         }
@@ -652,7 +749,7 @@ class SecurityConfigTest {
                 Map.entry("/api/v1/warehouses", "inventory-service"));
         String bearer = "Bearer " + token(SIGNING_KEY, c -> c.claim("privileges",
                 permissions.endpoints().stream().filter(endpoint -> !endpoint.isPublic())
-                        .map(SecurityConfig.Endpoint::privilege).distinct().toList()));
+                        .map(SecurityConfig.Endpoint::privilege).filter(java.util.Objects::nonNull).distinct().toList()));
         for (var entry : prefixes.entrySet()) {
             List<String> paths = entry.getKey().endsWith("/sepay")
                     ? List.of(entry.getKey()) : List.of(entry.getKey(), entry.getKey() + "/" + ID);
@@ -786,8 +883,11 @@ class SecurityConfigTest {
         assertThat(SERVICE_LOG).isEmpty();
     }
 
+    // Thay path variable bằng fixture thật để kiểm tra cả policy cấu hình theo key.
     private static String concretePath(String path) {
-        return path.replace("{id}", ID).replace("{userId}", ID).replace("{imageId}", ID);
+        return path.replace("{id}", ID).replace("{userId}", ID).replace("{imageId}", ID)
+                .replace("{key}", "NOTIFICATION_RETRY_LIMIT")
+                .replace("{provider}", "sandbox");
     }
 
     private void expectInvalidToken(String token) {

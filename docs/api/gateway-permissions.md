@@ -24,6 +24,11 @@ still rejected. Listed SRS 2.7 privileges must appear verbatim in the JWT
 Downstream services validate JWTs again and enforce ownership/business rules
 independently, as required by ADR-006.
 
+#257 introduces role policies using `roles` in `protected-endpoints`; the gateway
+accepts any one listed realm role and does not invent an SRS privilege. The owning
+service repeats the role check and enforces seller ownership. Callback requests
+are public to JWT authentication but require the provider signature downstream.
+
 Guest cart #112 adds `POST /api/v1/carts/guest` as public. The four existing
 cart read/item policies have `allow-guest: true`: anonymous requests pass to
 commerce-service, which checks `ALLOW_GUEST_CART`, the signed `X-Guest-Token`,
@@ -48,12 +53,33 @@ neither merge nor the existing inventory stub proves stock availability.
 
 | Path | Method | Public or required privilege | Owning issue                                            |
 |---|---|---|---------------------------------------------------------|
+| `/api/v1/vouchers` | GET | Public | #256 — Claimable vouchers |
+| `/api/v1/promotions/events` | POST | PROMOTION.EVENT.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/promotions/events` | GET | VOUCHER.VIEW | #256 — Promotions and vouchers |
+| `/api/v1/promotions/events/{id}` | GET | VOUCHER.VIEW | #256 — Promotions and vouchers |
+| `/api/v1/promotions/events/{id}` | PUT | PROMOTION.EVENT.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/promotions/events/{id}/status` | PATCH | PROMOTION.EVENT.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/promotions/events/{id}/sellers` | GET | PROMOTION.EVENT.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/promotions/event-sellers/{id}` | PATCH | PROMOTION.EVENT.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/promotions/events/{id}/registrations` | POST | PROMOTION.EVENT.REGISTER | #256 — Promotions and vouchers |
+| `/api/v1/promotions/events/{id}/registrations/me` | DELETE | PROMOTION.EVENT.REGISTER | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/me` | GET | VOUCHER.VIEW | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/manage` | GET | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/{id}` | GET | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers` | POST | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/{id}` | PUT | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/{id}/status` | PATCH | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/{id}/products` | PUT | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/{id}/sellers` | POST | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/{id}/sellers/me` | DELETE | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/{id}/usages` | GET | VOUCHER.MANAGE | #256 — Promotions and vouchers |
+| `/api/v1/vouchers/{id}/claim` | POST | VOUCHER.CLAIM | #256 — Promotions and vouchers |
 | `/api/v1/auth/register` | POST | Public | #74 — User registration with a default role             |
 | `/api/v1/auth/verification-email` | POST | Public | #210 / #262 — Resend the email verification link (one per address per minute, same answer for unknown addresses) |
 | `/api/v1/auth/session` | POST | Public | #252 — HttpOnly refresh cookie: sign-in exchange |
 | `/api/v1/auth/refresh` | POST | Public | #252 — HttpOnly refresh cookie: renew the access token |
 | `/api/v1/auth/logout` | POST | Public | #252 — HttpOnly refresh cookie: sign out |
-| `/api/v1/products` | GET | Public | #99 — Product lists                                     |
+| `/api/v1/products` | GET | Public | #99 / #220 — Database search, listing type, price ceiling and stable sorting before pagination |
 | `/api/v1/products/{id}` | GET | Public | #83 — Product create, update and read                   |
 | `/api/v1/categories/{id}` | GET | Public | #80 — Category create, update and read                  |
 | `/api/v1/categories/tree` | GET | Public | #81 — Category tree endpoint                            |
@@ -69,6 +95,28 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/users/me/addresses/{id}` | DELETE | PROFILE.UPDATE | #210 / #265 — Own address book |
 | `/api/v1/users/me/addresses/{id}/default` | POST | PROFILE.UPDATE | #210 / #265 — Own address book |
 | `/api/v1/users` | GET | USER.LIST | #76 — Admin user list and user by id                    |
+| `/api/v1/users` | POST | USER.CREATE | #211 — service also requires ADMIN |
+| `/api/v1/users/{id}` | PUT | USER.UPDATE | #211 — ADMIN or SUPPORT_STAFF |
+| `/api/v1/users/{id}` | DELETE | USER.DELETE | #211 — service also requires ADMIN |
+| `/api/v1/users/{id}/password` | PUT | USER.CHANGE_PASSWORD | #211 — service also requires ADMIN |
+| `/api/v1/users/{id}/roles` | PUT | USER.UPDATE | #211 — service also requires ADMIN |
+| `/api/v1/users/{id}/unlock` | POST | USER.UPDATE | #211 — ADMIN or SUPPORT_STAFF |
+| `/api/v1/roles` | GET | ROLE.LIST | #211 — read-only Keycloak roles; ADMIN or SUPPORT_STAFF |
+| `/api/v1/roles/{id}` | GET | ROLE.VIEW | #211 — read-only Keycloak role detail; ADMIN or SUPPORT_STAFF |
+| `/api/v1/permissions` | GET | ROLE.VIEW | #211 — read-only Keycloak client roles; ADMIN or SUPPORT_STAFF |
+| `/api/v1/system/configs` | GET | SYSTEM.CONFIG.VIEW | #211 — config-service; ADMIN |
+| `/api/v1/system/configs/{key}` | PUT | SYSTEM.CONFIG.UPDATE | #211 — config-service; ADMIN |
+| `/api/v1/sellers/me` | GET | Roles: SELLER | #257 — Seller's own profile; existing SELLER users are bootstrapped lazily |
+| `/api/v1/sellers/me` | PUT | Roles: SELLER | #257 — Own company name and contact phone only |
+| `/api/v1/payments/seller-bank-accounts` | POST | Roles: SELLER | #257 — Seller identity comes from the authenticated user |
+| `/api/v1/payments/seller-bank-accounts/me` | GET | Roles: SELLER | #257 — Own accounts, masked to last four digits |
+| `/api/v1/payments/seller-bank-accounts/{id}` | PUT | Roles: SELLER | #257 — Owning seller only; another seller receives 404 |
+| `/api/v1/payments/seller-bank-accounts/{id}/default` | POST | Roles: SELLER | #257 — Owning seller only; one active default |
+| `/api/v1/payments/seller-bank-accounts/{id}/verify` | POST | Roles: ADMIN | #257 — Verification or rejection with reason |
+| `/api/v1/payments/payouts/me` | GET | Roles: SELLER | #257 — Own automatic payouts |
+| `/api/v1/payments/payouts/{id}` | GET | Roles: SELLER, ADMIN | #257 — Owning seller or ADMIN; includes history |
+| `/api/v1/payments/payouts/{id}/retry` | POST | Roles: ADMIN | #257 — FAILED/RETURNED only; required Idempotency-Key |
+| `/api/v1/payments/payouts/callbacks/{provider}` | POST | Public | #257 — Signed provider callback; signature checked by payment-service |
 | `/api/v1/products` | POST | PRODUCT.CREATE | #83 — Product create, update and read                   |
 | `/api/v1/products/mine` | GET | PRODUCT.LIST | #99 — Product lists                                     |
 | `/api/v1/products/mine/{id}` | GET | PRODUCT.LIST | Back-office demo (issue TBD) — SELLER reads own nondeleted product, including DRAFT/INACTIVE; another seller receives 404 downstream |
@@ -97,6 +145,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/system/health/brokers` | GET | SYSTEM.HEALTH.VIEW | #193 — Broker health with failure and recovery times |
 | `/api/v1/notifications/{id}/deliveries` | GET | NOTIFICATION.VIEW | #191 — Email channel and notification delivery retry |
 | `/api/v1/orders` | POST | ORDER.CREATE | #113 — Order creation from a cart; service also requires CHECKOUT.START |
+| `/api/v1/orders/{id}/shipping-confirmation` | POST | CHECKOUT.START | #172 — BUYER winner only; PENDING auction order and linked hold; same-address replay |
 | `/api/v1/payments` | POST | CHECKOUT.START | #121 — Buyer reads own order group's immutable payment session |
 | `/api/v1/orders/{id}/history` | GET | ORDER.VIEW | #116 — Order state machine and status history |
 | `/api/v1/orders` | GET | ORDER.LIST | #117 — Order read endpoints; the caller's own orders only |
@@ -128,6 +177,8 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/shipments/{id}/status` | PATCH | SHIPPING.UPDATE_STATUS | #203 — shipment-service |
 | `/api/v1/shipments/{id}/override` | POST | SHIPPING.MANUAL_OVERRIDE | #203 — shipment-service; reason required downstream |
 | `/api/v1/ratings` | POST | REPUTATION.RATE | #212 — rating-service; completed-order eligibility checked downstream |
+| `/api/v1/orders/{id}/confirm-receipt` | POST | ORDER.VIEW | #258 / #220 — BUYER role and own-order checks downstream; locked DELIVERED → COMPLETED, idempotent completed replay |
+| `/api/v1/orders/{id}/receipt-issue` | POST | ORDER.VIEW | #258 / #220 — BUYER role and own-order checks; persist a receipt issue under the completion lock and pause completion until D11 resolution |
 | `/api/v1/ratings` | GET | REPUTATION.VIEW | #212 — rating-service; userId is a query parameter |
 | `/api/v1/reputations/{userId}` | GET | REPUTATION.VIEW | #213 — rating-service |
 | `/api/v1/reputations/{userId}/adjustments` | POST | USER.REPUTATION.ADJUST | #213 — rating-service; reason and score bounds checked downstream |
@@ -136,12 +187,18 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/auctions/{id}/bids` | POST | AUCTION.BID | #146/#147 — Place a bid as BUYER; the bidder cannot be the auction seller. Required UUID `Idempotency-Key`; replay requires the original bidder, auction and numeric amount; a different amount returns 409 |
 | `/api/v1/auctions/{id}/schedule` | POST | AUCTION.UPDATE | #144 — Owner with SELLER role publishes a CREATED auction |
 | `/api/v1/auctions/mine` | GET | AUCTION.LIST | #198 |
-| `/api/v1/bids/mine` | GET | AUCTION.VIEW_BID_HISTORY | #198 |
-| `/api/v1/auctions/{id}` | PUT | AUCTION.UPDATE | #197 — SELLER/ADMIN owner, CREATED/SCHEDULED before startAt |
+| `/api/v1/auctions/manage` | GET | AUCTION.LIST | #260 — Back-office list of every status and visibility; service additionally requires ADMIN or SUPPORT_STAFF |
+| `/api/v1/auctions/manage/{id}` | GET | AUCTION.VIEW | #260 — Back-office read of any non-deleted auction; service additionally requires ADMIN or SUPPORT_STAFF |
+| `/api/v1/auctions/manage/{id}/state` | GET | AUCTION.VIEW | #260 — Uncached live state of any non-deleted auction; service additionally requires ADMIN or SUPPORT_STAFF |
+| `/api/v1/auctions/manage/{id}/bids` | GET | AUCTION.VIEW_BID_HISTORY | #260 — Masked bid history of any non-deleted auction; service additionally requires ADMIN or SUPPORT_STAFF |
+| `/api/v1/bids/mine` | GET | AUCTION.VIEW_BID_HISTORY | #198; nullable orderId/paymentDueAt/finalPrice are visible only to the recorded winner in WON/SETTLED/PAYMENT_TIMEOUT |
+| `/api/v1/auctions/{id}` | PUT | AUCTION.UPDATE | #197/#260 — SELLER owner or any ADMIN, CREATED/SCHEDULED before startAt |
 | `/api/v1/auctions/{id}/cancel` | POST | AUCTION.CANCEL | #197 — SELLER owner with no valid bids |
 | `/api/v1/auctions/{id}/admin-cancel` | POST | AUCTION.ADMIN_CANCEL | #197 — ADMIN; CREATED/SCHEDULED/ACTIVE/ENDED/WON only |
 | `/api/v1/auctions` | GET | Public | #143 — PUBLIC, non-deleted auctions; status defaults to ACTIVE, endAt ascending |
 | `/api/v1/auctions/{id}` | GET | Public | #143 — PUBLIC, non-deleted auction; hidden and missing rows return 404 |
+| `/api/v1/auctions/{id}/state` | GET | Public | #168 — One-second data cache and fresh server time. Public, non-deleted auction only |
+| `/api/v1/auctions/{id}/bids` | GET | Public | #168 — Paginated bids with masked names. Public, non-deleted auction only |
 | `/api/v1/inventory` | GET | Public | #132 — inventory-service; `skuIds` query, at most 100; returns `skuId` and `available` only |
 | `/api/v1/inventory/{id}` | GET | Public | #132 — inventory-service; `{id}` is the SKU id; a UUID only, so `/inventory/reservations` and other literal paths stay protected |
 | `/api/v1/event-logs` | GET | EVENT_LOG.VIEW | #192 — Event log consumer and audit log |
@@ -597,7 +654,7 @@ The active policy table/config above remains the source for enabled endpoints.
 | --- | --- | --- | --- | --- |
 | GET | `/api/v1/auctions/{id}/state` | Public | One-second data cache; fresh serverTime; masked leader; public visibility | #168, [draft response](auction-service.yaml) |
 | POST | `/api/v1/auctions/{id}/bids` | AUCTION.BID | BUYER, not own auction; caller-scoped Idempotency-Key | #146/#147, draft until delivered |
-| POST | `/api/v1/orders/{id}/shipping-confirmation` | Authenticated; privilege decision belongs to #172 | BUYER and winner/order owner; PENDING; linked hold, address and pricing checks; repeated identical confirmation writes no second manifest | #172, proposed policy; owner must register on delivery |
+| POST | `/api/v1/orders/{id}/shipping-confirmation` | CHECKOUT.START | BUYER and winner/order owner; PENDING; linked HELD reservation, address and pricing checks; identical confirmation writes no second manifest | #172, registered |
 | POST | `/api/v1/webhooks/**` | Public callback contract family; no bearer required | Provider authentication is mandatory in each receiving service; this row does not enable a wildcard matcher | #139 design scope; concrete routes below |
 | POST | `/api/v1/webhooks/sepay` | Public, enabled | Verify signature/timestamp over raw bytes before parsing; native ACK; no payment-state change in #155 | #155, [delivered contract](openapi/payment-service.yaml) |
 | POST | `/api/v1/webhooks/carriers/ghn`, `/api/v1/webhooks/carriers/ghtk` | Public, enabled | Carrier-specific validation at shipment-service | #203/#245 |
@@ -614,8 +671,8 @@ it does not activate a runtime authorization change.
 
 The state endpoint must support two-second polling under #168's gateway test;
 neither this table nor an OpenAPI example proves rate-limit/latency acceptance.
-The shipping-confirmation policy is a proposal for #172 approval, not an
-implemented permission claim. The six event publishers/consumers and transaction
+The shipping-confirmation operation enforces CHECKOUT.START and BUYER ownership.
+The six event publishers/consumers and transaction
 handoff are in [events.md](events.md#sprint-3-handoff-139). Their Kafka consumers
 are not public HTTP endpoints.
 
@@ -659,7 +716,7 @@ A path with several roles in `x-required-roles` accepts any one of them.
 | Method | Path | Actor roles (or public) | Gateway privilege | Required service privileges (all) | Ownership / business restriction | Owning issue |
 |---|---|---|---|---|---|---|
 | POST | `/api/v1/auctions` | ADMIN, SELLER | AUCTION.CREATE | AUCTION.CREATE | Seller of the product; ADMIN on behalf of a seller | #140, #141, #142 |
-| PUT | `/api/v1/auctions/{id}` | ADMIN, SELLER | AUCTION.UPDATE | AUCTION.UPDATE | Owner of the auction; frozen once it has started | #197 |
+| PUT | `/api/v1/auctions/{id}` | ADMIN, SELLER | AUCTION.UPDATE | AUCTION.UPDATE | SELLER must own the auction; ADMIN may edit any auction; frozen once it has started or has a valid bid | #197, #260 |
 | POST | `/api/v1/auctions/{id}/schedule` | SELLER | AUCTION.UPDATE | AUCTION.UPDATE | Owner of the auction; only from CREATED | #144 |
 | GET | `/api/v1/auctions/{id}` | public | public | none (public) |  | #143 |
 | GET | `/api/v1/auctions` | public | public | none (public) |  | #143 |
@@ -667,9 +724,13 @@ A path with several roles in `x-required-roles` accepts any one of them.
 | POST | `/api/v1/auctions/{id}/cancel` | ADMIN, SELLER | AUCTION.CANCEL | AUCTION.CANCEL | Owner of the auction; only while it has no valid bid | #197 |
 | POST | `/api/v1/auctions/{id}/admin-cancel` | ADMIN | AUCTION.ADMIN_CANCEL | AUCTION.ADMIN_CANCEL | Any auction not yet settled or cancelled; audit actor and reason | #197 |
 | GET | `/api/v1/auctions/mine` | SELLER | AUCTION.LIST | AUCTION.LIST | Own auctions only | #198 |
+| GET | `/api/v1/auctions/manage` | ADMIN, SUPPORT_STAFF | AUCTION.LIST | AUCTION.LIST | Every status and visibility, soft-deleted excluded | #260 |
+| GET | `/api/v1/auctions/manage/{id}` | ADMIN, SUPPORT_STAFF | AUCTION.VIEW | AUCTION.VIEW | Any visibility, soft-deleted excluded | #260 |
+| GET | `/api/v1/auctions/manage/{id}/state` | ADMIN, SUPPORT_STAFF | AUCTION.VIEW | AUCTION.VIEW | Any visibility, uncached | #260 |
+| GET | `/api/v1/auctions/manage/{id}/bids` | ADMIN, SUPPORT_STAFF | AUCTION.VIEW_BID_HISTORY | AUCTION.VIEW_BID_HISTORY | Any visibility; bidder names masked | #260 |
 | POST | `/api/v1/auctions/{id}/bids` | BUYER | AUCTION.BID | AUCTION.BID | Not the auction's seller; globally unique UUID key replays only for the original bidder, auction and numeric amount; a different amount returns 409 | #146, #147 |
 | GET | `/api/v1/auctions/{id}/bids` | public | public | none (public) |  | #169 |
-| GET | `/api/v1/bids/mine` | BUYER | AUCTION.VIEW_BID_HISTORY | AUCTION.VIEW_BID_HISTORY | Own bids only | #198 |
+| GET | `/api/v1/bids/mine` | BUYER | AUCTION.VIEW_BID_HISTORY | AUCTION.VIEW_BID_HISTORY | Own bids only; settlement references are null for other bidders/statuses | #198; winner checkout projection |
 
 ### Scope and draft decisions
 
@@ -704,8 +765,9 @@ A path with several roles in `x-required-roles` accepts any one of them.
   `inventory_movement_type` values plus `INTAKE` and `COMMIT`, which V6 adds (#131).
   #200 writes `ADJUSTMENT`. The schema document still names an `ADJUST` value that no
   issue writes.
-  As delivered, the `type` filter and `movementType` use only the five values the
-  service writes: `INTAKE`, `RESERVE`, `RELEASE`, `COMMIT` and `ADJUSTMENT`.
+  As delivered, the `type` filter and `movementType` use only the six values the
+  service writes: `INTAKE`, `RESERVE`, `RELEASE`, `COMMIT`, `ADJUSTMENT` and `RETURN`
+  (#161: stock of a paid order that is cancelled goes back to available).
 - **Money:** a JSON number, per ADR-008. It differs from the #88 decimal strings.
 - **Error codes:** the `AUCTION_*` and `INVENTORY_*` names under
   `x-business-error-codes` are proposals, except `AUCTION_BID_TOO_LOW` and

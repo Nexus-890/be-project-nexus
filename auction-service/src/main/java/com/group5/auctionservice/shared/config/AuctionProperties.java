@@ -27,6 +27,11 @@ public class AuctionProperties {
     @Positive
     private int maxActivePerSeller = 5;
 
+    @Positive
+    private int paymentDeadlineHours = 24;
+
+    private boolean reputationEnforcementEnabled = false;
+
     @NotNull
     @Positive
     @Digits(integer = 17, fraction = 2)

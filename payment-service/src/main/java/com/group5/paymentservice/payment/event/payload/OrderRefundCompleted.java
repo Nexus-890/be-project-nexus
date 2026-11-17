@@ -18,5 +18,7 @@ public record OrderRefundCompleted(
         long instructionVersion,
         String requestedAt,
         UUID completedTransactionId,
-        String completedAt) {
+        String completedAt,
+        // Bổ sung người nhận email, giữ nguyên dữ liệu hoàn tiền hiện có.
+        UUID buyerId) {
 }

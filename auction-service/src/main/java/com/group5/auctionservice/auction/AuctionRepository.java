@@ -16,7 +16,23 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface AuctionRepository extends JpaRepository<Auction, UUID> {
+    @Query(value = """
+            SELECT id FROM auctions
+            WHERE status = 'ENDED' AND deleted_at IS NULL
+                AND (CAST(:afterId AS uuid) IS NULL OR id > :afterId)
+            ORDER BY id LIMIT :limit
+            """, nativeQuery = true)
+    List<UUID> findEndedIds(UUID afterId, int limit);
+
     Page<Auction> findBySellerIdAndDeletedAtIsNull(UUID sellerId, Pageable pageable);
+
+    Page<Auction> findByDeletedAtIsNull(Pageable pageable);
+
+    Page<Auction> findByStatusAndDeletedAtIsNull(AuctionStatus status, Pageable pageable);
+
+    Optional<Auction> findByIdAndDeletedAtIsNull(UUID id);
+
+    boolean existsByIdAndDeletedAtIsNull(UUID id);
 
     Page<Auction> findBySellerIdAndStatusAndDeletedAtIsNull(UUID sellerId, AuctionStatus status, Pageable pageable);
 
@@ -34,14 +50,14 @@ public interface AuctionRepository extends JpaRepository<Auction, UUID> {
     @Modifying(clearAutomatically = true)
     @Query(value = """
             UPDATE auctions
-            SET current_price = :amount, leader_bidder_id = :bidderId,
+            SET current_price = :amount, leader_bidder_id = :bidderId, leader_bidder_name = :bidderName,
                 bid_count = bid_count + 1, version = version + 1,
                 updated_at = now(), updated_by = :bidderId
             WHERE id = :id AND status = 'ACTIVE' AND deleted_at IS NULL
                 AND end_at > now() AND start_at <= now()
                 AND seller_id <> :bidderId AND current_price + bid_increment <= :amount
             """, nativeQuery = true)
-    int acceptBid(UUID id, UUID bidderId, BigDecimal amount);
+    int acceptBid(UUID id, UUID bidderId, BigDecimal amount, String bidderName);
 
     @Modifying(clearAutomatically = true)
     @Query(value = """
@@ -65,6 +81,8 @@ public interface AuctionRepository extends JpaRepository<Auction, UUID> {
     Instant currentTransactionTime();
 
     Optional<Auction> findByIdAndVisibilityAndDeletedAtIsNull(UUID id, Auction.Visibility visibility);
+
+    boolean existsByIdAndVisibilityAndDeletedAtIsNull(UUID id, Auction.Visibility visibility);
 
     Page<Auction> findByVisibilityAndStatusAndDeletedAtIsNull(
             Auction.Visibility visibility, AuctionStatus status, Pageable pageable);

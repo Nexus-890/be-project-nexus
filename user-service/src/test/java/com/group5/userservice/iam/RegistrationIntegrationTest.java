@@ -62,11 +62,11 @@ import static org.mockito.Mockito.doThrow;
         "nexus.security.public-endpoints[0].method=POST",
         "nexus.security.public-endpoints[0].path=/api/v1/auth/register",
         "nexus.security.public-endpoints[1].method=POST",
-        "nexus.security.public-endpoints[1].path=/actuator/refresh",
-        "nexus.security.public-endpoints[2].method=POST",
-        "nexus.security.public-endpoints[2].path=/api/v1/auth/verification-email",
+        "nexus.security.public-endpoints[1].path=/api/v1/auth/verification-email",
         "management.endpoints.web.exposure.include=health,refresh",
-        "management.tracing.enabled=false",
+        "management.tracing.enabled=true",
+        "management.tracing.export.enabled=false",
+        "nexus.outbox.relay.enabled=false",
         "spring.jpa.properties.hibernate.session_factory.statement_inspector="
                 + "com.group5.userservice.iam.RegistrationIntegrationTest$SqlCapture"
 })
@@ -104,6 +104,7 @@ class RegistrationIntegrationTest {
         jdbc.update("delete from phone_verifications");
         jdbc.update("delete from verification_email_sends");
         jdbc.update("delete from users");
+        jdbc.update("delete from outbox");
         KeycloakTestServer.deleteRegisteredUsers();
         KeycloakTestServer.deleteAllMail();
         SqlCapture.STATEMENTS.clear();
@@ -489,6 +490,97 @@ class RegistrationIntegrationTest {
                 .statusCode()).isEqualTo(201);
     }
 
+    /** Kiểm chứng toàn bộ thao tác Admin qua HTTP, profile PostgreSQL, Keycloak thật và audit outbox. */
+    @Test
+    void adminEndpointsCoordinateRealProfilesCredentialsRolesAndDeletion() throws Exception {
+        Map<String, Object> create = new LinkedHashMap<>(request("managed@nexus.test", "0901234567", "ADMIN-211"));
+        create.put("roleCodes", List.of("BUYER", "SELLER"));
+        HttpResponse<String> response = admin("POST", "/api/v1/users", create);
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
+        UUID id = UUID.fromString(JSON.readTree(response.body()).get("data").get("id").asString());
+        assertThat(KeycloakTestServer.realmRoles(id)).contains("BUYER", "SELLER");
+        assertThat(count("outbox")).isEqualTo(2);
+        assertThat(admin("GET", "/api/v1/roles", Map.of()).statusCode()).isEqualTo(200);
+        JsonNode permissions = JSON.readTree(admin("GET", "/api/v1/permissions", Map.of()).body());
+        assertThat(permissions.get("data").size()).isEqualTo(70);
+        assertThat(admin("PUT", "/api/v1/users/" + id, Map.of("email", "managed-new@nexus.test", "address", "New address")).statusCode()).isEqualTo(200);
+        assertThat(KeycloakTestServer.signIn("managed-new@nexus.test", PASSWORD)).isNotBlank();
+        assertThat(admin("PUT", "/api/v1/users/" + id + "/roles", Map.of("roleCodes", List.of("SELLER"))).statusCode()).isEqualTo(200);
+        assertThat(KeycloakTestServer.realmRoles(id)).contains("SELLER").doesNotContain("BUYER");
+        HttpResponse<String> samePassword = admin("PUT", "/api/v1/users/" + id + "/password", Map.of("newPassword", PASSWORD));
+        assertThat(samePassword.statusCode()).as(samePassword.body()).isEqualTo(400);
+        assertThat(JSON.readTree(samePassword.body()).get("code").asString()).isEqualTo("USER_IDENTITY_REJECTED");
+        String changedPassword = "managed-new-password-211!";
+        assertThat(admin("PUT", "/api/v1/users/" + id + "/password", Map.of("newPassword", changedPassword)).statusCode()).isEqualTo(204);
+        assertThat(KeycloakTestServer.signIn("managed-new@nexus.test", changedPassword)).isNotBlank();
+        assertThat(admin("DELETE", "/api/v1/users/" + id, Map.of()).statusCode()).isEqualTo(204);
+        assertThat(jdbc.queryForObject("select status::text from users where id=?", String.class, id)).isEqualTo("DELETED");
+        assertThatThrownBy(() -> KeycloakTestServer.signIn("managed-new@nexus.test", changedPassword))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("sign-in failed");
+        assertThat(count("outbox")).isEqualTo(6);
+    }
+
+    /** Email cũ được tái sử dụng sau khi Admin đổi email, kiểm cả uniqueness và đăng nhập trên realm thật. */
+    @Test
+    void adminEmailChangeAllowsAnotherAccountToUseTheOriginalEmail() throws Exception {
+        Map<String, Object> first = new LinkedHashMap<>(request("original@nexus.test", "0901234567", "EMAIL-211-A"));
+        first.put("roleCodes", List.of("BUYER"));
+        HttpResponse<String> created = admin("POST", "/api/v1/users", first);
+        assertThat(created.statusCode()).as(created.body()).isEqualTo(201);
+        UUID firstId = UUID.fromString(JSON.readTree(created.body()).get("data").get("id").asString());
+
+        HttpResponse<String> updated = admin("PUT", "/api/v1/users/" + firstId, Map.of("email", "changed@nexus.test"));
+        assertThat(updated.statusCode()).as(updated.body()).isEqualTo(200);
+        assertThat(keycloak.userState(firstId)).containsEntry("username", "changed@nexus.test")
+                .containsEntry("email", "changed@nexus.test");
+
+        Map<String, Object> second = new LinkedHashMap<>(request("original@nexus.test", "0901234568", "EMAIL-211-B"));
+        second.put("roleCodes", List.of("BUYER"));
+        HttpResponse<String> reused = admin("POST", "/api/v1/users", second);
+        assertThat(reused.statusCode()).as(reused.body()).isEqualTo(201);
+        UUID secondId = UUID.fromString(JSON.readTree(reused.body()).get("data").get("id").asString());
+
+        assertThat(secondId).isNotEqualTo(firstId);
+        assertThat(keycloak.userState(secondId)).containsEntry("username", "original@nexus.test");
+        assertThat(KeycloakTestServer.userIdByEmail("changed@nexus.test")).contains(firstId);
+        assertThat(KeycloakTestServer.userIdByEmail("original@nexus.test")).contains(secondId);
+        assertThat(KeycloakTestServer.signIn("changed@nexus.test", PASSWORD)).isNotBlank();
+        assertThat(KeycloakTestServer.signIn("original@nexus.test", PASSWORD)).isNotBlank();
+        assertThat(jdbc.queryForObject("select email from users where id=?", String.class, firstId))
+                .isEqualTo("changed@nexus.test");
+        assertThat(jdbc.queryForObject("select email from users where id=?", String.class, secondId))
+                .isEqualTo("original@nexus.test");
+        assertThat(count("outbox")).isEqualTo(5);
+    }
+
+    /** Endpoint unlock xóa khóa brute-force thật, cho đăng nhập lại và trả 409 khi mở khóa lần nữa. */
+    @Test
+    void adminUnlockEndpointRestoresActualKeycloakSignIn() throws Exception {
+        Map<String, Object> create = new LinkedHashMap<>(request("unlock@nexus.test", "0901234567", "UNLOCK-211"));
+        create.put("roleCodes", List.of("BUYER"));
+        HttpResponse<String> response = admin("POST", "/api/v1/users", create);
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
+        UUID id = UUID.fromString(JSON.readTree(response.body()).get("data").get("id").asString());
+        KeycloakTestServer.markEmailVerified(id);
+        for (int i = 0; i < 5; i++) KeycloakTestServer.failSignIn("unlock@nexus.test");
+        assertThat(KeycloakTestServer.bruteForceLocked(id)).isTrue();
+        assertThat(admin("POST", "/api/v1/users/" + id + "/unlock", Map.of()).statusCode()).isEqualTo(204);
+        assertThat(KeycloakTestServer.bruteForceLocked(id)).isFalse();
+        assertThat(KeycloakTestServer.signIn("unlock@nexus.test", PASSWORD)).isNotBlank();
+        assertThat(admin("POST", "/api/v1/users/" + id + "/unlock", Map.of()).statusCode()).isEqualTo(409);
+        assertThat(jdbc.queryForObject("select count(*) from outbox where event_type='UserUnlocked'", Integer.class)).isEqualTo(1);
+    }
+
+    /** Gửi request quản trị bằng token lấy qua đăng nhập PKCE thật của demo Admin. */
+    private HttpResponse<String> admin(String method, String path, Map<?, ?> body) throws Exception {
+        String token = KeycloakTestServer.signIn(KeycloakTestServer.DEMO_ADMIN, KeycloakTestServer.DEMO_ADMIN_PASSWORD);
+        HttpRequest.BodyPublisher publisher = method.equals("GET") || method.equals("DELETE")
+                ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body));
+        return HTTP.send(HttpRequest.newBuilder(uri(path)).timeout(Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + token).header("Content-Type", "application/json")
+                .method(method, publisher).build(), HttpResponse.BodyHandlers.ofString());
+    }
+
     private void duplicate(String email, String phone, String identity, String field) throws Exception {
         assertThat(post(REGISTER, request("first@nexus.test", "0901234567", "001234"))
                 .statusCode()).isEqualTo(201);
@@ -533,12 +625,17 @@ class RegistrationIntegrationTest {
                 .startsWith("insert"));
     }
 
+    /** Refresh trong fixture cũng dùng token Admin thật; đăng ký public vẫn gửi request không token. */
     private HttpResponse<String> post(String path, Map<?, ?> body) throws Exception {
-        return HTTP.send(HttpRequest.newBuilder(uri(path))
+        HttpRequest.Builder request = HttpRequest.newBuilder(uri(path))
                 .timeout(Duration.ofSeconds(30))
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
-                .build(), HttpResponse.BodyHandlers.ofString());
+                .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)));
+        if (path.equals("/actuator/refresh")) {
+            request.header("Authorization", "Bearer " + KeycloakTestServer.signIn(
+                    KeycloakTestServer.DEMO_ADMIN, KeycloakTestServer.DEMO_ADMIN_PASSWORD));
+        }
+        return HTTP.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
     private HttpResponse<String> put(String path, Map<?, ?> body, String token) throws Exception {

@@ -86,6 +86,8 @@ nexus:
       - method: POST
         path: /api/v1/webhooks/sepay
       - method: POST
+        path: /api/v1/payments/payouts/callbacks/{provider}
+      - method: POST
         path: /api/v1/webhooks/carriers/ghn
       - method: POST
         path: /api/v1/webhooks/carriers/ghtk
@@ -98,9 +100,15 @@ nexus:
       - method: GET
         path: /api/v1/auctions/{id}
       - method: GET
+        path: /api/v1/auctions/{id}/state
+      - method: GET
+        path: /api/v1/auctions/{id}/bids
+      - method: GET
         path: /api/v1/inventory
       - method: GET
         path: /api/v1/inventory/{id}
+      - method: GET
+        path: /api/v1/vouchers
     protected-endpoints:
       - method: GET
         path: /api/v1/users/me
@@ -132,6 +140,39 @@ nexus:
       - method: POST
         path: /api/v1/users/me/addresses/{id}/default
         privilege: PROFILE.UPDATE
+      - method: POST
+        path: /api/v1/users
+        privilege: USER.CREATE
+      - method: PUT
+        path: /api/v1/users/{id}
+        privilege: USER.UPDATE
+      - method: DELETE
+        path: /api/v1/users/{id}
+        privilege: USER.DELETE
+      - method: PUT
+        path: /api/v1/users/{id}/password
+        privilege: USER.CHANGE_PASSWORD
+      - method: PUT
+        path: /api/v1/users/{id}/roles
+        privilege: USER.UPDATE
+      - method: POST
+        path: /api/v1/users/{id}/unlock
+        privilege: USER.UPDATE
+      - method: GET
+        path: /api/v1/roles
+        privilege: ROLE.LIST
+      - method: GET
+        path: /api/v1/roles/{id}
+        privilege: ROLE.VIEW
+      - method: GET
+        path: /api/v1/permissions
+        privilege: ROLE.VIEW
+      - method: GET
+        path: /api/v1/system/configs
+        privilege: SYSTEM.CONFIG.VIEW
+      - method: PUT
+        path: /api/v1/system/configs/{key}
+        privilege: SYSTEM.CONFIG.UPDATE
       - method: POST
         path: /api/v1/products
         privilege: PRODUCT.CREATE
@@ -196,6 +237,9 @@ nexus:
       - method: POST
         path: /api/v1/orders
         privilege: ORDER.CREATE
+      - method: POST
+        path: /api/v1/orders/{id}/shipping-confirmation
+        privilege: CHECKOUT.START
       - method: GET
         path: /api/v1/orders/{id}/history
         privilege: ORDER.VIEW
@@ -223,6 +267,12 @@ nexus:
       - method: POST
         path: /api/v1/orders/{id}/cancel
         privilege: ORDER.CANCEL
+      - method: POST
+        path: /api/v1/orders/{id}/confirm-receipt
+        privilege: ORDER.VIEW
+      - method: POST
+        path: /api/v1/orders/{id}/receipt-issue
+        privilege: ORDER.VIEW
       - method: GET
         path: /api/v1/notifications
         privilege: NOTIFICATION.VIEW
@@ -329,6 +379,18 @@ nexus:
         path: /api/v1/auctions/mine
         privilege: AUCTION.LIST
       - method: GET
+        path: /api/v1/auctions/manage
+        privilege: AUCTION.LIST
+      - method: GET
+        path: /api/v1/auctions/manage/{id}
+        privilege: AUCTION.VIEW
+      - method: GET
+        path: /api/v1/auctions/manage/{id}/state
+        privilege: AUCTION.VIEW
+      - method: GET
+        path: /api/v1/auctions/manage/{id}/bids
+        privilege: AUCTION.VIEW_BID_HISTORY
+      - method: GET
         path: /api/v1/bids/mine
         privilege: AUCTION.VIEW_BID_HISTORY
       - method: GET
@@ -340,7 +402,99 @@ nexus:
       - method: GET
         path: /api/v1/audit-logs
         privilege: AUDIT_LOG.VIEW
+      - method: GET
+        path: /api/v1/sellers/me
+        roles: [SELLER]
+      - method: PUT
+        path: /api/v1/sellers/me
+        roles: [SELLER]
+      - method: POST
+        path: /api/v1/payments/seller-bank-accounts
+        roles: [SELLER]
+      - method: GET
+        path: /api/v1/payments/seller-bank-accounts/me
+        roles: [SELLER]
+      - method: PUT
+        path: /api/v1/payments/seller-bank-accounts/{id}
+        roles: [SELLER]
+      - method: POST
+        path: /api/v1/payments/seller-bank-accounts/{id}/default
+        roles: [SELLER]
+      - method: POST
+        path: /api/v1/payments/seller-bank-accounts/{id}/verify
+        roles: [ADMIN]
+      - method: GET
+        path: /api/v1/payments/payouts/me
+        roles: [SELLER]
+      - method: GET
+        path: /api/v1/payments/payouts/{id}
+        roles: [SELLER, ADMIN]
+      - method: POST
+        path: /api/v1/payments/payouts/{id}/retry
+        roles: [ADMIN]
+      - method: POST
+        path: /api/v1/promotions/events
+        privilege: PROMOTION.EVENT.MANAGE
+      - method: GET
+        path: /api/v1/promotions/events
+        privilege: VOUCHER.VIEW
+      - method: GET
+        path: /api/v1/promotions/events/{id}
+        privilege: VOUCHER.VIEW
+      - method: PUT
+        path: /api/v1/promotions/events/{id}
+        privilege: PROMOTION.EVENT.MANAGE
+      - method: PATCH
+        path: /api/v1/promotions/events/{id}/status
+        privilege: PROMOTION.EVENT.MANAGE
+      - method: GET
+        path: /api/v1/promotions/events/{id}/sellers
+        privilege: PROMOTION.EVENT.MANAGE
+      - method: PATCH
+        path: /api/v1/promotions/event-sellers/{id}
+        privilege: PROMOTION.EVENT.MANAGE
+      - method: POST
+        path: /api/v1/promotions/events/{id}/registrations
+        privilege: PROMOTION.EVENT.REGISTER
+      - method: DELETE
+        path: /api/v1/promotions/events/{id}/registrations/me
+        privilege: PROMOTION.EVENT.REGISTER
+      - method: GET
+        path: /api/v1/vouchers/me
+        privilege: VOUCHER.VIEW
+      - method: GET
+        path: /api/v1/vouchers/manage
+        privilege: VOUCHER.MANAGE
+      - method: GET
+        path: /api/v1/vouchers/{id}
+        privilege: VOUCHER.MANAGE
+      - method: POST
+        path: /api/v1/vouchers
+        privilege: VOUCHER.MANAGE
+      - method: PUT
+        path: /api/v1/vouchers/{id}
+        privilege: VOUCHER.MANAGE
+      - method: PATCH
+        path: /api/v1/vouchers/{id}/status
+        privilege: VOUCHER.MANAGE
+      - method: PUT
+        path: /api/v1/vouchers/{id}/products
+        privilege: VOUCHER.MANAGE
+      - method: POST
+        path: /api/v1/vouchers/{id}/sellers
+        privilege: VOUCHER.MANAGE
+      - method: DELETE
+        path: /api/v1/vouchers/{id}/sellers/me
+        privilege: VOUCHER.MANAGE
+      - method: GET
+        path: /api/v1/vouchers/{id}/usages
+        privilege: VOUCHER.MANAGE
+      - method: POST
+        path: /api/v1/vouchers/{id}/claim
+        privilege: VOUCHER.CLAIM
   gateway:
     rate-limit:
-      # Có thể đổi qua Config Server và /actuator/refresh; đủ cho polling 2 giây.
+      # Có thể đổi cả hai quota qua Config Server và /actuator/refresh.
       requests-per-minute: 100
+      # Dùng chung cho GET auction state và bid history, tính riêng theo IP.
+      auction-read-requests-per-minute: 600

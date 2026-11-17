@@ -21,6 +21,8 @@ import tools.jackson.databind.json.JsonMapper;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.Set;
+import com.group5.common_security.CurrentUser;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -39,11 +41,11 @@ import static org.awaitility.Awaitility.await;
         "nexus.security.jwt.issuer=user-service", "nexus.security.jwt.audience=nexus-services",
         "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/.well-known/jwks.json"
 })
-@EmbeddedKafka(partitions = 1, topics = {Topics.PAYMENT, Topics.SHIPMENT},
+@EmbeddedKafka(partitions = 1, topics = {Topics.PAYMENT, Topics.SHIPMENT, Topics.INVENTORY},
         bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ShipmentEventConsumerKafkaTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     static { POSTGRES.start(); }
 
     @DynamicPropertySource
@@ -55,11 +57,12 @@ class ShipmentEventConsumerKafkaTest {
 
     @Autowired private JdbcTemplate jdbc;
     @Autowired private Tracer tracer;
+    @Autowired private OrderCompletionService completions;
     @Autowired @Qualifier(EventKafka.TEMPLATE) private KafkaTemplate<String, EventEnvelope<?>> kafka;
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
-    void untracedKafkaDeliveryCompletesTheOrderAndReplayDoesNotDuplicateEffects(boolean missingPickup) throws Exception {
+    void untracedKafkaDeliveryWaitsForConfirmationAndReplayDoesNotDuplicateEffects(boolean missingPickup) throws Exception {
         UUID buyer = UUID.randomUUID();
         UUID shipment = UUID.randomUUID();
         UUID group = jdbc.queryForObject("""
@@ -87,7 +90,7 @@ class ShipmentEventConsumerKafkaTest {
         }
         publish(order, delivery);
         await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> {
-            assertThat(status(order)).isEqualTo("COMPLETED");
+            assertThat(status(order)).isEqualTo("DELIVERED");
             assertThat(processed(delivery.eventId())).isEqualTo(1);
         });
 
@@ -98,6 +101,17 @@ class ShipmentEventConsumerKafkaTest {
         publish(order, barrier);
         await().atMost(Duration.ofSeconds(15)).untilAsserted(() ->
                 assertThat(processed(barrier.eventId())).isEqualTo(1));
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox WHERE aggregate_id = ? AND event_type = 'OrderCompleted'",
+                Integer.class, order.toString())).isZero();
+        assertThat(status(order)).isEqualTo("DELIVERED");
+        var actor = new CurrentUser(buyer, Set.of("BUYER"), Set.of("ORDER.VIEW"));
+        var span = tracer.nextSpan().name("buyer-confirms-receipt").start();
+        try (var ignored = tracer.withSpan(span)) {
+            completions.confirm(actor, order);
+            completions.confirm(actor, order);
+        } finally { span.end(); }
+        assertThat(status(order)).isEqualTo("COMPLETED");
 
         assertThat(jdbc.queryForList("""
                 SELECT previous_status::text || ' -> ' || new_status::text

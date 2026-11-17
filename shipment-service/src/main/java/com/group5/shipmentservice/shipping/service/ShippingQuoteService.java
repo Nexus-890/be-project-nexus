@@ -51,7 +51,7 @@ public class ShippingQuoteService {
             List<ShippingQuoteResponse> quotes = adapter.quote(
                     new CarrierQuoteRequest(fromAddress, toAddress, request.parcel(), insuranceValue,
                             destination.recipientName(), destination.recipientPhone(), shipmentContent(request)), remaining);
-            return applyShippingPolicy(adapter, quotes, subtotal);
+            return applyShippingPolicy(adapter, quotes, subtotal, request.applyFreeShipping());
         });
     }
 
@@ -62,7 +62,8 @@ public class ShippingQuoteService {
     }
 
     private List<ShippingQuoteResponse> applyShippingPolicy(CarrierAdapter adapter,
-                                                           List<ShippingQuoteResponse> quotes, BigDecimal subtotal) {
+                                                           List<ShippingQuoteResponse> quotes, BigDecimal subtotal,
+                                                           boolean applyFreeShipping) {
         if (quotes == null) {
             throw new DomainException(ShipmentErrorCode.INVALID_CARRIER_RESPONSE);
         }
@@ -74,7 +75,7 @@ public class ShippingQuoteService {
                 || quote.serviceType() == null)) {
             throw new DomainException(ShipmentErrorCode.INVALID_CARRIER_RESPONSE);
         }
-        if (subtotal.compareTo(properties.freeShippingThreshold()) >= 0) {
+        if (applyFreeShipping && subtotal.compareTo(properties.freeShippingThreshold()) >= 0) {
             return quotes.stream().map(quote -> new ShippingQuoteResponse(quote.carrier(), quote.serviceType(),
                     BigDecimal.ZERO, quote.estimatedDeliveryAt())).toList();
         }

@@ -24,8 +24,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class GatewayPermissionsTest {
 
     private static final Set<Row> EXPECTED_PUBLIC = Set.of(
+            new Row("/api/v1/vouchers", "GET", "Public"),
             new Row("/api/v1/auctions", "GET", "Public"),
             new Row("/api/v1/auctions/{id}", "GET", "Public"),
+            new Row("/api/v1/auctions/{id}/state", "GET", "Public"),
+            new Row("/api/v1/auctions/{id}/bids", "GET", "Public"),
             new Row("/api/v1/inventory", "GET", "Public"),
             new Row("/api/v1/inventory/{id}", "GET", "Public"),
             new Row("/api/v1/carts/guest", "POST", "Public"),
@@ -41,6 +44,7 @@ class GatewayPermissionsTest {
             new Row("/api/v1/products/{id}/skus", "GET", "Public"),
             new Row("/api/v1/skus/{id}", "GET", "Public"),
             new Row("/api/v1/webhooks/sepay", "POST", "Public"),
+            new Row("/api/v1/payments/payouts/callbacks/{provider}", "POST", "Public"),
             new Row("/api/v1/webhooks/carriers/ghn", "POST", "Public"),
             new Row("/api/v1/webhooks/carriers/ghtk", "POST", "Public"),
             new Row("/api/v1/shipping/provinces", "GET", "Public"),
@@ -58,7 +62,8 @@ class GatewayPermissionsTest {
             codeRows.add(new Row(
                     endpoint.path(),
                     endpoint.method().name(),
-                    endpoint.isPublic() ? "Public" : endpoint.privilege()));
+                    endpoint.isPublic() ? "Public" : endpoint.roles().isEmpty() ? endpoint.privilege()
+                            : "Roles: " + String.join(", ", endpoint.roles())));
         }
 
         assertThat(docRows).isEqualTo(codeRows);

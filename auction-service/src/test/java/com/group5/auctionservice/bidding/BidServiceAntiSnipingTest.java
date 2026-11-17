@@ -77,7 +77,8 @@ class BidServiceAntiSnipingTest {
     void setUp() {
         lenient().when(transactions.getTransaction(any(TransactionDefinition.class)))
                 .thenAnswer(invocation -> new SimpleTransactionStatus());
-        service = new BidService(auctions, bids, outbox, envelopes, CLOCK, transactions, policy);
+        service = new BidService(auctions, bids, outbox, envelopes, CLOCK, transactions, policy,
+                mock(com.group5.auctionservice.reputation.ReputationGuard.class));
     }
 
     @Test
@@ -89,8 +90,8 @@ class BidServiceAntiSnipingTest {
 
         ArgumentCaptor<Bid> stored = ArgumentCaptor.forClass(Bid.class);
         InOrder order = inOrder(auctions, bids, policy, envelopes, outbox);
-        order.verify(bids).findByIdempotencyKey(KEY);
-        order.verify(auctions).acceptBid(AUCTION_ID, BUYER.id(), AMOUNT);
+        order.verify(bids, org.mockito.Mockito.times(2)).findByIdempotencyKey(KEY);
+        order.verify(auctions).acceptBid(AUCTION_ID, BUYER.id(), AMOUNT, "***");
         order.verify(bids).saveAndFlush(stored.capture());
         order.verify(policy).extendAcceptedBid(AUCTION_ID, BUYER.id());
         order.verify(envelopes).create(eq("BidPlaced"), eq(AUCTION_ID.toString()), any());
@@ -166,7 +167,7 @@ class BidServiceAntiSnipingTest {
 
     @Test
     void bidPersistenceFailureStopsBeforeExtensionAndOutbox() {
-        when(auctions.acceptBid(AUCTION_ID, BUYER.id(), AMOUNT)).thenReturn(1);
+        when(auctions.acceptBid(AUCTION_ID, BUYER.id(), AMOUNT, "***")).thenReturn(1);
         IllegalStateException failure = new IllegalStateException("Bid insert failed");
         when(bids.saveAndFlush(any(Bid.class))).thenThrow(failure);
 
@@ -193,7 +194,8 @@ class BidServiceAntiSnipingTest {
         createEnvelope();
         AuctionProperties properties = new AuctionProperties();
         AntiSnipingPolicy realPolicy = new AntiSnipingPolicy(auctions, properties);
-        service = new BidService(auctions, bids, outbox, envelopes, CLOCK, transactions, realPolicy);
+        service = new BidService(auctions, bids, outbox, envelopes, CLOCK, transactions, realPolicy,
+                mock(com.group5.auctionservice.reputation.ReputationGuard.class));
         when(auctions.extendEndAt(AUCTION_ID, BUYER.id(), 5, 30)).thenReturn(0);
 
         BidService.PlacementResult result = service.place(AUCTION_ID, KEY, REQUEST, BUYER);
@@ -207,7 +209,7 @@ class BidServiceAntiSnipingTest {
     @Test
     void replayOfALastMinuteBidReturnsTheOriginalResponseWithoutRunningThePolicyAgain() {
         Bid previous = new Bid(AUCTION_ID, BUYER.id(), AMOUNT,
-                NOW.minusSeconds(30).truncatedTo(ChronoUnit.MICROS), KEY);
+                NOW.minusSeconds(30).truncatedTo(ChronoUnit.MICROS), KEY, "***");
         ReflectionTestUtils.setField(previous, "id", BID_ID);
         when(bids.findByIdempotencyKey(KEY)).thenReturn(Optional.of(previous));
 
@@ -232,7 +234,7 @@ class BidServiceAntiSnipingTest {
     }
 
     private void allowBidAndPersist() {
-        when(auctions.acceptBid(AUCTION_ID, BUYER.id(), AMOUNT)).thenReturn(1);
+        when(auctions.acceptBid(AUCTION_ID, BUYER.id(), AMOUNT, "***")).thenReturn(1);
         when(bids.saveAndFlush(any(Bid.class))).thenAnswer(invocation -> {
             Bid bid = invocation.getArgument(0);
             ReflectionTestUtils.setField(bid, "id", BID_ID);

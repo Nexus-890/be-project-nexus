@@ -1,0 +1,22 @@
+[ {
+  "auction_id" : "506ba723-c70d-409f-9208-499bb9ccded4",
+  "status" : "WON",
+  "order_id" : null,
+  "settled_at" : null,
+  "settled_events" : 0,
+  "step" : "Before OrderCreated"
+}, {
+  "auction_id" : "506ba723-c70d-409f-9208-499bb9ccded4",
+  "status" : "SETTLED",
+  "order_id" : "1d604fe6-8c6d-4464-b54a-cc25cba6d5a3",
+  "settled_at" : "2026-11-13 16:37:49.165033+00",
+  "settled_events" : 1,
+  "step" : "OrderCreated consumed"
+}, {
+  "auction_id" : "506ba723-c70d-409f-9208-499bb9ccded4",
+  "status" : "SETTLED",
+  "order_id" : "1d604fe6-8c6d-4464-b54a-cc25cba6d5a3",
+  "settled_at" : "2026-11-13 16:37:49.165033+00",
+  "settled_events" : 1,
+  "step" : "Same and new eventId replayed"
+} ]

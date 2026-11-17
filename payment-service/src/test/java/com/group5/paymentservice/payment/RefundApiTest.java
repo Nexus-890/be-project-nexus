@@ -77,6 +77,10 @@ class RefundApiTest extends PaymentDatabaseTestSupport {
         assertThat(fixtures.refund(orderId).get("requested_by")).isEqualTo(SUPPORT);
         assertThat(fixtures.lastPayload("OrderRefundRequested", orderId).get("actorId").asString())
                 .isEqualTo(SUPPORT.toString());
+        // Email gửi chủ instruction đã lưu, không gửi Support đang thao tác.
+        assertThat(fixtures.lastPayload("OrderRefundRequested", orderId).get("buyerId").asString())
+                .isEqualTo(jdbc.queryForObject("SELECT buyer_id FROM payment_instructions WHERE order_id = ?",
+                        UUID.class, orderId).toString()).isNotEqualTo(SUPPORT.toString());
     }
 
     @Test
@@ -263,6 +267,10 @@ class RefundApiTest extends PaymentDatabaseTestSupport {
         assertThat(payload.get("completedTransactionId").asString())
                 .isEqualTo(stored.get("completed_transaction_id").toString());
         assertThat(payload.get("actorId").asString()).isEqualTo(SUPPORT.toString());
+        // Sự kiện hoàn tất vẫn giữ đúng người mua của đơn được hoàn tiền.
+        assertThat(payload.get("buyerId").asString())
+                .isEqualTo(jdbc.queryForObject("SELECT buyer_id FROM payment_instructions WHERE order_id = ?",
+                        UUID.class, orderId).toString());
     }
 
     @Test

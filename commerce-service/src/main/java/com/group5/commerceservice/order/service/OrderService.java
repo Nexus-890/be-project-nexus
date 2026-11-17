@@ -28,11 +28,16 @@ import com.group5.commerceservice.order.event.OrderGroupCancelled;
 import com.group5.commerceservice.order.repository.OrderGroupRepository;
 import com.group5.commerceservice.order.repository.OrderRepository;
 import com.group5.commerceservice.order.repository.OrderStatusHistoryRepository;
+import com.group5.commerceservice.promotion.VoucherCheckoutService;
+import com.group5.commerceservice.promotion.VoucherCodes;
+import com.group5.commerceservice.promotion.VoucherLifecycleService;
+import com.group5.commerceservice.promotion.VoucherPricing;
 import com.group5.commerceservice.shared.exception.CommerceErrorCode;
 import com.group5.commerceservice.shared.pricing.PriceBreakdown;
 import com.group5.common_core.constant.CommonErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
+import com.group5.common_security.CurrentUserAuditor;
 import feign.FeignException;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.criteria.Predicate;
@@ -88,12 +93,15 @@ public class OrderService {
     private final InventoryClient inventoryClient;
     private final PricingService pricingService;
     private static final String PAYMENT_DEADLINE_EXPIRED = "PAYMENT_DEADLINE_EXPIRED";
+    private static final String STOCK_UNAVAILABLE = "STOCK_UNAVAILABLE";
 
     private final OrderStateMachine stateMachine;
     private final OrderStatusHistoryRepository historyRepository;
     private final PlatformTransactionManager transactionManager;
     private final OrderEventPublisher events;
     private final EntityManager entityManager;
+    private final VoucherCheckoutService vouchers;
+    private final VoucherLifecycleService voucherLifecycle;
 
     @Value("${nexus.order.idempotency-enabled:true}")
     private boolean idempotencyEnabled = true;
@@ -102,6 +110,9 @@ public class OrderService {
     }
 
     private record CheckoutResult(CreationResult order, DomainException priceChange) {
+    }
+
+    private record StockToRelease(UUID groupId, List<UUID> orderIds) {
     }
 
     // Each attempt must finish (or roll back) before reading a UNIQUE-conflict winner.
@@ -127,6 +138,7 @@ public class OrderService {
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
         transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         CheckoutResult result;
+        var provisionalStock = new java.util.concurrent.atomic.AtomicReference<StockToRelease>();
         try {
             result = Objects.requireNonNull(transaction.execute(status -> {
                 if (replayEnabled) {
@@ -136,11 +148,25 @@ public class OrderService {
                         return new CheckoutResult(replay(user, snapshot, previous.get()), null);
                     }
                 }
-                return createFromCart(user, effectiveKey, request, snapshot);
+                return createFromCart(user, effectiveKey, request, snapshot, provisionalStock);
             }));
-        } catch (DataIntegrityViolationException violation) {
-            if (!replayEnabled || !isIdempotencyKeyViolation(violation)) {
-                throw violation;
+        } catch (RuntimeException failure) {
+            StockToRelease held = provisionalStock.get();
+            if (held != null) {
+                try {
+                    transaction.executeWithoutResult(status -> {
+                        if (!groupRepository.existsById(held.groupId())) {
+                            held.orderIds().forEach(events::checkoutStockReleaseRequested);
+                        }
+                    });
+                } catch (RuntimeException releaseFailure) {
+                    failure.addSuppressed(releaseFailure);
+                    log.error("Could not enqueue stock release for rolled-back checkout {}", held.groupId(), releaseFailure);
+                }
+            }
+            if (!(failure instanceof DataIntegrityViolationException violation)
+                    || !replayEnabled || !isIdempotencyKeyViolation(violation)) {
+                throw failure;
             }
             // PostgreSQL aborts the losing transaction on 23505; query only after rollback.
             transaction.setReadOnly(true);
@@ -161,6 +187,7 @@ public class OrderService {
         }
         if (group.getOrders().isEmpty()
                 || group.getOrders().stream().anyMatch(order -> order.getShippingInfo() == null
+                || !Objects.equals(snapshot.get("voucherCodes"), order.getShippingInfo().get("voucherCodes"))
                 || snapshot.entrySet().stream().anyMatch(entry ->
                         !Objects.equals(entry.getValue(), order.getShippingInfo().get(entry.getKey()))))) {
             throw new DomainException(CommerceErrorCode.IDEMPOTENCY_CONFLICT);
@@ -181,7 +208,8 @@ public class OrderService {
     }
 
     private CheckoutResult createFromCart(CurrentUser user, String key, CreateOrderRequest request,
-                                          Map<String, Object> snapshot) {
+                                          Map<String, Object> snapshot,
+                                          java.util.concurrent.atomic.AtomicReference<StockToRelease> provisionalStock) {
         // Đồng bộ những lần tạo đơn của cùng một người mua
         groupRepository.lockKey("order-buyer:" + user.id());
         Cart cart = cartRepository.findForUpdateByUserIdAndStatus(user.id(), CartStatus.ACTIVE)
@@ -190,10 +218,7 @@ public class OrderService {
         if (lines.isEmpty()) {
             throw new DomainException(CommerceErrorCode.CART_EMPTY);
         }
-        // Promotion pricing is a separate issue; never silently drop an already selected voucher.
-        if (cart.getPromoCode() != null && !cart.getPromoCode().isBlank()) {
-            throw new DomainException(CommerceErrorCode.PROMOTION_NOT_SUPPORTED);
-        }
+        List<String> codes = VoucherCodes.withCartFallback(request.requestedVouchers(), cart.getPromoCode());
 
         Map<UUID, CatalogSkuResponse> skus;
         try {
@@ -244,7 +269,7 @@ public class OrderService {
             item.setSkuCode(sku.getSkuCode());
             item.setImageUrl(firstImage(product));
             item.setQuantity(line.getQuantity());
-            item.setUnitPrice(money(line.getUnitPrice()));
+            item.setUnitPrice(money(codes.isEmpty() ? line.getUnitPrice() : sku.getPrice()));
             item.setTotalPrice(money(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity()))));
             order.getItems().add(item);
         }
@@ -257,8 +282,6 @@ public class OrderService {
                     order.getItems().stream().map(item -> new OrderShippingService.Line(
                             item.getSkuId(), item.getQuantity(), skus.get(item.getSkuId()))).toList());
             order.setShippingFee(money(quote.fee()));
-            order.setTotalAmount(money(new PriceBreakdown(order.getSubtotal(), order.getDiscountAmount(),
-                    order.getTaxAmount(), order.getShippingFee()).total()));
             order.getShippingInfo().put("parcel", Map.of("weightGrams", quote.parcel().weightGrams(),
                     "lengthCm", quote.parcel().lengthCm(), "widthCm", quote.parcel().widthCm(),
                     "heightCm", quote.parcel().heightCm()));
@@ -266,16 +289,27 @@ public class OrderService {
             order.getShippingInfo().put("serviceType", quote.serviceType());
             group.getOrders().add(order);
         }
-        group.setTotalAmount(money(group.getOrders().stream().map(Order::getTotalAmount)
-                .reduce(new BigDecimal("0.00"), BigDecimal::add)));
-        if (group.getTotalAmount().signum() <= 0) {
-            throw new DomainException(CommerceErrorCode.INVALID_ORDER_REQUEST, "SEPAY orders must have a positive total");
+        List<VoucherPricing.Line> voucherLines = codes.isEmpty() ? List.of() : voucherLines(sellers);
+        if (!codes.isEmpty()) {
+            var quote = vouchers.quote(user.id(), voucherLines, codes);
+            VoucherCheckoutService.requireApplicable(quote);
+            applyDiscounts(sellers, quote);
         }
+        updateTotals(group);
         OrderGroup savedGroup = groupRepository.saveAndFlush(group);
         // Một request cho toàn bộ nhóm: Inventory giữ tất cả shop hoặc rollback toàn bộ.
         InventoryClient.Reservation reservation = inventoryClient.reserve(savedGroup.getId(),
                 savedGroup.getOrders().stream().flatMap(order -> order.getItems().stream().map(item ->
                         new InventoryClient.Item(order.getId(), item.getSkuId(), item.getQuantity()))).toList());
+        OffsetDateTime reservedAt = OffsetDateTime.now(ZoneOffset.UTC);
+        VoucherPricing.Result confirmedQuote = null;
+        if (!codes.isEmpty()) {
+            provisionalStock.set(new StockToRelease(savedGroup.getId(),
+                    savedGroup.getOrders().stream().map(Order::getId).toList()));
+            confirmedQuote = vouchers.reserveQuota(user.id(), voucherLines, codes, reservedAt);
+            applyDiscounts(sellers, confirmedQuote);
+            updateTotals(savedGroup);
+        }
         // Chỉ dùng deadline/kho do Inventory trả về; không tự tính timeout thứ hai ở Commerce.
         savedGroup.setDueAt(reservation.expiresAt());
         savedGroup.getOrders().forEach(order -> {
@@ -283,6 +317,7 @@ public class OrderService {
             order.getShippingInfo().put("warehouseId", reservation.warehouseId().toString());
         });
         groupRepository.saveAndFlush(savedGroup);
+        if (confirmedQuote != null) vouchers.persistReservations(user.id(), savedGroup.getOrders(), confirmedQuote, reservedAt);
         savedGroup.getOrders().forEach(order -> stateMachine.recordCreated(order.getId(), user.id()));
 
         log.info("Cart before checkout: id={}, status={}",
@@ -298,6 +333,34 @@ public class OrderService {
         log.info("Cart after checkout: id={}, status={}", cart.getId(), cart.getStatus());
         log.info("Order group created: groupId={}, buyerId={}, orders={}", group.getId(), user.id(), sellers.size());
         return new CheckoutResult(new CreationResult(true, toResponse(savedGroup, user)), null);
+    }
+
+    private static List<VoucherPricing.Line> voucherLines(Map<UUID, Order> orders) {
+        return orders.values().stream()
+                .flatMap(order -> order.getItems().stream().map(item -> new VoucherPricing.Line(
+                        item.getSkuId(), item.getProductId(), order.getSellerId(), item.getTotalPrice())))
+                .toList();
+    }
+
+    private static void applyDiscounts(Map<UUID, Order> orders, VoucherPricing.Result result) {
+        orders.values().forEach(order -> order.setDiscountAmount(BigDecimal.ZERO.setScale(2)));
+        result.applications().stream().flatMap(application -> application.allocations().stream())
+                .forEach(allocation -> {
+                    Order order = orders.get(allocation.line().sellerId());
+                    order.setDiscountAmount(order.getDiscountAmount().add(allocation.discountAmount()));
+                });
+    }
+
+    private void updateTotals(OrderGroup group) {
+        for (Order order : group.getOrders()) {
+            order.setTotalAmount(money(new PriceBreakdown(order.getSubtotal(), order.getDiscountAmount(),
+                    order.getTaxAmount(), order.getShippingFee()).total()));
+        }
+        group.setTotalAmount(money(group.getOrders().stream().map(Order::getTotalAmount)
+                .reduce(new BigDecimal("0.00"), BigDecimal::add)));
+        if (group.getTotalAmount().signum() <= 0) {
+            throw new DomainException(CommerceErrorCode.INVALID_ORDER_REQUEST, "SEPAY orders must have a positive total");
+        }
     }
 
     private void publishCreation(OrderGroup group) {
@@ -318,7 +381,12 @@ public class OrderService {
         if (!user.hasRole("ADMIN")) {
             throw new DomainException(CommerceErrorCode.FORBIDDEN);
         }
+        if (request.status() == OrderStatus.COMPLETED)
+            throw new DomainException(CommerceErrorCode.ILLEGAL_TRANSITION,
+                    "Completion requires buyer receipt confirmation or the automatic completion job");
         stateMachine.move(orderId, request.status(), user.id(), request.reason());
+        entityManager.flush();
+        orderRepository.findById(orderId).ifPresent(entityManager::refresh);
         return orderRepository.findById(orderId).map(order -> toOrderResponse(order, user))
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
     }
@@ -344,7 +412,7 @@ public class OrderService {
             throw new DomainException(CommerceErrorCode.UNAUTHENTICATED);
         }
         String reason = request.reason().strip();
-        if (PAYMENT_DEADLINE_EXPIRED.equals(reason)) {
+        if (PAYMENT_DEADLINE_EXPIRED.equals(reason) || STOCK_UNAVAILABLE.equals(reason)) {
             throw new DomainException(CommerceErrorCode.RESERVED_CANCEL_REASON);
         }
         Order order = orderRepository.findById(orderId)
@@ -380,6 +448,52 @@ public class OrderService {
                 .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
         publishCancellation(group, cancelled, current, user.id(), reason, cancelledAt.toInstant().toString());
         return toResponse(group, user);
+    }
+
+    @Transactional
+    public List<UUID> expire(UUID groupId) {
+        String groupStatus = groupRepository.lockStatus(groupId).orElse(null);
+        if (!"PENDING".equals(groupStatus) || !groupRepository.isOverdue(groupId)) {
+            return List.of();
+        }
+        orderRepository.lockGroupOrders(groupId);
+        UUID system = CurrentUserAuditor.SYSTEM_ID;
+        String cancelledAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS).toInstant().toString();
+        List<UUID> cancelled = cancelPendingGroup(groupId, groupStatus, system, PAYMENT_DEADLINE_EXPIRED);
+        entityManager.flush();
+        entityManager.clear();
+        OrderGroup group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
+        publishCancellation(group, cancelled, OrderStatus.PENDING, system, PAYMENT_DEADLINE_EXPIRED, cancelledAt);
+        log.info("Order group expired: groupId={}, cancelled={}", groupId, cancelled);
+        return cancelled;
+    }
+
+    @Transactional
+    public boolean cancelPaidForMissingStock(UUID orderId) {
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order == null) {
+            log.error("Stock unavailable for an unknown order: orderId={}", orderId);
+            return false;
+        }
+        UUID groupId = order.getOrderGroup().getId();
+        groupRepository.lockStatus(groupId);
+        orderRepository.lockGroupOrders(groupId);
+        OrderStatus current = orderRepository.findStatusById(orderId).orElseThrow();
+        if (current != OrderStatus.PAID) {
+            log.error("Stock unavailable but the order is not PAID: orderId={}, status={}", orderId, current);
+            return false;
+        }
+        UUID system = CurrentUserAuditor.SYSTEM_ID;
+        String cancelledAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS).toInstant().toString();
+        stateMachine.move(orderId, OrderStatus.CANCELED, system, STOCK_UNAVAILABLE);
+        entityManager.flush();
+        entityManager.clear();
+        OrderGroup group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new DomainException(CommerceErrorCode.ORDER_NOT_FOUND));
+        publishCancellation(group, List.of(orderId), OrderStatus.PAID, system, STOCK_UNAVAILABLE, cancelledAt);
+        log.warn("Paid order cancelled for missing stock: orderId={}, groupId={}", orderId, groupId);
+        return true;
     }
 
     private void returnToCart(UUID buyerId, List<UUID> orderIds, UUID actor) {
@@ -418,6 +532,9 @@ public class OrderService {
                 .sorted(Comparator.comparing(Order::getId))
                 .toList();
         if (from == OrderStatus.PENDING) {
+            boolean expiry = PAYMENT_DEADLINE_EXPIRED.equals(reason);
+            voucherLifecycle.release(cancelled, expiry, OffsetDateTime.parse(cancelledAt), actor,
+                    expiry ? PAYMENT_DEADLINE_EXPIRED : "ORDER_CANCELLED");
             events.orderGroupCancelled(new OrderGroupCancelled(group.getId(), group.getBuyerId(), group.getVersion(),
                     reason, actor, cancelledAt, orders.stream()
                             .map(order -> new OrderGroupCancelled.CancelledOrder(order.getId(), order.getVersion()))
@@ -478,7 +595,7 @@ public class OrderService {
         Page<Order> orders = status == null
                 ? orderRepository.findByUserIdOrderByCreatedAtDescOrderNumberDesc(user.id(), pageable)
                 : orderRepository.findByUserIdAndStatusOrderByCreatedAtDescOrderNumberDesc(user.id(), status, pageable);
-        return orders.map(order -> toOrderResponse(order, user));
+        return toOrderPage(orders, user);
     }
 
     @Transactional(readOnly = true)
@@ -524,7 +641,7 @@ public class OrderService {
             return criteria.and(predicates.toArray(Predicate[]::new));
         };
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "orderNumber"));
-        return orderRepository.findAll(filter, pageable).map(order -> toOrderResponse(order, user));
+        return toOrderPage(orderRepository.findAll(filter, pageable), user);
     }
 
     private ProductResponse readProduct(UUID id) {
@@ -618,6 +735,19 @@ public class OrderService {
     }
 
     private OrderResponse toOrderResponse(Order order, CurrentUser user) {
+        return toOrderResponse(order, user, order.getDiscountAmount().signum() == 0
+                ? List.of() : vouchers.summary(order.getId()));
+    }
+
+    private Page<OrderResponse> toOrderPage(Page<Order> orders, CurrentUser user) {
+        var ids = orders.stream().filter(order -> order.getDiscountAmount().signum() > 0)
+                .map(Order::getId).toList();
+        var summaries = ids.isEmpty() ? Map.<UUID, List<VoucherCheckoutService.OrderVoucher>>of() : vouchers.summaries(ids);
+        return orders.map(order -> toOrderResponse(order, user, summaries.getOrDefault(order.getId(), List.of())));
+    }
+
+    private OrderResponse toOrderResponse(Order order, CurrentUser user,
+                                          List<VoucherCheckoutService.OrderVoucher> orderVouchers) {
         List<OrderItemResponse> items = order.getItems().stream()
                 .sorted(Comparator.comparing(OrderItem::getId))
                 .map(this::toItemResponse)
@@ -626,7 +756,9 @@ public class OrderService {
                 order.getOrderType(), order.getStatus(), order.getCreatedAt(), order.getTotalAmount(), items,
                 shippingSnapshotText(order, "name", "recipientName"), shippingSnapshotText(order, "phone", "phoneNumber"),
                 order.getOrderGroup().getId(), order.getSubtotal(), order.getShippingFee(),
-                order.getDiscountAmount(), order.getTaxAmount(), canCancel(order, user));
+                order.getDiscountAmount(), order.getTaxAmount(), canCancel(order, user), order.getPaymentNote(),
+                order.getDeliveredAt(), order.getAutoCompleteAt(), order.getReceiptIssueReason(),
+                order.getReceiptIssueReportedAt(), orderVouchers);
     }
 
     // This is a snapshot for the UI; cancel() rechecks the locked state and may still return 409.

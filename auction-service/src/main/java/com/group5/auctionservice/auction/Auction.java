@@ -58,6 +58,8 @@ public class Auction extends AuditedEntity {
     @Column(nullable = false)
     private int bidCount;
 
+    private String leaderBidderName;
+
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(nullable = false, length = 3)
     private String currency = "VND";
@@ -90,6 +92,18 @@ public class Auction extends AuditedEntity {
     private BigDecimal finalPrice;
 
     private Instant paymentDueAt;
+
+    private UUID orderId;
+
+    private Instant settledAt;
+
+    public void recordSettlement(UUID orderId, Instant settledAt) {
+        if (status != AuctionStatus.SETTLED || this.orderId != null) {
+            throw new IllegalStateException("Auction must transition to SETTLED first");
+        }
+        this.orderId = java.util.Objects.requireNonNull(orderId);
+        this.settledAt = java.util.Objects.requireNonNull(settledAt);
+    }
 
     @Column(length = 20)
     private String cancelledBy;
@@ -131,6 +145,12 @@ public class Auction extends AuditedEntity {
 
     void setStatus(AuctionStatus status) {
         this.status = status;
+    }
+
+    public void recordWinner(UUID bidderId, BigDecimal price, Instant deadline) {
+        this.winnerId = bidderId;
+        this.finalPrice = price;
+        this.paymentDueAt = deadline;
     }
 
     void configure(BigDecimal startingPrice, BigDecimal bidIncrement, Instant startAt, Instant endAt) {

@@ -253,7 +253,7 @@ class BidIdempotencyTest {
                 lowerUpdated.countDown();
             }
             return updated;
-        }).when(auctions).acceptBid(eq(fixture.id()), eq(fixture.bidder().id()), any());
+        }).when(auctions).acceptBid(eq(fixture.id()), eq(fixture.bidder().id()), any(), eq("***"));
 
         List<Attempt> results = race(
                 () -> attempt(fixture, key, MINIMUM), () -> attempt(fixture, key, HIGHER));
@@ -286,7 +286,7 @@ class BidIdempotencyTest {
                 higherUpdated.countDown();
             }
             return updated;
-        }).when(auctions).acceptBid(eq(fixture.id()), eq(fixture.bidder().id()), any());
+        }).when(auctions).acceptBid(eq(fixture.id()), eq(fixture.bidder().id()), any(), eq("***"));
 
         List<Attempt> results = race(
                 () -> attempt(fixture, key, HIGHER), () -> attempt(fixture, key, MINIMUM));
@@ -330,7 +330,9 @@ class BidIdempotencyTest {
         var repository = mockingDetails(bids).getMockCreationSettings().getDefaultAnswer();
         doAnswer(invocation -> {
             Optional<?> result = (Optional<?>) repository.answer(invocation);
-            if (result.isEmpty() && misses.incrementAndGet() <= 2) {
+            if (result.isEmpty()
+                    && org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()
+                    && misses.incrementAndGet() <= 2) {
                 // Wait after the real SELECT so neither request can see the other's committed bid yet.
                 initialMisses.await(15, TimeUnit.SECONDS);
             }
@@ -422,6 +424,10 @@ class BidIdempotencyTest {
         }
 
         @Bean AuctionProperties auctionProperties() { return new AuctionProperties(); }
+        @Bean com.group5.auctionservice.reputation.ReputationGuard reputationGuard(AuctionProperties properties) {
+            return new com.group5.auctionservice.reputation.ReputationGuard(properties,
+                    (user, action) -> { throw new IllegalStateException("Enforcement is disabled in this fixture"); });
+        }
         @Bean AuditorAware<UUID> auditor() { return new CurrentUserAuditor(); }
         @Bean Clock clock() { return Clock.fixed(Instant.parse("2026-11-06T10:00:00Z"), ZoneOffset.UTC); }
 

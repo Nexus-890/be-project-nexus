@@ -2603,8 +2603,8 @@ paths:
       tags:
         - "Products"
       operationId: "listProducts"
-      summary: "List visible products, optionally by category"
-      description: "Only ACTIVE/nondeleted products. A missing or empty category match produces an empty result; it does not promise category validation. Access: public (a supplied invalid bearer token is rejected). Ownership/business restriction: None."
+      summary: "Search visible products with filters and stable ordering"
+      description: "Only ACTIVE/nondeleted products. q is a trimmed case-insensitive literal product-title substring (SQL wildcard characters are literal). Filters combine with AND before pagination. Relevance ranks exact title, title prefix, then substring, newest first within each rank. Every ordering ends with UUID ascending. Price ordering uses the lowest SKU price, null prices last. maxPrice requires at least one SKU at or below the ceiling and retains the full min/max response range. listingType maps to persisted auctionEnable, not active auction state. An unmatched search returns empty data[] and zero totals. Access: public (a supplied invalid bearer token is rejected). Ownership/business restriction: None."
       security: []
       x-required-privileges: []
       x-required-roles: []
@@ -2628,6 +2628,42 @@ paths:
         "504":
           - "GATEWAY_TIMEOUT"
       parameters:
+        -
+          name: "q"
+          in: "query"
+          required: false
+          description: "Trimmed case-insensitive literal product-title substring. Blank means all titles."
+          schema:
+            type: "string"
+            maxLength: 255
+        -
+          name: "sort"
+          in: "query"
+          required: false
+          description: "Stable ordering before pagination; UUID ascending is the final tie-breaker."
+          schema:
+            type: "string"
+            enum: ["relevance", "createdAt,desc", "price,asc", "price,desc"]
+            default: "relevance"
+        -
+          name: "listingType"
+          in: "query"
+          required: false
+          description: "all has no restriction; auction requires auctionEnable=true, buy-now requires false."
+          schema:
+            type: "string"
+            enum: ["all", "buy-now", "auction"]
+            default: "all"
+        -
+          name: "maxPrice"
+          in: "query"
+          required: false
+          description: "Maximum lowest-SKU price in VND; products with no SKU do not match. Decimal(19,2)."
+          schema:
+            type: "number"
+            minimum: 0
+            maximum: 99999999999999999.99
+            multipleOf: 0.01
         -
           name: "categoryId"
           in: "query"
@@ -4200,7 +4236,7 @@ paths:
         - "Products"
       operationId: "listOwnProducts"
       summary: "List the current seller products"
-      description: " Access: requires PRODUCT.LIST. Additional role requirement: SELLER. Ownership/business restriction: JWT subject products only; includes own nondeleted products regardless of ACTIVE status."
+      description: " Access: requires PRODUCT.LIST. Additional role requirement: SELLER. Ownership/business restriction: JWT subject products only; includes own nondeleted products regardless of ACTIVE status. Omitting status returns every status; status narrows the list and its page totals to that exact status."
       security:
         -
           bearerAuth: []
@@ -4233,6 +4269,17 @@ paths:
         "504":
           - "GATEWAY_TIMEOUT"
       parameters:
+        -
+          name: "status"
+          in: "query"
+          required: false
+          description: "Optional exact product status filter; omitted means all statuses. An unknown value is INVALID_PARAMETER."
+          schema:
+            type: "string"
+            enum:
+              - "DRAFT"
+              - "INACTIVE"
+              - "ACTIVE"
         -
           name: "page"
           in: "query"

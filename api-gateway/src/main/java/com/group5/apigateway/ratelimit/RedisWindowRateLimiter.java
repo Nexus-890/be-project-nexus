@@ -20,12 +20,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class RedisWindowRateLimiter extends AbstractRateLimiter<RateLimitProperties> {
 
+    public static final String AUCTION_READ_ROUTE_ID = "auction-read";
+
     private static final Logger log =
             LoggerFactory.getLogger(RedisWindowRateLimiter.class);
 
     private static final long WINDOW_MILLIS = 60_000;
     private static final Duration REDIS_TIMEOUT = Duration.ofMillis(200);
     private static final String KEY_PREFIX = "nexus:rate-limit:ip:";
+    private static final String AUCTION_READ_KEY_PREFIX = "nexus:rate-limit:auction-read:ip:";
 
     private final ReactiveStringRedisTemplate redis;
     private final RateLimitProperties properties;
@@ -58,10 +61,9 @@ public class RedisWindowRateLimiter extends AbstractRateLimiter<RateLimitPropert
     public Mono<Response> isAllowed(String routeId, String id) {
         return Mono.defer(() -> {
             // Đọc mỗi request, không giữ snapshot limit từ lúc startup.
-            int limit = properties.getRequestsPerMinute();
-
-            // Không đưa routeId vào key: quota dùng chung theo IP.
-            String key = KEY_PREFIX + id;
+            boolean auctionRead = AUCTION_READ_ROUTE_ID.equals(routeId);
+            int limit = auctionRead ? properties.getAuctionReadRequestsPerMinute() : properties.getRequestsPerMinute();
+            String key = (auctionRead ? AUCTION_READ_KEY_PREFIX : KEY_PREFIX) + id;
 
             return redis.execute(
                             script,

@@ -94,6 +94,13 @@ class PaymentOutboxConfigurationTest {
                 .isEqualTo(sessionId.toString());
     }
 
+    @Test
+    void paymentUnreconciledIsKeyedByItsOrderGroup() {
+        OutboxEventKeyResolver resolver = new PaymentOutboxConfiguration().paymentOutboxEventKeyResolver();
+        assertThat(resolver.resolve(event("PaymentUnreconciled", Map.of("orderGroupId", groupId))))
+                .isEqualTo(groupId.toString());
+    }
+
     /** Không tự dùng session làm key khi confirmation thiếu hoặc sai orderGroupId. */
     @ParameterizedTest
     @ValueSource(strings = {"{}", "{\"orderGroupId\":null}", "{\"orderGroupId\":5}",

@@ -50,6 +50,9 @@ public class PaymentInstruction {
     @Column(name = "buyer_id", nullable = false)
     private UUID buyerId;
 
+    @Column(name = "seller_id")
+    private UUID sellerId;
+
     @NotNull
     @Column(name = "amount", nullable = false, precision = 19, scale = 2)
     private BigDecimal amount;

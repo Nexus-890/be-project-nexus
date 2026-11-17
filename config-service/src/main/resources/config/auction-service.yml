@@ -7,6 +7,7 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: validate
   cloud:
@@ -19,6 +20,13 @@ spring:
           auctionCatalog:
             connectTimeout: 500
             readTimeout: 1500
+          auctionInventory:
+            connectTimeout: 500
+            readTimeout: 1500
+          auctionRating:
+            connectTimeout: 500
+            readTimeout: 1500
+            loggerLevel: none
 
 resilience4j:
   circuitbreaker:
@@ -29,10 +37,18 @@ resilience4j:
         failureRateThreshold: 50
         waitDurationInOpenState: 15s
         permittedNumberOfCallsInHalfOpenState: 1
+      auctionReputation:
+        slidingWindowSize: 5
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 15s
+        permittedNumberOfCallsInHalfOpenState: 1
   timelimiter:
     instances:
       auctionCatalog:
         timeoutDuration: 2s
+      auctionReputation:
+        timeoutDuration: 3s
 
 springdoc:
   api-docs:
@@ -46,6 +62,14 @@ nexus:
     min-duration-minutes: ${AUCTION_MIN_DURATION_MINUTES:60}
     max-duration-hours: ${AUCTION_MAX_DURATION_HOURS:168}
     max-active-per-seller: ${MAX_ACTIVE_AUCTIONS_PER_SELLER:5}
+    payment-deadline-hours: ${AUCTION_PAYMENT_DEADLINE_HOURS:24}
+    reputation-enforcement-enabled: ${FEATURE_REPUTATION_ENFORCEMENT:false}
+    rating-base-url: ${AUCTION_RATING_BASE_URL:}
+    reputation:
+      token-uri: ${AUCTION_RATING_TOKEN_URI:${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}/protocol/openid-connect/token}
+      client-id: ${AUCTION_RATING_CLIENT_ID:nexus-auction-service}
+      client-secret: ${AUCTION_RATING_CLIENT_SECRET:}
+      token-timeout-ms: ${AUCTION_RATING_TOKEN_TIMEOUT_MS:1500}
     anti-sniping-enabled: ${NEXUS_AUCTION_ANTI_SNIPING_ENABLED:true}
     anti-sniping-extension-minutes: ${NEXUS_AUCTION_ANTI_SNIPING_EXTENSION_MINUTES:5}
     anti-sniping-max-extension-minutes: ${NEXUS_AUCTION_ANTI_SNIPING_MAX_EXTENSION_MINUTES:30}
@@ -55,6 +79,10 @@ nexus:
         path: /api/v1/auctions
       - method: GET
         path: /api/v1/auctions/{id}
+      - method: GET
+        path: /api/v1/auctions/{id}/state
+      - method: GET
+        path: /api/v1/auctions/{id}/bids
     jwt:
       issuer: ${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}
       audience: nexus-services

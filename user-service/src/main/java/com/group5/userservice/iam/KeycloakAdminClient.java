@@ -36,6 +36,7 @@ import java.util.function.Function;
 /** Calls the Keycloak Admin REST API as the user-service service account. */
 @Component
 public class KeycloakAdminClient {
+    public static final Set<String> APPLICATION_ROLES = Set.of("ADMIN", "BUYER", "SELLER", "SUPPORT_STAFF");
     private static final Logger log = LoggerFactory.getLogger(KeycloakAdminClient.class);
     private static final Duration TOKEN_REFRESH_MARGIN = Duration.ofSeconds(30);
     private static final int MEMBER_PAGE_SIZE = 500;
@@ -203,6 +204,7 @@ public class KeycloakAdminClient {
                         change.put(field, user.get(field));
                     }
                 }
+                synchronizeEmailUsername(user, change, email);
                 change.put("email", email);
                 change.put("emailVerified", emailVerified);
                 return client.put()
@@ -255,6 +257,171 @@ public class KeycloakAdminClient {
             throw unavailable("delete user " + userId, exception);
         }
     }
+
+    /** Đọc snapshot tài khoản để hoàn tác thay đổi profile hoặc trạng thái đăng nhập. */
+    public Map<String, Object> userState(UUID userId) {
+        return adminCall("read account", () -> withToken(token -> client.get()
+                .uri("/admin/realms/{realm}/users/{id}", properties.getRealm(), userId)
+                .headers(headers -> headers.setBearerAuth(token)).retrieve()
+                .body(new ParameterizedTypeReference<Map<String, Object>>() { })));
+    }
+
+    /** Khôi phục các trường tài khoản có thể ghi; không ghi credential hoặc role vào profile. */
+    public void restoreUser(UUID userId, Map<String, Object> state) {
+        Map<String, Object> writable = new LinkedHashMap<>();
+        for (String field : List.of("username", "firstName", "lastName", "email", "emailVerified", "enabled", "attributes", "requiredActions")) {
+            if (state.containsKey(field)) writable.put(field, state.get(field));
+        }
+        adminCall("write account", () -> withToken(token -> client.put()
+                .uri("/admin/realms/{realm}/users/{id}", properties.getRealm(), userId)
+                .headers(headers -> headers.setBearerAuth(token)).contentType(MediaType.APPLICATION_JSON)
+                .body(writable).retrieve().toBodilessEntity()));
+    }
+
+    /** Đồng bộ email, tên và enabled mà vẫn giữ attribute và action đang có trên Keycloak. */
+    public void updateUser(UUID userId, String email, String fullName, boolean enabled) {
+        Map<String, Object> state = new LinkedHashMap<>(userState(userId));
+        if (!java.util.Objects.equals(state.get("email"), email)) state.put("emailVerified", false);
+        synchronizeEmailUsername(state, state, email);
+        int split = fullName.lastIndexOf(' ');
+        state.put("firstName", split < 0 ? fullName : fullName.substring(0, split).strip());
+        state.put("lastName", split < 0 ? "" : fullName.substring(split + 1));
+        state.put("email", email);
+        state.put("enabled", enabled);
+        restoreUser(userId, state);
+    }
+
+    /** Giải phóng email đăng nhập cũ nhưng giữ username riêng, kể cả realm chuẩn hóa chữ thường. */
+    private static void synchronizeEmailUsername(Map<String, Object> before, Map<String, Object> change, String email) {
+        if (before.get("username") instanceof String username && before.get("email") instanceof String previousEmail
+                && username.equalsIgnoreCase(previousEmail)) {
+            change.put("username", email);
+        }
+    }
+
+    /** Đọc role gán trực tiếp, giữ cả built-in để không vô tình xóa chúng khi đổi role nghiệp vụ. */
+    public List<RealmRole> assignedRealmRoles(UUID userId) {
+        RealmRole[] roles = adminCall("read assigned roles", () -> withToken(token -> client.get()
+                .uri("/admin/realms/{realm}/users/{id}/role-mappings/realm", properties.getRealm(), userId)
+                .headers(headers -> headers.setBearerAuth(token)).retrieve().body(RealmRole[].class)));
+        return roles == null ? List.of() : List.of(roles);
+    }
+
+    /** Thay bộ role nghiệp vụ, chỉ xóa role cố định và luôn giữ role hệ thống của realm. */
+    public void replaceRealmRoles(UUID userId, List<RealmRole> roles) {
+        List<RealmRole> previous = assignedRealmRoles(userId).stream()
+                .filter(role -> APPLICATION_ROLES.contains(role.name())).toList();
+        if (!previous.isEmpty()) {
+            adminCall("remove application roles", () -> withToken(token -> client.method(org.springframework.http.HttpMethod.DELETE)
+                    .uri("/admin/realms/{realm}/users/{id}/role-mappings/realm", properties.getRealm(), userId)
+                    .headers(headers -> headers.setBearerAuth(token)).contentType(MediaType.APPLICATION_JSON)
+                    .body(previous).retrieve().toBodilessEntity()));
+        }
+        if (!roles.isEmpty()) {
+            adminCall("assign application roles", () -> withToken(token -> client.post()
+                    .uri("/admin/realms/{realm}/users/{id}/role-mappings/realm", properties.getRealm(), userId)
+                    .headers(headers -> headers.setBearerAuth(token)).contentType(MediaType.APPLICATION_JSON)
+                    .body(roles).retrieve().toBodilessEntity()));
+        }
+    }
+
+    /** Đặt mật khẩu theo policy của Keycloak; không đọc hoặc lưu mật khẩu cũ trong user_db. */
+    public void resetPassword(UUID userId, String password) {
+        adminCall("reset password", () -> withToken(token -> client.put()
+                .uri("/admin/realms/{realm}/users/{id}/reset-password", properties.getRealm(), userId)
+                .headers(headers -> headers.setBearerAuth(token)).contentType(MediaType.APPLICATION_JSON)
+                .body(new Credential("password", password, false)).retrieve().toBodilessEntity()));
+    }
+
+    /** Kiểm tra khóa do brute-force detector, độc lập với cờ enabled của tài khoản. */
+    public boolean isBruteForceLocked(UUID userId) {
+        Map<String, Object> state = adminCall("read brute-force lock", () -> withToken(token -> client.get()
+                .uri("/admin/realms/{realm}/attack-detection/brute-force/users/{id}", properties.getRealm(), userId)
+                .headers(headers -> headers.setBearerAuth(token)).retrieve()
+                .body(new ParameterizedTypeReference<Map<String, Object>>() { })));
+        return state != null && Boolean.TRUE.equals(state.get("disabled"));
+    }
+
+    /** Xóa số lần đăng nhập sai và khóa tạm thời trong brute-force detector của Keycloak. */
+    public void unlock(UUID userId) {
+        adminCall("clear brute-force lock", () -> withToken(token -> client.delete()
+                .uri("/admin/realms/{realm}/attack-detection/brute-force/users/{id}", properties.getRealm(), userId)
+                .headers(headers -> headers.setBearerAuth(token)).retrieve().toBodilessEntity()));
+    }
+
+    /** Đọc bốn realm role nghiệp vụ được hỗ trợ, không cho phép CRUD role qua user-service. */
+    public List<RoleDetails> availableRealmRoles() {
+        RoleDetails[] roles = adminCall("read realm roles", () -> withToken(token -> client.get()
+                .uri("/admin/realms/{realm}/roles?first=0&max=500", properties.getRealm())
+                .headers(headers -> headers.setBearerAuth(token)).retrieve().body(RoleDetails[].class)));
+        return roles == null ? List.of() : Arrays.stream(roles)
+                .filter(role -> APPLICATION_ROLES.contains(role.name())).toList();
+    }
+
+    /** Tra role theo UUID Keycloak, từ chối built-in role và mọi role ngoài bộ cố định. */
+    public RoleDetails realmRoleById(UUID roleId) {
+        try {
+            RoleDetails role = withToken(token -> client.get()
+                    .uri("/admin/realms/{realm}/roles-by-id/{id}", properties.getRealm(), roleId)
+                    .headers(headers -> headers.setBearerAuth(token)).retrieve().body(RoleDetails.class));
+            if (role == null || role.clientRole() || !APPLICATION_ROLES.contains(role.name()))
+                throw new DomainException(UserErrorCode.USER_ROLE_NOT_FOUND);
+            return role;
+        } catch (HttpClientErrorException.NotFound exception) {
+            throw new DomainException(UserErrorCode.USER_ROLE_NOT_FOUND);
+        } catch (RestClientException exception) {
+            throw unavailable("read role by id", exception);
+        }
+    }
+
+    /** Đọc quyền client tổng hợp của một realm role, không dùng bảng role/permission cũ trong DB. */
+    public List<RoleDetails> rolePermissions(String name) {
+        RoleDetails[] roles = adminCall("read role privileges", () -> withToken(token -> client.get()
+                .uri("/admin/realms/{realm}/roles/{name}/composites", properties.getRealm(), name)
+                .headers(headers -> headers.setBearerAuth(token)).retrieve().body(RoleDetails[].class)));
+        return roles == null ? List.of() : Arrays.stream(roles).filter(RoleDetails::clientRole)
+                .filter(role -> role.name().contains(".")).toList();
+    }
+
+    /** Đọc các client role privilege của nexus-web với phân trang để không mất quyền ở cuối danh sách. */
+    public List<RoleDetails> permissions() {
+        ClientDetails[] clients = adminCall("resolve privilege client", () -> withToken(token -> client.get()
+                .uri("/admin/realms/{realm}/clients?clientId=nexus-web", properties.getRealm())
+                .headers(headers -> headers.setBearerAuth(token)).retrieve().body(ClientDetails[].class)));
+        if (clients == null || clients.length != 1) throw new DomainException(UserErrorCode.USER_IDENTITY_PROVIDER_UNAVAILABLE);
+        List<RoleDetails> result = new java.util.ArrayList<>();
+        for (int first = 0; ; first += MEMBER_PAGE_SIZE) {
+            int offset = first;
+            RoleDetails[] roles = adminCall("read client privileges", () -> withToken(token -> client.get()
+                    .uri("/admin/realms/{realm}/clients/{id}/roles?first={first}&max={max}", properties.getRealm(), clients[0].id(), offset, MEMBER_PAGE_SIZE)
+                    .headers(headers -> headers.setBearerAuth(token)).retrieve().body(RoleDetails[].class)));
+            if (roles == null) break;
+            result.addAll(Arrays.stream(roles).filter(role -> role.name().contains(".")).toList());
+            if (roles.length < MEMBER_PAGE_SIZE) break;
+        }
+        return List.copyOf(result);
+    }
+
+    /** Chuẩn hóa lỗi Admin API thành mã nghiệp vụ và giữ nguyên lỗi provider trong server log. */
+    private <T> T adminCall(String action, java.util.function.Supplier<T> request) {
+        try {
+            return request.get();
+        } catch (HttpClientErrorException.NotFound exception) {
+            throw new DomainException(UserErrorCode.USER_IDENTITY_NOT_FOUND);
+        } catch (HttpClientErrorException.Conflict exception) {
+            throw new DomainException(UserErrorCode.USER_EMAIL_ALREADY_USED);
+        } catch (HttpClientErrorException.BadRequest exception) {
+            throw new DomainException(UserErrorCode.USER_IDENTITY_REJECTED);
+        } catch (RestClientException exception) {
+            throw unavailable(action, exception);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RoleDetails(String id, String name, String description, boolean clientRole) { }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ClientDetails(String id, String clientId) { }
 
     private <T> T withToken(Function<String, T> request) {
         String token = accessToken();

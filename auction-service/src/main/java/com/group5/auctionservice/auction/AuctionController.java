@@ -1,6 +1,7 @@
 package com.group5.auctionservice.auction;
 
 import com.group5.auctionservice.auction.dto.AuctionResponse;
+import com.group5.auctionservice.auction.dto.AuctionStateResponse;
 import com.group5.auctionservice.auction.dto.CreateAuctionRequest;
 import com.group5.auctionservice.auction.dto.UpdateAuctionRequest;
 import com.group5.auctionservice.auction.dto.CancelAuctionRequest;
@@ -32,6 +33,7 @@ import java.util.UUID;
 public class AuctionController {
 
     private final AuctionService auctions;
+    private final AuctionStateQuery auctionState;
 
     @GetMapping("/mine")
     @PreAuthorize("hasRole('SELLER') and hasAuthority('AUCTION.LIST')")
@@ -45,9 +47,37 @@ public class AuctionController {
                 result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages()));
     }
 
+    @GetMapping("/manage")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPPORT_STAFF') and hasAuthority('AUCTION.LIST')")
+    public ApiResponse<List<AuctionResponse>> manage(
+            @RequestParam(required = false) AuctionStatus status,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size) {
+        var result = auctions.manage(status, page, size);
+        return ApiResponse.page(result.getContent(), new PageInfo(
+                result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages()));
+    }
+
+    @GetMapping("/manage/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPPORT_STAFF') and hasAuthority('AUCTION.VIEW')")
+    public ApiResponse<AuctionResponse> manageGet(@PathVariable UUID id) {
+        return ApiResponse.of(auctions.manageGet(id));
+    }
+
+    @GetMapping("/manage/{id}/state")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPPORT_STAFF') and hasAuthority('AUCTION.VIEW')")
+    public ApiResponse<AuctionStateResponse> manageState(@PathVariable UUID id) {
+        return ApiResponse.of(auctionState.getManaged(id));
+    }
+
     @GetMapping("/{id}")
     public ApiResponse<AuctionResponse> get(@PathVariable UUID id) {
         return ApiResponse.of(auctions.get(id));
+    }
+
+    @GetMapping("/{id}/state")
+    public ApiResponse<AuctionStateResponse> state(@PathVariable UUID id) {
+        return ApiResponse.of(auctionState.get(id));
     }
 
     @GetMapping

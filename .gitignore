@@ -32,3 +32,6 @@ replay_pid*
 .sts4-cache
 
 HELP.md
+
+# Kho override và audit cấu hình runtime, chỉ lưu trên persistent disk của deployment.
+config-service/data/

@@ -38,6 +38,11 @@ public class InventoryReservation extends AuditedEntity {
     @Column(name = "order_id")
     private UUID orderId;
 
+    @Column(name = "auction_id", updatable = false)
+    private UUID auctionId;
+
+    private UUID auctionWinnerId;
+
     @Column(name = "quantity", nullable = false)
     private int quantity;
 
@@ -54,6 +59,21 @@ public class InventoryReservation extends AuditedEntity {
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
+
+    public static InventoryReservation heldForAuction(UUID auctionId, UUID skuId, UUID warehouseId,
+                                                       OffsetDateTime createdAt, OffsetDateTime expiresAt) {
+        InventoryReservation reservation = held(null, skuId, warehouseId, 1, createdAt, expiresAt);
+        reservation.auctionId = auctionId;
+        return reservation;
+    }
+
+    public void linkOrder(UUID orderId) {
+        this.orderId = orderId;
+    }
+
+    public void recordAuctionWinner(UUID winnerId) {
+        this.auctionWinnerId = winnerId;
+    }
 
     public static InventoryReservation held(UUID orderId, UUID skuId, UUID warehouseId, int quantity,
                                             OffsetDateTime createdAt, OffsetDateTime expiresAt) {

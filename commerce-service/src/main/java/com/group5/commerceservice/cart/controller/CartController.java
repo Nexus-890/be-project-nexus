@@ -19,6 +19,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -46,8 +47,9 @@ public class CartController {
     @PreAuthorize("hasAuthority('CART.VIEW')")
     public ApiResponse<CartPricingResponse> pricing(
             CurrentUser currentUser,
-            @RequestParam(required = false) String promoCode) {
-        return ApiResponse.of(cartPricingService.pricing(currentUser, promoCode));
+            @RequestParam(required = false) String promoCode,
+            @RequestParam(required = false) List<String> voucherCodes) {
+        return ApiResponse.of(cartPricingService.pricing(currentUser, promoCode, voucherCodes));
     }
 
     @PostMapping("/me/validate")

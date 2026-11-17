@@ -105,7 +105,9 @@ class AuthTracingHttpTest {
             HibernateJpaAutoConfiguration.class,
             DataJpaRepositoriesAutoConfiguration.class,
             FlywayAutoConfiguration.class,
-            KafkaAutoConfiguration.class
+            // Test tracing HTTP không cần transport Kafka của common-outbox.
+            KafkaAutoConfiguration.class, com.group5.common_events.autoconfigure.EventsAutoConfiguration.class,
+            com.group5.common_outbox.autoconfigure.IdempotentConsumerAutoConfiguration.class
     })
     static class TestApplication {
 

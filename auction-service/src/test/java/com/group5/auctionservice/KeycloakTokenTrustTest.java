@@ -1,11 +1,13 @@
 package com.group5.auctionservice;
 
 import com.group5.auctionservice.auction.AuctionRepository;
+import com.group5.auctionservice.auction.AuctionInventoryClient;
 import com.group5.auctionservice.auction.CatalogClient;
 import com.group5.common_core.model.ApiResponse;
 import com.group5.auctionservice.bidding.Bid;
 import com.group5.auctionservice.bidding.BidRepository;
 import com.group5.common_outbox.OutboxWriter;
+import com.group5.common_outbox.IdempotentConsumer;
 import com.group5.common_security.CurrentUser;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -31,6 +33,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -91,9 +94,11 @@ class KeycloakTokenTrustTest {
     @Autowired private WebApplicationContext context;
     @MockitoBean private AuctionRepository auctions;
     @MockitoBean private CatalogClient catalog;
+    @MockitoBean private AuctionInventoryClient inventory;
     @MockitoBean private com.group5.auctionservice.bidding.MyBidQuery myBids;
     @MockitoBean private BidRepository bids;
     @MockitoBean private OutboxWriter outbox;
+    @MockitoBean private IdempotentConsumer idempotent;
     @MockitoBean private Clock clock;
     @MockitoBean private PlatformTransactionManager transactionManager;
     private MockMvc client;
@@ -110,7 +115,15 @@ class KeycloakTokenTrustTest {
         when(catalog.getProduct(UUID.fromString("00000002-1111-4111-8111-111111111111")))
                 .thenReturn(ApiResponse.of(new CatalogClient.Product(UUID.fromString(SUBJECT), "Catalog camera",
                         List.of(new CatalogClient.Sku(UUID.fromString("00000003-1111-4111-8111-111111111111"))),
-                        List.of())));
+                        List.of(new CatalogClient.Image("https://example.com/auction.png")))));
+        when(inventory.available(any())).thenAnswer(call ->
+                ApiResponse.of(new AuctionInventoryClient.Stock(call.getArgument(0), 5)));
+        when(auctions.saveAndFlush(any())).thenAnswer(call -> {
+            var auction = call.getArgument(0);
+            // This web test replaces JPA, so emulate the ID assigned by the insert.
+            ReflectionTestUtils.setField(auction, "id", UUID.randomUUID());
+            return auction;
+        });
         client = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
     }
@@ -142,7 +155,6 @@ class KeycloakTokenTrustTest {
 
     @Test
     void sellerCreatesAuctionWithConfiguredIncrementAndJwtSubject() throws Exception {
-        when(auctions.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         client.perform(post(AUCTIONS).contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer " + auctionToken("SELLER", List.of("AUCTION.CREATE")))
@@ -177,7 +189,6 @@ class KeycloakTokenTrustTest {
     @ParameterizedTest
     @ValueSource(longs = {60, 10080})
     void exactDurationBoundsRemainAccepted(long minutes) throws Exception {
-        when(auctions.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
         String endAt = Instant.parse("2026-11-05T10:00:00Z").plusSeconds(minutes * 60).toString();
 
         client.perform(post(AUCTIONS).contentType(MediaType.APPLICATION_JSON)
@@ -240,8 +251,8 @@ class KeycloakTokenTrustTest {
         when(accepted.getAmount()).thenReturn(new BigDecimal("1050000.00"));
         when(accepted.getPlacedAt()).thenReturn(Instant.parse("2026-11-05T10:00:00Z"));
         when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
-        when(bids.findByIdempotencyKey(key)).thenReturn(Optional.empty(), Optional.of(accepted));
-        when(auctions.acceptBid(auctionId, UUID.fromString(SUBJECT), new BigDecimal("1050000.00"))).thenReturn(1);
+        when(bids.findByIdempotencyKey(key)).thenReturn(Optional.empty(), Optional.empty(), Optional.of(accepted));
+        when(auctions.acceptBid(auctionId, UUID.fromString(SUBJECT), new BigDecimal("1050000.00"), "***")).thenReturn(1);
         when(bids.saveAndFlush(any())).thenReturn(accepted);
         String token = auctionToken("BUYER", List.of("AUCTION.BID"));
 
@@ -258,7 +269,7 @@ class KeycloakTokenTrustTest {
                         .header("Idempotency-Key", key).content("{\"amount\":1050000.00}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(replay).isEqualTo(first);
-        verify(auctions, times(1)).acceptBid(any(), any(), any());
+        verify(auctions, times(1)).acceptBid(any(), any(), any(), any());
         verify(bids, times(1)).saveAndFlush(any());
         verify(outbox, times(1)).write(any(), any(), any());
     }
@@ -304,7 +315,6 @@ class KeycloakTokenTrustTest {
     @CsvSource({"-86400, 400", "-6, 400", "-5, 201", "-3, 201", "0, 201", "60, 201"})
     void startTimeAllowsOnlyFiveSecondsOfClockSkew(long offsetSeconds, int expectedStatus) throws Exception {
         Instant start = Instant.parse("2026-11-05T10:00:00Z").plusSeconds(offsetSeconds);
-        when(auctions.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         var result = client.perform(post(AUCTIONS).contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer " + auctionToken("SELLER", List.of("AUCTION.CREATE")))
@@ -323,7 +333,6 @@ class KeycloakTokenTrustTest {
     @ParameterizedTest
     @CsvSource({"0, 400", "-0.01, 400", "0.01, 201"})
     void startingPriceMustBeStrictlyPositive(String price, int expectedStatus) throws Exception {
-        when(auctions.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         var result = client.perform(post(AUCTIONS).contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer " + auctionToken("SELLER", List.of("AUCTION.CREATE")))

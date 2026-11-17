@@ -45,7 +45,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringJUnitConfig(RefundStatusHandlerTest.JpaConfig.class)
 class RefundStatusHandlerTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.commerceservice.PostgresTestDatabase("postgres:18-alpine");
     private static final AtomicInteger ORDER_NUMBERS = new AtomicInteger();
     private static final UUID SUPPORT = UUID.randomUUID();
 
@@ -121,7 +121,7 @@ class RefundStatusHandlerTest {
         return new EventEnvelope<>(UUID.randomUUID(), "OrderRefundRequested", orderId.toString(), Instant.now(),
                 "247refund", new OrderRefundRequested(UUID.randomUUID(), orderId, UUID.randomUUID(),
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "300000.00", "VND", "REQUESTED",
-                "Seller out of stock", SUPPORT, 0, 1, Instant.now().toString()));
+                "Seller out of stock", SUPPORT, 0, 1, Instant.now().toString(), null));
     }
 
     private static EventEnvelope<OrderRefundCompleted> completed(UUID orderId) {
@@ -129,7 +129,7 @@ class RefundStatusHandlerTest {
                 "247refund", new OrderRefundCompleted(UUID.randomUUID(), orderId, UUID.randomUUID(),
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "300000.00", "VND", "COMPLETED",
                 "Seller out of stock", SUPPORT, 1, 1, Instant.now().toString(), UUID.randomUUID(),
-                Instant.now().toString()));
+                Instant.now().toString(), null));
     }
 
     private UUID insertOrder(OrderStatus status) {
@@ -176,8 +176,13 @@ class RefundStatusHandlerTest {
     @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses = OrderRepository.class)
     @EnableJpaAuditing(auditorAwareRef = "auditor")
-    @Import({OrderStateMachine.class, RefundStatusHandler.class})
+    @Import({com.group5.commerceservice.promotion.PromotionTestConfig.class, OrderStateMachine.class, RefundStatusHandler.class})
     static class JpaConfig {
+        @Bean
+        com.group5.commerceservice.order.event.OrderEventPublisher orderEvents() {
+            return org.mockito.Mockito.mock(com.group5.commerceservice.order.event.OrderEventPublisher.class);
+        }
+
         @Bean
         AuditorAware<UUID> auditor() {
             return new CurrentUserAuditor();

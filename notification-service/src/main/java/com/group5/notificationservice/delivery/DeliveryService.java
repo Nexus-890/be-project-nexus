@@ -41,6 +41,10 @@ public class DeliveryService {
         for (DueDelivery delivery = nextDue(now, skipped); delivery != null; delivery = nextDue(now, skipped)) {
             skipped.add(delivery.id());
             closeTimedOutAttempts(delivery, now);
+            // Người dùng có thể tắt loại email sau lần gửi lỗi; không tạo thêm attempt khi đã tắt.
+            if (deliveries.skipDisabledEmail(delivery.id(), now)) {
+                continue;
+            }
             if (delivery.attemptCount() >= retryPolicy.limit()) {
                 deliveries.markExhausted(delivery.id(), now);
                 continue;
@@ -55,9 +59,17 @@ public class DeliveryService {
     }
 
     // CHỈ GỬI KHI ATTEMPT VẪN STARTED VÀ LEASE CHƯA HẾT. HẾT LEASE = WORKER KHÁC ĐÃ ĐƯỢC PHÉP NHẬN LẠI
-    @Transactional(readOnly = true)
+    @Transactional
     public boolean stillOwns(Claim claim, Instant now) {
-        return deliveries.ownsAttempt(claim.deliveryId(), claim.attemptId(), now);
+        if (!deliveries.ownsAttempt(claim.deliveryId(), claim.attemptId(), now)) {
+            return false;
+        }
+        // Tra cứu email có thể chậm: kiểm tra lại ngay trước SMTP và đóng attempt đã nhận nếu vừa bị tắt.
+        if (deliveries.skipDisabledEmail(claim.deliveryId(), now)) {
+            deliveries.failAttempt(claim.attemptId(), "PREFERENCE_DISABLED", "Email notification disabled", false, now);
+            return false;
+        }
+        return true;
     }
 
     private DueDelivery nextDue(Instant now, Collection<UUID> skipped) {

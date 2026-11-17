@@ -16,7 +16,7 @@ import java.util.Collection;
 import java.util.List;
 
 @Repository
-public interface ProductRepository extends JpaRepository<Product, UUID> {
+public interface ProductRepository extends JpaRepository<Product, UUID>, ProductSearchRepository {
     @Query("""
             SELECT image FROM ProductImage image WHERE image.product.id IN :productIds
             ORDER BY image.product.id, image.sortOrder, image.id
@@ -158,6 +158,45 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
     )
     Page<ProductResponse> findProductResponsesBySeller(
             @Param("sellerId") UUID sellerId,
+            Pageable pageable
+    );
+
+    @Query(
+            value = """
+                    select new com.group5.catalogservice.product.dto.response.ProductResponse(
+                        p.id,
+                        p.name,
+                        p.slug,
+                        p.status,
+                        p.category.id,
+                        p.sellerId,
+                        min(s.price),
+                        max(s.price)
+                    )
+                    from Product p
+                    left join p.skuses s
+                    where p.sellerId = :sellerId
+                      and p.status = :status
+                      and p.deletedAt is null
+                    group by
+                        p.id,
+                        p.name,
+                        p.slug,
+                        p.status,
+                        p.category.id,
+                        p.sellerId
+                    """,
+            countQuery = """
+                    select count(p)
+                    from Product p
+                    where p.sellerId = :sellerId
+                      and p.status = :status
+                      and p.deletedAt is null
+                    """
+    )
+    Page<ProductResponse> findProductResponsesBySellerAndStatus(
+            @Param("sellerId") UUID sellerId,
+            @Param("status") ProductStatus status,
             Pageable pageable
     );
 }
