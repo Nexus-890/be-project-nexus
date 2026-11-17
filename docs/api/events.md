@@ -1582,6 +1582,25 @@ and dispatches [automatic seller payouts](../payment-payout-eligibility.md) afte
 verified funding and bank checks. #261 adds administrator lists only. Receipt/email and payout acceptance are covered by
 the [cross-service completion suite](../../infra/receipt-completion-acceptance/README.md).
 
+The first committed delivery records `orders.delivered_at` and a persisted
+`auto_complete_at` using `nexus.order.auto-complete-days` (default **3 days**).
+Repeated delivery facts do not extend that window. The buyer may complete an
+owned DELIVERED order through `POST /api/v1/orders/{id}/confirm-receipt`, with
+history reason `Buyer confirmed receipt`. A repeated confirmation returns
+409 `COMMERCE_ORDER_NOT_DELIVERED`. The deadline job checks every **10 minutes**
+by default, selects a bounded batch, and completes each due order in its own
+transaction with reason `Completed automatically after delivery`. ShedLock
+coordinates job instances; both paths lock and recheck the order before the
+state transition, so a concurrent buyer confirmation and job run commit only
+one completion history row and one outbox event. An open receipt issue pauses
+both paths. Existing persisted deadlines remain unchanged when configuration
+changes, and existing COMPLETED orders remain completed.
+
+Both paths build the payload in the same completion service, including
+`orderAmount` and `shippingFee` from the paid order snapshot. Delivery alone
+does not send the receipt, enable ratings, or start the seller payout; those
+consumers wait for this completion event.
+
 - Topic: `nexus.commerce.events`.
 - Publisher: #258 shared confirmation/deadline completion service, extended by #257 with money; originally [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204).
 - Consumer: payment-service #257 (automatic payout); rating-service [#242](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/242), [#212](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/212): persist rating_eligibility without calling commerce; rating-service [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213): update score and transaction counts; notification-service [#191](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/191): deliver the HTML receipt; [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
@@ -1739,8 +1758,10 @@ Shipment facts whose order, payment or pickup prerequisite has not arrived are
 retained in commerce's `pending_order_shipment_events` inbox atomically with the
 consumer marker. The retry job can apply them after a restart without blocking
 the Kafka partition or requiring the carrier to publish again. Successful retry
-removes the inbox row together with the order history and completion outbox;
-failed effects leave the persisted fact available for another attempt.
+removes the inbox row together with the applied order history; failed effects
+leave the persisted fact available for another attempt. Delivery itself does
+not create an OrderCompleted outbox event. A later buyer/job completion
+transaction writes that event.
 
 The money fields are additive: legacy rating/receipt consumers may ignore them.
 New completion producers always supply both; older envelopes may omit both, but

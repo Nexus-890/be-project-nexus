@@ -86,7 +86,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
         "spring.config.name=shipment-creation-test", "spring.config.import=",
         "spring.cloud.config.enabled=false", "spring.cloud.discovery.enabled=false", "eureka.client.enabled=false",
         "spring.cloud.compatibility-verifier.enabled=false", "spring.jpa.hibernate.ddl-auto=validate",
-        "nexus.security.enabled=false", "nexus.shipping.carrier=NONE", "nexus.shipping.breaker-failure-threshold=100",
+        "spring.main.allow-bean-definition-overriding=true",
+        "nexus.security.enabled=false", "nexus.shipping.carrier=NONE", "nexus.shipping.booking-carrier=FAKE", "nexus.shipping.breaker-failure-threshold=100",
         "nexus.shipping.order-paid-consumer-enabled=false", "nexus.outbox.relay.enabled=false",
         "nexus.shipping.order-cancelled-consumer-enabled=false", "nexus.shipping.status-poll-enabled=false",
         "nexus.shipping.default-warehouse-id=00000000-0000-4000-8000-000000000099",
@@ -129,6 +130,57 @@ class ShipmentCreationIntegrationTest {
         when(envelopes.create(anyString(), anyString(), any())).thenAnswer(invocation ->
                 new EventEnvelope<>(UUID.randomUUID(), invocation.getArgument(0), invocation.getArgument(1),
                         Instant.now(), "4bf92f3577b34da6a3ce929d0e0e4736", invocation.getArgument(2)));
+    }
+
+    @Test
+    void commercePayloadWithoutDispatchDetailsUsesConfiguredPickupAndBooksInOneWorkerCycle() {
+        var event = commerceShapedEvent();
+        var snapshot = OrderPaidSnapshot.parse(event.payload(), mapper);
+        idempotency.handle(OrderPaidShipmentConsumer.CONSUMER, event, ignored -> creation.createPaid(event, snapshot));
+        UUID shipmentId = jdbc.queryForObject("SELECT id FROM shipments", UUID.class);
+        assertThat(carrier.requests).isEmpty();
+
+        creation.retryDueTracking();
+
+        assertThat(carrier.requests).containsExactly(shipmentId);
+        assertThat(jdbc.queryForObject("SELECT tracking_code FROM shipments", String.class)).isEqualTo("FAKE-" + shipmentId);
+        assertThat(jdbc.queryForObject("SELECT service_type FROM shipments", String.class)).isEqualTo("STANDARD");
+        assertThat(jdbc.queryForObject("SELECT shipping_info->'pickupAddress'->>'line1' FROM shipments", String.class))
+                .isEqualTo("Configured pickup warehouse");
+        receive(withId(event, UUID.randomUUID()));
+        assertThat(carrier.requests).containsExactly(shipmentId);
+        assertThat(count("outbox")).isEqualTo(1);
+    }
+
+    @Test
+    void workerRepairsMissingDispatchDetailsOfAnEarlierPendingShipmentWithoutNewIdentity() {
+        var event = commerceShapedEvent();
+        var snapshot = OrderPaidSnapshot.parse(event.payload(), mapper);
+        idempotency.handle(OrderPaidShipmentConsumer.CONSUMER, event, ignored -> creation.createPaid(event, snapshot));
+        UUID shipmentId = jdbc.queryForObject("SELECT id FROM shipments", UUID.class);
+        // Reproduce a row persisted by the previous implementation before the dispatch preparation fix.
+        jdbc.update("UPDATE shipments SET service_type=null, shipping_info=jsonb_set(shipping_info,'{pickupAddress}','null'::jsonb)");
+
+        creation.retryDueTracking();
+
+        assertThat(carrier.requests).containsExactly(shipmentId);
+        assertThat(jdbc.queryForObject("SELECT tracking_code FROM shipments", String.class)).isEqualTo("FAKE-" + shipmentId);
+        assertThat(jdbc.queryForObject("SELECT service_type FROM shipments", String.class)).isEqualTo("STANDARD");
+        assertThat(count("shipments")).isEqualTo(1);
+        assertThat(count("outbox")).isEqualTo(1);
+        assertThat(count("shipment_history")).isEqualTo(2);
+    }
+
+    private EventEnvelope<JsonNode> commerceShapedEvent() {
+        var original = event(UUID.randomUUID(), true);
+        ObjectNode payload = ((ObjectNode) original.payload()).deepCopy();
+        payload.put("warehouseId", "00000000-0000-4000-8000-000000000099");
+        ObjectNode info = (ObjectNode) payload.path("shippingInfo");
+        info.remove("carrier");
+        info.remove("serviceType");
+        info.putNull("pickupAddress");
+        return new EventEnvelope<>(original.eventId(), original.eventType(), original.aggregateId(),
+                original.occurredAt(), original.traceId(), payload);
     }
 
     @Test
@@ -789,7 +841,7 @@ class ShipmentCreationIntegrationTest {
 
     @TestConfiguration(proxyBeanMethods = false)
     static class CarrierFixture {
-        @Bean TestCarrier testCarrier(JdbcTemplate jdbc) { return new TestCarrier(jdbc); }
+        @Bean TestCarrier fakeCarrierAdapter(JdbcTemplate jdbc) { return new TestCarrier(jdbc); }
     }
 
     static class TestCarrier extends FakeCarrierAdapter {

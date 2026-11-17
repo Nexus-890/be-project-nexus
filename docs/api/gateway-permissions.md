@@ -169,7 +169,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/shipments/{id}/status` | PATCH | SHIPPING.UPDATE_STATUS | #203 — shipment-service |
 | `/api/v1/shipments/{id}/override` | POST | SHIPPING.MANUAL_OVERRIDE | #203 — shipment-service; reason required downstream |
 | `/api/v1/ratings` | POST | REPUTATION.RATE | #212 — rating-service; completed-order eligibility checked downstream |
-| `/api/v1/orders/{id}/confirm-receipt` | POST | ORDER.VIEW | #258 / #220 — BUYER role and own-order checks downstream; locked DELIVERED → COMPLETED, idempotent completed replay |
+| `/api/v1/orders/{id}/confirm-receipt` | POST | ORDER.VIEW | #258 / #220 — BUYER role and own-order checks downstream; locked DELIVERED → COMPLETED; repeated confirmation returns 409 COMMERCE_ORDER_NOT_DELIVERED |
 | `/api/v1/orders/{id}/receipt-issue` | POST | ORDER.VIEW | #258 / #220 — BUYER role and own-order checks; persist a receipt issue under the completion lock and pause completion until D11 resolution |
 | `/api/v1/ratings` | GET | REPUTATION.VIEW | #212 — rating-service; userId is a query parameter |
 | `/api/v1/reputations/{userId}` | GET | REPUTATION.VIEW | #213 — rating-service |

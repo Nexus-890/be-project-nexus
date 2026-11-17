@@ -3,6 +3,7 @@ package com.group5.commerceservice.order;
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.EventKafka;
 import com.group5.common_events.Topics;
+import com.group5.common_core.exception.DomainException;
 import io.micrometer.tracing.Tracer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +27,7 @@ import com.group5.common_security.CurrentUser;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 /** Gửi qua broker thật khi observation tắt; test không tự mở span cho listener. */
@@ -41,7 +43,7 @@ import static org.awaitility.Awaitility.await;
         "nexus.security.jwt.issuer=user-service", "nexus.security.jwt.audience=nexus-services",
         "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/.well-known/jwks.json"
 })
-@EmbeddedKafka(partitions = 1, topics = {Topics.PAYMENT, Topics.SHIPMENT, Topics.INVENTORY},
+@EmbeddedKafka(partitions = 1, topics = {Topics.PAYMENT, Topics.SHIPMENT, Topics.INVENTORY, Topics.AUCTION},
         bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ShipmentEventConsumerKafkaTest {
@@ -109,7 +111,8 @@ class ShipmentEventConsumerKafkaTest {
         var span = tracer.nextSpan().name("buyer-confirms-receipt").start();
         try (var ignored = tracer.withSpan(span)) {
             completions.confirm(actor, order);
-            completions.confirm(actor, order);
+            assertThatThrownBy(() -> completions.confirm(actor, order)).isInstanceOf(DomainException.class)
+                    .extracting("errorCode").isEqualTo("COMMERCE_ORDER_NOT_DELIVERED");
         } finally { span.end(); }
         assertThat(status(order)).isEqualTo("COMPLETED");
 

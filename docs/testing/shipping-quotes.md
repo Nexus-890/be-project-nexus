@@ -48,7 +48,9 @@ Tạo dữ liệu `.env` trên máy chạy backend; không commit file thật v�
 
 | Biến | Ý nghĩa |
 |---|---|
-| `SHIPPING_CARRIER=GHN` | Chọn adapter sandbox thật |
+| `SHIPPING_QUOTE_CARRIER=GHN` | Chọn GHN cho báo phí và danh mục địa chỉ |
+| `SHIPPING_BOOKING_CARRIER=FAKE` hoặc `GHN` | Chọn FAKE để dùng phí GHN với mã giả; chọn GHN để dùng phí GHN với vận đơn sandbox; NONE tắt booking |
+| `SHIPPING_CARRIER=GHN` | Cấu hình cũ, dùng cho cả hai khi không đặt override |
 | `GHN_BASE_URL=https://dev-online-gateway.ghn.vn` | Base URL sandbox |
 | `GHN_TOKEN` | Token server của GHN |
 | `GHN_SHOP_ID` | ShopId của tài khoản sandbox |

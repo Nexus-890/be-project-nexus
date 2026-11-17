@@ -2,6 +2,7 @@ package com.group5.shipmentservice.shipping.adapter;
 
 import com.group5.shipmentservice.shipping.adapter.model.CarrierQuoteRequest;
 import com.group5.shipmentservice.shipping.adapter.model.CarrierShipmentRequest;
+import com.group5.shipmentservice.shipping.adapter.model.CarrierShipmentResult;
 import com.group5.shipmentservice.shipping.adapter.model.CarrierTrackingUpdate;
 import com.group5.common_core.exception.DomainException;
 import com.group5.shipmentservice.shared.exception.ShipmentErrorCode;
@@ -26,6 +27,10 @@ public interface CarrierAdapter {
     default String createShipment(CarrierShipmentRequest request, ShippingDeadline deadline) {
         throw new DomainException(ShipmentErrorCode.CARRIER_CONFIGURATION_ERROR,
                 "Shipment booking is not enabled for carrier " + code());
+    }
+
+    default CarrierShipmentResult bookShipment(CarrierShipmentRequest request, ShippingDeadline deadline) {
+        return new CarrierShipmentResult(createShipment(request, deadline), null, false);
     }
 
     default CarrierTrackingUpdate track(String trackingCode, ShippingDeadline deadline) {
