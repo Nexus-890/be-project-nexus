@@ -228,6 +228,24 @@ class EventLogIntegrationTest {
         assertThat(filtered.get("data").get(0).get("entityId").asText()).isEqualTo("entity-192");
     }
 
+    /** Audit API phải hiển thị các hành động quản trị mới, giữ actor/target và không nhân bản khi replay Kafka. */
+    @Test void newAdminUserActionsAreVisibleInAuditWithoutDuplicateRows() throws Exception {
+        for (String action : List.of("UserRegistered", "UserPasswordChanged", "UserUnlocked")) {
+            String raw = envelope(action, "admin-user-211", "{\"actorId\":\"" + ACTOR + "\"}");
+            String eventId = mapper.readTree(raw).get("eventId").asText();
+            publish(Topics.USER, raw);
+            awaitEvent(eventId, System.nanoTime() + Duration.ofSeconds(5).toNanos());
+            publish(Topics.USER, raw);
+            String marker = envelope("AuditProbe", "admin-user-211", "{}");
+            publish(Topics.USER, marker);
+            awaitEvent(mapper.readTree(marker).get("eventId").asText(), System.nanoTime() + Duration.ofSeconds(5).toNanos());
+            JsonNode result = json(get("/api/v1/audit-logs?action=" + action + "&actorId=" + ACTOR, "admin", "AUDIT_LOG.VIEW"));
+            assertThat(result.get("page").get("totalElements").asInt()).isEqualTo(1);
+            assertThat(result.get("data").get(0).get("entityId").asText()).isEqualTo("admin-user-211");
+            assertThat(result.get("data").get(0).get("entityType").asText()).isEqualTo("User");
+        }
+    }
+
     @Test void rollbackAndConcurrentDuplicateCannotLeavePartialOrDuplicateRows() throws Exception {
         String raw = envelope("UserUpdated", "rollback-192", "{}");
         new TransactionTemplate(transactions).executeWithoutResult(status -> {
