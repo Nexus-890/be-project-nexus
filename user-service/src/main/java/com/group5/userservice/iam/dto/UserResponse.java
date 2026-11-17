@@ -19,13 +19,14 @@ public record UserResponse(
         LocalDate dateOfBirth,
         List<String> roles,
         UserStatus status,
-        OffsetDateTime createdAt
+        OffsetDateTime createdAt,
+        OffsetDateTime phoneVerifiedAt
 ) {
     public static UserResponse from(User user, List<String> roles) {
         return new UserResponse(
                 user.getId(), user.getEmail(), user.getPhone(), user.getFullName(),
                 user.getGender(), user.getAddress(), user.getDateOfBirth(),
                 roles.stream().sorted().toList(),
-                user.getStatus(), user.getCreatedAt());
+                user.getStatus(), user.getCreatedAt(), user.getPhoneVerifiedAt());
     }
 }

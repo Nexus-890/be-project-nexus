@@ -7,10 +7,14 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import com.group5.common_events.EventEnvelopeFactory;
 import com.group5.common_outbox.OutboxWriter;
+import com.group5.userservice.address.UserAddress;
+import com.group5.userservice.address.UserAddressRepository;
 import com.group5.userservice.iam.dto.AdminCreateUserRequest;
 import com.group5.userservice.iam.dto.UpdateProfileRequest;
 import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.entity.User;
+import com.group5.userservice.phone.PhoneVerification;
+import com.group5.userservice.phone.PhoneVerificationRepository;
 import com.group5.userservice.seller.Seller;
 import com.group5.userservice.seller.SellerRepository;
 import com.group5.userservice.shared.PostgresAuditingTestConfiguration;
@@ -40,6 +44,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import javax.sql.DataSource;
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -80,6 +85,8 @@ class AdminUserTransactionTest {
 
     @Autowired private UserRepository users;
     @Autowired private SellerRepository sellers;
+    @Autowired private PhoneVerificationRepository phoneVerifications;
+    @Autowired private UserAddressRepository addresses;
     @Autowired private PlatformTransactionManager manager;
     @Autowired private DataSource source;
     @Autowired private UserEventPublisher events;
@@ -134,7 +141,7 @@ class AdminUserTransactionTest {
         properties = new IamProperties();
         journal = new AdminIdentityOperationJournal(jdbc, Clock.fixed(NOW, ZoneOffset.UTC), manager, journalSource());
         service = new AdminUserService(users, sellers, keycloak, events, properties,
-                Clock.fixed(NOW, ZoneOffset.UTC), manager, journal);
+                Clock.fixed(NOW, ZoneOffset.UTC), manager, journal, phoneVerifications, addresses);
     }
 
     /** Tạo tài khoản phải commit profile, role và hai audit event dùng cùng UUID với Keycloak. */
@@ -291,6 +298,60 @@ class AdminUserTransactionTest {
         assertAudit("UserDeleted", TARGET);
         assertThat(auditPayload("UserDeleted").get("deletionMode").asString()).isEqualTo("HARD");
         verify(keycloak, never()).deleteUser(TARGET);
+    }
+
+    @Test
+    void hardDeleteRemovesPhoneCodesAndSavedAddresses() {
+        seedPhoneCodeAndAddress();
+        properties.setUserSoftDelete(false);
+
+        service.delete(TARGET, ACTOR);
+
+        assertThat(countUser(TARGET)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from phone_verifications where user_id=?", Integer.class, TARGET)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from user_addresses where user_id=?", Integer.class, TARGET)).isZero();
+        assertAudit("UserDeleted", TARGET);
+    }
+
+    @Test
+    void softDeleteKeepsPhoneCodesAndSavedAddresses() {
+        seedPhoneCodeAndAddress();
+
+        service.delete(TARGET, ACTOR);
+
+        assertThat(jdbc.queryForObject("select count(*) from phone_verifications where user_id=?", Integer.class, TARGET)).isOne();
+        assertThat(jdbc.queryForObject("select count(*) from user_addresses where user_id=?", Integer.class, TARGET)).isOne();
+    }
+
+    @Test
+    void updateChangesThePhoneClearsItsVerificationAndExpiresPendingCodes() {
+        jdbc.update("update users set phone_verified_at=? where id=?", Timestamp.from(NOW), TARGET);
+        seedPhoneCodeAndAddress();
+
+        UserResponse response = service.update(TARGET,
+                new UpdateProfileRequest(null, null, null, null, null, "0900000009"), ACTOR);
+
+        assertThat(response.phone()).isEqualTo("0900000009");
+        assertThat(jdbc.queryForMap("select phone, phone_verified_at from users where id=?", TARGET))
+                .containsEntry("phone", "0900000009").containsEntry("phone_verified_at", null);
+        assertThat(jdbc.queryForObject("select expires_at = created_at from phone_verifications where user_id=?",
+                Boolean.class, TARGET)).isTrue();
+        assertThat(auditPayload("UserUpdated").get("changedFields").toString()).contains("phone");
+    }
+
+    @Test
+    void updateWithAnotherUsersPhoneReturns409AndKeepsThePhone() {
+        jdbc.update("""
+                insert into users(id,email,phone,full_name,identity_number,gender,address,date_of_birth,status)
+                values (?, 'other@nexus.local', '0900000002', 'Other User', 'ID-02', 'MALE', 'HCM', '2000-01-02', 'ACTIVE')
+                """, UUID.randomUUID());
+
+        assertThatThrownBy(() -> service.update(TARGET,
+                new UpdateProfileRequest(null, null, null, null, null, "0900000002"), ACTOR))
+                .isInstanceOfSatisfying(DomainException.class,
+                        failure -> assertThat(failure.getErrorCode()).isEqualTo("USER_PHONE_ALREADY_USED"));
+        assertThat(snapshot(TARGET).get("phone")).isEqualTo("0900000001");
+        assertThat(auditCount()).isZero();
     }
 
     /** Policy xóa mềm giữ nguyên toàn bộ hồ sơ seller, chỉ đánh dấu user và vô hiệu identity. */
@@ -597,7 +658,8 @@ class AdminUserTransactionTest {
     /** Restart tạo journal/service mới, hoàn toàn không giữ thông tin thất bại trong bộ nhớ. */
     private AdminUserService restartedService() {
         return new AdminUserService(users, sellers, keycloak, events, properties, Clock.fixed(NOW, ZoneOffset.UTC), manager,
-                new AdminIdentityOperationJournal(jdbc, Clock.fixed(NOW, ZoneOffset.UTC), manager, journalSource()));
+                new AdminIdentityOperationJournal(jdbc, Clock.fixed(NOW, ZoneOffset.UTC), manager, journalSource()),
+                phoneVerifications, addresses);
     }
 
     /** DataSource khác identity resource để Spring không tái sử dụng connection transaction profile. */
@@ -616,6 +678,20 @@ class AdminUserTransactionTest {
     /** Đọc bằng connection riêng để chỉ quan sát dữ liệu đã commit sau khi service trả về. */
     private Map<String, Object> snapshot(UUID id) {
         return jdbc.queryForMap("select email,phone,full_name,address,status,deleted_at,version from users where id=?", id);
+    }
+
+    private void seedPhoneCodeAndAddress() {
+        Timestamp at = Timestamp.from(NOW);
+        jdbc.update("""
+                insert into phone_verifications(id,user_id,phone,code_hash,expires_at,attempts,created_at)
+                values (?, ?, '0900000001', repeat('a', 64), ?, 0, ?)
+                """, UUID.randomUUID(), TARGET, Timestamp.from(NOW.plusSeconds(300)), at);
+        jdbc.update("""
+                insert into user_addresses(id,user_id,recipient_name,phone,address_line,province_code,province_name,
+                                           ward_code,ward_name,is_default,created_at,updated_at)
+                values (?, ?, 'Original User', '0900000001', '1 Nguyen Trai', '79', 'Ho Chi Minh', '26734', 'Ben Thanh',
+                        true, ?, ?)
+                """, UUID.randomUUID(), TARGET, at, at);
     }
 
     /** Hồ sơ ACTIVE đầy đủ dùng đúng FK/ràng buộc V8 production, không sửa schema để xóa được user. */
@@ -677,7 +753,8 @@ class AdminUserTransactionTest {
 
     @TestConfiguration(proxyBeanMethods = false)
     @Import(PostgresAuditingTestConfiguration.class)
-    @EnableJpaRepositories(basePackageClasses = {UserRepository.class, SellerRepository.class})
+    @EnableJpaRepositories(basePackageClasses = {UserRepository.class, SellerRepository.class,
+            PhoneVerificationRepository.class, UserAddressRepository.class})
     static class JpaConfig {
         /** Dùng PostgreSQL container mặc định, hoặc JDBC test riêng khi môi trường không có Docker. */
         @Bean
@@ -697,7 +774,8 @@ class AdminUserTransactionTest {
         LocalContainerEntityManagerFactoryBean entityManagerFactory(DataSource source) {
             var factory = new LocalContainerEntityManagerFactoryBean();
             factory.setDataSource(source);
-            factory.setPackagesToScan(User.class.getPackageName(), Seller.class.getPackageName());
+            factory.setPackagesToScan(User.class.getPackageName(), Seller.class.getPackageName(),
+                    PhoneVerification.class.getPackageName(), UserAddress.class.getPackageName());
             factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
             factory.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto", "validate"));
             return factory;

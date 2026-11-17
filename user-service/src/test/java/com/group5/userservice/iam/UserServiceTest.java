@@ -5,6 +5,7 @@ import com.group5.userservice.iam.dto.RegisterRequest;
 import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.UserStatus;
+import com.group5.userservice.phone.PhoneVerificationRepository;
 import com.group5.userservice.shared.config.IamProperties;
 import com.group5.userservice.shared.exception.UserErrorCode;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,6 +30,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -47,6 +49,10 @@ class UserServiceTest {
     private KeycloakAdminClient keycloak;
 
     @Mock
+
+    private EmailVerificationService emailVerification;
+
+    @Mock
     private PlatformTransactionManager transactionManager;
 
     @Mock
@@ -59,7 +65,7 @@ class UserServiceTest {
     @BeforeEach
     void setUp() {
         lenient().when(transactionManager.getTransaction(any(TransactionDefinition.class))).thenReturn(transactionStatus);
-        userService = new UserService(userRepository, iamProperties, keycloak, transactionManager);
+        userService = new UserService(userRepository, iamProperties, keycloak, transactionManager, emailVerification, mock(PhoneVerificationRepository.class));
     }
 
     @Test
@@ -75,7 +81,7 @@ class UserServiceTest {
     @Test
     void registerDefaultsToBuyerAndAllowSelfRegistrationWhenPropertiesAreAbsent() {
         UserService serviceWithAbsentProperties =
-                new UserService(userRepository, new IamProperties(), keycloak, transactionManager);
+                new UserService(userRepository, new IamProperties(), keycloak, transactionManager, emailVerification, mock(PhoneVerificationRepository.class));
         givenRegistrationCanSave();
 
         UserResponse response = serviceWithAbsentProperties.register(validRequest());

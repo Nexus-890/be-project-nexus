@@ -38,6 +38,9 @@ public class User extends AuditedEntity {
     @Column(nullable = false, unique = true, length = 20)
     private String phone;
 
+    @Column(name = "phone_verified_at")
+    private OffsetDateTime phoneVerifiedAt;
+
     @Column(name = "full_name", nullable = false, length = 150)
     private String fullName;
 

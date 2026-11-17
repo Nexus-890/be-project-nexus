@@ -20,7 +20,7 @@ class SellerMigrationTest {
                 .target("7").load().migrate();
         var jdbc = new JdbcTemplate(source);
         var usersBefore = jdbc.queryForList("SELECT * FROM users ORDER BY id");
-        flyway(source, "seller_upgrade").migrate();
+        flyway(source, "seller_upgrade", "9").migrate();
         assertThat(jdbc.queryForList("SELECT * FROM users ORDER BY id")).isEqualTo(usersBefore);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM seller", Long.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT column_default FROM information_schema.columns "
@@ -32,10 +32,10 @@ class SellerMigrationTest {
     void freshSchemaIncludesSellerAndIdentityJournalWithoutDuplicateVersions() {
         var source = PostgresTestDatabase.dataSource("seller_journal_fresh");
         var flyway = flyway(source, "seller_journal_fresh");
-        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(8);
+        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(11);
         flyway.validate();
         var jdbc = new JdbcTemplate(source);
-        assertThat(versions(jdbc)).containsExactly("1", "3", "4", "5", "6", "7", "8", "9");
+        assertThat(versions(jdbc)).containsExactly("1", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12");
         verifySellerAndJournal(jdbc);
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         flyway.validate();
@@ -67,7 +67,7 @@ class SellerMigrationTest {
         assertThat(usersBefore).hasSize(3);
         assertThat(sellersBefore).hasSize(1);
 
-        var upgraded = flyway(source, schema);
+        var upgraded = flyway(source, schema, "9");
         assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(1);
         upgraded.validate();
         assertThat(versions(jdbc)).containsExactly("1", "3", "4", "5", "6", "7", "8", "9");
@@ -87,6 +87,10 @@ class SellerMigrationTest {
 
     private static Flyway flyway(DataSource source, String schema) {
         return Flyway.configure().dataSource(source).schemas(schema).defaultSchema(schema).load();
+    }
+
+    private static Flyway flyway(DataSource source, String schema, String target) {
+        return Flyway.configure().dataSource(source).schemas(schema).defaultSchema(schema).target(target).load();
     }
 
     private static List<String> versions(JdbcTemplate jdbc) {

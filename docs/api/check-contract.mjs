@@ -17,7 +17,10 @@ const services = {
     'src/main/java/com/group5/userservice/iam/RoleController.java',
     'src/main/java/com/group5/userservice/iam/AuthController.java',
     'src/main/java/com/group5/userservice/iam/UserController.java',
+    'src/main/java/com/group5/userservice/phone/PhoneVerificationController.java',
+    'src/main/java/com/group5/userservice/address/AddressController.java',
     'src/main/java/com/group5/userservice/seller/SellerController.java',
+    'src/main/java/com/group5/userservice/seller/SellerApplicationController.java',
   ],
   'catalog-service': [
     'src/main/java/com/group5/catalogservice/category/CategoryController.java',
