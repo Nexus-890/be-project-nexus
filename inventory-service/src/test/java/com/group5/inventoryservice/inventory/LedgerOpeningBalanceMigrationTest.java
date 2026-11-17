@@ -14,7 +14,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class LedgerOpeningBalanceMigrationTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.common_test.PostgresTestDatabase("postgres:18");
     static { POSTGRES.start(); }
 
     private final DriverManagerDataSource dataSource =

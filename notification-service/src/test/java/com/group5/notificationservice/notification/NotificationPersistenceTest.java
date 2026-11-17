@@ -47,7 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "management.tracing.enabled=false"
 })
 class NotificationPersistenceTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.common_test.PostgresTestDatabase("postgres:18-alpine");
 
     static {
         POSTGRES.start();

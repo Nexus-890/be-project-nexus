@@ -53,9 +53,9 @@ import static org.mockito.Mockito.when;
 })
 class BrokerHealthSchedulerIsolationTest {
 
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.common_test.PostgresTestDatabase("postgres:18-alpine");
     @SuppressWarnings("resource")
-    private static final GenericContainer<?> REDIS = new GenericContainer<>("redis:8-alpine").withExposedPorts(6379);
+    private static final GenericContainer<?> REDIS = new com.group5.common_test.RedisTestContainer("redis:8-alpine").withExposedPorts(6379);
 
     static {
         POSTGRES.start();

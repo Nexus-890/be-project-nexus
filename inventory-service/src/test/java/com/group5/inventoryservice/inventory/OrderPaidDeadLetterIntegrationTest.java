@@ -65,8 +65,8 @@ import static org.mockito.Mockito.verify;
         "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/jwks", "management.tracing.enabled=false"
 })
 class OrderPaidDeadLetterIntegrationTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18");
-    private static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:4.3.1");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.common_test.PostgresTestDatabase("postgres:18");
+    private static final KafkaContainer KAFKA = new KafkaTestBroker("apache/kafka:4.3.1");
     private static final Duration NO_RETRY_DEADLINE = Duration.ofSeconds(5);
     private static KafkaConsumer<String, String> deadLetters;
     private static KafkaProducer<String, String> producer;

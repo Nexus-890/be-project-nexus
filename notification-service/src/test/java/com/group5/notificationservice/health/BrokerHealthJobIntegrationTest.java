@@ -52,9 +52,9 @@ import static org.mockito.Mockito.when;
 })
 class BrokerHealthJobIntegrationTest {
 
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.common_test.PostgresTestDatabase("postgres:18-alpine");
     @SuppressWarnings("resource")
-    private static final GenericContainer<?> REDIS = new GenericContainer<>("redis:8-alpine").withExposedPorts(6379);
+    private static final GenericContainer<?> REDIS = new com.group5.common_test.RedisTestContainer("redis:8-alpine").withExposedPorts(6379);
 
     static {
         POSTGRES.start();
@@ -148,7 +148,7 @@ class BrokerHealthJobIntegrationTest {
     }
 
     @Test
-    void aHangingPostgresNeverDelaysTheKafkaCheck() throws InterruptedException {
+    void aHangingPostgresNeverDelaysTheKafkaCheck() throws Exception {
         KafkaBrokerProbe probe = mock(KafkaBrokerProbe.class);
         HealthProperties properties = new HealthProperties(List.of("user-service"),
                 URI.create("http://127.0.0.1:1/realms/nexus"), Duration.ofSeconds(1), "hang");
@@ -160,8 +160,7 @@ class BrokerHealthJobIntegrationTest {
                 20, Duration.ofSeconds(10), Duration.ofMillis(100), Duration.ofSeconds(1));
         writer.afterPropertiesSet();
         try {
-            POSTGRES.getDockerClient().pauseContainerCmd(POSTGRES.getContainerId()).exec();
-            try {
+            try (AutoCloseable blockedDatabase = blockPostgresWrites()) {
                 when(probe.reachable()).thenReturn(false);
                 job.checkBrokers();
                 Thread.sleep(500);
@@ -177,8 +176,6 @@ class BrokerHealthJobIntegrationTest {
                     assertThat(health.version()).isEqualTo(2);
                 });
                 assertThat(store.pendingEvents(BrokerHealthJob.KAFKA)).hasSize(2);
-            } finally {
-                POSTGRES.getDockerClient().unpauseContainerCmd(POSTGRES.getContainerId()).exec();
             }
             long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
             while (!store.pendingEvents(BrokerHealthJob.KAFKA).isEmpty() && System.nanoTime() < deadline) {
@@ -190,6 +187,19 @@ class BrokerHealthJobIntegrationTest {
         } finally {
             writer.destroy();
         }
+    }
+
+    private AutoCloseable blockPostgresWrites() throws Exception {
+        if (System.getProperty("nexus.test.jdbc-url", System.getenv("TEST_POSTGRES_ADMIN_URL")) == null) {
+            POSTGRES.getDockerClient().pauseContainerCmd(POSTGRES.getContainerId()).exec();
+            return () -> POSTGRES.getDockerClient().unpauseContainerCmd(POSTGRES.getContainerId()).exec();
+        }
+        // Native mode blocks the actual event-log JDBC write with an exclusive SQL lock.
+        // Kafka checks and the pending-event assertions below remain unchanged.
+        var connection = java.sql.DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+        connection.setAutoCommit(false);
+        try (var statement = connection.createStatement()) { statement.execute("LOCK TABLE event_logs IN ACCESS EXCLUSIVE MODE"); }
+        return () -> { try { connection.rollback(); } finally { connection.close(); } };
     }
 
     private List<String> logged(String aggregateId) {

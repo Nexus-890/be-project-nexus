@@ -40,7 +40,7 @@ class SecondChanceEmailIntegrationTest {
     static int smtp;
     @DynamicPropertySource static void runtime(DynamicPropertyRegistry r) throws Exception {
         if(ADMIN==null) {
-            postgres=new PostgreSQLContainer("postgres:18");postgres.start();
+            postgres=new com.group5.common_test.PostgresTestDatabase("postgres:18");postgres.start();
             url=postgres.getJdbcUrl();user=postgres.getUsername();password=postgres.getPassword();
         } else {
             user=System.getenv().getOrDefault("TEST_POSTGRES_USERNAME","postgres");password=System.getenv().getOrDefault("TEST_POSTGRES_PASSWORD","");
@@ -48,7 +48,7 @@ class SecondChanceEmailIntegrationTest {
             url=ADMIN.substring(0,ADMIN.lastIndexOf('/')+1)+DATABASE;
         }
         http=System.getenv("TEST_MAILPIT_HTTP_URL");
-        if(http==null) {mailpit=new GenericContainer<>("axllent/mailpit:v1.31").withExposedPorts(1025,8025);mailpit.start();host=mailpit.getHost();smtp=mailpit.getMappedPort(1025);http="http://"+host+":"+mailpit.getMappedPort(8025);}
+        if(http==null) {mailpit=new com.group5.common_test.MailpitTestContainer("axllent/mailpit:v1.31").withExposedPorts(1025,8025);mailpit.start();host=mailpit.getHost();smtp=mailpit.getMappedPort(1025);http="http://"+host+":"+mailpit.getMappedPort(8025);}
         else {host="127.0.0.1";smtp=Integer.parseInt(System.getenv("TEST_MAILPIT_SMTP_PORT"));}
         r.add("spring.datasource.url",()->url);r.add("spring.datasource.username",()->user);r.add("spring.datasource.password",()->password);
         r.add("spring.mail.host",()->host);r.add("spring.mail.port",()->smtp);

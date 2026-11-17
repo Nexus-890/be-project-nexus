@@ -62,7 +62,7 @@ class StockReadIntegrationTest {
     static final String SINGLE_PATH = "/api/v1/inventory/{skuId:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}"
             + "-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}";
 
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.common_test.PostgresTestDatabase("postgres:18");
     static { POSTGRES.start(); }
 
     @Autowired private WebApplicationContext context;

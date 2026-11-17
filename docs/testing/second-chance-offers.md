@@ -18,6 +18,10 @@ node docs/api/check-contract.mjs
 
 Commerce's narrow settlement fixture also supports `-Dsettlement.test.jdbc-url=jdbc:postgresql://localhost:5432/postgres`. It creates a unique schema. These direct-consumer fixtures prove transactions/replay on a real database; they do not by themselves prove broker transport or live identity-provider integration.
 
+Full Inventory/Notification suites also support native infrastructure without skipping assertions: `TEST_POSTGRES_ADMIN_URL` (or `nexus.test.jdbc-url`) creates one database per fixture; `TEST_MAILPIT_HTTP_URL`/`TEST_MAILPIT_SMTP_PORT` selects a dedicated Mailpit. `nexus.test.redis-binary` starts an isolated redis-server process per Redis fixture. `TEST_KAFKA_BOOTSTRAP_SERVERS` selects a dedicated broker for Inventory's dead-letter test. Default CI continues to use the original Docker images. With many Spring contexts on one native PostgreSQL, set `spring.test.context.cache.maxSize=2` and run service suites sequentially. Keep enough pool connections for the concurrency tests: a lock holder, a blocked writer and the observer need separate connections.
+
+Required new migrations: Auction V9, Inventory V12, Commerce V19 and Rating V5, plus Notification V9. Commerce V18 belongs to the delivery index already on develop. Apply the affected services together so optional offer correlation travels through AuctionWon, OrderCreated and AuctionSettled.
+
 ## API and manual flow
 
 1. Seed at least three buyers who bid on one auction. Let the first winner's unpaid order expire. Compare `orders.status`, `auctions.status`, `auction_payment_timeouts` and outbox: CANCELED, PAYMENT_TIMEOUT and exactly one AuctionPaymentTimeout. Replay the same event and another eventId for the same order; state and penalty remain unchanged. STANDARD or unrelated cancellation reasons do not produce a timeout.

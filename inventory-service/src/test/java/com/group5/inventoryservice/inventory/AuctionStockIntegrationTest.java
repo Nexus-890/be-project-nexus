@@ -68,7 +68,7 @@ class AuctionStockIntegrationTest {
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry) throws SQLException {
         if (ADMIN_URL == null || ADMIN_URL.isBlank()) {
-            postgres = new PostgreSQLContainer("postgres:18");
+            postgres = new com.group5.common_test.PostgresTestDatabase("postgres:18");
             postgres.start();
             registry.add("spring.datasource.url", postgres::getJdbcUrl);
             registry.add("spring.datasource.username", postgres::getUsername);

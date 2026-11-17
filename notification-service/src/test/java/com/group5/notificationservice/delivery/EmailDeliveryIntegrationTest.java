@@ -87,9 +87,9 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
 })
 class EmailDeliveryIntegrationTest {
 
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.common_test.PostgresTestDatabase("postgres:18");
     private static final GenericContainer<?> MAILPIT =
-            new GenericContainer<>("axllent/mailpit:v1.31").withExposedPorts(1025, 8025);
+            new com.group5.common_test.MailpitTestContainer("axllent/mailpit:v1.31").withExposedPorts(1025, 8025);
     static {
         POSTGRES.start();
         MAILPIT.start();

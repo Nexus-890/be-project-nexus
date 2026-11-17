@@ -57,7 +57,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
 })
 class WarehouseCreateIntegrationTest {
     private static final String PATH = "/api/v1/warehouses";
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.common_test.PostgresTestDatabase("postgres:18");
     private static final JsonMapper JSON = JsonMapper.shared();
     private static final UUID ADMIN_ID = UUID.randomUUID();
     static { POSTGRES.start(); }
