@@ -134,6 +134,57 @@ class Sprint3CatalogIntegrationTest {
     }
 
     @Test
+    void incompleteLastWordMatchesPrefixesButKeepsPhraseOrderAndFieldBoundaries() throws Exception {
+        UUID category = category("Prefix regression", null, 1);
+        UUID phone = product(category, "iPhone 16", null, "ACTIVE");
+        UUID shirt = product(category, "Áo thun cotton", null, "ACTIVE");
+        UUID described = product(category, "Cotton shirt", "Áo thun mềm", "ACTIVE");
+        product(category, "Áo cotton thun", null, "ACTIVE");
+        product(category, "Thun áo", null, "ACTIVE");
+        product(category, "Áo", "thun", "ACTIVE");
+        product(category, "Áo thun hidden", null, "INACTIVE");
+        product(category, "Áo thun draft", null, "DRAFT");
+        UUID deleted = product(category, "Áo thun deleted", null, "ACTIVE");
+        jdbc.update("UPDATE products SET deleted_at = now() WHERE id = ?", deleted);
+
+        mvc.perform(get(PRODUCTS + "/search").param("categoryId", category.toString()).param("q", "iph"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(phone.toString()));
+        for (String q : List.of("ao th", "ÁO TH", "ao thun")) {
+            var response = mvc.perform(get(PRODUCTS + "/search").param("categoryId", category.toString())
+                            .param("q", q).param("sort", "relevance"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(2))
+                    .andExpect(jsonPath("$.data[0].id").value(shirt.toString()))
+                    .andReturn().getResponse().getContentAsString();
+            assertThat(JsonMapper.shared().readTree(response).required("data"))
+                    .anySatisfy(item -> assertThat(item.required("id").asString()).isEqualTo(described.toString()));
+        }
+        UUID product100 = product(category, "Product 100", null, "ACTIVE");
+        product(category, "Product 200", null, "ACTIVE");
+        mvc.perform(get(PRODUCTS + "/search").param("categoryId", category.toString()).param("q", "Product 1"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(product100.toString()));
+    }
+
+    @Test
+    void queryOperatorsAreLiteralAndCannotBroadenPrefixMatchesOrCauseSyntaxErrors() throws Exception {
+        UUID category = category("Literal query regression", null, 1);
+        UUID literal = product(category, "Alpha beta", null, "ACTIVE");
+        UUID quoted = product(category, "O'Reilly guide", null, "ACTIVE");
+        product(category, "Unrelated beta", null, "ACTIVE");
+        for (String q : List.of("alpha & be", "alpha | be", "alpha ! be", "alpha : be", "(alpha) be", "'alpha' be")) {
+            mvc.perform(get(PRODUCTS + "/search").param("categoryId", category.toString()).param("q", q))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(1))
+                    .andExpect(jsonPath("$.data[0].id").value(literal.toString()));
+        }
+        mvc.perform(get(PRODUCTS + "/search").param("categoryId", category.toString()).param("q", "O'Rei"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(quoted.toString()));
+        mvc.perform(get(PRODUCTS + "/search").param("categoryId", category.toString()).param("q", "& | ! : ( ) '"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
     void selectivePhrasePlanUsesFullTextIndexes() {
         UUID category = category("Search plan", null, 1);
         jdbc.update("""
@@ -143,7 +194,7 @@ class Sprint3CatalogIntegrationTest {
                 """, category, owner);
         product(category, "Bình giữ nhiệt QuasarXYZ", null, "ACTIVE");
         jdbc.execute("VACUUM (ANALYZE) products");
-        var query = FullTextProductQuery.of(null, "nhiet quasarxyz", "relevance", null,
+        var query = FullTextProductQuery.of(null, "nhiet quas", "relevance", null,
                 null, null, PageRequest.of(0, 10));
         jdbc.execute((ConnectionCallback<Void>) connection -> {
             try (var statement = connection.createStatement()) {
@@ -152,13 +203,13 @@ class Sprint3CatalogIntegrationTest {
                         .replace(":q", "$1").replace(":limit", "$2").replace(":offset", "$3"));
                 statement.execute("PREPARE sprint3_count(text) AS " + query.count().replace(":q", "$1"));
                 for (int i = 0; i < 20; i++) {
-                    try (var rows = statement.executeQuery("EXECUTE sprint3_search('nhiet quasarxyz', 10, 0)")) {
+                    try (var rows = statement.executeQuery("EXECUTE sprint3_search('nhiet quas', 10, 0)")) {
                         assertThat(rows.next()).isTrue();
                         assertThat(rows.next()).isFalse();
                     }
                 }
-                for (String prepared : List.of("sprint3_search('nhiet quasarxyz', 10, 0)",
-                        "sprint3_count('nhiet quasarxyz')")) {
+                for (String prepared : List.of("sprint3_search('nhiet quas', 10, 0)",
+                        "sprint3_count('nhiet quas')")) {
                     var plan = new java.util.ArrayList<String>();
                     try (var rows = statement.executeQuery("EXPLAIN (ANALYZE, BUFFERS) EXECUTE " + prepared)) {
                         while (rows.next()) plan.add(rows.getString(1));

@@ -29,8 +29,8 @@ public record FullTextProductQuery(String content, String count, MapSqlParameter
         }
         if (!keyword.isEmpty()) {
             filter.append("""
-                     AND (p.name_search @@ phraseto_tsquery('public.catalog_product_search', :q)
-                          OR p.description_search @@ phraseto_tsquery('public.catalog_product_search', :q))
+                     AND (p.name_search @@ public.catalog_product_prefix_query(:q)
+                          OR p.description_search @@ public.catalog_product_prefix_query(:q))
                     """);
             parameters.addValue("q", keyword);
         }
@@ -51,8 +51,8 @@ public record FullTextProductQuery(String content, String count, MapSqlParameter
             case "price_asc" -> "price.min_price ASC NULLS LAST, ";
             case "price_desc" -> "price.min_price DESC NULLS LAST, ";
             case "relevance" -> keyword.isEmpty() ? "" : """
-                    (2 * ts_rank_cd(p.name_search, phraseto_tsquery('public.catalog_product_search', :q))
-                       + ts_rank_cd(p.description_search, phraseto_tsquery('public.catalog_product_search', :q))) DESC,
+                    (2 * ts_rank_cd(p.name_search, public.catalog_product_prefix_query(:q))
+                       + ts_rank_cd(p.description_search, public.catalog_product_prefix_query(:q))) DESC,
                     """;
             case "newest" -> "";
             default -> throw new IllegalArgumentException("Unsupported full-text search sort");
