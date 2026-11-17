@@ -1,0 +1,7 @@
+# Chỉ dùng cho STAGING: kịch bản demo tạo phiên 3 phút, cộng tối đa 1 phút.
+# Cấu hình mặc định ở auction-service.yml vẫn là 60 / 5 / 30 phút.
+nexus:
+  auction:
+    min-duration-minutes: 1
+    anti-sniping-extension-minutes: 1
+    anti-sniping-max-extension-minutes: 1
