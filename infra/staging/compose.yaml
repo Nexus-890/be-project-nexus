@@ -454,6 +454,89 @@ services:
       test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8089; printf 'GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
     mem_limit: 576m
 
+  web:
+    image: nexus/web:${NEXUS_TAG}
+    build:
+      context: ../../../fe-project-nexus
+      dockerfile: ../be-project-nexus/infra/staging/web.Dockerfile
+      args:
+        NEXT_PUBLIC_KEYCLOAK_URL: https://${STAGING_HOST}
+        NEXT_PUBLIC_KEYCLOAK_REALM: nexus
+        NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: nexus-web
+    environment:
+      TZ: ${TZ}
+      API_PROXY_TARGET: http://api-gateway:8080
+      NODE_OPTIONS: --max-old-space-size=384
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    mem_limit: 512m
+    restart: unless-stopped
+    networks: [nexus]
+    logging: *logging
+
+  nginx:
+    image: nginx:1.29-alpine
+    command: ["/bin/sh", "-c", "(while :; do sleep 6h; nginx -s reload; done) & exec /docker-entrypoint.sh nginx -g 'daemon off;'"]
+    environment:
+      TZ: ${TZ}
+      STAGING_HOST: ${STAGING_HOST}
+      NGINX_ENVSUBST_FILTER: STAGING_HOST
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/templates/default.conf.template:ro
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot-webroot:/var/www/certbot:ro
+    depends_on:
+      web:
+        condition: service_healthy
+      api-gateway:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/.nginx-health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    mem_limit: 128m
+    restart: unless-stopped
+    networks:
+      nexus:
+        aliases:
+          - ${STAGING_HOST}
+    logging: *logging
+
+  certbot:
+    profiles: ["tools"]
+    image: certbot/certbot:v4.2.0
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    networks: [nexus]
+
+  certbot-renew:
+    image: certbot/certbot:v4.2.0
+    entrypoint: ["/bin/sh", "-c", "trap exit TERM; while :; do certbot renew --quiet --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done"]
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    depends_on:
+      nginx:
+        condition: service_healthy
+    mem_limit: 128m
+    restart: unless-stopped
+    networks: [nexus]
+    logging: *logging
+
 networks:
   nexus:
     driver: bridge
@@ -463,3 +546,5 @@ volumes:
   kafka-data:
   redis-data:
   config-data:
+  letsencrypt:
+  certbot-webroot:
