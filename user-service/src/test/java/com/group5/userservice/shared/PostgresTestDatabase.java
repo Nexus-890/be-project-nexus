@@ -8,25 +8,32 @@ import javax.sql.DataSource;
 
 /** A disposable PostgreSQL 18 instance shared by the test JVM; each context owns a schema. */
 public final class PostgresTestDatabase {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+    private static final String EXTERNAL_URL = System.getProperty("admin.test.jdbc-url");
 
-    static {
-        POSTGRES.start();
+    /** Chỉ khởi động Docker khi không truyền JDBC database test riêng. */
+    private static final class ContainerHolder {
+        private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
+
+        static {
+            POSTGRES.start();
+        }
     }
 
     private PostgresTestDatabase() {
     }
 
     public static String jdbcUrl() {
-        return POSTGRES.getJdbcUrl();
+        return EXTERNAL_URL != null ? EXTERNAL_URL : ContainerHolder.POSTGRES.getJdbcUrl();
     }
 
     public static String username() {
-        return POSTGRES.getUsername();
+        return EXTERNAL_URL != null ? System.getProperty("admin.test.username", "admin211")
+                : ContainerHolder.POSTGRES.getUsername();
     }
 
     public static String password() {
-        return POSTGRES.getPassword();
+        return EXTERNAL_URL != null ? System.getProperty("admin.test.password", "")
+                : ContainerHolder.POSTGRES.getPassword();
     }
 
     public static DataSource migratedDataSource(String schema) {

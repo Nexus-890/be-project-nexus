@@ -34,7 +34,7 @@
   "quickLoginCheckMilliSeconds": 0,
   "minimumQuickLoginWaitSeconds": 900,
   "maxDeltaTimeSeconds": 43200,
-  "passwordPolicy": "length(8) and regexPattern((?s).*\\S.*)",
+  "passwordPolicy": "length(8) and passwordHistory(1) and regexPattern((?s).*\\S.*)",
   "roles": {
     "realm": [
       {

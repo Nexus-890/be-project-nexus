@@ -1,0 +1,455 @@
+openapi: 3.1.0
+info:
+  title: Project Nexus Config Service API
+  version: 1.0.0
+  description: Admin configuration facade; the native Config Server protocol keeps its own format.
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: System configuration
+    description: Typed configuration and durable audit.
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/system/configs:
+    get:
+      tags:
+        - System configuration
+      operationId: listSystemConfigs
+      summary: List all 57 SRS configuration keys
+      description: List all 57 SRS configuration keys. Reads Config Server sources and persistent overrides, and reads the four KEYCLOAK_MANAGED values from the current realm. SESSION_TIMEOUT_MINUTES is the realm SSO idle timeout and ACCESS_TOKEN_EXPIRY_MINUTES is the realm access-token lifespan, converted from seconds without truncating fractional minutes. MAX_LOGIN_ATTEMPTS is zero when brute-force protection is disabled; otherwise it is the realm failureFactor. PASSWORD_POLICY is the exact realm policy string. Historical SRS defaults and configuredValue are returned separately. An unavailable or invalid realm response fails the request with 503. Consumer refresh behavior is described in docs/testing/admin-user-management.md.
+      x-required-privileges:
+        - SYSTEM.CONFIG.VIEW
+      x-required-roles:
+        - ADMIN
+      x-ownership: Admin only; no arbitrary Spring property or secret keys.
+      x-error-codes:
+        "401":
+          - UNAUTHENTICATED
+        "403":
+          - FORBIDDEN
+        "500":
+          - INTERNAL_ERROR
+        "503":
+          - CONFIG_IDENTITY_PROVIDER_UNAVAILABLE
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigListResponse"
+              example:
+                code: 0
+                message: response success
+                data:
+                  - key: NOTIFICATION_RETRY_LIMIT
+                    value: 3
+                    defaultValue: 3
+                    description: Notification retry attempts
+                    service: notification-service
+                    applyMode: RUNTIME
+                    configuredValue: 3
+                page:
+                  number: 0
+                  size: 57
+                  totalElements: 57
+                  totalPages: 1
+        "401":
+          description: "Codes: UNAUTHENTICATED"
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge.
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                UNAUTHENTICATED:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Unauthorized
+                    status: 401
+                    detail: UNAUTHENTICATED
+                    instance: /api/v1/system/configs
+                    code: UNAUTHENTICATED
+        "403":
+          description: "Codes: FORBIDDEN"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                FORBIDDEN:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: FORBIDDEN
+                    instance: /api/v1/system/configs
+                    code: FORBIDDEN
+        "500":
+          description: "Codes: INTERNAL_ERROR"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                INTERNAL_ERROR:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Service Unavailable
+                    status: 500
+                    detail: INTERNAL_ERROR
+                    instance: /api/v1/system/configs
+                    code: INTERNAL_ERROR
+        "503":
+          description: "Codes: CONFIG_IDENTITY_PROVIDER_UNAVAILABLE"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                CONFIG_IDENTITY_PROVIDER_UNAVAILABLE:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Service Unavailable
+                    status: 503
+                    detail: The effective Keycloak configuration could not be read
+                    instance: /api/v1/system/configs
+                    code: CONFIG_IDENTITY_PROVIDER_UNAVAILABLE
+  /api/v1/system/configs/{key}:
+    put:
+      tags:
+        - System configuration
+      operationId: updateSystemConfig
+      summary: Update a typed key in its owning service configuration
+      description: Update a typed key in its owning service configuration. Reads the per-service Config Server source and persistent overrides. Historical SRS defaults are returned separately. Consumer refresh behavior is described in docs/testing/admin-user-management.md.
+      x-required-privileges:
+        - SYSTEM.CONFIG.UPDATE
+      x-required-roles:
+        - ADMIN
+      x-ownership: Admin only; no arbitrary Spring property or secret keys.
+      x-error-codes:
+        "400":
+          - INVALID_PARAMETER
+          - INVALID_REQUEST_BODY
+          - CONFIG_KEY_UNKNOWN
+          - CONFIG_VALUE_INVALID
+          - CONFIG_KEY_EXTERNALLY_MANAGED
+        "401":
+          - UNAUTHENTICATED
+        "403":
+          - FORBIDDEN
+        "500":
+          - INTERNAL_ERROR
+        "503":
+          - CONFIG_UPDATE_FAILED
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigUpdatedResponse"
+              example:
+                code: 0
+                message: response success
+                data:
+                  key: NOTIFICATION_RETRY_LIMIT
+                  value: 4
+        "400":
+          description: "Codes: INVALID_PARAMETER, INVALID_REQUEST_BODY, CONFIG_KEY_UNKNOWN, CONFIG_VALUE_INVALID, CONFIG_KEY_EXTERNALLY_MANAGED."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                INVALID_PARAMETER:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: INVALID_PARAMETER
+                    instance: /api/v1/system/configs
+                    code: INVALID_PARAMETER
+                INVALID_REQUEST_BODY:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: INVALID_REQUEST_BODY
+                    instance: /api/v1/system/configs
+                    code: INVALID_REQUEST_BODY
+                CONFIG_KEY_UNKNOWN:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: CONFIG_KEY_UNKNOWN
+                    instance: /api/v1/system/configs
+                    code: CONFIG_KEY_UNKNOWN
+                CONFIG_VALUE_INVALID:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: CONFIG_VALUE_INVALID
+                    instance: /api/v1/system/configs
+                    code: CONFIG_VALUE_INVALID
+                CONFIG_KEY_EXTERNALLY_MANAGED:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Bad Request
+                    status: 400
+                    detail: The setting is managed by Keycloak
+                    instance: /api/v1/system/configs/MAX_LOGIN_ATTEMPTS
+                    code: CONFIG_KEY_EXTERNALLY_MANAGED
+        "401":
+          description: "Codes: UNAUTHENTICATED"
+          headers:
+            WWW-Authenticate:
+              description: Bearer challenge.
+              schema:
+                type: string
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                UNAUTHENTICATED:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Unauthorized
+                    status: 401
+                    detail: UNAUTHENTICATED
+                    instance: /api/v1/system/configs
+                    code: UNAUTHENTICATED
+        "403":
+          description: "Codes: FORBIDDEN"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                FORBIDDEN:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Forbidden
+                    status: 403
+                    detail: FORBIDDEN
+                    instance: /api/v1/system/configs
+                    code: FORBIDDEN
+        "500":
+          description: "Codes: INTERNAL_ERROR"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                INTERNAL_ERROR:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Service Unavailable
+                    status: 500
+                    detail: INTERNAL_ERROR
+                    instance: /api/v1/system/configs
+                    code: INTERNAL_ERROR
+        "503":
+          description: "Codes: CONFIG_UPDATE_FAILED"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                CONFIG_UPDATE_FAILED:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Service Unavailable
+                    status: 503
+                    detail: CONFIG_UPDATE_FAILED
+                    instance: /api/v1/system/configs
+                    code: CONFIG_UPDATE_FAILED
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+          example: NOTIFICATION_RETRY_LIMIT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigUpdate"
+            example:
+              value: 4
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Keycloak JWT validated with realm JWKS, issuer and nexus-services audience.
+  schemas:
+    Problem:
+      type: object
+      required:
+        - type
+        - title
+        - status
+        - detail
+        - instance
+        - code
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+        code:
+          type: string
+          pattern: \S
+          minLength: 1
+          description: Stable symbolic identifier. Branch on code and status; tolerate future unknown codes.
+        traceId:
+          type: string
+          pattern: \S
+          minLength: 1
+          description: Active trace/correlation identifier when available; optional without tracing.
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationError"
+    ValidationError:
+      type: object
+      required:
+        - field
+        - code
+        - detail
+      properties:
+        field:
+          type: string
+          description: Failed request field; an object-level failure uses the object name.
+        code:
+          type: string
+          description: Constraint identifier, for example VALIDATION_NOT_BLANK, VALIDATION_EMAIL, VALIDATION_SIZE or INVALID_PARAMETER.
+        detail:
+          type: string
+    PageInfo:
+      type: object
+      required:
+        - number
+        - size
+        - totalElements
+        - totalPages
+      properties:
+        number:
+          type: integer
+          minimum: 0
+        size:
+          type: integer
+          minimum: 1
+        totalElements:
+          type: integer
+          format: int64
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+    SystemConfig:
+      type: object
+      required:
+        - key
+        - value
+        - defaultValue
+        - description
+        - service
+        - applyMode
+        - configuredValue
+      properties:
+        key:
+          type: string
+        value: &a1
+          type:
+            - string
+            - number
+            - boolean
+            - "null"
+        defaultValue: *a1
+        description:
+          type: string
+        service:
+          type: string
+        configuredValue:
+          type:
+            - string
+            - number
+            - boolean
+        applyMode:
+          type: string
+          enum:
+            - RUNTIME
+            - CONFIG_SOURCE
+            - KEYCLOAK_MANAGED
+          description: RUNTIME is live retry policy. CONFIG_SOURCE follows its consumer refresh/restart behavior. KEYCLOAK_MANAGED reads value from the current realm, exposes the separate Config Server source as configuredValue and rejects PUT. No realm values are cached between requests.
+    ConfigListResponse:
+      type: object
+      required:
+        - code
+        - message
+        - data
+        - page
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SystemConfig"
+        page:
+          $ref: "#/components/schemas/PageInfo"
+    ConfigUpdate:
+      type: object
+      required:
+        - value
+      properties:
+        value: *a1
+    ConfigUpdatedResponse:
+      type: object
+      required:
+        - code
+        - message
+        - data
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: object
+          required:
+            - key
+            - value
+          properties:
+            key:
+              type: string
+            value: *a1

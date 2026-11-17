@@ -372,7 +372,9 @@ class UserControllerSecurityTest {
             HibernateJpaAutoConfiguration.class,
             DataJpaRepositoriesAutoConfiguration.class,
             FlywayAutoConfiguration.class,
-            KafkaAutoConfiguration.class
+            // Test HTTP không cần event transport khi common-outbox được bổ sung cho quản trị user.
+            KafkaAutoConfiguration.class, com.group5.common_events.autoconfigure.EventsAutoConfiguration.class,
+            com.group5.common_outbox.autoconfigure.IdempotentConsumerAutoConfiguration.class
     })
     static class TestApplication {
         @Bean
