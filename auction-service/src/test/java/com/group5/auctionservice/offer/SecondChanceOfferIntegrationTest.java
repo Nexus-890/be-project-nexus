@@ -160,9 +160,74 @@ class SecondChanceOfferIntegrationTest {
         }
     }
     @Test void unavailableEligibilityDoesNotBecomeNoCandidate() {
+        timeout();UUID b=UUID.randomUUID(),c=UUID.randomUUID();bid(b,480,"PLACED");bid(c,470,"PLACED");
+        var historical=send();trace(()->offers.respond(historical.id(),user(b,"BUYER"),false));
+        doThrow(new DomainException(AuctionErrorCode.AUCTION_REPUTATION_UNAVAILABLE)).when(guard).requireEligible(c,EligibilityAction.BID);
+        var preview=offers.seller(auction,owner);
+        assertThat(preview.canOffer()).isFalse();assertThat(preview.candidate()).isNull();
+        assertThat(preview.offers()).hasSize(1);
+        assertThat(preview.offers().getFirst().id()).isEqualTo(historical.id());
+        assertThat(preview.offers().getFirst().status()).isEqualTo("DECLINED");
+        assertThatThrownBy(()->trace(()->offers.send(auction,owner))).isInstanceOfSatisfying(DomainException.class,
+                failure->assertThat(failure.getErrorCode()).isEqualTo("AUCTION_REPUTATION_UNAVAILABLE"));
+        assertThat(events("SecondChanceOffered")).isEqualTo(1);
+    }
+    @Test void previewHttpKeepsHistoryDuringRatingOutageAndStillChecksOwnership() throws Exception {
+        timeout();UUID b=UUID.randomUUID(),c=UUID.randomUUID();bid(b,480,"PLACED");bid(c,470,"PLACED");
+        var history=send();trace(()->offers.respond(history.id(),user(b,"BUYER"),false));
+        doThrow(new DomainException(AuctionErrorCode.AUCTION_REPUTATION_UNAVAILABLE)).when(guard).requireEligible(c,EligibilityAction.BID);
+        var mvc=webAppContextSetup(context).addFilters(context.getBean("springSecurityFilterChain",jakarta.servlet.Filter.class)).build();
+        jwt("owner-preview",seller,"SELLER",List.of("AUCTION.LIST"));
+        mvc.perform(get("/api/v1/auctions/"+auction+"/second-chance-offers").header("Authorization","Bearer owner-preview"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.canOffer").value(false))
+                .andExpect(jsonPath("$.data.candidate").isEmpty())
+                .andExpect(jsonPath("$.data.offers[0].id").value(history.id().toString()));
+        jwt("other-preview",UUID.randomUUID(),"SELLER",List.of("AUCTION.LIST"));
+        mvc.perform(get("/api/v1/auctions/"+auction+"/second-chance-offers").header("Authorization","Bearer other-preview"))
+                .andExpect(status().isForbidden());
+    }
+    @Test void eligibilityCallsRunWithoutTransactionOrAuctionLock() {
+        timeout();UUID b=UUID.randomUUID(),c=UUID.randomUUID();bid(b,480,"PLACED");bid(c,470,"PLACED");
+        doAnswer(invocation->{
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            var probe=new TransactionTemplate(transactions);
+            probe.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            // NOWAIT is a real PostgreSQL row-lock probe, not just a mock of repository call order.
+            UUID locked=probe.execute(tx->jdbc.queryForObject("SELECT id FROM auctions WHERE id=? FOR UPDATE NOWAIT",UUID.class,auction));
+            assertThat(locked).isEqualTo(auction);
+            if(b.equals(invocation.getArgument(0)))throw new DomainException(AuctionErrorCode.AUCTION_REPUTATION_TOO_LOW);
+            return null;
+        }).when(guard).requireEligible(any(),eq(EligibilityAction.BID));
+        var sent=send();assertThat(sent.bidderId()).isEqualTo(c);assertThat(sent.amount()).isEqualByComparingTo("470");
+        verify(guard,times(1)).requireEligible(b,EligibilityAction.BID);
+        verify(guard,times(1)).requireEligible(c,EligibilityAction.BID);
+    }
+    @Test void sendRechecksCandidateExclusionsAfterEligibilityAndRejectsStaleChoice() {
+        timeout();UUID b=UUID.randomUUID(),c=UUID.randomUUID();bid(b,480,"PLACED");bid(c,470,"PLACED");
+        doAnswer(invocation->{
+            jdbc.update("UPDATE bids SET status='CANCELLED' WHERE auction_id=? AND bidder_id=?",auction,b);
+            return null;
+        }).when(guard).requireEligible(b,EligibilityAction.BID);
+        assertThatThrownBy(()->trace(()->offers.send(auction,owner))).isInstanceOfSatisfying(DomainException.class,
+                failure->assertThat(failure.getErrorCode()).isEqualTo("OFFER_CANDIDATE_CHANGED"));
+        assertThat(events("SecondChanceOffered")).isZero();assertThat(offers.mine(b,0,10)).isEmpty();
+        assertThat(send().bidderId()).isEqualTo(c);
+    }
+    @Test void sendRechecksAuctionStatusAfterEligibility() {
         timeout();UUID b=UUID.randomUUID();bid(b,480,"PLACED");
-        doThrow(new DomainException(AuctionErrorCode.AUCTION_REPUTATION_UNAVAILABLE)).when(guard).requireEligible(b,EligibilityAction.BID);
-        assertThatThrownBy(()->offers.seller(auction,owner)).isInstanceOf(DomainException.class).hasMessageContaining("temporarily unavailable");
+        doAnswer(invocation->{
+            jdbc.update("UPDATE auctions SET status='SETTLED',version=version+1 WHERE id=?",auction);
+            return null;
+        }).when(guard).requireEligible(b,EligibilityAction.BID);
+        assertThatThrownBy(()->trace(()->offers.send(auction,owner))).isInstanceOfSatisfying(DomainException.class,
+                failure->assertThat(failure.getErrorCode()).isEqualTo("OFFER_AUCTION_NOT_TIMED_OUT"));
+        assertThat(events("SecondChanceOffered")).isZero();
+    }
+    @Test void previewDoesNotSuppressUnrelatedDomainErrors() {
+        timeout();UUID b=UUID.randomUUID();bid(b,480,"PLACED");
+        doThrow(new DomainException(AuctionErrorCode.AUCTION_FORBIDDEN)).when(guard).requireEligible(b,EligibilityAction.BID);
+        assertThatThrownBy(()->offers.seller(auction,owner)).isInstanceOfSatisfying(DomainException.class,
+                failure->assertThat(failure.getErrorCode()).isEqualTo("AUCTION_FORBIDDEN"));
     }
     private void timeout(){timeouts.receive(cancel(order,"AUCTION","PAYMENT_DEADLINE_EXPIRED"));}
     private SecondChanceOfferService.Offer send(){return trace(()->offers.send(auction,owner)).offers().getFirst();}

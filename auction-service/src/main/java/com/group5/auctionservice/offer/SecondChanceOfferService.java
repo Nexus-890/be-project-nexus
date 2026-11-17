@@ -12,7 +12,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.sql.ResultSet;
@@ -34,6 +37,7 @@ public class SecondChanceOfferService {
     private final JdbcTemplate jdbc;
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
+    private final PlatformTransactionManager transactions;
 
     public record Candidate(UUID bidderId, String displayName, BigDecimal amount) { }
     public record Offer(UUID id, UUID auctionId, UUID bidderId, String displayName, BigDecimal amount,
@@ -49,21 +53,40 @@ public class SecondChanceOfferService {
         return state(auction);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SellerState send(UUID id, CurrentUser seller) {
-        Auction auction = find(id, true);
+        Auction snapshot = find(id, false);
+        requireSendable(snapshot, seller);
+        List<Candidate> candidates = candidates(snapshot);
+        // Rating may involve several HTTP calls. Do this without an auction lock or DB transaction.
+        Candidate next = eligibleCandidate(candidates);
+        if (next == null) throw error(OFFER_NO_ELIGIBLE_BIDDER);
+        return new TransactionTemplate(transactions).execute(ignored -> {
+            Auction auction = find(id, true);
+            requireSendable(auction, seller);
+            // Another request may have completed an offer round while eligibility was checked.
+            // Re-read the local ranking/exclusions under the lock; never send a stale candidate.
+            if (auction.getVersion() != snapshot.getVersion() || !candidates.equals(candidates(auction))) {
+                throw error(OFFER_CANDIDATE_CHANGED);
+            }
+            return createOffer(auction, seller, next);
+        });
+    }
+
+    private void requireSendable(Auction auction, CurrentUser seller) {
         owner(auction, seller);
         if (auction.getStatus() != AuctionStatus.PAYMENT_TIMEOUT) throw error(OFFER_AUCTION_NOT_TIMED_OUT);
-        if (hasOpen(id)) throw error(OFFER_ALREADY_OPEN);
-        Candidate next = candidate(auction);
-        if (next == null) throw error(OFFER_NO_ELIGIBLE_BIDDER);
+        if (hasOpen(auction.getId())) throw error(OFFER_ALREADY_OPEN);
+    }
+
+    private SellerState createOffer(Auction auction, CurrentUser seller, Candidate next) {
         Instant now = now();
         UUID offer = UUID.randomUUID();
         Instant expires = now.plus(properties.getSecondChanceOfferHours(), ChronoUnit.HOURS);
         jdbc.update("""
                 INSERT INTO auction_offers(id,auction_id,bidder_id,bidder_name,amount,status,offered_at,expires_at,created_by,updated_by)
                 VALUES (?,?,?,?,?,'OFFERED',?,?,?,?)
-                """, offer, id, next.bidderId(), next.displayName(), next.amount(), ts(now), ts(expires), seller.id(), seller.id());
+                """, offer, auction.getId(), next.bidderId(), next.displayName(), next.amount(), ts(now), ts(expires), seller.id(), seller.id());
         var payload = payload(auction, offer, next.bidderId());
         payload.put("amount", next.amount().setScale(2).toPlainString());
         payload.put("currency", auction.getCurrency());
@@ -149,13 +172,20 @@ public class SecondChanceOfferService {
 
     private SellerState state(Auction auction) {
         List<Offer> history = jdbc.query(select()+" WHERE o.auction_id=? ORDER BY o.offered_at DESC,o.id DESC", this::row, auction.getId());
-        Candidate candidate = auction.getStatus() == AuctionStatus.PAYMENT_TIMEOUT && !hasOpen(auction.getId()) ? candidate(auction) : null;
+        Candidate candidate = null;
+        if (auction.getStatus() == AuctionStatus.PAYMENT_TIMEOUT && !hasOpen(auction.getId())) {
+            try { candidate = eligibleCandidate(candidates(auction)); }
+            catch (DomainException failure) {
+                // A preview outage must not hide historical offers. Writes still fail closed.
+                if (!AUCTION_REPUTATION_UNAVAILABLE.code().equals(failure.getErrorCode())) throw failure;
+            }
+        }
         return new SellerState(auction.getId(), candidate != null, candidate, history);
     }
 
-    private Candidate candidate(Auction auction) {
+    private List<Candidate> candidates(Auction auction) {
         // The DISTINCT row preserves the masked name and a stable tie break for the bidder's highest bid.
-        List<Candidate> candidates = jdbc.query("""
+        return jdbc.query("""
                 SELECT bidder_id,bidder_name,amount FROM (
                   SELECT DISTINCT ON (b.bidder_id) b.bidder_id,b.bidder_name,b.amount,b.placed_at,b.id
                   FROM bids b WHERE b.auction_id=? AND b.status<>'CANCELLED' AND b.bidder_id<>?
@@ -165,6 +195,9 @@ public class SecondChanceOfferService {
                 ) ranked ORDER BY amount DESC,placed_at,id
                 """, (rs,n)->new Candidate(rs.getObject(1,UUID.class), rs.getString(2),rs.getBigDecimal(3)),
                 auction.getId(), auction.getWinnerId(), auction.getSellerId());
+    }
+
+    private Candidate eligibleCandidate(List<Candidate> candidates) {
         for (Candidate candidate : candidates) {
             try { eligibility.requireEligible(candidate.bidderId(), EligibilityAction.BID); return candidate; }
             catch (DomainException failure) {

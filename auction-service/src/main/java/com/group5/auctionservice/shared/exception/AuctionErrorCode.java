@@ -7,6 +7,7 @@ public enum AuctionErrorCode implements ErrorCode {
     OFFER_AUCTION_NOT_TIMED_OUT(HttpStatus.CONFLICT, "Auction is not awaiting a second chance offer"),
     OFFER_ALREADY_OPEN(HttpStatus.CONFLICT, "An offer is already open"),
     OFFER_NO_ELIGIBLE_BIDDER(HttpStatus.CONFLICT, "No eligible bidder remains"),
+    OFFER_CANDIDATE_CHANGED(HttpStatus.CONFLICT, "Offer candidates changed; refresh the preview and try again"),
     OFFER_EXPIRED(HttpStatus.CONFLICT, "The offer has expired"),
     OFFER_NOT_YOURS(HttpStatus.FORBIDDEN, "This offer belongs to another buyer"),
     OFFER_NOT_FOUND(HttpStatus.NOT_FOUND, "Offer not found"),
