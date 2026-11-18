@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.google.zxing.BinaryBitmap;
+import com.google.zxing.DecodeHintType;
 import com.google.zxing.MultiFormatReader;
 import com.google.zxing.RGBLuminanceSource;
 import com.google.zxing.common.HybridBinarizer;
@@ -559,7 +560,10 @@ SELECT count(DISTINCT funded_transaction_id) FROM payment_instructions WHERE ses
                                 image.getWidth()));
         String payload =
                 new MultiFormatReader()
-                        .decode(new BinaryBitmap(new HybridBinarizer(source)))
+                        // This is the exact, unrotated generated PNG, not a camera image.
+                        .decode(
+                                new BinaryBitmap(new HybridBinarizer(source)),
+                                Map.of(DecodeHintType.PURE_BARCODE, true))
                         .getText();
         var fields = tlv(payload);
         var merchant = tlv(fields.get("38"));

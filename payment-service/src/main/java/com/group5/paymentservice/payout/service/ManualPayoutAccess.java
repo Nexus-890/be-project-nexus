@@ -54,7 +54,11 @@ public class ManualPayoutAccess {
     }
 
     public List<String> actions(
-            CurrentUser actor, Map<String, Object> p, Map<String, Object> a, boolean openCase) {
+            CurrentUser actor,
+            Map<String, Object> p,
+            Map<String, Object> a,
+            boolean openCase,
+            boolean openSellerDispute) {
         if (actor.id().equals(p.get("seller_id"))) return List.of();
         List<String> result = new ArrayList<>();
         String status = Objects.toString(p.get("status"));
@@ -85,7 +89,7 @@ public class ManualPayoutAccess {
         }
         if (actor.hasRole("ADMIN") && openCase) {
             result.add("RESOLVE");
-            result.add("REVIEW_DISPUTE");
+            if (openSellerDispute) result.add("REVIEW_DISPUTE");
             if (!result.contains("UPLOAD_EVIDENCE")) result.add("UPLOAD_EVIDENCE");
         }
         return List.copyOf(result);

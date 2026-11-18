@@ -289,7 +289,7 @@ class ManualPayoutServiceAuthorizationTest {
                                             key(),
                                             new ClaimCommand(0L))));
             assertForbidden(catchThrowable(() -> service.qr(mixed, PAYOUT, ATTEMPT)));
-            assertThat(access.actions(mixed, payout, attempt, true)).isEmpty();
+            assertThat(access.actions(mixed, payout, attempt, true, true)).isEmpty();
         }
         assertForbidden(catchThrowable(() -> access.seller(actor(SELLER, "ADMIN"), payout)));
         verify(repository, never()).command(any());
@@ -300,9 +300,9 @@ class ManualPayoutServiceAuthorizationTest {
     void anotherAdminHasNoOwnershipBypassForAnExecutorsLiveQr() {
         var error = catchThrowable(() -> service.qr(actor(REVIEWER, "ADMIN"), PAYOUT, ATTEMPT));
         assertDomain(error, 409, MANUAL_PAYOUT_CONFLICT.code());
-        assertThat(access.actions(actor(REVIEWER, "ADMIN"), payout, attempt, true))
+        assertThat(access.actions(actor(REVIEWER, "ADMIN"), payout, attempt, true, true))
                 .doesNotContain("READ_QR", "CONFIRM_TRANSFER");
-        assertThat(access.actions(actor(EXECUTOR, "SUPPORT_STAFF"), payout, attempt, false))
+        assertThat(access.actions(actor(EXECUTOR, "SUPPORT_STAFF"), payout, attempt, false, false))
                 .contains("READ_QR", "CONFIRM_TRANSFER");
         verifyNoInteractions(qr, storage);
         verify(repository, never()).updateAttempt(any(), anyMap());

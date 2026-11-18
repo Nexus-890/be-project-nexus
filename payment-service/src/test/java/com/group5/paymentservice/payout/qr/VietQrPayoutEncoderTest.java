@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.google.zxing.BinaryBitmap;
+import com.google.zxing.DecodeHintType;
 import com.google.zxing.MultiFormatReader;
 import com.google.zxing.RGBLuminanceSource;
 import com.google.zxing.common.HybridBinarizer;
@@ -16,6 +17,8 @@ import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Random;
+import java.util.UUID;
 
 import javax.imageio.ImageIO;
 
@@ -66,6 +69,56 @@ class VietQrPayoutEncoderTest {
         // A second render is the same instruction, with no fresh reference/deadline.
         assertThat(encoder.encode("970436", "0011002299881", new BigDecimal("95000"), "NXP272A17"))
                 .isEqualTo(png);
+    }
+
+    @Test
+    void purePngDecodingPreservesVariedInstructionsIncludingFinderLikeDataPatterns()
+            throws Exception {
+        // Reproduces the synthetic instruction for which the camera-oriented detector selected
+        // finder-like data patterns. Decode the clean PNG matrix without camera localization.
+        var references = new java.util.ArrayList<String>();
+        references.add("NXP2c3f3fb7f0ff4596a7bd");
+        var random = new Random(272L);
+        for (int index = 0; index < 64; index++)
+            references.add(
+                    "NXP"
+                            + new UUID(random.nextLong(), random.nextLong())
+                                    .toString()
+                                    .replace("-", "")
+                                    .substring(0, 20));
+        for (String reference : references) {
+            byte[] png =
+                    encoder.encode("970418", "000009998877", new BigDecimal("224250"), reference);
+            var image = ImageIO.read(new ByteArrayInputStream(png));
+            var source =
+                    new RGBLuminanceSource(
+                            image.getWidth(),
+                            image.getHeight(),
+                            image.getRGB(
+                                    0,
+                                    0,
+                                    image.getWidth(),
+                                    image.getHeight(),
+                                    null,
+                                    0,
+                                    image.getWidth()));
+            String decoded =
+                    new MultiFormatReader()
+                            .decode(
+                                    new BinaryBitmap(new HybridBinarizer(source)),
+                                    Map.of(DecodeHintType.PURE_BARCODE, true))
+                            .getText();
+            assertThat(decoded)
+                    .isEqualTo(
+                            encoder.payload(
+                                    "970418", "000009998877", new BigDecimal("224250"), reference));
+            var fields = tlv(decoded);
+            assertThat(fields).containsEntry("54", "224250").containsEntry("53", "704");
+            assertThat(tlv(tlv(fields.get("38")).get("01")))
+                    .containsEntry("00", "970418")
+                    .containsEntry("01", "000009998877");
+            assertThat(tlv(fields.get("62"))).containsEntry("08", reference);
+        }
     }
 
     @Test

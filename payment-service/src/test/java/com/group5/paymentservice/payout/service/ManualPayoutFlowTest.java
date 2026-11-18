@@ -1273,6 +1273,299 @@ class ManualPayoutFlowTest extends PaymentDatabaseTestSupport {
     }
 
     @Test
+    void anAdminCanDismissAMistakenStaffReportOnSuccessWithoutPostingOrChangingReceipt() {
+        Fixture f = funded();
+        var settled = settle(f, support);
+        UUID attempt = settled.currentAttempt().id();
+        command(
+                support,
+                f,
+                attempt,
+                "REPORT_PROBLEM",
+                new ProblemCommand(
+                        settled.currentAttempt().version(),
+                        "Reported a problem by mistake",
+                        settled.evidence().stream().map(ManualPayoutView.Evidence::id).toList()));
+        var current = detail(f);
+        var review = current.cases().getFirst();
+        var body = sentResolution(current, review.id());
+        String requestKey = key();
+        var moneyBefore = settledFinancialSnapshot(f);
+        long audits =
+                jdbc.queryForObject(
+                        "SELECT count(*) FROM payout_history WHERE payout_id=? AND"
+                            + " event='MANUAL_RESOLVED'",
+                        Long.class,
+                        f.id());
+        assertThatThrownBy(
+                        () ->
+                                manual.execute(
+                                        support,
+                                        f.id(),
+                                        attempt,
+                                        review.id(),
+                                        "RESOLVE",
+                                        requestKey,
+                                        body))
+                .isInstanceOf(DomainException.class);
+        var resolved =
+                manual.execute(admin, f.id(), attempt, review.id(), "RESOLVE", requestKey, body);
+        assertThat(resolved.result().status()).isEqualTo("SUCCEEDED");
+        assertThat(resolved.result().currentAttempt().receiptStatus())
+                .isEqualTo("AWAITING_CONFIRMATION");
+        assertThat(resolved.result().cases())
+                .filteredOn(c -> c.id().equals(review.id()))
+                .extracting(ManualPayoutView.ReviewCase::status)
+                .containsExactly("RESOLVED");
+        assertThat(settledFinancialSnapshot(f)).isEqualTo(moneyBefore);
+        assertThat(
+                        manual.execute(
+                                        admin,
+                                        f.id(),
+                                        attempt,
+                                        review.id(),
+                                        "RESOLVE",
+                                        requestKey,
+                                        body)
+                                .replay())
+                .isTrue();
+        assertThat(settledFinancialSnapshot(f)).isEqualTo(moneyBefore);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM payout_history WHERE payout_id=? AND"
+                                    + " event='MANUAL_RESOLVED'",
+                                Long.class,
+                                f.id()))
+                .isEqualTo(audits + 1);
+        assertThat(movements(f, "PAYOUT")).isEqualTo(1);
+        assertThat(movements(f, "PAYOUT_RETURN")).isZero();
+        assertThat(movements(f, "PAYOUT_CORRECTION")).isZero();
+        assertThat(outbox(f, "PayoutSucceeded")).isEqualTo(1);
+        assertThatThrownBy(
+                        () ->
+                                manual.execute(
+                                        admin,
+                                        f.id(),
+                                        attempt,
+                                        review.id(),
+                                        "RESOLVE",
+                                        key(),
+                                        body))
+                .isInstanceOf(DomainException.class);
+    }
+
+    @Test
+    void dismissingOneSuccessfulStaffExceptionDoesNotCloseSellerDisputesOrOtherStaffCases() {
+        Fixture f = funded();
+        var settled = settle(f, support);
+        UUID attempt = settled.currentAttempt().id();
+        command(
+                f.seller(),
+                f,
+                attempt,
+                "SELLER_DISPUTE",
+                new DisputeCommand(
+                        settled.currentAttempt().receiptVersion(),
+                        DisputeReason.NOT_RECEIVED,
+                        "Seller still requests a receipt review"));
+        var disputed = detail(f);
+        command(
+                support,
+                f,
+                attempt,
+                "REPORT_PROBLEM",
+                new ProblemCommand(
+                        disputed.currentAttempt().version(),
+                        "First mistaken staff report",
+                        List.of()));
+        var first = detail(f);
+        UUID reviewed =
+                first.cases().stream()
+                        .filter(c -> "STAFF_EXCEPTION".equals(c.kind()))
+                        .findFirst()
+                        .orElseThrow()
+                        .id();
+        command(
+                support,
+                f,
+                attempt,
+                "REPORT_PROBLEM",
+                new ProblemCommand(
+                        first.currentAttempt().version(), "Another independent report", List.of()));
+        var current = detail(f);
+        var before = settledFinancialSnapshot(f);
+        var resolved =
+                manual.execute(
+                                admin,
+                                f.id(),
+                                attempt,
+                                reviewed,
+                                "RESOLVE",
+                                key(),
+                                sentResolution(current, reviewed))
+                        .result();
+        assertThat(resolved.cases())
+                .filteredOn(c -> c.id().equals(reviewed))
+                .extracting(ManualPayoutView.ReviewCase::status)
+                .containsExactly("RESOLVED");
+        assertThat(resolved.cases())
+                .filteredOn(c -> !c.id().equals(reviewed))
+                .extracting(ManualPayoutView.ReviewCase::status)
+                .containsOnly("OPEN");
+        assertThat(resolved.currentAttempt().receiptStatus()).isEqualTo("DISPUTED");
+        assertThat(settledFinancialSnapshot(f)).isEqualTo(before);
+        var sellerCase =
+                current.cases().stream()
+                        .filter(c -> "SELLER_DISPUTE".equals(c.kind()))
+                        .findFirst()
+                        .orElseThrow();
+        assertThatThrownBy(
+                        () ->
+                                manual.execute(
+                                        admin,
+                                        f.id(),
+                                        attempt,
+                                        sellerCase.id(),
+                                        "RESOLVE",
+                                        key(),
+                                        sentResolution(detail(f), sellerCase.id())))
+                .isInstanceOf(DomainException.class);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT status FROM payout_review_cases WHERE id=?",
+                                String.class,
+                                sellerCase.id()))
+                .isEqualTo("OPEN");
+        assertThat(settledFinancialSnapshot(f)).isEqualTo(before);
+    }
+
+    @Test
+    void dismissingAMistakenReportPreservesAnAlreadyConfirmedSellerReceipt() {
+        Fixture f = funded();
+        var settled = settle(f, support);
+        UUID attempt = settled.currentAttempt().id();
+        command(
+                f.seller(),
+                f,
+                attempt,
+                "SELLER_RECEIPT",
+                new ReceiptCommand(settled.currentAttempt().receiptVersion()));
+        var received = detail(f);
+        command(
+                support,
+                f,
+                attempt,
+                "REPORT_PROBLEM",
+                new ProblemCommand(
+                        received.currentAttempt().version(),
+                        "Accidental report after receipt",
+                        List.of()));
+        var current = detail(f);
+        UUID review = current.cases().getFirst().id();
+        var before = settledFinancialSnapshot(f);
+        manual.execute(
+                admin, f.id(), attempt, review, "RESOLVE", key(), sentResolution(current, review));
+        assertThat(detail(f).currentAttempt().receiptStatus()).isEqualTo("CONFIRMED");
+        assertThat(settledFinancialSnapshot(f)).isEqualTo(before);
+    }
+
+    @Test
+    void reportingAnIssuedProblemWritesOneCaseLinkedAuditAndReplayAddsNothing() {
+        Fixture f = funded();
+        var issued = issue(f, support, claim(f, support));
+        UUID attempt = issued.currentAttempt().id();
+        String reportKey = key();
+        var body =
+                new ProblemCommand(
+                        issued.currentAttempt().version(),
+                        "External transfer result is uncertain",
+                        List.of());
+        var reported =
+                manual.execute(support, f.id(), attempt, null, "REPORT_PROBLEM", reportKey, body)
+                        .result();
+        assertThat(reported.status()).isEqualTo("UNKNOWN");
+        assertThat(reported.cases()).hasSize(1);
+        var history =
+                jdbc.queryForList(
+                        "SELECT case_id,reason,from_status::text,to_status::text FROM"
+                            + " payout_history WHERE payout_id=? AND event='MANUAL_PROBLEM'",
+                        f.id());
+        assertThat(history).hasSize(1);
+        assertThat(history.getFirst())
+                .containsEntry("case_id", reported.cases().getFirst().id())
+                .containsEntry("reason", body.reason())
+                .containsEntry("from_status", "PROCESSING")
+                .containsEntry("to_status", "UNKNOWN");
+        assertThat(
+                        manual.execute(
+                                        support,
+                                        f.id(),
+                                        attempt,
+                                        null,
+                                        "REPORT_PROBLEM",
+                                        reportKey,
+                                        body)
+                                .replay())
+                .isTrue();
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM payout_history WHERE payout_id=? AND"
+                                    + " event='MANUAL_PROBLEM'",
+                                Long.class,
+                                f.id()))
+                .isEqualTo(1);
+        assertThat(movements(f, "PAYOUT")).isZero();
+    }
+
+    private ResolutionCommand sentResolution(ManualPayoutView view, UUID reviewId) {
+        var review =
+                view.cases().stream()
+                        .filter(c -> c.id().equals(reviewId))
+                        .findFirst()
+                        .orElseThrow();
+        return new ResolutionCommand(
+                view.version(),
+                view.currentAttempt().version(),
+                review.version(),
+                review.id(),
+                ResolutionOutcome.CONFIRMED_SENT,
+                "Reviewed transfer proof; staff report was mistaken",
+                view.evidence().stream().map(ManualPayoutView.Evidence::id).toList(),
+                null,
+                null,
+                null,
+                null);
+    }
+
+    private List<String> settledFinancialSnapshot(Fixture f) {
+        var rows = new ArrayList<String>();
+        rows.add(
+                jdbc.queryForObject(
+                        "SELECT row_to_json(p)::text FROM payouts p WHERE id=?",
+                        String.class,
+                        f.id()));
+        rows.addAll(
+                jdbc.queryForList(
+                        "SELECT row_to_json(a)::text FROM manual_payout_attempts a WHERE"
+                            + " payout_id=? ORDER BY id",
+                        String.class,
+                        f.id()));
+        rows.addAll(
+                jdbc.queryForList(
+                        "SELECT row_to_json(t)::text FROM payment_transactions t WHERE session_id=?"
+                            + " ORDER BY id",
+                        String.class,
+                        f.sessionId()));
+        rows.addAll(
+                jdbc.queryForList(
+                        "SELECT row_to_json(o)::text FROM outbox o WHERE aggregate_id=? ORDER BY"
+                            + " id",
+                        String.class,
+                        f.id().toString()));
+        return rows;
+    }
+
+    @Test
     void genuineReturnCompensatesOnceAndAnExplicitRetryUsesANewAttempt() {
         Fixture f = funded();
         var settled = settle(f, support);

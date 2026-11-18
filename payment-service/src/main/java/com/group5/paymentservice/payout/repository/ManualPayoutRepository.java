@@ -2,6 +2,7 @@ package com.group5.paymentservice.payout.repository;
 
 import com.group5.common_security.CurrentUser;
 import com.group5.paymentservice.payout.dto.request.ManualPayoutFilter;
+import com.group5.paymentservice.payout.model.ManualPayoutQueueRow;
 
 import java.util.*;
 
@@ -40,7 +41,9 @@ public interface ManualPayoutRepository {
             String json,
             String actorRole);
 
-    List<UUID> queue(ManualPayoutFilter filter, CurrentUser actor);
+    List<ManualPayoutQueueRow> queue(ManualPayoutFilter filter, CurrentUser actor);
+
+    List<Map<String, Object>> queueCases(List<UUID> payoutIds);
 
     long count(ManualPayoutFilter filter, CurrentUser actor);
 

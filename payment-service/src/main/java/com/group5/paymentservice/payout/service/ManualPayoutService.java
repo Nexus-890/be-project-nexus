@@ -291,9 +291,11 @@ public class ManualPayoutService {
                         true,
                         command.evidenceIds() == null ? List.of() : command.evidenceIds());
                 if (!"SUCCEEDED".equals(a.get("state")))
-                    uncertain(p, a, actor, "Staff reported uncertainty");
-                else repository.updateAttempt(attemptId, fields("state", "SUCCEEDED"));
-                audit(p, attemptId, review, "MANUAL_PROBLEM", actor, command.reason(), false);
+                    uncertain(p, a, actor, command.reason(), review);
+                else {
+                    repository.updateAttempt(attemptId, fields("state", "SUCCEEDED"));
+                    audit(p, attemptId, review, "MANUAL_PROBLEM", actor, command.reason(), false);
+                }
                 created = true;
             }
             case "RESOLVE" -> {
@@ -309,6 +311,25 @@ public class ManualPayoutService {
                 require(!"RESOLVED".equals(review.get("status")));
                 boundEvidence(payoutId, attemptId, command.evidenceIds(), actor, true);
                 repository.attachEvidence(command.caseId(), true, command.evidenceIds());
+                if (command.outcome() == ResolutionOutcome.CONFIRMED_SENT
+                        && "SUCCEEDED".equals(a.get("state"))) {
+                    require(
+                            "SUCCEEDED".equals(p.get("status"))
+                                    && a.get("transaction_id") != null
+                                    && "STAFF_EXCEPTION".equals(review.get("kind")));
+                    // A mistaken staff report does not undo a settled payment or settle it again.
+                    // Close only the reviewed exception; seller disputes remain independent.
+                    closeCase(review, actor, command.outcome().name());
+                    audit(
+                            p,
+                            attemptId,
+                            command.caseId(),
+                            "MANUAL_RESOLVED",
+                            actor,
+                            command.reason(),
+                            false);
+                    break;
+                }
                 switch (command.outcome()) {
                     case CONFIRMED_SENT -> {
                         require("UNKNOWN".equals(a.get("state")));
@@ -845,6 +866,15 @@ public class ManualPayoutService {
 
     private void uncertain(
             Map<String, Object> p, Map<String, Object> a, CurrentUser actor, String reason) {
+        uncertain(p, a, actor, reason, null);
+    }
+
+    private void uncertain(
+            Map<String, Object> p,
+            Map<String, Object> a,
+            CurrentUser actor,
+            String reason,
+            UUID reportedCaseId) {
         repository.updateAttempt(id(a, "id"), fields("state", "UNKNOWN"));
         changePayout(
                 p,
@@ -855,8 +885,10 @@ public class ManualPayoutService {
                         "RECONCILIATION_REQUIRED",
                         "updated_by",
                         actor.id()));
-        if (!openCase(id(p, "id"))) {
+        UUID auditCaseId = reportedCaseId;
+        if (reportedCaseId == null && !openCase(id(p, "id"))) {
             UUID review = UUID.randomUUID();
+            auditCaseId = review;
             disputes.insertCase(
                     fields(
                             "id",
@@ -876,7 +908,7 @@ public class ManualPayoutService {
                             "reported_by",
                             actor.id()));
         }
-        audit(p, id(a, "id"), null, "MANUAL_PROBLEM", actor, reason, false);
+        audit(p, id(a, "id"), auditCaseId, "MANUAL_PROBLEM", actor, reason, false);
     }
 
     private void confirm(

@@ -1334,7 +1334,7 @@ paths:
         - "ManualPayouts"
       operationId: "listManualPayouts"
       summary: "List the manual execution and review queue"
-      description: "Filters MANUAL rows before count/paging. Repeated status values use OR; other filters use AND. Inclusive createdAt bounds, createdAt DESC and id DESC. Open cases on SUCCEEDED rows remain in needsReview; hasOpenDispute means unresolved OPEN/UNDER_REVIEW/WAITING_SELLER seller disputes. Reads never claim, release, issue QR or settle money."
+      description: "Returns a lightweight MANUAL queue projection, with filters applied before count/paging. Repeated status values use OR; other filters use AND. Inclusive createdAt bounds, createdAt DESC and id DESC. Each row includes masked payout/recipient data, current attempt/receipt state, versions, readiness and allowedActions. Cases contain current-attempt summaries only, with explanation empty; history and evidence are empty arrays and must be loaded from the detail endpoint when authorized. Open cases on SUCCEEDED rows remain in needsReview; hasOpenDispute means unresolved OPEN/UNDER_REVIEW/WAITING_SELLER seller disputes. REVIEW_DISPUTE is offered only for an open SELLER_DISPUTE on the current attempt, not for a STAFF_EXCEPTION alone. Reads never claim, release, issue QR or settle money."
       security:
         -
           bearerAuth: []
@@ -1419,7 +1419,7 @@ paths:
         - "ManualPayouts"
       operationId: "getManualPayout"
       summary: "Read masked manual payout detail"
-      description: "Returns independent payout, attempt, receipt and dispute state plus current versions and allowedActions. A role does not bypass live QR/proof ownership."
+      description: "Returns independent payout, attempt, receipt and dispute state plus current versions and allowedActions. Unlike the lightweight queue, detail includes history and the evidence metadata visible to this actor. A role does not bypass live QR/proof ownership. REVIEW_DISPUTE requires an open SELLER_DISPUTE on the current attempt; a staff exception alone does not grant that action."
       security:
         -
           bearerAuth: []
@@ -1854,7 +1854,7 @@ paths:
         - "ManualPayouts"
       operationId: "reportManualPayoutProblem"
       summary: "Report uncertainty or an external payment problem"
-      description: "Owning executor supplies reason/evidence. An uncertain issued attempt becomes UNKNOWN with no ordinary retry. A suspected wrong/duplicate external payment after SUCCEEDED opens an audited exception without erasing success or authorizing another payment. Requires a UUID Idempotency-Key and the relevant expected version. Exact replay returns 200 with the original result and creates no duplicate financial movement; changed context conflicts. GET never performs this operation."
+      description: "Owning executor supplies reason/evidence. An uncertain issued attempt becomes UNKNOWN with no ordinary retry. One successful new report creates one STAFF_EXCEPTION and one MANUAL_PROBLEM audit linked to that case, including the original financial status; an exact replay adds neither. A suspected wrong/duplicate external payment after SUCCEEDED opens an audited exception without erasing success or authorizing another payment. If the staff report was mistaken, ADMIN may close that specific STAFF_EXCEPTION with CONFIRMED_SENT while retaining the successful payout and its accounting. Requires a UUID Idempotency-Key and the relevant expected version. Exact replay returns 200 with the original result and creates no duplicate financial movement; changed context conflicts. GET never performs this operation."
       security:
         -
           bearerAuth: []
@@ -1870,7 +1870,13 @@ paths:
           $ref: "#/components/parameters/ManualIdempotencyKey"
       responses:
         "200":
-          description: "Authoritative result"
+          description: "Exact replay of the original problem report"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualPayoutApiResponse"
+        "201":
+          description: "One staff exception and its problem audit created"
           content:
             application/json:
               schema:
@@ -1898,8 +1904,8 @@ paths:
       tags:
         - "ManualPayouts"
       operationId: "resolveManualPayout"
-      summary: "Resolve a manual financial exception"
-      description: "ADMIN only, including when the reporting executor is SUPPORT_STAFF; self-seller reconciliation denied. CONFIRMED_SENT settles once, CONFIRMED_NOT_SENT leaves FAILED pending explicit retry, CONFIRMED_RETURNED adds a genuine PAYOUT_RETURN. CONFIRMATION_RECORDED_IN_ERROR requires an open reviewed case and non-execution proof, links one PAYOUT_CORRECTION and corrective event, preserves the original history and leaves the same payout FAILED. Seller acknowledgement/correction/retry serialize; a closed case needs a new explicit review. Requires a UUID Idempotency-Key and the relevant expected version. Exact replay returns 200 with the original result and creates no duplicate financial movement; changed context conflicts. GET never performs this operation."
+      summary: "Resolve a manual exception or dismiss a mistaken staff report"
+      description: "ADMIN only, including when the reporting executor is SUPPORT_STAFF; self-seller reconciliation denied. CONFIRMED_SENT has two guarded effects: for UNKNOWN it settles once with the required transfer facts; when both payout and attempt are already SUCCEEDED and the selected open case is STAFF_EXCEPTION, it only resolves that specific mistaken staff report and appends audit. The latter preserves payout/attempt success, original PAYOUT, receipt state and any other case, including seller disputes; it creates no movement or success outbox event and needs no new transfer facts. A SUCCEEDED seller dispute alone cannot use this nonfinancial closure. CONFIRMED_NOT_SENT leaves FAILED pending explicit retry, and CONFIRMED_RETURNED adds a genuine PAYOUT_RETURN. CONFIRMATION_RECORDED_IN_ERROR requires an open reviewed case and non-execution proof, links one PAYOUT_CORRECTION and corrective event, preserves the original history and leaves the same payout FAILED. Seller acknowledgement/correction/retry serialize; a closed case needs a new explicit review. Every resolution still requires reason, bound evidence, UUID Idempotency-Key and the relevant expected versions. Exact replay returns 200 with the original result and creates no duplicate audit or financial movement; changed context conflicts. GET never performs this operation."
       security:
         -
           bearerAuth: []
@@ -3045,6 +3051,7 @@ components:
 
     ManualPayoutAction:
       type: "string"
+      description: "Authoritative current-actor/current-attempt actions. REVIEW_DISPUTE requires an unresolved SELLER_DISPUTE on the current attempt; STAFF_EXCEPTION alone can allow ADMIN RESOLVE but never REVIEW_DISPUTE."
       enum:
         - "CLAIM"
         - "ISSUE_QR"
@@ -3186,6 +3193,7 @@ components:
         explanation:
           type: "string"
           nullable: true
+          description: "Empty in queue summaries; detail applies actor-specific access to the private explanation."
         version:
           type: "integer"
           format: "int64"
@@ -3324,14 +3332,17 @@ components:
           $ref: "#/components/schemas/ManualPayoutAttemptView"
         evidence:
           type: "array"
+          description: "Empty in queue rows. Detail returns only the private-file metadata the actor may access."
           items:
             $ref: "#/components/schemas/ManualPayoutEvidenceView"
         cases:
           type: "array"
+          description: "Queue rows contain current-attempt summaries with empty explanations; detail returns the permitted case history and notes."
           items:
             $ref: "#/components/schemas/ManualPayoutCaseView"
         history:
           type: "array"
+          description: "Empty in queue rows; immutable history is loaded by the detail endpoint and filtered for the current actor."
           items:
             $ref: "#/components/schemas/ManualPayoutHistoryView"
         recipient:
@@ -3563,6 +3574,7 @@ components:
           format: "uuid"
         outcome:
           type: "string"
+          description: "CONFIRMED_SENT settles UNKNOWN with transfer facts, or only closes the selected open STAFF_EXCEPTION when payout and attempt are already SUCCEEDED. That nonfinancial closure does not close seller disputes or change accounting/receipt state."
           enum:
             - "CONFIRMED_SENT"
             - "CONFIRMED_NOT_SENT"
@@ -3583,6 +3595,7 @@ components:
         sourceAccountId:
           type: "string"
           nullable: true
+          description: "Required for CONFIRMED_SENT settlement of UNKNOWN; omitted when merely closing a STAFF_EXCEPTION on an already successful attempt."
         amount:
           type: "string"
           pattern: "^[0-9]{1,17}\\.[0-9]{2}$"
@@ -3593,6 +3606,7 @@ components:
           type: "string"
           nullable: true
           maxLength: 120
+          description: "Required for CONFIRMED_SENT settlement of UNKNOWN; do not replace the original reference for nonfinancial closure on SUCCEEDED."
         transferredAt:
           type: "string"
           format: "date-time"
@@ -3707,6 +3721,7 @@ components:
           $ref: "#/components/schemas/ManualReceiptView"
     ManualPayoutPageApiResponse:
       type: "object"
+      description: "Lightweight queue page: bounded summary reads, no full history or evidence fetch per row. Rows retain the ManualPayoutView wire shape with history/evidence empty and current-attempt case explanations empty."
       required:
         - "code"
         - "message"

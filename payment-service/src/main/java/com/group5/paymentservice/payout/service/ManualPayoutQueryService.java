@@ -8,6 +8,7 @@ import com.group5.common_security.CurrentUser;
 import com.group5.paymentservice.payout.config.*;
 import com.group5.paymentservice.payout.dto.request.ManualPayoutFilter;
 import com.group5.paymentservice.payout.dto.response.*;
+import com.group5.paymentservice.payout.model.ManualPayoutQueueRow;
 import com.group5.paymentservice.payout.repository.*;
 
 import lombok.RequiredArgsConstructor;
@@ -58,8 +59,26 @@ public class ManualPayoutQueryService {
                 throw new DomainException(MANUAL_PAYOUT_INVALID_REQUEST);
             }
         long total = repository.count(filter, actor);
+        var rows = repository.queue(filter, actor);
+        var casesByPayout =
+                repository
+                        .queueCases(rows.stream().map(row -> id(row.payout(), "id")).toList())
+                        .stream()
+                        .collect(
+                                java.util.stream.Collectors.groupingBy(
+                                        row -> id(row, "payout_id")));
+        var serverTime = now();
         return new ManualPayoutPage(
-                repository.queue(filter, actor).stream().map(id -> view(actor, id, false)).toList(),
+                rows.stream()
+                        .map(
+                                row ->
+                                        summary(
+                                                actor,
+                                                row,
+                                                casesByPayout.getOrDefault(
+                                                        id(row.payout(), "id"), List.of()),
+                                                serverTime))
+                        .toList(),
                 new PageInfo(
                         filter.page(),
                         filter.size(),
@@ -72,6 +91,66 @@ public class ManualPayoutQueryService {
         return view(actor, payoutId, false);
     }
 
+    /** Queue rows never load private proof, history or historical case explanations. */
+    private ManualPayoutView summary(
+            CurrentUser actor,
+            ManualPayoutQueueRow row,
+            List<Map<String, Object>> cases,
+            OffsetDateTime serverTime) {
+        var p = row.payout();
+        var a = row.attempt();
+        var bank = row.reviewedBank();
+        boolean open = cases.stream().anyMatch(c -> !"RESOLVED".equals(c.get("status")));
+        boolean sellerDispute =
+                cases.stream()
+                        .anyMatch(
+                                c ->
+                                        "SELLER_DISPUTE".equals(c.get("kind"))
+                                                && !"RESOLVED".equals(c.get("status")));
+        var allowed = new ArrayList<>(access.actions(actor, p, a, open, sellerDispute));
+        String blockedReason = str(p, "blocked_reason");
+        if (Set.of("PENDING", "ON_HOLD").contains(str(p, "status"))) {
+            blockedReason = readiness.blockedReason(p, bank, row.funded());
+            applyReadinessActions(actor, p, allowed, blockedReason, false);
+        }
+        var summaries =
+                cases.stream()
+                        .map(
+                                c ->
+                                        new ManualPayoutView.ReviewCase(
+                                                id(c, "id"),
+                                                str(c, "kind"),
+                                                str(c, "status"),
+                                                str(c, "reason"),
+                                                "",
+                                                number(c, "version").longValue(),
+                                                time(c, "created_at")))
+                        .toList();
+        return new ManualPayoutView(
+                id(p, "id"),
+                id(p, "order_id"),
+                id(p, "seller_id"),
+                str(p, "status"),
+                str(p, "execution_mode"),
+                str(p, "confirmation_source"),
+                money(p, "order_amount"),
+                money(p, "shipping_fee"),
+                money(p, "platform_fee"),
+                money(p, "net_amount"),
+                str(p, "currency"),
+                number(p, "version").longValue(),
+                blockedReason,
+                List.copyOf(allowed),
+                serverTime,
+                time(p, "created_at"),
+                time(p, "updated_at"),
+                attemptView(a),
+                List.of(),
+                summaries,
+                List.of(),
+                recipient(a, bank));
+    }
+
     ManualPayoutView view(CurrentUser actor, UUID payoutId, boolean sellerContext) {
         var p =
                 repository
@@ -80,22 +159,22 @@ public class ManualPayoutQueryService {
                         .orElseThrow(() -> new DomainException(MANUAL_PAYOUT_NOT_FOUND));
         var a = repository.currentAttempt(payoutId).orElse(null);
         var cases = disputes.cases(payoutId);
-        boolean open = cases.stream().anyMatch(c -> !"RESOLVED".equals(c.get("status")));
-        var attempt =
-                a == null
-                        ? null
-                        : new ManualPayoutView.Attempt(
-                                id(a, "id"),
-                                number(a, "attempt_no").intValue(),
-                                str(a, "state"),
-                                number(a, "version").longValue(),
-                                id(a, "claimed_by"),
-                                time(a, "claim_expires_at"),
-                                time(a, "qr_expires_at"),
-                                str(a, "reference"),
-                                str(a, "receipt_status"),
-                                number(a, "receipt_version").longValue(),
-                                time(a, "seller_confirmed_at"));
+        boolean open =
+                cases.stream()
+                        .anyMatch(
+                                c ->
+                                        a != null
+                                                && a.get("id").equals(c.get("attempt_id"))
+                                                && !"RESOLVED".equals(c.get("status")));
+        boolean sellerDispute =
+                cases.stream()
+                        .anyMatch(
+                                c ->
+                                        a != null
+                                                && a.get("id").equals(c.get("attempt_id"))
+                                                && "SELLER_DISPUTE".equals(c.get("kind"))
+                                                && !"RESOLVED".equals(c.get("status")));
+        var attempt = attemptView(a);
         boolean privateAccess =
                 !sellerContext
                         && a != null
@@ -177,35 +256,17 @@ public class ManualPayoutQueryService {
                                                         time(h, "occurred_at")))
                                 .toList();
         var bank = a == null ? repository.bank(id(p, "seller_id")).orElse(null) : null;
-        var recipient =
-                a != null
-                        ? new ManualPayoutView.Recipient(
-                                str(a, "bank_code"), str(a, "account_last4"), str(a, "holder_name"))
-                        : bank == null
-                                ? null
-                                : new ManualPayoutView.Recipient(
-                                        str(bank, "bank_code"),
-                                        str(bank, "account_last4"),
-                                        str(bank, "account_holder_name"));
+        var recipient = recipient(a, bank);
         var allowed =
                 new ArrayList<>(
-                        sellerContext ? List.<String>of() : access.actions(actor, p, a, open));
+                        sellerContext
+                                ? List.<String>of()
+                                : access.actions(actor, p, a, open, sellerDispute));
         String blockedReason = str(p, "blocked_reason");
         if (Set.of("PENDING", "ON_HOLD").contains(str(p, "status"))) {
             blockedReason = readiness.blockedReason(p);
-            if (blockedReason != null) {
-                allowed.remove("CLAIM");
-                if (!sellerContext
-                        && !actor.id().equals(p.get("seller_id"))
-                        && !allowed.contains("READINESS_CHECK")) allowed.add("READINESS_CHECK");
-            }
+            applyReadinessActions(actor, p, allowed, blockedReason, sellerContext);
         }
-        if (cases.stream()
-                .noneMatch(
-                        c ->
-                                "SELLER_DISPUTE".equals(c.get("kind"))
-                                        && !"RESOLVED".equals(c.get("status"))))
-            allowed.remove("REVIEW_DISPUTE");
         return new ManualPayoutView(
                 payoutId,
                 id(p, "order_id"),
@@ -274,6 +335,52 @@ public class ManualPayoutQueryService {
 
     static OffsetDateTime now() {
         return OffsetDateTime.now(ZoneOffset.UTC);
+    }
+
+    private static ManualPayoutView.Attempt attemptView(Map<String, Object> a) {
+        return a == null
+                ? null
+                : new ManualPayoutView.Attempt(
+                        id(a, "id"),
+                        number(a, "attempt_no").intValue(),
+                        str(a, "state"),
+                        number(a, "version").longValue(),
+                        id(a, "claimed_by"),
+                        time(a, "claim_expires_at"),
+                        time(a, "qr_expires_at"),
+                        str(a, "reference"),
+                        str(a, "receipt_status"),
+                        number(a, "receipt_version").longValue(),
+                        time(a, "seller_confirmed_at"));
+    }
+
+    private static ManualPayoutView.Recipient recipient(
+            Map<String, Object> attempt, Map<String, Object> bank) {
+        return attempt != null
+                ? new ManualPayoutView.Recipient(
+                        str(attempt, "bank_code"),
+                        str(attempt, "account_last4"),
+                        str(attempt, "holder_name"))
+                : bank == null
+                        ? null
+                        : new ManualPayoutView.Recipient(
+                                str(bank, "bank_code"),
+                                str(bank, "account_last4"),
+                                str(bank, "account_holder_name"));
+    }
+
+    private static void applyReadinessActions(
+            CurrentUser actor,
+            Map<String, Object> p,
+            List<String> allowed,
+            String blockedReason,
+            boolean sellerContext) {
+        if (blockedReason != null) {
+            allowed.remove("CLAIM");
+            if (!sellerContext
+                    && !actor.id().equals(p.get("seller_id"))
+                    && !allowed.contains("READINESS_CHECK")) allowed.add("READINESS_CHECK");
+        }
     }
 
     private boolean reviewDetails(

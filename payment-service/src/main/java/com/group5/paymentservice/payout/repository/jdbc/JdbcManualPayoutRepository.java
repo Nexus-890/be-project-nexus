@@ -2,6 +2,7 @@ package com.group5.paymentservice.payout.repository.jdbc;
 
 import com.group5.common_security.CurrentUser;
 import com.group5.paymentservice.payout.dto.request.ManualPayoutFilter;
+import com.group5.paymentservice.payout.model.ManualPayoutQueueRow;
 import com.group5.paymentservice.payout.repository.*;
 
 import lombok.RequiredArgsConstructor;
@@ -51,6 +52,23 @@ public class JdbcManualPayoutRepository
                     "updated_by");
     private static final Set<String> CASE_FIELDS =
             Set.of("status", "resolution", "reviewed_by", "resolved_at");
+    private static final String FUNDED =
+            """
+EXISTS(SELECT 1 FROM payment_order_completions c
+JOIN payout_eligibility e ON e.order_id=c.order_id
+JOIN payment_instructions i ON i.order_id=c.order_id
+JOIN payment_sessions s ON s.id=i.session_id
+JOIN payment_transactions t ON t.id=i.funded_transaction_id
+WHERE c.order_id=p.order_id AND i.id=p.instruction_id
+AND i.status='PAID' AND s.status='PAID' AND i.canceled_at IS NULL
+AND i.paid_at IS NOT NULL AND i.paid_at<=c.completed_at AND i.amount=c.order_amount AND i.amount=p.order_amount
+AND i.buyer_id=c.buyer_id AND s.buyer_id=c.buyer_id AND i.seller_id=c.seller_id AND p.seller_id=c.seller_id
+AND s.order_group_id=c.order_group_id AND i.last_order_version<=c.order_version
+AND t.status='SUCCESS' AND t.type='NORMAL' AND t.session_id=s.id AND t.currency=i.currency AND s.currency=i.currency
+AND NOT EXISTS(SELECT 1 FROM refunds r WHERE r.order_id=p.order_id)
+AND NOT EXISTS(SELECT 1 FROM payment_pending_order_cancellations x WHERE x.order_id=p.order_id)
+AND NOT EXISTS(SELECT 1 FROM payment_pending_cancellations x WHERE x.order_group_id=s.order_group_id))
+""";
 
     public void lockKey(String key) {
         jdbc.queryForList("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", key);
@@ -100,19 +118,7 @@ public class JdbcManualPayoutRepository
     public boolean funded(UUID payoutId) {
         return Boolean.TRUE.equals(
                 jdbc.queryForObject(
-                        """
-SELECT EXISTS(SELECT 1 FROM payouts p JOIN payment_order_completions c ON c.order_id=p.order_id
-JOIN payout_eligibility e ON e.order_id=p.order_id JOIN payment_instructions i ON i.id=p.instruction_id
-JOIN payment_sessions s ON s.id=i.session_id JOIN payment_transactions t ON t.id=i.funded_transaction_id
-WHERE p.id=? AND i.status='PAID' AND s.status='PAID' AND i.canceled_at IS NULL
-AND i.paid_at IS NOT NULL AND i.paid_at<=c.completed_at AND i.amount=c.order_amount AND i.amount=p.order_amount
-AND i.buyer_id=c.buyer_id AND s.buyer_id=c.buyer_id AND i.seller_id=c.seller_id AND p.seller_id=c.seller_id
-AND s.order_group_id=c.order_group_id AND i.last_order_version<=c.order_version
-AND t.status='SUCCESS' AND t.type='NORMAL' AND t.session_id=s.id AND t.currency=i.currency AND s.currency=i.currency
-AND NOT EXISTS(SELECT 1 FROM refunds r WHERE r.order_id=p.order_id)
-AND NOT EXISTS(SELECT 1 FROM payment_pending_order_cancellations x WHERE x.order_id=p.order_id)
-AND NOT EXISTS(SELECT 1 FROM payment_pending_cancellations x WHERE x.order_group_id=s.order_group_id))
-""",
+                        "SELECT EXISTS(SELECT 1 FROM payouts p WHERE p.id=? AND " + FUNDED + ")",
                         Boolean.class,
                         payoutId));
     }
@@ -160,18 +166,81 @@ AND NOT EXISTS(SELECT 1 FROM payment_pending_cancellations x WHERE x.order_group
                 actorRole);
     }
 
-    public List<UUID> queue(ManualPayoutFilter f, CurrentUser actor) {
+    public List<ManualPayoutQueueRow> queue(ManualPayoutFilter f, CurrentUser actor) {
         var parameters = new ArrayList<Object>();
         String filter = filter(f, actor, parameters);
         parameters.add(f.size());
         parameters.add((long) f.page() * f.size());
-        return jdbc.queryForList(
-                "SELECT p.id FROM payouts p LEFT JOIN manual_payout_attempts a ON"
+        String page =
+                "SELECT p.* FROM payouts p LEFT JOIN manual_payout_attempts a ON"
                         + " a.id=p.current_attempt_id"
                         + filter
-                        + " ORDER BY p.created_at DESC,p.id DESC LIMIT ? OFFSET ?",
-                UUID.class,
-                parameters.toArray());
+                        + " ORDER BY p.created_at DESC,p.id DESC LIMIT ? OFFSET ?";
+        return jdbc
+                .queryForList(
+                        """
+SELECT p.*,
+  a.id AS attempt_id,a.attempt_no AS attempt_attempt_no,a.state AS attempt_state,
+  a.version AS attempt_version,a.claimed_by AS attempt_claimed_by,
+  a.claim_expires_at AS attempt_claim_expires_at,a.qr_expires_at AS attempt_qr_expires_at,
+  a.reference AS attempt_reference,a.receipt_status AS attempt_receipt_status,
+  a.receipt_version AS attempt_receipt_version,a.seller_confirmed_at AS attempt_seller_confirmed_at,
+  a.bank_code AS attempt_bank_code,a.account_last4 AS attempt_account_last4,a.holder_name AS attempt_holder_name,
+  b.id AS bank_id,b.bank_code AS bank_bank_code,b.account_number_encrypted AS bank_account_number_encrypted,
+  b.account_last4 AS bank_account_last4,b.account_holder_name AS bank_account_holder_name,
+"""
+                                + FUNDED
+                                + " AS funding_ready FROM ("
+                                + page
+                                + ") p LEFT JOIN manual_payout_attempts a ON"
+                                + " a.id=p.current_attempt_id LEFT JOIN seller_bank b ON"
+                                + " b.seller_id=p.seller_id AND b.active AND b.is_default AND"
+                                + " b.verification_status='VERIFIED' ORDER BY p.created_at"
+                                + " DESC,p.id DESC",
+                        parameters.toArray())
+                .stream()
+                .map(
+                        row -> {
+                            var payout = new LinkedHashMap<String, Object>(row);
+                            var attempt = prefixed(row, "attempt_");
+                            var bank = prefixed(row, "bank_");
+                            payout.keySet()
+                                    .removeIf(
+                                            key ->
+                                                    key.startsWith("attempt_")
+                                                            || key.startsWith("bank_")
+                                                            || key.equals("funding_ready"));
+                            // The aggregate's attempt_count belongs to the payout, not the joined
+                            // attempt prefix.
+                            payout.put("attempt_count", row.get("attempt_count"));
+                            return new ManualPayoutQueueRow(
+                                    payout,
+                                    attempt.get("id") == null ? null : attempt,
+                                    bank.get("id") == null ? null : bank,
+                                    Boolean.TRUE.equals(row.get("funding_ready")));
+                        })
+                .toList();
+    }
+
+    public List<Map<String, Object>> queueCases(List<UUID> payoutIds) {
+        if (payoutIds.isEmpty()) return List.of();
+        return new NamedParameterJdbcTemplate(jdbc)
+                .queryForList(
+                        """
+SELECT c.id,c.payout_id,c.attempt_id,c.kind,c.status,c.reason,c.version,c.created_at
+FROM payout_review_cases c JOIN payouts p ON p.id=c.payout_id AND p.current_attempt_id=c.attempt_id
+WHERE c.payout_id IN (:ids) ORDER BY c.created_at DESC,c.id DESC
+""",
+                        Map.of("ids", payoutIds));
+    }
+
+    private static Map<String, Object> prefixed(Map<String, Object> row, String prefix) {
+        var fields = new LinkedHashMap<String, Object>();
+        row.forEach(
+                (key, value) -> {
+                    if (key.startsWith(prefix)) fields.put(key.substring(prefix.length()), value);
+                });
+        return fields;
     }
 
     public long count(ManualPayoutFilter f, CurrentUser actor) {
