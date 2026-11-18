@@ -203,6 +203,28 @@ class PayoutHttpTest extends PaymentDatabaseTestSupport {
         assertThat(readCounts()).isEqualTo(counts);
     }
 
+    @Test void adminBankReviewKeepsInactiveUnverifiedAccountsBehindActiveOnesAcrossPages() throws Exception {
+        var seller = new CurrentUser(sellerId, Set.of("SELLER"), Set.of());
+        var inactive = banks.create(seller, new BankAccountRequest("970436", "000000005555", "REVIEW INACTIVE", false, true));
+        banks.update(seller, inactive.id(), new BankAccountRequest("970436", "000000005555", "REVIEW INACTIVE", false, false));
+        var active = banks.create(seller, new BankAccountRequest("970436", "000000006666", "REVIEW ACTIVE", false, true));
+        var start = java.time.OffsetDateTime.parse("2026-02-01T00:00:00Z");
+        jdbc.update("UPDATE seller_bank SET created_at=? WHERE id=?", start, inactive.id());
+        jdbc.update("UPDATE seller_bank SET created_at=? WHERE id=?", start.plusDays(1), active.id());
+
+        String auth = bearer(adminId, "ADMIN");
+        for (int page = 0; page < 2; page++) {
+            mvc.perform(get(BANKS).param("sellerId", sellerId.toString()).param("size", "1").param("page", "" + page)
+                            .header(HttpHeaders.AUTHORIZATION, auth))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(1))
+                    .andExpect(jsonPath("$.data[0].id").value((page == 0 ? active : inactive).id().toString()))
+                    .andExpect(jsonPath("$.data[0].verificationStatus").value("UNVERIFIED"))
+                    .andExpect(jsonPath("$.data[0].active").value(page == 0))
+                    .andExpect(jsonPath("$.page.number").value(page)).andExpect(jsonPath("$.page.size").value(1))
+                    .andExpect(jsonPath("$.page.totalElements").value(2)).andExpect(jsonPath("$.page.totalPages").value(2));
+        }
+    }
+
     @Test void adminListFiltersRejectMalformedValuesAndInvalidPaginationAsProblemDetails() throws Exception {
         String auth = bearer(adminId, "ADMIN");
         for (String route : List.of(BASE, BANKS)) {

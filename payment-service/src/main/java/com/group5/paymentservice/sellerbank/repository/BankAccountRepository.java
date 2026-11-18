@@ -33,7 +33,7 @@ public class BankAccountRepository {
         parameters.add(request.size());
         parameters.add((long) request.page() * request.size());
         return jdbc.query("SELECT * FROM seller_bank" + filter
-                + " ORDER BY CASE WHEN verification_status='UNVERIFIED' THEN 0 ELSE 1 END,created_at ASC,id ASC LIMIT ? OFFSET ?",
+                + " ORDER BY CASE WHEN verification_status='UNVERIFIED' AND active THEN 0 ELSE 1 END,created_at ASC,id ASC LIMIT ? OFFSET ?",
                 BankAccountRepository::view, parameters.toArray());
     }
 
