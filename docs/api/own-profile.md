@@ -6,7 +6,11 @@ Neither endpoint accepts a target ID in its path, query, or update DTO.
 
 ## Update contract
 
-The editable fields are `fullName`, `dateOfBirth`, `gender`, `address`, and `email`.
+The editable fields are `fullName`, `dateOfBirth`, `gender`, `address`, `email`, `phone`,
+and `identityNumber`. `identityNumber` can be set only while the profile has none; it is
+checked for uniqueness (409 `USER_IDENTITY_NUMBER_ALREADY_USED`) and then locked, so a
+different value returns 409 `USER_IDENTITY_NUMBER_LOCKED`. Responses carry only
+`identityNumberMasked` (last four characters visible), never the full value.
 Omitted or null fields retain their existing values. An empty address clears its text.
 Email is trimmed and lowercased before validation, duplicate checks, and persistence.
 Name and address are trimmed. A supplied name must contain 1–150 characters;
@@ -18,7 +22,7 @@ in the future. Gender accepts `MALE`, `FEMALE`, or `OTHER`.
 ```
 
 A successful update returns HTTP 200 with the existing registration `UserResponse`
-shape. Password, passwordHash, ID, phone, identityNumber, status, and roles are not
+shape. Password, passwordHash, ID, status, and roles are not
 editable through this DTO. Unknown body fields are ignored. Responses contain
 neither a password nor a password hash.
 

@@ -177,6 +177,16 @@ public class UserService {
         if (request.email() != null) {
             user.setEmail(request.email());
         }
+        if (request.identityNumber() != null && !request.identityNumber().equals(user.getIdentityNumber())) {
+            if (user.getIdentityNumber() != null && !user.getIdentityNumber().isBlank()) {
+                throw new DomainException(UserErrorCode.USER_IDENTITY_NUMBER_LOCKED);
+            }
+            userRepository.lockRegistrationIdentity(request.identityNumber());
+            if (userRepository.existsByIdentityNumber(request.identityNumber())) {
+                throw duplicate("identityNumber");
+            }
+            user.setIdentityNumber(request.identityNumber());
+        }
         if (request.phone() != null && !request.phone().equals(user.getPhone())) {
             if (userRepository.existsByPhoneAndIdNot(request.phone(), userId)) {
                 throw duplicate("phone");

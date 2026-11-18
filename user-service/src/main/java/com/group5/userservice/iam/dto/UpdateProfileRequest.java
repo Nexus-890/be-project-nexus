@@ -28,17 +28,26 @@ public record UpdateProfileRequest(
         String email,
 
         @Pattern(regexp = "^\\+?[0-9]{7,15}$", message = "Invalid phone number")
-        String phone
+        String phone,
+
+        @Size(min = 1, max = 255, message = "Identity number must contain 1 to 255 characters")
+        String identityNumber
 ) {
     public UpdateProfileRequest {
         fullName = trim(fullName);
         address = trim(address);
         email = email == null ? null : email.trim().toLowerCase(Locale.ROOT);
         phone = phone == null ? null : phone.trim().replaceAll("[\\s()\\-]", "");
+        identityNumber = trim(identityNumber);
     }
 
     public UpdateProfileRequest(String fullName, LocalDate dateOfBirth, Gender gender, String address, String email) {
-        this(fullName, dateOfBirth, gender, address, email, null);
+        this(fullName, dateOfBirth, gender, address, email, null, null);
+    }
+
+    public UpdateProfileRequest(String fullName, LocalDate dateOfBirth, Gender gender, String address, String email,
+                                String phone) {
+        this(fullName, dateOfBirth, gender, address, email, phone, null);
     }
 
     private static String trim(String value) {

@@ -217,7 +217,7 @@ class UserControllerSecurityTest {
         ArgumentCaptor<UpdateProfileRequest> request = ArgumentCaptor.forClass(UpdateProfileRequest.class);
         verify(userService).updateOwnProfile(eq(USER_ID), request.capture());
         assertThat(request.getValue()).isEqualTo(
-                new UpdateProfileRequest("X", null, null, "HCM", "x@nexus.local", "0999999999"));
+                new UpdateProfileRequest("X", null, null, "HCM", "x@nexus.local", "0999999999", "attempted-identity"));
     }
 
     @Test
@@ -320,7 +320,7 @@ class UserControllerSecurityTest {
     private static UserResponse profile(String name, String email, String address) {
         return new UserResponse(USER_ID, email, "0900000001", name, Gender.MALE, address,
                 LocalDate.of(2000, 1, 2), List.of("BUYER"), UserStatus.ACTIVE,
-                OffsetDateTime.parse("2026-10-14T08:00:00Z"), null);
+                OffsetDateTime.parse("2026-10-14T08:00:00Z"), null, null);
     }
 
     private static String token(Consumer<JWTClaimsSet.Builder> customizer) {

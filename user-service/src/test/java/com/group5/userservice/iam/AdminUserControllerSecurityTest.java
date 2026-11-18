@@ -225,7 +225,7 @@ class AdminUserControllerSecurityTest {
     /** Tạo profile response không có dữ liệu credential để kiểm tra envelope. */
     private static UserResponse profile() {
         return new UserResponse(ID, "new@nexus.local", "0900000001", "User One", Gender.MALE, "HCM",
-                LocalDate.of(2000, 1, 1), List.of("BUYER"), UserStatus.ACTIVE, OffsetDateTime.parse("2026-11-14T07:00:00Z"), null);
+                LocalDate.of(2000, 1, 1), List.of("BUYER"), UserStatus.ACTIVE, OffsetDateTime.parse("2026-11-14T07:00:00Z"), null, null);
     }
 
     /** Ký JWT RS256 với role và privilege riêng cho từng trường hợp truy cập. */

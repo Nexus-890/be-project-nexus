@@ -976,6 +976,7 @@ paths:
           - "USER_PHONE_ALREADY_USED"
           - "USER_IDENTITY_NUMBER_ALREADY_USED"
           - "USER_PROFILE_CONFLICT"
+          - "USER_IDENTITY_NUMBER_LOCKED"
         "415":
           - "UNSUPPORTED_MEDIA_TYPE"
         "429":
@@ -1245,7 +1246,7 @@ paths:
                     instance: "/api/v1/users/me"
                     code: "NOT_ACCEPTABLE"
         "409":
-          description: "Conflict. Codes: `USER_EMAIL_ALREADY_USED`, `USER_PHONE_ALREADY_USED`, `USER_IDENTITY_NUMBER_ALREADY_USED`, `USER_PROFILE_CONFLICT`."
+          description: "Conflict. Codes: `USER_EMAIL_ALREADY_USED`, `USER_PHONE_ALREADY_USED`, `USER_IDENTITY_NUMBER_ALREADY_USED`, `USER_PROFILE_CONFLICT`, `USER_IDENTITY_NUMBER_LOCKED`."
           content:
             "application/problem+json":
               schema:
@@ -1266,6 +1267,7 @@ paths:
                           - "USER_PHONE_ALREADY_USED"
                           - "USER_IDENTITY_NUMBER_ALREADY_USED"
                           - "USER_PROFILE_CONFLICT"
+                          - "USER_IDENTITY_NUMBER_LOCKED"
               examples:
                 USER_EMAIL_ALREADY_USED:
                   summary: "USER_EMAIL_ALREADY_USED"
@@ -1303,6 +1305,15 @@ paths:
                     detail: "Email or phone is already used"
                     instance: "/api/v1/users/me"
                     code: "USER_PROFILE_CONFLICT"
+                USER_IDENTITY_NUMBER_LOCKED:
+                  summary: "USER_IDENTITY_NUMBER_LOCKED"
+                  value:
+                    type: "urn:problem:domain-error"
+                    title: "Conflict"
+                    status: 409
+                    detail: "identityNumber is already set and cannot be changed"
+                    instance: "/api/v1/users/me"
+                    code: "USER_IDENTITY_NUMBER_LOCKED"
         "415":
           description: "Unsupported Media Type. Codes: `UNSUPPORTED_MEDIA_TYPE`."
           content:
@@ -8307,6 +8318,11 @@ components:
           format: "date-time"
           nullable: true
           description: "When the current phone was verified; null until verified and after the phone changes."
+        identityNumberMasked:
+          type: "string"
+          nullable: true
+          description: "The stored identity number with all but the last four characters replaced by '*'; null when no identity number is set. The full value is never returned."
+          example: "********1234"
     Register:
       type: "object"
       required:
@@ -8400,7 +8416,13 @@ components:
           pattern: "^\\+?[0-9]{7,15}$"
           description: "Whitespace, parentheses and hyphens are removed before validation. A different phone clears phoneVerifiedAt. Omitted/null retains current value."
           nullable: true
-      description: "Only listed editable fields are consumed. Unknown properties are ignored; callers cannot change roles, status or identity number through this API."
+        identityNumber:
+          type: "string"
+          minLength: 1
+          maxLength: 255
+          description: "Trimmed. Accepted only while the profile has no identity number; once set it cannot be changed (USER_IDENTITY_NUMBER_LOCKED). Sending the stored value again is accepted. Omitted/null retains current value."
+          nullable: true
+      description: "Only listed editable fields are consumed. Unknown properties are ignored; callers cannot change roles or status through this API."
     RegisterResponse:
       type: "object"
       required:

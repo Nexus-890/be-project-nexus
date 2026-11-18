@@ -349,6 +349,62 @@ class UserProfileServiceTest {
         verify(transactionManager).commit(transactionStatus);
     }
 
+    @Test
+    void anEmptyIdentityNumberIsSetOnceAndReturnedMasked() {
+        user.setIdentityNumber(null);
+        givenCaller();
+        givenKeycloakRoles();
+        when(userRepository.saveAndFlush(user)).thenReturn(user);
+
+        UserResponse response = userService.updateOwnProfile(USER_ID,
+                new UpdateProfileRequest(null, null, null, null, null, null, " 079201001234 "));
+
+        assertThat(user.getIdentityNumber()).isEqualTo("079201001234");
+        assertThat(response.identityNumberMasked()).isEqualTo("********1234");
+        verify(userRepository).lockRegistrationIdentity("079201001234");
+    }
+
+    @Test
+    void anIdentityNumberUsedByAnotherAccountReturns409() {
+        user.setIdentityNumber(null);
+        givenCaller();
+        when(userRepository.existsByIdentityNumber("079201001234")).thenReturn(true);
+
+        DomainException error = catchThrowableOfType(DomainException.class,
+                () -> userService.updateOwnProfile(USER_ID,
+                        new UpdateProfileRequest(null, null, null, null, null, null, "079201001234")));
+
+        assertThat(error.getErrorCode()).isEqualTo("USER_IDENTITY_NUMBER_ALREADY_USED");
+        assertThat(user.getIdentityNumber()).isNull();
+        verify(userRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void aSetIdentityNumberCannotBeChanged() {
+        givenCaller();
+
+        DomainException error = catchThrowableOfType(DomainException.class,
+                () -> userService.updateOwnProfile(USER_ID,
+                        new UpdateProfileRequest(null, null, null, null, null, null, "079201001234")));
+
+        assertThat(error.getErrorCode()).isEqualTo("USER_IDENTITY_NUMBER_LOCKED");
+        assertThat(user.getIdentityNumber()).isEqualTo("ID-0900000001");
+        verify(userRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void resendingTheSameIdentityNumberIsAccepted() {
+        givenCaller();
+        givenKeycloakRoles();
+        when(userRepository.saveAndFlush(user)).thenReturn(user);
+
+        UserResponse response = userService.updateOwnProfile(USER_ID,
+                new UpdateProfileRequest(null, null, null, null, null, null, "ID-0900000001"));
+
+        assertThat(response.identityNumberMasked()).isEqualTo("*********0001");
+        verify(userRepository, never()).existsByIdentityNumber(anyString());
+    }
+
     private void givenCaller() {
         when(userRepository.findForProfileUpdate(USER_ID)).thenReturn(Optional.of(user));
     }
