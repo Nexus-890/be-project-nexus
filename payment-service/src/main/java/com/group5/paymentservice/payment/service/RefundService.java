@@ -17,8 +17,8 @@ import com.group5.paymentservice.payment.entity.Refund;
 import com.group5.paymentservice.payment.enums.PaymentInstructionStatus;
 import com.group5.paymentservice.payment.enums.PaymentTransactionStatus;
 import com.group5.paymentservice.payment.enums.PaymentTransactionType;
-import com.group5.paymentservice.payment.event.payload.OrderCancelled;
 import com.group5.paymentservice.payment.enums.RefundStatus;
+import com.group5.paymentservice.payment.event.payload.OrderCancelled;
 import com.group5.paymentservice.payment.event.payload.OrderRefundCompleted;
 import com.group5.paymentservice.payment.event.payload.OrderRefundRequested;
 import com.group5.paymentservice.payment.repository.PaymentInstructionRepository;
@@ -26,8 +26,11 @@ import com.group5.paymentservice.payment.repository.PaymentPendingOrderCancellat
 import com.group5.paymentservice.payment.repository.PaymentSessionRepository;
 import com.group5.paymentservice.payment.repository.PaymentTransactionRepository;
 import com.group5.paymentservice.payment.repository.RefundRepository;
+import com.group5.paymentservice.payout.repository.PayoutRepository;
 import com.group5.paymentservice.shared.exception.PaymentErrorCode;
+
 import jakarta.validation.Validator;
+
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -62,11 +65,19 @@ public class RefundService {
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
     private final Validator validator;
+    private final PayoutRepository payouts;
 
-    public RefundService(IdempotentConsumer consumer, PaymentSessionRepository sessions,
-                         PaymentInstructionRepository instructions, PaymentTransactionRepository transactions,
-                         RefundRepository refunds, PaymentPendingOrderCancellationRepository pendingOrders,
-                         OutboxWriter outbox, EventEnvelopeFactory envelopes, Validator validator) {
+    public RefundService(
+            IdempotentConsumer consumer,
+            PaymentSessionRepository sessions,
+            PaymentInstructionRepository instructions,
+            PaymentTransactionRepository transactions,
+            RefundRepository refunds,
+            PaymentPendingOrderCancellationRepository pendingOrders,
+            OutboxWriter outbox,
+            EventEnvelopeFactory envelopes,
+            Validator validator,
+            PayoutRepository payouts) {
         this.consumer = consumer;
         this.sessions = sessions;
         this.instructions = instructions;
@@ -76,12 +87,15 @@ public class RefundService {
         this.outbox = outbox;
         this.envelopes = envelopes;
         this.validator = validator;
+        this.payouts = payouts;
     }
 
     public void cancelled(EventEnvelope<OrderCancelled> event) {
         OrderCancelled cancellation = event.payload();
         require(validator.validate(cancellation).isEmpty(), "Invalid OrderCancelled payload");
-        require(event.aggregateId().equals(cancellation.orderId().toString()), "Order and aggregate must match");
+        require(
+                event.aggregateId().equals(cancellation.orderId().toString()),
+                "Order and aggregate must match");
         consumer.handle(CANCELLATION_CONSUMER, event, this::refundCancelledOrder);
     }
 
@@ -92,17 +106,32 @@ public class RefundService {
         if (groupId.isEmpty() && !paid) {
             return;
         }
-        // KHÓA CÙNG THỨ TỰ VỚI #121: GROUP -> INSTRUCTION -> REFUND, TRÁNH DEADLOCK VỚI WEBHOOK/HỦY NHÓM
+        // KHÓA CÙNG THỨ TỰ VỚI #121: GROUP -> INSTRUCTION -> REFUND, TRÁNH DEADLOCK VỚI WEBHOOK/HỦY
+        // NHÓM
         UUID lockedGroup = groupId.orElse(cancellation.orderGroupId());
         sessions.lockKey(GROUP_LOCK + lockedGroup);
-        Optional<PaymentInstruction> instruction = instructions.findLockedByOrderId(cancellation.orderId());
-        if (instruction.isPresent() && cancellation.orderVersion() < instruction.get().getLastOrderVersion()) {
+        Optional<PaymentInstruction> instruction =
+                instructions.findLockedByOrderId(cancellation.orderId());
+        if (instruction.isPresent()
+                && cancellation.orderVersion() < instruction.get().getLastOrderVersion()) {
             return;
         }
         if (instruction.isPresent() && isFunded(instruction.get())) {
-            pendingOrders.findLockedByOrderId(cancellation.orderId()).ifPresent(pendingOrders::delete);
-            applyCancellation(instruction.get(), cancellation.orderVersion(), cancellation.reason(),
-                    cancellation.actorId(), cancellation.cancelledAt().atOffset(ZoneOffset.UTC),
+            // Keep the event as pending instead of authorizing a second use of reserved seller
+            // proceeds.
+            if (payouts.hasReservedManualProceeds(cancellation.orderId())) {
+                stash(event, lockedGroup);
+                return;
+            }
+            pendingOrders
+                    .findLockedByOrderId(cancellation.orderId())
+                    .ifPresent(pendingOrders::delete);
+            applyCancellation(
+                    instruction.get(),
+                    cancellation.orderVersion(),
+                    cancellation.reason(),
+                    cancellation.actorId(),
+                    cancellation.cancelledAt().atOffset(ZoneOffset.UTC),
                     event.occurredAt().atOffset(ZoneOffset.UTC));
             return;
         }
@@ -113,50 +142,120 @@ public class RefundService {
         }
     }
 
-    // GỌI KHI INSTRUCTION CỦA NHÓM ĐÃ CÓ BẰNG CHỨNG FUNDING: PendingOrderCancellationJob, WEBHOOK, MANIFEST GỬI LẠI
+    // GỌI KHI INSTRUCTION CỦA NHÓM ĐÃ CÓ BẰNG CHỨNG FUNDING: PendingOrderCancellationJob, WEBHOOK,
+    // MANIFEST GỬI LẠI
     // MANIFEST MỚI TẠO CHƯA ĐỦ ĐỂ COI LÀ ĐÃ TRẢ -> ĐƠN CHƯA FUNDED VẪN NẰM PENDING
     @Transactional
     public void applyPendingCancellations(UUID groupId) {
         sessions.lockKey(GROUP_LOCK + groupId);
-        for (PaymentPendingOrderCancellation pending : pendingOrders.findLockedByOrderGroupId(groupId)) {
-            Optional<PaymentInstruction> instruction = instructions.findLockedByOrderId(pending.getOrderId());
+        for (PaymentPendingOrderCancellation pending :
+                pendingOrders.findLockedByOrderGroupId(groupId)) {
+            Optional<PaymentInstruction> instruction =
+                    instructions.findLockedByOrderId(pending.getOrderId());
             if (instruction.isEmpty() || !isFunded(instruction.get())) {
                 continue;
             }
+            if (payouts.hasReservedManualProceeds(pending.getOrderId())) continue;
             if (pending.getOrderVersion() >= instruction.get().getLastOrderVersion()) {
-                applyCancellation(instruction.get(), pending.getOrderVersion(), pending.getReason(),
-                        pending.getActorId(), pending.getCancelledAt(), pending.getOccurredAt());
+                applyCancellation(
+                        instruction.get(),
+                        pending.getOrderVersion(),
+                        pending.getReason(),
+                        pending.getActorId(),
+                        pending.getCancelledAt(),
+                        pending.getOccurredAt());
             }
             // CHỈ XÓA SAU KHI ÁP DỤNG THÀNH CÔNG (HOẶC BẢN PENDING ĐÃ CŨ HƠN INSTRUCTION)
             pendingOrders.delete(pending);
         }
     }
 
-    // HỦY NHÓM ĐẾN SAU KHI TIỀN ĐÃ VỀ (WEBHOOK THẮNG): COMMERCE ĐÃ HỦY ĐƠN NHƯNG PAYMENT ĐÃ GHI PAID
+    // HỦY NHÓM ĐẾN SAU KHI TIỀN ĐÃ VỀ (WEBHOOK THẮNG): COMMERCE ĐÃ HỦY ĐƠN NHƯNG PAYMENT ĐÃ GHI
+    // PAID
     // OrderCancelled TỪNG ĐƠN (paidAmount = 0) CÓ THỂ ĐÃ BỊ BỎ QUA LÚC CHƯA CÓ TIỀN -> HOÀN TẠI ĐÂY
-    // NGƯỜI GỌI ĐÃ GIỮ KHÓA GROUP + INSTRUCTION, CHẠY CHUNG TRANSACTION VỚI MARKER CỦA EVENT HỦY NHÓM
+    // NGƯỜI GỌI ĐÃ GIỮ KHÓA GROUP + INSTRUCTION, CHẠY CHUNG TRANSACTION VỚI MARKER CỦA EVENT HỦY
+    // NHÓM
     @Transactional(propagation = Propagation.MANDATORY)
-    public void refundFundedPlan(List<PaymentInstruction> plan, Map<UUID, Long> versions, String reason,
-                                 UUID actorId, OffsetDateTime cancelledAt, OffsetDateTime occurredAt) {
+    public void refundFundedPlan(
+            List<PaymentInstruction> plan,
+            Map<UUID, Long> versions,
+            String reason,
+            UUID actorId,
+            OffsetDateTime cancelledAt,
+            OffsetDateTime occurredAt,
+            UUID sourceEventId) {
         for (PaymentInstruction instruction : plan) {
             if (!isFunded(instruction)) {
                 continue;
             }
-            pendingOrders.findLockedByOrderId(instruction.getOrderId()).ifPresent(pendingOrders::delete);
-            applyCancellation(instruction, versions.get(instruction.getOrderId()), reason, actorId,
-                    cancelledAt, occurredAt);
+            if (payouts.hasReservedManualProceeds(instruction.getOrderId())) {
+                stashCancellation(
+                        instruction,
+                        versions.get(instruction.getOrderId()),
+                        reason,
+                        actorId,
+                        cancelledAt,
+                        occurredAt,
+                        sourceEventId);
+                continue;
+            }
+            pendingOrders
+                    .findLockedByOrderId(instruction.getOrderId())
+                    .ifPresent(pendingOrders::delete);
+            applyCancellation(
+                    instruction,
+                    versions.get(instruction.getOrderId()),
+                    reason,
+                    actorId,
+                    cancelledAt,
+                    occurredAt);
         }
     }
 
-    private void applyCancellation(PaymentInstruction instruction, long orderVersion, String reason, UUID actorId,
-                                   OffsetDateTime cancelledAt, OffsetDateTime occurredAt) {
+    /** Preserve the actual group cancellation evidence without blocking another seller's refund. */
+    private void stashCancellation(
+            PaymentInstruction instruction,
+            long orderVersion,
+            String reason,
+            UUID actorId,
+            OffsetDateTime cancelledAt,
+            OffsetDateTime occurredAt,
+            UUID sourceEventId) {
+        PaymentPendingOrderCancellation pending =
+                pendingOrders
+                        .findLockedByOrderId(instruction.getOrderId())
+                        .orElseGet(PaymentPendingOrderCancellation::new);
+        if (pending.getOrderVersion() != null && pending.getOrderVersion() >= orderVersion) return;
+        pending.setOrderId(instruction.getOrderId());
+        pending.setOrderGroupId(instruction.getSession().getOrderGroupId());
+        pending.setBuyerId(instruction.getBuyerId());
+        pending.setOrderVersion(orderVersion);
+        pending.setPaidAmount(instruction.getAmount());
+        pending.setCurrency(instruction.getCurrency());
+        pending.setReason(reason);
+        pending.setActorId(actorId);
+        pending.setCancelledAt(cancelledAt);
+        pending.setOccurredAt(occurredAt);
+        pending.setSourceEventId(sourceEventId);
+        pendingOrders.saveAndFlush(pending);
+    }
+
+    private void applyCancellation(
+            PaymentInstruction instruction,
+            long orderVersion,
+            String reason,
+            UUID actorId,
+            OffsetDateTime cancelledAt,
+            OffsetDateTime occurredAt) {
+        requireRefundProceeds(instruction.getOrderId());
         Optional<Refund> existing = refunds.findLockedByOrderId(instruction.getOrderId());
         instruction.setCanceledAt(cancelledAt);
         instruction.setLastOrderVersion(orderVersion);
         instruction.setLastOrderEventAt(occurredAt);
         instruction.setUpdatedBy(actorId);
         instructions.saveAndFlush(instruction);
-        // ĐÃ CÓ REFUND (EVENT GỬI LẠI VỚI eventId MỚI, HOẶC SUPPORT ĐÃ TẠO) -> GIỮ NGUYÊN, KHÔNG TẠO THÊM
+        // ĐÃ CÓ REFUND (EVENT GỬI LẠI VỚI eventId MỚI, HOẶC SUPPORT ĐÃ TẠO) -> GIỮ NGUYÊN, KHÔNG
+        // TẠO THÊM
         if (existing.isPresent()) {
             return;
         }
@@ -176,10 +275,13 @@ public class RefundService {
 
     private void stash(EventEnvelope<OrderCancelled> event, UUID groupId) {
         OrderCancelled cancellation = event.payload();
-        PaymentPendingOrderCancellation pending = pendingOrders.findLockedByOrderId(cancellation.orderId())
-                .orElseGet(PaymentPendingOrderCancellation::new);
+        PaymentPendingOrderCancellation pending =
+                pendingOrders
+                        .findLockedByOrderId(cancellation.orderId())
+                        .orElseGet(PaymentPendingOrderCancellation::new);
         // GIỮ BẢN CÓ VERSION MỚI NHẤT
-        if (pending.getOrderVersion() != null && pending.getOrderVersion() >= cancellation.orderVersion()) {
+        if (pending.getOrderVersion() != null
+                && pending.getOrderVersion() >= cancellation.orderVersion()) {
             return;
         }
         pending.setOrderId(cancellation.orderId());
@@ -201,13 +303,17 @@ public class RefundService {
         if (user == null || user.id() == null) {
             throw new DomainException(PaymentErrorCode.UNAUTHENTICATED);
         }
-        // PREFIX system: DÀNH CHO REFUND TỰ ĐỘNG -> API CÔNG KHAI KHÔNG ĐƯỢC DÙNG ĐỂ TRÁNH TRÙNG KEY NỘI BỘ
-        if (idempotencyKey == null || !IDEMPOTENCY_KEY.matcher(idempotencyKey).matches()
+        // PREFIX system: DÀNH CHO REFUND TỰ ĐỘNG -> API CÔNG KHAI KHÔNG ĐƯỢC DÙNG ĐỂ TRÁNH TRÙNG
+        // KEY NỘI BỘ
+        if (idempotencyKey == null
+                || !IDEMPOTENCY_KEY.matcher(idempotencyKey).matches()
                 || idempotencyKey.startsWith(SYSTEM_KEY_PREFIX)) {
             throw new DomainException(PaymentErrorCode.INVALID_REFUND_REQUEST);
         }
-        // KHÓA THEO KEY TRƯỚC: 2 REQUEST CÙNG KEY CHẠY SONG SONG THÌ REQUEST SAU CHỜ RỒI NHẬN LẠI ĐÚNG REFUND CŨ
-        // KIỂM TRA REPLAY TRƯỚC MỌI ĐIỀU KIỆN KHÁC -> GỬI LẠI SAU KHI ĐÃ COMPLETED VẪN TRẢ CÙNG refundId
+        // KHÓA THEO KEY TRƯỚC: 2 REQUEST CÙNG KEY CHẠY SONG SONG THÌ REQUEST SAU CHỜ RỒI NHẬN LẠI
+        // ĐÚNG REFUND CŨ
+        // KIỂM TRA REPLAY TRƯỚC MỌI ĐIỀU KIỆN KHÁC -> GỬI LẠI SAU KHI ĐÃ COMPLETED VẪN TRẢ CÙNG
+        // refundId
         sessions.lockKey("refund-key:" + idempotencyKey);
         Optional<Refund> replay = refunds.findByIdempotencyKey(idempotencyKey);
         if (replay.isPresent()) {
@@ -217,11 +323,16 @@ public class RefundService {
             return result(replay.get());
         }
 
-        UUID groupId = instructions.findGroupIdByOrderId(body.orderId())
-                .orElseThrow(() -> new DomainException(PaymentErrorCode.ORDER_NOT_FOUND));
+        UUID groupId =
+                instructions
+                        .findGroupIdByOrderId(body.orderId())
+                        .orElseThrow(() -> new DomainException(PaymentErrorCode.ORDER_NOT_FOUND));
         sessions.lockKey(GROUP_LOCK + groupId);
-        PaymentInstruction instruction = instructions.findLockedByOrderId(body.orderId()).orElseThrow();
-        // PHẢI ĐÃ TRẢ TIỀN VÀ PAYMENT ĐÃ NHẬN OrderCancelled, KHÔNG THÌ COMMERCE KHÔNG CHUYỂN ĐƯỢC TRẠNG THÁI ĐƠN
+        PaymentInstruction instruction =
+                instructions.findLockedByOrderId(body.orderId()).orElseThrow();
+        requireRefundProceeds(body.orderId());
+        // PHẢI ĐÃ TRẢ TIỀN VÀ PAYMENT ĐÃ NHẬN OrderCancelled, KHÔNG THÌ COMMERCE KHÔNG CHUYỂN ĐƯỢC
+        // TRẠNG THÁI ĐƠN
         if (!isFunded(instruction) || instruction.getCanceledAt() == null) {
             throw new DomainException(PaymentErrorCode.ORDER_NOT_REFUNDABLE);
         }
@@ -260,10 +371,12 @@ public class RefundService {
         if (user == null || user.id() == null) {
             throw new DomainException(PaymentErrorCode.UNAUTHENTICATED);
         }
-        // TRƯỚC KHI KHÓA CHỈ ĐỌC orderId VÀ groupId (SCALAR), KHÔNG LOAD ENTITY -> SAU KHÓA ĐỌC BẢN MỚI NHẤT
+        // TRƯỚC KHI KHÓA CHỈ ĐỌC orderId VÀ groupId (SCALAR), KHÔNG LOAD ENTITY -> SAU KHÓA ĐỌC BẢN
+        // MỚI NHẤT
         // ĐỌC ENTITY TRƯỚC KHÓA THÌ NGƯỜI BẤM SAU GIỮ BẢN CŨ -> LỖI OPTIMISTIC LOCK -> 500
-        UUID orderId = refunds.findOrderIdById(refundId)
-                .orElseThrow(() -> new DomainException(PaymentErrorCode.REFUND_NOT_FOUND));
+        UUID orderId =
+                refunds.findOrderIdById(refundId)
+                        .orElseThrow(() -> new DomainException(PaymentErrorCode.REFUND_NOT_FOUND));
         UUID groupId = instructions.findGroupIdByOrderId(orderId).orElseThrow();
         // CÙNG THỨ TỰ KHÓA GROUP -> INSTRUCTION -> REFUND: 2 SUPPORT BẤM CÙNG LÚC THÌ NGƯỜI SAU CHỜ
         sessions.lockKey(GROUP_LOCK + groupId);
@@ -273,6 +386,7 @@ public class RefundService {
         if (refund.getStatus() == RefundStatus.COMPLETED) {
             return view(refund);
         }
+        requireRefundProceeds(orderId);
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
         // TIỀN ĐÃ CHUYỂN TAY NGOÀI HỆ THỐNG -> GHI 1 GIAO DỊCH REFUND ĐỂ ĐỐI SOÁT
@@ -301,8 +415,13 @@ public class RefundService {
         } catch (ObjectOptimisticLockingFailureException exception) {
             throw new DomainException(PaymentErrorCode.REFUND_CONFLICT);
         }
-        outbox.write("Refund", Topics.PAYMENT, envelopes.create("OrderRefundCompleted",
-                completed.getOrderId().toString(), completedEvent(completed, instruction, user.id())));
+        outbox.write(
+                "Refund",
+                Topics.PAYMENT,
+                envelopes.create(
+                        "OrderRefundCompleted",
+                        completed.getOrderId().toString(),
+                        completedEvent(completed, instruction, user.id())));
         return view(completed);
     }
 
@@ -331,8 +450,15 @@ public class RefundService {
     }
 
     static RefundView view(Refund refund) {
-        return new RefundView(refund.getId(), refund.getOrderId(), refund.getAmount(), refund.getCurrency(),
-                refund.getStatus(), refund.getReason(), refund.getRequestedAt(), refund.getCompletedAt());
+        return new RefundView(
+                refund.getId(),
+                refund.getOrderId(),
+                refund.getAmount(),
+                refund.getCurrency(),
+                refund.getStatus(),
+                refund.getReason(),
+                refund.getRequestedAt(),
+                refund.getCompletedAt());
     }
 
     // ĐÃ TRẢ TIỀN HAY CHƯA LÀ DO DỮ LIỆU CỦA PAYMENT QUYẾT ĐỊNH, KHÔNG TIN paidAmount CỦA COMMERCE
@@ -349,26 +475,56 @@ public class RefundService {
     }
 
     private void publishRequested(Refund refund, PaymentInstruction instruction, UUID actorId) {
-        outbox.write("Refund", Topics.PAYMENT, envelopes.create("OrderRefundRequested",
-                refund.getOrderId().toString(), requested(refund, instruction, actorId)));
+        outbox.write(
+                "Refund",
+                Topics.PAYMENT,
+                envelopes.create(
+                        "OrderRefundRequested",
+                        refund.getOrderId().toString(),
+                        requested(refund, instruction, actorId)));
     }
 
-    private static OrderRefundRequested requested(Refund refund, PaymentInstruction instruction, UUID actorId) {
-        return new OrderRefundRequested(refund.getId(), refund.getOrderId(),
-                instruction.getSession().getOrderGroupId(), instruction.getSession().getId(), instruction.getId(),
-                instruction.getFundedTransaction().getId(), money(refund.getAmount()), refund.getCurrency(),
-                refund.getStatus().name(), refund.getReason(), actorId, refund.getVersion(),
-                instruction.getVersion(), refund.getRequestedAt().toInstant().toString(), instruction.getBuyerId());
+    private static OrderRefundRequested requested(
+            Refund refund, PaymentInstruction instruction, UUID actorId) {
+        return new OrderRefundRequested(
+                refund.getId(),
+                refund.getOrderId(),
+                instruction.getSession().getOrderGroupId(),
+                instruction.getSession().getId(),
+                instruction.getId(),
+                instruction.getFundedTransaction().getId(),
+                money(refund.getAmount()),
+                refund.getCurrency(),
+                refund.getStatus().name(),
+                refund.getReason(),
+                actorId,
+                refund.getVersion(),
+                instruction.getVersion(),
+                refund.getRequestedAt().toInstant().toString(),
+                instruction.getBuyerId());
     }
 
     // refundVersion = 1 KHI COMPLETED -> COMMERCE BỎ QUA EVENT CŨ HƠN BẢN ĐÃ ÁP DỤNG
-    private static OrderRefundCompleted completedEvent(Refund refund, PaymentInstruction instruction, UUID actorId) {
-        return new OrderRefundCompleted(refund.getId(), refund.getOrderId(),
-                instruction.getSession().getOrderGroupId(), instruction.getSession().getId(), instruction.getId(),
-                instruction.getFundedTransaction().getId(), money(refund.getAmount()), refund.getCurrency(),
-                refund.getStatus().name(), refund.getReason(), actorId, refund.getVersion(),
-                instruction.getVersion(), refund.getRequestedAt().toInstant().toString(),
-                refund.getCompletedTransactionId(), refund.getCompletedAt().toInstant().toString(), instruction.getBuyerId());
+    private static OrderRefundCompleted completedEvent(
+            Refund refund, PaymentInstruction instruction, UUID actorId) {
+        return new OrderRefundCompleted(
+                refund.getId(),
+                refund.getOrderId(),
+                instruction.getSession().getOrderGroupId(),
+                instruction.getSession().getId(),
+                instruction.getId(),
+                instruction.getFundedTransaction().getId(),
+                money(refund.getAmount()),
+                refund.getCurrency(),
+                refund.getStatus().name(),
+                refund.getReason(),
+                actorId,
+                refund.getVersion(),
+                instruction.getVersion(),
+                refund.getRequestedAt().toInstant().toString(),
+                refund.getCompletedTransactionId(),
+                refund.getCompletedAt().toInstant().toString(),
+                instruction.getBuyerId());
     }
 
     static String money(BigDecimal amount) {
@@ -377,6 +533,15 @@ public class RefundService {
 
     private static boolean isZero(String amount) {
         return amount == null || new BigDecimal(amount).signum() == 0;
+    }
+
+    private void requireRefundProceeds(UUID orderId) {
+        if (payouts.hasReservedManualProceeds(orderId)) {
+            throw new DomainException(
+                    PaymentErrorCode.ORDER_NOT_REFUNDABLE,
+                    "Seller proceeds are reserved by a manual payout; reconcile it before"
+                        + " refunding");
+        }
     }
 
     private static void require(boolean condition, String message) {

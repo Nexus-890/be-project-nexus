@@ -1,5 +1,8 @@
 package com.group5.paymentservice.payout.service;
 
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
 import com.group5.common_events.EventEnvelope;
 import com.group5.common_security.CurrentUser;
 import com.group5.paymentservice.payment.PaymentDatabaseTestSupport;
@@ -12,9 +15,11 @@ import com.group5.paymentservice.payout.dto.response.PayoutView;
 import com.group5.paymentservice.payout.enums.PayoutStatus;
 import com.group5.paymentservice.payout.provider.PayoutAttemptKey;
 import com.group5.paymentservice.payout.provider.PayoutGateway;
+import com.group5.paymentservice.payout.repository.PayoutDispatchRepository;
 import com.group5.paymentservice.sellerbank.dto.request.BankAccountRequest;
 import com.group5.paymentservice.sellerbank.dto.request.BankVerificationRequest;
 import com.group5.paymentservice.sellerbank.service.BankAccountService;
+
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -27,9 +32,6 @@ import java.time.*;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.*;
-
-import static org.assertj.core.api.Assertions.*;
-import static org.mockito.Mockito.*;
 
 @TestPropertySource(
         properties = {
@@ -46,17 +48,22 @@ class PayoutFlowTest extends PaymentDatabaseTestSupport {
     @Autowired BankAccountService banks;
     @Autowired PayoutQueryService queries;
     @Autowired PaymentTransactionRepository transactions;
+    @Autowired PayoutDispatchRepository dispatches;
+    @Autowired org.springframework.transaction.support.TransactionTemplate payoutTransactions;
     @MockitoSpyBean PayoutGateway gateway;
     private final CurrentUser admin = new CurrentUser(UUID.randomUUID(), Set.of("ADMIN"), Set.of());
 
     @BeforeEach
     void resetConfig() {
+        // These tests explicitly exercise the legacy AUTO dispatcher; scheduled jobs stay absent.
+        properties.setExecutionMode("AUTO");
+        properties.setJobsEnabled(true);
         properties.setPlatformFeeRate(BigDecimal.ZERO);
         properties.setSandboxOutcome("SUCCESS");
         properties.setMaxAttempts(3);
         jdbc.update(
                 "UPDATE payouts SET next_attempt_at=now()+interval '1 year' WHERE"
-                    + " status='PENDING'");
+                        + " status='PENDING'");
         doAnswer(
                         call -> {
                             var transfer = call.getArgument(0, PayoutGateway.Transfer.class);
@@ -67,8 +74,8 @@ class PayoutFlowTest extends PaymentDatabaseTestSupport {
                             assertThat(
                                             jdbc.queryForObject(
                                                     "SELECT count(*) FROM payout_history WHERE"
-                                                        + " payout_id=? AND event='SENT' AND"
-                                                        + " attempt_no=?",
+                                                            + " payout_id=? AND event='SENT' AND"
+                                                            + " attempt_no=?",
                                                     Integer.class,
                                                     transfer.payoutId(),
                                                     transfer.attempt()))
@@ -77,6 +84,104 @@ class PayoutFlowTest extends PaymentDatabaseTestSupport {
                         })
                 .when(gateway)
                 .send(any());
+    }
+
+    @Test
+    void manualLiabilityKeepsItsModeAndCannotEnterAnyLegacyAutomaticPath() {
+        properties.setExecutionMode("MANUAL");
+        properties.setJobsEnabled(false);
+        Fixture f = funded("100000.00", "5000.00");
+        verifyBank(f.seller(), "000000008888");
+        completions.completed(event(f));
+        UUID id = id(f);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT execution_mode FROM payouts WHERE id=?", String.class, id))
+                .isEqualTo("MANUAL");
+        assertThat(queries.detail(f.seller(), id).status()).isEqualTo("PENDING");
+
+        // A later deployment may explicitly run legacy AUTO jobs; an existing MANUAL row stays
+        // excluded.
+        properties.setExecutionMode("AUTO");
+        properties.setJobsEnabled(true);
+        jdbc.update("UPDATE payouts SET next_attempt_at=now()-interval '1 day' WHERE id=?", id);
+        assertThat(dispatcher.dispatchOne()).isFalse();
+        jdbc.update(
+                "UPDATE payouts SET status='PROCESSING',attempt_started_at=now()-interval '1 day'"
+                    + " WHERE id=?",
+                id);
+        var now = OffsetDateTime.now(ZoneOffset.UTC);
+        var automaticClaim =
+                payoutTransactions.execute(
+                        status ->
+                                dispatches.claimNextReconciliation(
+                                        "manual", now, now.plusMinutes(5)));
+        assertThat(automaticClaim).isEmpty();
+        assertThat(dispatches.findUnresolvedAttempt(id, 0)).isEmpty();
+        payouts.apply(
+                id,
+                0,
+                "manual",
+                new PayoutGateway.Result(PayoutGateway.State.SUCCEEDED, "fabricated", "SUCCESS"),
+                true);
+        assertThat(queries.detail(f.seller(), id).status()).isEqualTo("PROCESSING");
+        jdbc.update("UPDATE payouts SET status='FAILED' WHERE id=?", id);
+        assertThatThrownBy(() -> payouts.retry(admin, id, UUID.randomUUID().toString()))
+                .isInstanceOf(com.group5.common_core.exception.DomainException.class);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM payment_transactions WHERE session_id=? AND"
+                                    + " type='PAYOUT'",
+                                Integer.class,
+                                f.session()))
+                .isZero();
+        verify(gateway, never()).send(any());
+        verify(gateway, never()).lookup(anyString());
+        assertThatThrownBy(
+                        () ->
+                                jdbc.update(
+                                        "UPDATE payouts SET execution_mode='AUTO' WHERE id=?", id))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void fractionalManualLiabilityIsHeldAndBankVerificationCannotMakeItAutomaticallyExecutable() {
+        properties.setExecutionMode("MANUAL");
+        properties.setJobsEnabled(false);
+        Fixture f = funded("100000.40", "5000.00");
+        verifyBank(f.seller(), "000000007777");
+        completions.completed(event(f));
+        UUID id = id(f);
+        assertThat(queries.detail(f.seller(), id).status()).isEqualTo("ON_HOLD");
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT blocked_reason FROM payouts WHERE id=?", String.class, id))
+                .isEqualTo("UNSUPPORTED_AMOUNT");
+        payouts.releaseHeld(f.seller().id());
+        assertThat(queries.detail(f.seller(), id).status()).isEqualTo("ON_HOLD");
+        assertThat(queries.detail(f.seller(), id).netAmount()).isEqualByComparingTo("95000.40");
+    }
+
+    @Test
+    void verifiedButUnsupportedManualRecipientStartsHeld() {
+        properties.setExecutionMode("MANUAL");
+        properties.setJobsEnabled(false);
+        Fixture f = funded("100000.00", "5000.00");
+        var bank =
+                banks.create(
+                        f.seller(),
+                        new BankAccountRequest(
+                                "999999", "000000001234", "TEST SELLER", true, true));
+        banks.verify(
+                admin, bank.id(), new BankVerificationRequest("VERIFIED", null, bank.version()));
+        completions.completed(event(f));
+        UUID id = id(f);
+        assertThat(queries.detail(f.seller(), id).status()).isEqualTo("ON_HOLD");
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT blocked_reason FROM payouts WHERE id=?", String.class, id))
+                .isEqualTo("UNSUPPORTED_BANK_ACCOUNT");
+        assertThat(queries.detail(f.seller(), id).netAmount()).isEqualByComparingTo("95000.00");
     }
 
     @Test
@@ -120,7 +225,7 @@ class PayoutFlowTest extends PaymentDatabaseTestSupport {
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT count(*) FROM outbox WHERE aggregate_id=? AND"
-                                    + " event_type='PayoutSucceeded'",
+                                        + " event_type='PayoutSucceeded'",
                                 Integer.class,
                                 id.toString()))
                 .isEqualTo(1);
@@ -135,14 +240,14 @@ class PayoutFlowTest extends PaymentDatabaseTestSupport {
             if (reason.equals("refund"))
                 jdbc.update(
                         "INSERT INTO refunds(order_id,amount,reason,idempotency_key,requested_by)"
-                            + " VALUES (?,100000,'test',?,?)",
+                                + " VALUES (?,100000,'test',?,?)",
                         f.order(),
                         UUID.randomUUID().toString(),
                         admin.id());
             if (reason.equals("unfunded"))
                 jdbc.update(
                         "UPDATE payment_instructions SET"
-                            + " status='PENDING',funded_transaction_id=NULL WHERE order_id=?",
+                                + " status='PENDING',funded_transaction_id=NULL WHERE order_id=?",
                         f.order());
             completions.completed(event(f));
             assertThat(
@@ -152,7 +257,12 @@ class PayoutFlowTest extends PaymentDatabaseTestSupport {
                                     f.order()))
                     .as(reason)
                     .isZero();
-            assertThat(queries.admin(admin, new PayoutListRequest(f.seller().id(), null, null, null, 0, 20)).content())
+            assertThat(
+                            queries.admin(
+                                            admin,
+                                            new PayoutListRequest(
+                                                    f.seller().id(), null, null, null, 0, 20))
+                                    .content())
                     .as(reason + " is absent from the administrator list")
                     .isEmpty();
         }
@@ -164,13 +274,20 @@ class PayoutFlowTest extends PaymentDatabaseTestSupport {
         var completed = event(f);
         completions.completed(completed);
         completions.completed(completed);
-        var result = queries.admin(admin, new PayoutListRequest(f.seller().id(), List.of(PayoutStatus.ON_HOLD), null, null, 0, 20));
+        var result =
+                queries.admin(
+                        admin,
+                        new PayoutListRequest(
+                                f.seller().id(), List.of(PayoutStatus.ON_HOLD), null, null, 0, 20));
         assertThat(result.page().totalElements()).isEqualTo(1);
-        assertThat(result.content()).singleElement().satisfies(payout -> {
-            assertThat(payout.orderId()).isEqualTo(f.order());
-            assertThat(payout.netAmount()).isEqualByComparingTo("95000.00");
-            assertThat(payout.updatedAt()).isNotNull();
-        });
+        assertThat(result.content())
+                .singleElement()
+                .satisfies(
+                        payout -> {
+                            assertThat(payout.orderId()).isEqualTo(f.order());
+                            assertThat(payout.netAmount()).isEqualByComparingTo("95000.00");
+                            assertThat(payout.updatedAt()).isNotNull();
+                        });
     }
 
     @Test
@@ -183,7 +300,7 @@ class PayoutFlowTest extends PaymentDatabaseTestSupport {
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT count(*) FROM payment_transactions WHERE session_id=? AND"
-                                    + " type='PAYOUT'",
+                                        + " type='PAYOUT'",
                                 Integer.class,
                                 f.session()))
                 .isZero();
@@ -217,7 +334,7 @@ class PayoutFlowTest extends PaymentDatabaseTestSupport {
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT count(*) FROM outbox WHERE aggregate_id=? AND"
-                                    + " event_type='PayoutFailed'",
+                                        + " event_type='PayoutFailed'",
                                 Integer.class,
                                 id.toString()))
                 .isEqualTo(1);
@@ -259,14 +376,14 @@ class PayoutFlowTest extends PaymentDatabaseTestSupport {
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT count(*) FROM payment_transactions WHERE session_id=? AND"
-                                    + " type='PAYOUT'",
+                                        + " type='PAYOUT'",
                                 Integer.class,
                                 f.session()))
                 .isEqualTo(2);
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT count(*) FROM payment_transactions WHERE session_id=? AND"
-                                    + " type='PAYOUT_RETURN'",
+                                        + " type='PAYOUT_RETURN'",
                                 Integer.class,
                                 f.session()))
                 .isEqualTo(1);
@@ -317,7 +434,7 @@ class PayoutFlowTest extends PaymentDatabaseTestSupport {
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT count(*) FROM payment_transactions WHERE session_id=? AND"
-                                    + " type='PAYOUT'",
+                                        + " type='PAYOUT'",
                                 Integer.class,
                                 f.session()))
                 .isEqualTo(1);
@@ -340,7 +457,7 @@ class PayoutFlowTest extends PaymentDatabaseTestSupport {
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT count(*) FROM payment_transactions WHERE session_id=? AND"
-                                    + " type='PAYOUT'",
+                                        + " type='PAYOUT'",
                                 Integer.class,
                                 f.session()))
                 .isZero();
@@ -354,7 +471,8 @@ class PayoutFlowTest extends PaymentDatabaseTestSupport {
         Fixture f = funded("100000.00", "5000.00");
         completions.completed(event(f));
         UUID id = id(f);
-        // Mô phỏng verify đã commit nhưng listener chưa giải phóng payout để kiểm tra quét phục hồi.
+        // Mô phỏng verify đã commit nhưng listener chưa giải phóng payout để kiểm tra quét phục
+        // hồi.
         var b =
                 banks.create(
                         f.seller(),
@@ -383,7 +501,7 @@ class PayoutFlowTest extends PaymentDatabaseTestSupport {
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT count(*) FROM payment_transactions WHERE session_id=? AND"
-                                    + " type IN ('PAYOUT','PAYOUT_RETURN')",
+                                        + " type IN ('PAYOUT','PAYOUT_RETURN')",
                                 Integer.class,
                                 f.session()))
                 .isEqualTo(2);
@@ -402,7 +520,7 @@ class PayoutFlowTest extends PaymentDatabaseTestSupport {
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT count(*) FROM payment_transactions WHERE session_id=? AND"
-                                    + " type='PAYOUT'",
+                                        + " type='PAYOUT'",
                                 Integer.class,
                                 f.session()))
                 .isZero();

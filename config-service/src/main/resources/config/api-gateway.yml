@@ -477,6 +477,57 @@ nexus:
       - method: POST
         path: /api/v1/payments/payouts/{id}/retry
         roles: [ADMIN]
+      - method: GET
+        path: /api/v1/payments/manual-payouts/capabilities
+        roles: [ADMIN, SUPPORT_STAFF]
+      - method: GET
+        path: /api/v1/payments/manual-payouts
+        roles: [ADMIN, SUPPORT_STAFF]
+      - method: GET
+        path: /api/v1/payments/manual-payouts/{payoutId}
+        roles: [ADMIN, SUPPORT_STAFF]
+      - method: POST
+        path: /api/v1/payments/manual-payouts/{payoutId}/readiness-check
+        roles: [ADMIN, SUPPORT_STAFF]
+      - method: POST
+        path: /api/v1/payments/manual-payouts/{payoutId}/claims
+        roles: [ADMIN, SUPPORT_STAFF]
+      - method: POST
+        path: /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/qr-issuances
+        roles: [ADMIN, SUPPORT_STAFF]
+      - method: GET
+        path: /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/qr
+        roles: [ADMIN, SUPPORT_STAFF]
+      - method: POST
+        path: /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/release
+        roles: [ADMIN, SUPPORT_STAFF]
+      - method: POST
+        path: /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/evidence
+        roles: [ADMIN, SUPPORT_STAFF]
+      - method: GET
+        path: /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/evidence/{evidenceId}
+        roles: [ADMIN, SUPPORT_STAFF]
+      - method: POST
+        path: /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/confirmation
+        roles: [ADMIN, SUPPORT_STAFF]
+      - method: POST
+        path: /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/problems
+        roles: [ADMIN, SUPPORT_STAFF]
+      - method: POST
+        path: /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/resolution
+        roles: [ADMIN]
+      - method: POST
+        path: /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/receipt-disputes/{disputeId}/reviews
+        roles: [ADMIN]
+      - method: POST
+        path: /api/v1/payments/manual-payouts/{payoutId}/retries
+        roles: [ADMIN]
+      - method: POST
+        path: /api/v1/payments/payouts/{payoutId}/manual-attempts/{attemptId}/receipt-confirmations
+        roles: [SELLER]
+      - method: POST
+        path: /api/v1/payments/payouts/{payoutId}/manual-attempts/{attemptId}/receipt-disputes
+        roles: [SELLER]
       - method: POST
         path: /api/v1/promotions/events
         privilege: PROMOTION.EVENT.MANAGE

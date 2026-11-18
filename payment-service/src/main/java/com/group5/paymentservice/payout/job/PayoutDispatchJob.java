@@ -1,8 +1,10 @@
 package com.group5.paymentservice.payout.job;
 
 import com.group5.paymentservice.payout.service.PayoutDispatchService;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -10,7 +12,7 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 @Slf4j
-@ConditionalOnProperty(name = "nexus.payout.jobs-enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(name = "nexus.payout.jobs-enabled", havingValue = "true")
 public class PayoutDispatchJob {
     private final PayoutDispatchService dispatcher;
 

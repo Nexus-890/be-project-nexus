@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Nexus payments, refunds, seller bank accounts and automatic payouts
+  title: Nexus payments, refunds, seller bank accounts and payouts
   version: 1.0.0
   description: >-
     Bank-transfer VietQR initiation, manual refunds and authenticated SePay callbacks.
@@ -29,6 +29,10 @@ tags:
     description: Seller-owned encrypted bank accounts and administrator verification
   - name: Payouts
     description: Automatic completed-order payouts, immutable history and administrator retries
+  - name: ManualPayouts
+    description: Staff-executed external transfers and administrator reconciliation
+  - name: SellerPayoutReceipts
+    description: Owning-seller receipt acknowledgement and disputes without money movement
 paths:
   /api/v1/webhooks/sepay:
     post:
@@ -515,7 +519,7 @@ paths:
       x-required-roles: [ADMIN]
       description: >-
         ADMIN only; SELLER and SUPPORT_STAFF receive 403. Optional filters are
-        combined with AND before counting and pagination. UNVERIFIED accounts
+        combined with AND before counting and pagination. Active UNVERIFIED accounts
         come first, oldest createdAt first, then id ascending for ties; remaining
         accounts follow in the same chronological order. Only accountLast4 is
         returned, never the full number or ciphertext. This read does not verify
@@ -532,7 +536,7 @@ paths:
         - $ref: '#/components/parameters/AdminSize'
       responses:
         '200':
-          description: Masked bank-account page with unverified accounts first
+          description: Masked bank-account page with active unverified accounts first, then creation time and ID ascending
           content:
             application/json:
               schema:
@@ -986,6 +990,8 @@ paths:
                     recipientAccountLast4: null
                     providerReference: null
                     simulated: true
+                    executionMode: AUTO
+                    confirmationSource: null
                     createdAt: '2026-11-16T05:00:00Z'
                     updatedAt: '2026-11-16T05:00:00Z'
                 page: {number: 0, size: 20, totalElements: 1, totalPages: 1}
@@ -1017,7 +1023,7 @@ paths:
               example:
                 code: 0
                 message: "response success"
-                data: [{"id":"00000000-0000-4000-8000-000000000257","orderId":"00000000-0000-4000-8000-000000000001","sellerId":"00000000-0000-4000-8000-000000000004","orderAmount":325000,"shippingFee":25000,"platformFeeRate":0,"platformFee":0,"netAmount":300000,"currency":"VND","status":"ON_HOLD","attemptCount":0,"recipientAccountLast4":null,"providerReference":null,"simulated":true,"createdAt":"2026-11-16T05:00:00Z","updatedAt":"2026-11-16T05:00:00Z"}]
+                data: [{"id":"00000000-0000-4000-8000-000000000257","orderId":"00000000-0000-4000-8000-000000000001","sellerId":"00000000-0000-4000-8000-000000000004","orderAmount":325000,"shippingFee":25000,"platformFeeRate":0,"platformFee":0,"netAmount":300000,"currency":"VND","status":"ON_HOLD","attemptCount":0,"recipientAccountLast4":null,"providerReference":null,"simulated":true,"executionMode":"AUTO","confirmationSource":null,"createdAt":"2026-11-16T05:00:00Z","updatedAt":"2026-11-16T05:00:00Z"}]
                 page:
                   number: 0
                   size: 20
@@ -1289,6 +1295,830 @@ paths:
                 detail: "Provider reference conflicts with the stored transfer"
                 instance: "/api/v1/payments/payouts/callbacks/http"
                 code: "PAYMENT_PAYOUT_PROVIDER_CONFLICT"
+  /api/v1/payments/manual-payouts/capabilities:
+    get:
+      tags:
+        - "ManualPayouts"
+      operationId: "getManualPayoutCapabilities"
+      summary: "Read executor capabilities and rollout state"
+      description: "Reports server time, authorized platform source-account aliases, immutable-mode rollout settings and role-scoped actions. Does not enable manual processing."
+      security:
+        -
+          bearerAuth: []
+      x-required-roles:
+        - "ADMIN"
+        - "SUPPORT_STAFF"
+      parameters: []
+      responses:
+        "200":
+          description: "Authoritative result"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualPayoutCapabilitiesApiResponse"
+        "400":
+          $ref: "#/components/responses/ManualInvalidRequest"
+        "401":
+          $ref: "#/components/responses/ManualUnauthorized"
+        "403":
+          $ref: "#/components/responses/ManualForbidden"
+        "404":
+          $ref: "#/components/responses/ManualNotFound"
+        "409":
+          $ref: "#/components/responses/ManualConflict"
+        "503":
+          $ref: "#/components/responses/ManualUnavailable"
+  /api/v1/payments/manual-payouts:
+    get:
+      tags:
+        - "ManualPayouts"
+      operationId: "listManualPayouts"
+      summary: "List the manual execution and review queue"
+      description: "Filters MANUAL rows before count/paging. Repeated status values use OR; other filters use AND. Inclusive createdAt bounds, createdAt DESC and id DESC. Open cases on SUCCEEDED rows remain in needsReview; hasOpenDispute means unresolved OPEN/UNDER_REVIEW/WAITING_SELLER seller disputes. Reads never claim, release, issue QR or settle money."
+      security:
+        -
+          bearerAuth: []
+      x-required-roles:
+        - "ADMIN"
+        - "SUPPORT_STAFF"
+      parameters:
+        -
+          name: "sellerId"
+          in: "query"
+          schema:
+            type: "string"
+            format: "uuid"
+        -
+          name: "status"
+          in: "query"
+          style: "form"
+          explode: true
+          schema:
+            type: "array"
+            items:
+              $ref: "#/components/schemas/PayoutStatus"
+        -
+          name: "claimedBy"
+          in: "query"
+          description: "Executor UUID or literal me."
+          schema:
+            type: "string"
+        -
+          name: "receiptStatus"
+          in: "query"
+          schema:
+            $ref: "#/components/schemas/PayoutReceiptStatus"
+        -
+          name: "hasOpenDispute"
+          in: "query"
+          schema:
+            type: "boolean"
+        -
+          name: "needsReview"
+          in: "query"
+          schema:
+            type: "boolean"
+        -
+          name: "from"
+          in: "query"
+          schema:
+            type: "string"
+            format: "date-time"
+        -
+          name: "to"
+          in: "query"
+          schema:
+            type: "string"
+            format: "date-time"
+        -
+          $ref: "#/components/parameters/AdminPage"
+        -
+          $ref: "#/components/parameters/AdminSize"
+      responses:
+        "200":
+          description: "Authoritative result"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualPayoutPageApiResponse"
+        "400":
+          $ref: "#/components/responses/ManualInvalidRequest"
+        "401":
+          $ref: "#/components/responses/ManualUnauthorized"
+        "403":
+          $ref: "#/components/responses/ManualForbidden"
+        "404":
+          $ref: "#/components/responses/ManualNotFound"
+        "409":
+          $ref: "#/components/responses/ManualConflict"
+        "503":
+          $ref: "#/components/responses/ManualUnavailable"
+  /api/v1/payments/manual-payouts/{payoutId}:
+    get:
+      tags:
+        - "ManualPayouts"
+      operationId: "getManualPayout"
+      summary: "Read masked manual payout detail"
+      description: "Returns independent payout, attempt, receipt and dispute state plus current versions and allowedActions. A role does not bypass live QR/proof ownership."
+      security:
+        -
+          bearerAuth: []
+      x-required-roles:
+        - "ADMIN"
+        - "SUPPORT_STAFF"
+      parameters:
+        -
+          $ref: "#/components/parameters/ManualPayoutId"
+      responses:
+        "200":
+          description: "Authoritative result"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualPayoutApiResponse"
+        "400":
+          $ref: "#/components/responses/ManualInvalidRequest"
+        "401":
+          $ref: "#/components/responses/ManualUnauthorized"
+        "403":
+          $ref: "#/components/responses/ManualForbidden"
+        "404":
+          $ref: "#/components/responses/ManualNotFound"
+        "409":
+          $ref: "#/components/responses/ManualConflict"
+        "503":
+          $ref: "#/components/responses/ManualUnavailable"
+  /api/v1/payments/manual-payouts/{payoutId}/readiness-check:
+    post:
+      tags:
+        - "ManualPayouts"
+      operationId: "checkManualPayoutReadiness"
+      summary: "Explicitly recheck an on-hold or pending manual payout"
+      description: "Rechecks full funding/refund/bank/amount readiness for ON_HOLD/PENDING. Releases an eligible ON_HOLD payout to PENDING, or safely holds a PENDING payout whose readiness was lost. Creates no attempt, QR or payment; works without the automatic reconciliation sweep. GET may report a newly blocked reason and suppress CLAIM but never performs this write. Requires a UUID Idempotency-Key and the relevant expected version. Exact replay returns 200 with the original result and creates no duplicate financial movement; changed context conflicts. GET never performs this operation."
+      security:
+        -
+          bearerAuth: []
+      x-required-roles:
+        - "ADMIN"
+        - "SUPPORT_STAFF"
+      parameters:
+        -
+          $ref: "#/components/parameters/ManualPayoutId"
+        -
+          $ref: "#/components/parameters/ManualIdempotencyKey"
+      responses:
+        "200":
+          description: "Authoritative result"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualPayoutApiResponse"
+        "400":
+          $ref: "#/components/responses/ManualInvalidRequest"
+        "401":
+          $ref: "#/components/responses/ManualUnauthorized"
+        "403":
+          $ref: "#/components/responses/ManualForbidden"
+        "404":
+          $ref: "#/components/responses/ManualNotFound"
+        "409":
+          $ref: "#/components/responses/ManualConflict"
+        "503":
+          $ref: "#/components/responses/ManualUnavailable"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualPayoutReadinessRequest"
+  /api/v1/payments/manual-payouts/{payoutId}/claims:
+    post:
+      tags:
+        - "ManualPayouts"
+      operationId: "claimManualPayout"
+      summary: "Exclusively claim one manual payout"
+      description: "ADMIN/SUPPORT_STAFF can claim another seller payout once while manual intake is enabled. Default unissued lease is five minutes. Concurrent competing claims conflict; the owner and frozen bank/amount snapshot are durable. Requires a UUID Idempotency-Key and the relevant expected version. Exact replay returns 200 with the original result and creates no duplicate financial movement; changed context conflicts. GET never performs this operation."
+      security:
+        -
+          bearerAuth: []
+      x-required-roles:
+        - "ADMIN"
+        - "SUPPORT_STAFF"
+      parameters:
+        -
+          $ref: "#/components/parameters/ManualPayoutId"
+        -
+          $ref: "#/components/parameters/ManualIdempotencyKey"
+      responses:
+        "200":
+          description: "Exact replay of the original successful command"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualPayoutApiResponse"
+        "201":
+          description: "Resource or issuance created for the first time"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualPayoutApiResponse"
+        "400":
+          $ref: "#/components/responses/ManualInvalidRequest"
+        "401":
+          $ref: "#/components/responses/ManualUnauthorized"
+        "403":
+          $ref: "#/components/responses/ManualForbidden"
+        "404":
+          $ref: "#/components/responses/ManualNotFound"
+        "409":
+          $ref: "#/components/responses/ManualConflict"
+        "503":
+          $ref: "#/components/responses/ManualUnavailable"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualPayoutClaimRequest"
+  /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/qr-issuances:
+    post:
+      tags:
+        - "ManualPayouts"
+      operationId: "issueManualPayoutQr"
+      summary: "Commit one frozen QR issuance"
+      description: "Owning executor only. Rechecks current full reviewed bank and funding/refund state, commits one immutable reference/snapshot and exposes server deadline (default ten minutes). An issued QR may remain payable after the platform deadline; expiry never authorizes a second transfer. Requires a UUID Idempotency-Key and the relevant expected version. Exact replay returns 200 with the original result and creates no duplicate financial movement; changed context conflicts. GET never performs this operation."
+      security:
+        -
+          bearerAuth: []
+      x-required-roles:
+        - "ADMIN"
+        - "SUPPORT_STAFF"
+      parameters:
+        -
+          $ref: "#/components/parameters/ManualPayoutId"
+        -
+          $ref: "#/components/parameters/ManualAttemptId"
+        -
+          $ref: "#/components/parameters/ManualIdempotencyKey"
+      responses:
+        "200":
+          description: "Exact replay of the original successful command"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualPayoutApiResponse"
+        "201":
+          description: "Resource or issuance created for the first time"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualPayoutApiResponse"
+        "400":
+          $ref: "#/components/responses/ManualInvalidRequest"
+        "401":
+          $ref: "#/components/responses/ManualUnauthorized"
+        "403":
+          $ref: "#/components/responses/ManualForbidden"
+        "404":
+          $ref: "#/components/responses/ManualNotFound"
+        "409":
+          $ref: "#/components/responses/ManualConflict"
+        "503":
+          $ref: "#/components/responses/ManualUnavailable"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualPayoutVersionRequest"
+  /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/qr:
+    get:
+      tags:
+        - "ManualPayouts"
+      operationId: "getManualPayoutQr"
+      summary: "Read the issued private receiving-bank QR"
+      description: "Owning ADMIN/SUPPORT_STAFF executor only; even another Admin cannot use this endpoint to bypass ownership. PNG generated locally from the previously committed VietQR NAPAS account-transfer instruction. Browser clients fetch with Authorization Bearer, check the status, read blob(), and display an object URL that is revoked on replacement or screen cleanup; a direct API img src cannot attach the required Bearer header. No account, payload or token in public URLs or external QR services; reads never issue or refresh transfer instructions."
+      security:
+        -
+          bearerAuth: []
+      x-required-roles:
+        - "ADMIN"
+        - "SUPPORT_STAFF"
+      parameters:
+        -
+          $ref: "#/components/parameters/ManualPayoutId"
+        -
+          $ref: "#/components/parameters/ManualAttemptId"
+      responses:
+        "200":
+          description: "Authenticated read-only PNG of the frozen instruction"
+          headers:
+            Cache-Control:
+              schema:
+                type: "string"
+                example: "no-store, private"
+          content:
+            image/png:
+              schema:
+                type: "string"
+                format: "binary"
+        "400":
+          $ref: "#/components/responses/ManualInvalidRequest"
+        "401":
+          $ref: "#/components/responses/ManualUnauthorized"
+        "403":
+          $ref: "#/components/responses/ManualForbidden"
+        "404":
+          $ref: "#/components/responses/ManualNotFound"
+        "409":
+          $ref: "#/components/responses/ManualConflict"
+        "503":
+          $ref: "#/components/responses/ManualUnavailable"
+  /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/release:
+    post:
+      tags:
+        - "ManualPayouts"
+      operationId: "releaseManualPayoutClaim"
+      summary: "Release an unissued claim safely"
+      description: "Owner may release CLAIMED before QR issuance. Explicit ADMIN intervention requires a reason. Requeues/holds according to current readiness with NOT_SENT audit; issued/uncertain attempts cannot be released for another transfer. Requires a UUID Idempotency-Key and the relevant expected version. Exact replay returns 200 with the original result and creates no duplicate financial movement; changed context conflicts. GET never performs this operation."
+      security:
+        -
+          bearerAuth: []
+      x-required-roles:
+        - "ADMIN"
+        - "SUPPORT_STAFF"
+      parameters:
+        -
+          $ref: "#/components/parameters/ManualPayoutId"
+        -
+          $ref: "#/components/parameters/ManualAttemptId"
+        -
+          $ref: "#/components/parameters/ManualIdempotencyKey"
+      responses:
+        "200":
+          description: "Authoritative result"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualPayoutApiResponse"
+        "400":
+          $ref: "#/components/responses/ManualInvalidRequest"
+        "401":
+          $ref: "#/components/responses/ManualUnauthorized"
+        "403":
+          $ref: "#/components/responses/ManualForbidden"
+        "404":
+          $ref: "#/components/responses/ManualNotFound"
+        "409":
+          $ref: "#/components/responses/ManualConflict"
+        "503":
+          $ref: "#/components/responses/ManualUnavailable"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualPayoutVersionRequest"
+  /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/evidence:
+    post:
+      tags:
+        - "ManualPayouts"
+      operationId: "uploadManualPayoutEvidence"
+      summary: "Upload private transfer evidence"
+      description: "Bound to payout/attempt/uploader; private JPEG/PNG/PDF only. Browser clients send FormData with file and expectedAttemptVersion, Authorization Bearer and UUID Idempotency-Key; the browser supplies the multipart boundary. FE needs no Supabase key or bucket URL. Backend validates signature, MIME, 10 MiB per file and three files per attempt, uploads to private storage and returns authoritative payout detail without a storage URL. Upload alone never settles money; orphan files are cleaned on DB failure. Requires a UUID Idempotency-Key and the relevant expected version. Exact replay returns 200 with the original result and creates no duplicate financial movement; changed context conflicts. GET never performs this operation."
+      security:
+        -
+          bearerAuth: []
+      x-required-roles:
+        - "ADMIN"
+        - "SUPPORT_STAFF"
+      parameters:
+        -
+          $ref: "#/components/parameters/ManualPayoutId"
+        -
+          $ref: "#/components/parameters/ManualAttemptId"
+        -
+          $ref: "#/components/parameters/ManualIdempotencyKey"
+      responses:
+        "200":
+          description: "Exact replay of the original successful command"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualPayoutApiResponse"
+        "201":
+          description: "Resource or issuance created for the first time"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualPayoutApiResponse"
+        "400":
+          $ref: "#/components/responses/ManualInvalidRequest"
+        "401":
+          $ref: "#/components/responses/ManualUnauthorized"
+        "403":
+          $ref: "#/components/responses/ManualForbidden"
+        "404":
+          $ref: "#/components/responses/ManualNotFound"
+        "409":
+          $ref: "#/components/responses/ManualConflict"
+        "413":
+          $ref: "#/components/responses/ManualEvidenceTooLarge"
+        "415":
+          $ref: "#/components/responses/ManualEvidenceUnsupported"
+        "503":
+          $ref: "#/components/responses/ManualUnavailable"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: "object"
+              required:
+                - "expectedAttemptVersion"
+                - "file"
+              properties:
+                expectedAttemptVersion:
+                  type: "integer"
+                  format: "int64"
+                  minimum: 0
+                file:
+                  type: "string"
+                  format: "binary"
+                  description: "Signature-validated JPEG/PNG/PDF, max 10485760 bytes; at most three files per attempt."
+  /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/evidence/{evidenceId}:
+    get:
+      tags:
+        - "ManualPayouts"
+      operationId: "downloadManualPayoutEvidence"
+      summary: "Download private evidence through Payment"
+      description: "Owning executor or authorized ADMIN reconciliation access only. Staff queue access grants no right to another executor proof. Payment validates matching resource IDs and streams bytes from private storage; no public/signed Supabase URL or server key is exposed. Browser clients fetch with Authorization Bearer, check the status, read blob() and use URL.createObjectURL; revoke the object URL when replaced or the view closes/unmounts. Direct API img src does not attach the required Bearer header."
+      security:
+        -
+          bearerAuth: []
+      x-required-roles:
+        - "ADMIN"
+        - "SUPPORT_STAFF"
+      parameters:
+        -
+          $ref: "#/components/parameters/ManualPayoutId"
+        -
+          $ref: "#/components/parameters/ManualAttemptId"
+        -
+          $ref: "#/components/parameters/ManualEvidenceId"
+      responses:
+        "200":
+          description: "Private evidence bytes streamed by Payment after authorization"
+          headers:
+            Cache-Control:
+              schema:
+                type: "string"
+                example: "no-store, private"
+            Content-Disposition:
+              schema:
+                type: "string"
+                example: "attachment; filename=\"evidence.pdf\""
+          content:
+            image/jpeg:
+              schema:
+                type: "string"
+                format: "binary"
+            image/png:
+              schema:
+                type: "string"
+                format: "binary"
+            application/pdf:
+              schema:
+                type: "string"
+                format: "binary"
+        "400":
+          $ref: "#/components/responses/ManualInvalidRequest"
+        "401":
+          $ref: "#/components/responses/ManualUnauthorized"
+        "403":
+          $ref: "#/components/responses/ManualForbidden"
+        "404":
+          $ref: "#/components/responses/ManualNotFound"
+        "409":
+          $ref: "#/components/responses/ManualConflict"
+        "503":
+          $ref: "#/components/responses/ManualUnavailable"
+  /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/confirmation:
+    post:
+      tags:
+        - "ManualPayouts"
+      operationId: "confirmManualPayoutTransfer"
+      summary: "Record an external transfer attestation"
+      description: "Owning executor with valid QR_ISSUED attempt only. Requires exact frozen amount, configured source account, bank reference/time and bound proof. Atomically records one PAYOUT, history and outbox event, SUCCEEDED and AWAITING_CONFIRMATION. Confirmation source is MANUAL_STAFF_CONFIRMED, never BANK_VERIFIED. Bank-reference uniqueness is scoped by source account, bank business date and bank reference. Requires a UUID Idempotency-Key and the relevant expected version. Exact replay returns 200 with the original result and creates no duplicate financial movement; changed context conflicts. GET never performs this operation."
+      security:
+        -
+          bearerAuth: []
+      x-required-roles:
+        - "ADMIN"
+        - "SUPPORT_STAFF"
+      parameters:
+        -
+          $ref: "#/components/parameters/ManualPayoutId"
+        -
+          $ref: "#/components/parameters/ManualAttemptId"
+        -
+          $ref: "#/components/parameters/ManualIdempotencyKey"
+      responses:
+        "200":
+          description: "Authoritative result"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualPayoutApiResponse"
+        "400":
+          $ref: "#/components/responses/ManualInvalidRequest"
+        "401":
+          $ref: "#/components/responses/ManualUnauthorized"
+        "403":
+          $ref: "#/components/responses/ManualForbidden"
+        "404":
+          $ref: "#/components/responses/ManualNotFound"
+        "409":
+          $ref: "#/components/responses/ManualConflict"
+        "503":
+          $ref: "#/components/responses/ManualUnavailable"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualPayoutConfirmationRequest"
+  /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/problems:
+    post:
+      tags:
+        - "ManualPayouts"
+      operationId: "reportManualPayoutProblem"
+      summary: "Report uncertainty or an external payment problem"
+      description: "Owning executor supplies reason/evidence. An uncertain issued attempt becomes UNKNOWN with no ordinary retry. A suspected wrong/duplicate external payment after SUCCEEDED opens an audited exception without erasing success or authorizing another payment. Requires a UUID Idempotency-Key and the relevant expected version. Exact replay returns 200 with the original result and creates no duplicate financial movement; changed context conflicts. GET never performs this operation."
+      security:
+        -
+          bearerAuth: []
+      x-required-roles:
+        - "ADMIN"
+        - "SUPPORT_STAFF"
+      parameters:
+        -
+          $ref: "#/components/parameters/ManualPayoutId"
+        -
+          $ref: "#/components/parameters/ManualAttemptId"
+        -
+          $ref: "#/components/parameters/ManualIdempotencyKey"
+      responses:
+        "200":
+          description: "Authoritative result"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualPayoutApiResponse"
+        "400":
+          $ref: "#/components/responses/ManualInvalidRequest"
+        "401":
+          $ref: "#/components/responses/ManualUnauthorized"
+        "403":
+          $ref: "#/components/responses/ManualForbidden"
+        "404":
+          $ref: "#/components/responses/ManualNotFound"
+        "409":
+          $ref: "#/components/responses/ManualConflict"
+        "503":
+          $ref: "#/components/responses/ManualUnavailable"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualPayoutProblemRequest"
+  /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/resolution:
+    post:
+      tags:
+        - "ManualPayouts"
+      operationId: "resolveManualPayout"
+      summary: "Resolve a manual financial exception"
+      description: "ADMIN only, including when the reporting executor is SUPPORT_STAFF; self-seller reconciliation denied. CONFIRMED_SENT settles once, CONFIRMED_NOT_SENT leaves FAILED pending explicit retry, CONFIRMED_RETURNED adds a genuine PAYOUT_RETURN. CONFIRMATION_RECORDED_IN_ERROR requires an open reviewed case and non-execution proof, links one PAYOUT_CORRECTION and corrective event, preserves the original history and leaves the same payout FAILED. Seller acknowledgement/correction/retry serialize; a closed case needs a new explicit review. Requires a UUID Idempotency-Key and the relevant expected version. Exact replay returns 200 with the original result and creates no duplicate financial movement; changed context conflicts. GET never performs this operation."
+      security:
+        -
+          bearerAuth: []
+      x-required-roles:
+        - "ADMIN"
+      parameters:
+        -
+          $ref: "#/components/parameters/ManualPayoutId"
+        -
+          $ref: "#/components/parameters/ManualAttemptId"
+        -
+          $ref: "#/components/parameters/ManualIdempotencyKey"
+      responses:
+        "200":
+          description: "Authoritative result"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualPayoutApiResponse"
+        "400":
+          $ref: "#/components/responses/ManualInvalidRequest"
+        "401":
+          $ref: "#/components/responses/ManualUnauthorized"
+        "403":
+          $ref: "#/components/responses/ManualForbidden"
+        "404":
+          $ref: "#/components/responses/ManualNotFound"
+        "409":
+          $ref: "#/components/responses/ManualConflict"
+        "503":
+          $ref: "#/components/responses/ManualUnavailable"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualPayoutResolutionRequest"
+  /api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/receipt-disputes/{disputeId}/reviews:
+    post:
+      tags:
+        - "ManualPayouts"
+      operationId: "reviewManualPayoutReceiptDispute"
+      summary: "Review a seller dispute without certifying receipt"
+      description: "ADMIN-only REQUEST_INFORMATION or TRANSFER_EVIDENCE_PROVIDED with audit. Evidence may move a case to WAITING_SELLER but never confirms seller receipt or creates/requeues a payment. Requires a UUID Idempotency-Key and the relevant expected version. Exact replay returns 200 with the original result and creates no duplicate financial movement; changed context conflicts. GET never performs this operation."
+      security:
+        -
+          bearerAuth: []
+      x-required-roles:
+        - "ADMIN"
+      parameters:
+        -
+          $ref: "#/components/parameters/ManualPayoutId"
+        -
+          $ref: "#/components/parameters/ManualAttemptId"
+        -
+          $ref: "#/components/parameters/ManualDisputeId"
+        -
+          $ref: "#/components/parameters/ManualIdempotencyKey"
+      responses:
+        "200":
+          description: "Authoritative result"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualPayoutApiResponse"
+        "400":
+          $ref: "#/components/responses/ManualInvalidRequest"
+        "401":
+          $ref: "#/components/responses/ManualUnauthorized"
+        "403":
+          $ref: "#/components/responses/ManualForbidden"
+        "404":
+          $ref: "#/components/responses/ManualNotFound"
+        "409":
+          $ref: "#/components/responses/ManualConflict"
+        "503":
+          $ref: "#/components/responses/ManualUnavailable"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualPayoutReviewRequest"
+  /api/v1/payments/manual-payouts/{payoutId}/retries:
+    post:
+      tags:
+        - "ManualPayouts"
+      operationId: "retryManualPayout"
+      summary: "Explicitly requeue a reconciled manual payout"
+      description: "ADMIN only after reconciled FAILED/RETURNED; UNKNOWN/PROCESSING/SUCCEEDED never ordinary-retry. Rechecks funding/refund/bank/amount and keeps the same payout/order, requeuing it as PENDING or ON_HOLD. The subsequent exclusive claim assigns the actual executor and creates the next attempt with a new reference/QR and NOT_REQUESTED receipt state. The retry command itself does not issue a transfer instruction. Requires a UUID Idempotency-Key and the relevant expected version. Exact replay returns 200 with the original result and creates no duplicate financial movement; changed context conflicts. GET never performs this operation."
+      security:
+        -
+          bearerAuth: []
+      x-required-roles:
+        - "ADMIN"
+      parameters:
+        -
+          $ref: "#/components/parameters/ManualPayoutId"
+        -
+          $ref: "#/components/parameters/ManualIdempotencyKey"
+      responses:
+        "200":
+          description: "Authoritative result"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualPayoutApiResponse"
+        "400":
+          $ref: "#/components/responses/ManualInvalidRequest"
+        "401":
+          $ref: "#/components/responses/ManualUnauthorized"
+        "403":
+          $ref: "#/components/responses/ManualForbidden"
+        "404":
+          $ref: "#/components/responses/ManualNotFound"
+        "409":
+          $ref: "#/components/responses/ManualConflict"
+        "503":
+          $ref: "#/components/responses/ManualUnavailable"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualPayoutReadinessRequest"
+  /api/v1/payments/payouts/{payoutId}/manual-attempts/{attemptId}/receipt-confirmations:
+    post:
+      tags:
+        - "SellerPayoutReceipts"
+      operationId: "confirmSellerPayoutReceipt"
+      summary: "Acknowledge actual receipt as the owning seller"
+      description: "SELLER identity and payout ownership required, including mixed-role owners using this seller operation. Server records acknowledgement time; no caller sellerId, bank verification, order change or financial posting. Applies only to the current settled MANUAL attempt; superseded/corrected attempts conflict. May close a live non-receipt case before a correction supersedes it. Requires a UUID Idempotency-Key and the relevant expected version. Exact replay returns 200 with the original result and creates no duplicate financial movement; changed context conflicts. GET never performs this operation."
+      security:
+        -
+          bearerAuth: []
+      x-required-roles:
+        - "SELLER"
+      parameters:
+        -
+          $ref: "#/components/parameters/ManualPayoutId"
+        -
+          $ref: "#/components/parameters/ManualAttemptId"
+        -
+          $ref: "#/components/parameters/ManualIdempotencyKey"
+      responses:
+        "200":
+          description: "Authoritative result"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualReceiptApiResponse"
+        "400":
+          $ref: "#/components/responses/ManualInvalidRequest"
+        "401":
+          $ref: "#/components/responses/ManualUnauthorized"
+        "403":
+          $ref: "#/components/responses/ManualForbidden"
+        "404":
+          $ref: "#/components/responses/ManualNotFound"
+        "409":
+          $ref: "#/components/responses/ManualConflict"
+        "503":
+          $ref: "#/components/responses/ManualUnavailable"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SellerPayoutReceiptRequest"
+  /api/v1/payments/payouts/{payoutId}/manual-attempts/{attemptId}/receipt-disputes:
+    post:
+      tags:
+        - "SellerPayoutReceipts"
+      operationId: "disputeSellerPayoutReceipt"
+      summary: "Report non-receipt or a receipt mistake"
+      description: "Owning SELLER only. Accepts NOT_RECEIVED, INCORRECT_AMOUNT or CONFIRMATION_MISTAKE plus trimmed 1–1000 explanation. Creates/reuses one active case per attempt and preserves audit. Does not send money, reset SUCCEEDED, refund a buyer or requeue/issue another QR. Seller projection omits staff-private proof and notes. Requires a UUID Idempotency-Key and the relevant expected version. Exact replay returns 200 with the original result and creates no duplicate financial movement; changed context conflicts. GET never performs this operation."
+      security:
+        -
+          bearerAuth: []
+      x-required-roles:
+        - "SELLER"
+      parameters:
+        -
+          $ref: "#/components/parameters/ManualPayoutId"
+        -
+          $ref: "#/components/parameters/ManualAttemptId"
+        -
+          $ref: "#/components/parameters/ManualIdempotencyKey"
+      responses:
+        "200":
+          description: "Exact replay of the original successful command"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualReceiptApiResponse"
+        "201":
+          description: "Resource or issuance created for the first time"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualReceiptApiResponse"
+        "400":
+          $ref: "#/components/responses/ManualInvalidRequest"
+        "401":
+          $ref: "#/components/responses/ManualUnauthorized"
+        "403":
+          $ref: "#/components/responses/ManualForbidden"
+        "404":
+          $ref: "#/components/responses/ManualNotFound"
+        "409":
+          $ref: "#/components/responses/ManualConflict"
+        "503":
+          $ref: "#/components/responses/ManualUnavailable"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SellerPayoutDisputeRequest"
 components:
   parameters:
     AdminSellerId:
@@ -1306,6 +2136,42 @@ components:
       in: query
       description: Maximum rows per page.
       schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+    ManualPayoutId:
+      name: "payoutId"
+      in: "path"
+      required: true
+      schema:
+        type: "string"
+        format: "uuid"
+    ManualAttemptId:
+      name: "attemptId"
+      in: "path"
+      required: true
+      schema:
+        type: "string"
+        format: "uuid"
+    ManualEvidenceId:
+      name: "evidenceId"
+      in: "path"
+      required: true
+      schema:
+        type: "string"
+        format: "uuid"
+    ManualDisputeId:
+      name: "disputeId"
+      in: "path"
+      required: true
+      schema:
+        type: "string"
+        format: "uuid"
+    ManualIdempotencyKey:
+      name: "Idempotency-Key"
+      in: "header"
+      required: true
+      description: "UUID bound to authenticated actor, operation, resource and canonical payload. Exact replay returns the originally committed result with 200 before rejecting its old version; a changed context returns 409."
+      schema:
+        type: "string"
+        format: "uuid"
   responses:
     AdminListBadRequest:
       description: >-
@@ -1366,6 +2232,115 @@ components:
             detail: An unexpected error occurred
             instance: /api/v1/payments/payouts
             code: INTERNAL_ERROR
+    ManualInvalidRequest:
+      description: "Malformed parameter, JSON body, bean-validation input, missing/negative version or invalid command maps to PAYMENT_MANUAL_PAYOUT_INVALID_REQUEST at the manual controller boundary. Invalid uploaded evidence content uses PAYMENT_MANUAL_PAYOUT_EVIDENCE_INVALID."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "urn:problem:domain-error"
+            title: "Bad Request"
+            status: 400
+            detail: "Manual payout request is invalid"
+            instance: "/api/v1/payments/manual-payouts"
+            code: "PAYMENT_MANUAL_PAYOUT_INVALID_REQUEST"
+    ManualUnauthorized:
+      description: "Missing, invalid or expired bearer JWT; no protected operation executes."
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: "string"
+            example: "Bearer"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "urn:problem:domain-error"
+            title: "Unauthorized"
+            status: 401
+            detail: "Missing, invalid or expired bearer JWT; no protected operation executes."
+            instance: "/api/v1/payments/manual-payouts"
+            code: "UNAUTHENTICATED"
+    ManualForbidden:
+      description: "Missing required role, executor authority or forbidden self-seller execution/reconciliation; a privilege alone does not supply a missing role."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "urn:problem:domain-error"
+            title: "Forbidden"
+            status: 403
+            detail: "Missing required role, executor authority or forbidden self-seller execution/reconciliation; a privilege alone does not supply a missing role."
+            instance: "/api/v1/payments/manual-payouts"
+            code: "PAYMENT_MANUAL_PAYOUT_FORBIDDEN"
+    ManualNotFound:
+      description: "Payout, attempt, case or evidence does not exist or IDs/owning seller do not match."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "urn:problem:domain-error"
+            title: "Not Found"
+            status: 404
+            detail: "Payout, attempt, case or evidence does not exist or IDs/owning seller do not match."
+            instance: "/api/v1/payments/manual-payouts"
+            code: "PAYMENT_MANUAL_PAYOUT_NOT_FOUND"
+    ManualConflict:
+      description: "Ownership, expected version, immutable state or bank reference conflicts. Unsupported encoder data is PAYMENT_MANUAL_PAYOUT_INVALID_QR_DATA. Changed idempotency actor/operation/resource/payload returns PAYMENT_MANUAL_PAYOUT_IDEMPOTENCY_CONFLICT. Reload authorized state/allowedActions before a new command."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "urn:problem:domain-error"
+            title: "Conflict"
+            status: 409
+            detail: "Ownership, expected version, immutable state or bank reference conflicts. Unsupported encoder data is PAYMENT_MANUAL_PAYOUT_INVALID_QR_DATA. Changed idempotency actor/operation/resource/payload returns PAYMENT_MANUAL_PAYOUT_IDEMPOTENCY_CONFLICT. Reload authorized state/allowedActions before a new command."
+            instance: "/api/v1/payments/manual-payouts"
+            code: "PAYMENT_MANUAL_PAYOUT_CONFLICT"
+    ManualEvidenceTooLarge:
+      description: "Evidence exceeds 10 MiB; multipart ingress limits can also reject oversized requests."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "urn:problem:domain-error"
+            title: "Content Too Large"
+            status: 413
+            detail: "Evidence exceeds 10 MiB; multipart ingress limits can also reject oversized requests."
+            instance: "/api/v1/payments/manual-payouts"
+            code: "PAYMENT_MANUAL_PAYOUT_EVIDENCE_TOO_LARGE"
+    ManualEvidenceUnsupported:
+      description: "Evidence is not a signature-validated JPEG, PNG or PDF."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "urn:problem:domain-error"
+            title: "Unsupported Media Type"
+            status: 415
+            detail: "Evidence is not a signature-validated JPEG, PNG or PDF."
+            instance: "/api/v1/payments/manual-payouts"
+            code: "PAYMENT_MANUAL_PAYOUT_EVIDENCE_UNSUPPORTED"
+    ManualUnavailable:
+      description: "Manual dependency is unavailable. QR/rendering and private evidence storage use PAYMENT_MANUAL_PAYOUT_QR_UNAVAILABLE and PAYMENT_MANUAL_PAYOUT_EVIDENCE_UNAVAILABLE respectively. No provider transfer or partial accounting is committed."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: "urn:problem:domain-error"
+            title: "Service Unavailable"
+            status: 503
+            detail: "Manual dependency is unavailable. QR/rendering and private evidence storage use PAYMENT_MANUAL_PAYOUT_QR_UNAVAILABLE and PAYMENT_MANUAL_PAYOUT_EVIDENCE_UNAVAILABLE respectively. No provider transfer or partial accounting is committed."
+            instance: "/api/v1/payments/manual-payouts"
+            code: "PAYMENT_MANUAL_PAYOUT_UNAVAILABLE"
   securitySchemes:
     bearerAuth:
       type: http
@@ -1812,7 +2787,7 @@ components:
       enum: ["ON_HOLD","PENDING","PROCESSING","UNKNOWN","SUCCEEDED","FAILED","RETURNED"]
     Payout:
       type: "object"
-      required: ["id","orderId","sellerId","orderAmount","shippingFee","platformFeeRate","platformFee","netAmount","currency","status","attemptCount","recipientAccountLast4","providerReference","simulated","createdAt","updatedAt"]
+      required: ["id","orderId","sellerId","orderAmount","shippingFee","platformFeeRate","platformFee","netAmount","currency","status","attemptCount","recipientAccountLast4","providerReference","simulated","createdAt","updatedAt","executionMode","confirmationSource"]
       properties:
         id:
           type: "string"
@@ -1874,6 +2849,61 @@ components:
           type: "string"
           format: "date-time"
           description: Last persisted payout update, including automatic dispatch, reconciliation or retry.
+        executionMode:
+          type: string
+          enum: [AUTO, MANUAL]
+        confirmationSource:
+          type: string
+          nullable: true
+          description: MANUAL_STAFF_CONFIRMED records staff attestation, not bank credit.
+        manual:
+          type: "object"
+          required:
+            - "attemptId"
+            - "attemptState"
+            - "receiptStatus"
+            - "receiptVersion"
+            - "hasOpenDispute"
+            - "allowedActions"
+          properties:
+            attemptId:
+              type: "string"
+              format: "uuid"
+            attemptState:
+              $ref: "#/components/schemas/ManualPayoutAttemptState"
+            receiptStatus:
+              $ref: "#/components/schemas/PayoutReceiptStatus"
+            receiptVersion:
+              type: "integer"
+              format: "int64"
+              minimum: 0
+            hasOpenDispute:
+              type: "boolean"
+            allowedActions:
+              type: "array"
+              items:
+                type: "string"
+                enum:
+                  - "CONFIRM_RECEIPT"
+                  - "OPEN_DISPUTE"
+            dispute:
+              type: "object"
+              required:
+                - "id"
+                - "status"
+                - "reason"
+              properties:
+                id:
+                  type: "string"
+                  format: "uuid"
+                status:
+                  $ref: "#/components/schemas/PayoutReviewStatus"
+                reason:
+                  type: "string"
+              nullable: true
+              description: "Sanitized current seller dispute summary; active case preferred, otherwise latest resolved case. Contains no staff exception notes or private proof."
+          nullable: true
+          description: "Sanitized current manual attempt receipt/dispute actions; null for AUTO payouts."
     PayoutHistory:
       type: "object"
       required: ["id","event","eventSeq","fromStatus","toStatus","attemptNo","amount","sellerBankId","recipientAccountLast4","provider","providerReference","providerStatus","errorCode","errorMessage","simulated","actorId","occurredAt","transactionId"]
@@ -1883,7 +2913,7 @@ components:
           format: "uuid"
         event:
           type: "string"
-          enum: ["CREATED","HELD","RELEASED","SENT","SUCCEEDED","FAILED","TIMED_OUT","RECONCILED","RETRIED","RETURNED"]
+          enum: ["CREATED","HELD","RELEASED","SENT","SUCCEEDED","FAILED","TIMED_OUT","RECONCILED","RETRIED","RETURNED","MANUAL_CLAIMED","QR_ISSUED","CLAIM_RELEASED","MANUAL_CONFIRMED","MANUAL_PROBLEM","MANUAL_RESOLVED","RECEIPT_CONFIRMED","RECEIPT_DISPUTED","DISPUTE_REVIEWED","CONFIRMATION_CORRECTED","READINESS_CHECKED","EVIDENCE_UPLOADED"]
         eventSeq:
           type: "integer"
           format: "int64"
@@ -2012,3 +3042,706 @@ components:
         status:
           type: "string"
           enum: ["ok"]
+
+    ManualPayoutAction:
+      type: "string"
+      enum:
+        - "CLAIM"
+        - "ISSUE_QR"
+        - "READ_QR"
+        - "RELEASE"
+        - "UPLOAD_EVIDENCE"
+        - "CONFIRM_TRANSFER"
+        - "REPORT_PROBLEM"
+        - "RESOLVE"
+        - "RETRY"
+        - "REVIEW_DISPUTE"
+        - "READINESS_CHECK"
+        - "CONFIRM_RECEIPT"
+        - "OPEN_DISPUTE"
+    ManualPayoutAttemptState:
+      type: "string"
+      enum:
+        - "CLAIMED"
+        - "QR_ISSUED"
+        - "SUCCEEDED"
+        - "NOT_SENT"
+        - "UNKNOWN"
+        - "RETURNED"
+        - "CONFIRMATION_CORRECTED"
+    PayoutReceiptStatus:
+      type: "string"
+      enum:
+        - "NOT_REQUESTED"
+        - "AWAITING_CONFIRMATION"
+        - "CONFIRMED"
+        - "DISPUTED"
+    PayoutReviewStatus:
+      type: "string"
+      enum:
+        - "OPEN"
+        - "UNDER_REVIEW"
+        - "WAITING_SELLER"
+        - "RESOLVED"
+    ManualPayoutAttemptView:
+      type: "object"
+      required:
+        - "id"
+        - "attemptNo"
+        - "state"
+        - "version"
+        - "claimedBy"
+        - "claimExpiresAt"
+        - "qrExpiresAt"
+        - "reference"
+        - "receiptStatus"
+        - "receiptVersion"
+        - "sellerConfirmedAt"
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        attemptNo:
+          type: "integer"
+          minimum: 1
+        state:
+          $ref: "#/components/schemas/ManualPayoutAttemptState"
+        version:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        claimedBy:
+          type: "string"
+          format: "uuid"
+        claimExpiresAt:
+          type: "string"
+          format: "date-time"
+        qrExpiresAt:
+          type: "string"
+          format: "date-time"
+          nullable: true
+        reference:
+          type: "string"
+          nullable: true
+        receiptStatus:
+          $ref: "#/components/schemas/PayoutReceiptStatus"
+        receiptVersion:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        sellerConfirmedAt:
+          type: "string"
+          format: "date-time"
+          nullable: true
+      nullable: true
+    ManualPayoutEvidenceView:
+      type: "object"
+      required:
+        - "id"
+        - "contentType"
+        - "size"
+        - "createdAt"
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        contentType:
+          type: "string"
+          enum:
+            - "image/jpeg"
+            - "image/png"
+            - "application/pdf"
+        size:
+          type: "integer"
+          format: "int64"
+          minimum: 1
+          maximum: 10485760
+        createdAt:
+          type: "string"
+          format: "date-time"
+      description: "Sanitized private-file metadata. No public URL, signed URL, storage object key, bank account or secret is returned."
+    ManualPayoutCaseView:
+      type: "object"
+      required:
+        - "id"
+        - "kind"
+        - "status"
+        - "reason"
+        - "explanation"
+        - "version"
+        - "createdAt"
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        kind:
+          type: "string"
+          enum:
+            - "SELLER_DISPUTE"
+            - "STAFF_EXCEPTION"
+        status:
+          $ref: "#/components/schemas/PayoutReviewStatus"
+        reason:
+          type: "string"
+        explanation:
+          type: "string"
+          nullable: true
+        version:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        createdAt:
+          type: "string"
+          format: "date-time"
+    ManualPayoutHistoryView:
+      type: "object"
+      required:
+        - "id"
+        - "event"
+        - "attemptId"
+        - "caseId"
+        - "actorId"
+        - "actorRole"
+        - "reason"
+        - "occurredAt"
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        event:
+          type: "string"
+        attemptId:
+          type: "string"
+          format: "uuid"
+          nullable: true
+        caseId:
+          type: "string"
+          format: "uuid"
+          nullable: true
+        actorId:
+          type: "string"
+          format: "uuid"
+        actorRole:
+          type: "string"
+          nullable: true
+        reason:
+          type: "string"
+          nullable: true
+        occurredAt:
+          type: "string"
+          format: "date-time"
+    ManualPayoutView:
+      type: "object"
+      required:
+        - "id"
+        - "orderId"
+        - "sellerId"
+        - "status"
+        - "executionMode"
+        - "confirmationSource"
+        - "orderAmount"
+        - "shippingFee"
+        - "platformFee"
+        - "netAmount"
+        - "currency"
+        - "version"
+        - "blockedReason"
+        - "allowedActions"
+        - "serverTime"
+        - "createdAt"
+        - "updatedAt"
+        - "currentAttempt"
+        - "evidence"
+        - "cases"
+        - "history"
+      properties:
+        id:
+          type: "string"
+          format: "uuid"
+        orderId:
+          type: "string"
+          format: "uuid"
+        sellerId:
+          type: "string"
+          format: "uuid"
+        status:
+          $ref: "#/components/schemas/PayoutStatus"
+        executionMode:
+          type: "string"
+          enum:
+            - "MANUAL"
+        confirmationSource:
+          type: "string"
+          nullable: true
+          enum:
+            - "MANUAL_STAFF_CONFIRMED"
+        orderAmount:
+          type: "string"
+          pattern: "^[0-9]{1,17}\\.[0-9]{2}$"
+          example: "95000.00"
+          description: "Exact fixed-two-decimal string. Execution requires a positive whole-VND amount within the configured supported limit; never rounded."
+        shippingFee:
+          type: "string"
+          pattern: "^[0-9]{1,17}\\.[0-9]{2}$"
+          example: "95000.00"
+          description: "Exact fixed-two-decimal string. Execution requires a positive whole-VND amount within the configured supported limit; never rounded."
+        platformFee:
+          type: "string"
+          pattern: "^[0-9]{1,17}\\.[0-9]{2}$"
+          example: "95000.00"
+          description: "Exact fixed-two-decimal string. Execution requires a positive whole-VND amount within the configured supported limit; never rounded."
+        netAmount:
+          type: "string"
+          pattern: "^[0-9]{1,17}\\.[0-9]{2}$"
+          example: "95000.00"
+          description: "Exact fixed-two-decimal string. Execution requires a positive whole-VND amount within the configured supported limit; never rounded."
+        currency:
+          type: "string"
+          minLength: 3
+          maxLength: 3
+          description: "Only VND is executable. Any unsupported currency remains blocked without changing the original liability."
+        version:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        blockedReason:
+          type: "string"
+          nullable: true
+        allowedActions:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/ManualPayoutAction"
+        serverTime:
+          type: "string"
+          format: "date-time"
+        createdAt:
+          type: "string"
+          format: "date-time"
+        updatedAt:
+          type: "string"
+          format: "date-time"
+        currentAttempt:
+          $ref: "#/components/schemas/ManualPayoutAttemptView"
+        evidence:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/ManualPayoutEvidenceView"
+        cases:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/ManualPayoutCaseView"
+        history:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/ManualPayoutHistoryView"
+        recipient:
+          type: "object"
+          required:
+            - "bankCode"
+            - "accountLast4"
+            - "holderName"
+          properties:
+            bankCode:
+              type: "string"
+              pattern: "^[0-9]{6}$"
+            accountLast4:
+              type: "string"
+              pattern: "^[0-9]{4}$"
+            holderName:
+              type: "string"
+          nullable: true
+          description: "Masked recipient: current attempt frozen destination when an attempt exists; otherwise the currently reviewed bank, or null. Bank changes do not silently replace an issued destination. No full account number or ciphertext."
+      description: "Authoritative MANUAL state. Payout, attempt and seller receipt/dispute states are independent. A staff attestation does not certify bank credit. All ordinary bank data stays masked."
+    ManualPayoutCapabilities:
+      type: "object"
+      required:
+        - "enabled"
+        - "executionMode"
+        - "automaticJobsEnabled"
+        - "serverTime"
+        - "sourceAccounts"
+        - "allowedActions"
+      properties:
+        enabled:
+          type: "boolean"
+        executionMode:
+          type: "string"
+          enum:
+            - "AUTO"
+            - "MANUAL"
+        automaticJobsEnabled:
+          type: "boolean"
+        serverTime:
+          type: "string"
+          format: "date-time"
+        sourceAccounts:
+          type: "array"
+          items:
+            type: "object"
+            required:
+              - "id"
+              - "alias"
+            properties:
+              id:
+                type: "string"
+              alias:
+                type: "string"
+        allowedActions:
+          type: "array"
+          items:
+            type: "string"
+            enum:
+              - "EXECUTE"
+              - "RECONCILE"
+    ManualReceiptView:
+      type: "object"
+      required:
+        - "attemptId"
+        - "attemptState"
+        - "receiptStatus"
+        - "receiptVersion"
+        - "hasOpenDispute"
+        - "allowedActions"
+      properties:
+        attemptId:
+          type: "string"
+          format: "uuid"
+        attemptState:
+          $ref: "#/components/schemas/ManualPayoutAttemptState"
+        receiptStatus:
+          $ref: "#/components/schemas/PayoutReceiptStatus"
+        receiptVersion:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        hasOpenDispute:
+          type: "boolean"
+        allowedActions:
+          type: "array"
+          items:
+            type: "string"
+            enum:
+              - "CONFIRM_RECEIPT"
+              - "OPEN_DISPUTE"
+        dispute:
+          type: "object"
+          required:
+            - "id"
+            - "status"
+            - "reason"
+          properties:
+            id:
+              type: "string"
+              format: "uuid"
+            status:
+              $ref: "#/components/schemas/PayoutReviewStatus"
+            reason:
+              type: "string"
+          nullable: true
+          description: "Sanitized current seller dispute summary; active case preferred, otherwise latest resolved case. Contains no staff exception notes or private proof."
+    ManualPayoutClaimRequest:
+      type: "object"
+      required:
+        - "expectedPayoutVersion"
+      properties:
+        expectedPayoutVersion:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+    ManualPayoutVersionRequest:
+      type: "object"
+      required:
+        - "expectedAttemptVersion"
+      properties:
+        expectedAttemptVersion:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        reason:
+          type: "string"
+          minLength: 1
+          maxLength: 1000
+          nullable: true
+    ManualPayoutReadinessRequest:
+      type: "object"
+      required:
+        - "expectedPayoutVersion"
+      properties:
+        expectedPayoutVersion:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        reason:
+          type: "string"
+          minLength: 1
+          maxLength: 1000
+          nullable: true
+    ManualPayoutConfirmationRequest:
+      type: "object"
+      required:
+        - "expectedAttemptVersion"
+        - "sourceAccountId"
+        - "amount"
+        - "bankTransferReference"
+        - "transferredAt"
+        - "evidenceIds"
+      properties:
+        expectedAttemptVersion:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        sourceAccountId:
+          type: "string"
+          minLength: 1
+          maxLength: 80
+        amount:
+          type: "string"
+          pattern: "^[0-9]{1,17}\\.[0-9]{2}$"
+          example: "95000.00"
+          description: "Exact fixed-two-decimal string. Execution requires a positive whole-VND amount within the configured supported limit; never rounded."
+        bankTransferReference:
+          type: "string"
+          minLength: 1
+          maxLength: 120
+        transferredAt:
+          type: "string"
+          format: "date-time"
+        evidenceIds:
+          type: "array"
+          items:
+            type: "string"
+            format: "uuid"
+          minItems: 1
+          maxItems: 3
+          uniqueItems: true
+    ManualPayoutProblemRequest:
+      type: "object"
+      required:
+        - "expectedAttemptVersion"
+        - "reason"
+      properties:
+        expectedAttemptVersion:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        reason:
+          type: "string"
+          minLength: 1
+          maxLength: 1000
+        evidenceIds:
+          type: "array"
+          items:
+            type: "string"
+            format: "uuid"
+          maxItems: 3
+          uniqueItems: true
+    ManualPayoutResolutionRequest:
+      type: "object"
+      required:
+        - "expectedPayoutVersion"
+        - "expectedAttemptVersion"
+        - "expectedCaseVersion"
+        - "caseId"
+        - "outcome"
+        - "reason"
+        - "evidenceIds"
+      properties:
+        expectedPayoutVersion:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        expectedAttemptVersion:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        expectedCaseVersion:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        caseId:
+          type: "string"
+          format: "uuid"
+        outcome:
+          type: "string"
+          enum:
+            - "CONFIRMED_SENT"
+            - "CONFIRMED_NOT_SENT"
+            - "CONFIRMED_RETURNED"
+            - "CONFIRMATION_RECORDED_IN_ERROR"
+        reason:
+          type: "string"
+          minLength: 1
+          maxLength: 1000
+        evidenceIds:
+          type: "array"
+          items:
+            type: "string"
+            format: "uuid"
+          minItems: 1
+          maxItems: 3
+          uniqueItems: true
+        sourceAccountId:
+          type: "string"
+          nullable: true
+        amount:
+          type: "string"
+          pattern: "^[0-9]{1,17}\\.[0-9]{2}$"
+          example: "95000.00"
+          description: "Exact fixed-two-decimal string. Execution requires a positive whole-VND amount within the configured supported limit; never rounded."
+          nullable: true
+        bankTransferReference:
+          type: "string"
+          nullable: true
+          maxLength: 120
+        transferredAt:
+          type: "string"
+          format: "date-time"
+          nullable: true
+    ManualPayoutReviewRequest:
+      type: "object"
+      required:
+        - "expectedAttemptVersion"
+        - "expectedCaseVersion"
+        - "action"
+        - "reason"
+      properties:
+        expectedAttemptVersion:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        expectedCaseVersion:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        action:
+          type: "string"
+          enum:
+            - "REQUEST_INFORMATION"
+            - "TRANSFER_EVIDENCE_PROVIDED"
+        reason:
+          type: "string"
+          minLength: 1
+          maxLength: 1000
+        evidenceIds:
+          type: "array"
+          items:
+            type: "string"
+            format: "uuid"
+          maxItems: 3
+          uniqueItems: true
+    SellerPayoutReceiptRequest:
+      type: "object"
+      required:
+        - "expectedReceiptVersion"
+      properties:
+        expectedReceiptVersion:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+    SellerPayoutDisputeRequest:
+      type: "object"
+      required:
+        - "expectedReceiptVersion"
+        - "reason"
+        - "explanation"
+      properties:
+        expectedReceiptVersion:
+          type: "integer"
+          format: "int64"
+          minimum: 0
+        reason:
+          type: "string"
+          enum:
+            - "NOT_RECEIVED"
+            - "INCORRECT_AMOUNT"
+            - "CONFIRMATION_MISTAKE"
+        explanation:
+          type: "string"
+          minLength: 1
+          maxLength: 1000
+      description: "Explanation is trimmed and must contain 1–1000 characters. Seller identity is exclusively derived from JWT ownership."
+    ManualPayoutApiResponse:
+      type: "object"
+      required:
+        - "code"
+        - "message"
+        - "data"
+      properties:
+        code:
+          type: "integer"
+          default: 0
+        message:
+          type: "string"
+          default: "response success"
+        data:
+          $ref: "#/components/schemas/ManualPayoutView"
+    ManualPayoutCapabilitiesApiResponse:
+      type: "object"
+      required:
+        - "code"
+        - "message"
+        - "data"
+      properties:
+        code:
+          type: "integer"
+          default: 0
+        message:
+          type: "string"
+          default: "response success"
+        data:
+          $ref: "#/components/schemas/ManualPayoutCapabilities"
+    ManualReceiptApiResponse:
+      type: "object"
+      required:
+        - "code"
+        - "message"
+        - "data"
+      properties:
+        code:
+          type: "integer"
+          default: 0
+        message:
+          type: "string"
+          default: "response success"
+        data:
+          $ref: "#/components/schemas/ManualReceiptView"
+    ManualPayoutPageApiResponse:
+      type: "object"
+      required:
+        - "code"
+        - "message"
+        - "data"
+        - "page"
+      properties:
+        code:
+          type: "integer"
+          default: 0
+        message:
+          type: "string"
+          default: "response success"
+        data:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/ManualPayoutView"
+        page:
+          type: "object"
+          required:
+            - "number"
+            - "size"
+            - "totalElements"
+            - "totalPages"
+          properties:
+            number:
+              type: "integer"
+              minimum: 0
+            size:
+              type: "integer"
+              minimum: 1
+              maximum: 100
+            totalElements:
+              type: "integer"
+              format: "int64"
+              minimum: 0
+            totalPages:
+              type: "integer"
+              minimum: 0

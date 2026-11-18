@@ -691,6 +691,79 @@ class SecurityConfigTest {
     }
 
     @Test
+    void manualExecutionAllowsAdminAndSupportButNoPrivilegeCanReplaceTheRole() {
+        String base = "/api/v1/payments/manual-payouts";
+        String attempt = base + "/" + ID + "/attempts/" + ID;
+        String[][] operations = {
+                {"GET", base}, {"GET", base + "/capabilities"}, {"GET", base + "/" + ID},
+                {"POST", base + "/" + ID + "/readiness-check"}, {"POST", base + "/" + ID + "/claims"},
+                {"POST", attempt + "/qr-issuances"}, {"GET", attempt + "/qr"},
+                {"POST", attempt + "/release"}, {"POST", attempt + "/evidence"},
+                {"GET", attempt + "/evidence/" + ID}, {"POST", attempt + "/confirmation"},
+                {"POST", attempt + "/problems"}
+        };
+        for (String[] operation : operations) {
+            HttpMethod method = HttpMethod.valueOf(operation[0]);
+            int before = DOMAIN_LOG.size();
+            client.method(method).uri(operation[1]).exchange().expectStatus().isUnauthorized();
+            for (List<String> roles : List.of(List.<String>of(), List.of("BUYER"), List.of("SELLER"))) {
+                client.method(method).uri(operation[1]).header(HttpHeaders.AUTHORIZATION,
+                                "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", roles)
+                                        .claim("privileges", List.of("ORDER.REFUND", "MANUAL_PAYOUT.EXECUTE"))))
+                        .exchange().expectStatus().isForbidden();
+            }
+            client.method(method).uri(operation[1]).header(HttpHeaders.AUTHORIZATION,
+                            "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of("ADMIN"))
+                                    .expirationTime(Date.from(Instant.now().minusSeconds(120)))))
+                    .exchange().expectStatus().isUnauthorized();
+            assertThat(DOMAIN_LOG).hasSize(before);
+            for (String role : List.of("ADMIN", "SUPPORT_STAFF")) {
+                client.method(method).uri(operation[1]).header(HttpHeaders.AUTHORIZATION,
+                                "Bearer " + token(SIGNING_KEY, c -> c.claim("roles", List.of(role))))
+                        .exchange().expectStatus().isOk();
+            }
+            assertThat(DOMAIN_LOG).hasSize(before + 2)
+                    .contains("payment-service " + method + " " + operation[1]);
+        }
+    }
+
+    @Test
+    void manualFinancialReviewIsAdminOnlyAndSellerReceiptNeedsSellerIdentity() {
+        String base = "/api/v1/payments/manual-payouts/" + ID;
+        String attempt = base + "/attempts/" + ID;
+        for (String path : List.of(attempt + "/resolution", base + "/retries",
+                attempt + "/receipt-disputes/" + ID + "/reviews")) {
+            int before = DOMAIN_LOG.size();
+            for (String role : List.of("SUPPORT_STAFF", "SELLER", "BUYER")) {
+                client.post().uri(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                                c -> c.claim("roles", List.of(role)).claim("privileges", List.of("ORDER.REFUND"))))
+                        .exchange().expectStatus().isForbidden();
+            }
+            assertThat(DOMAIN_LOG).hasSize(before);
+            client.post().uri(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                            c -> c.claim("roles", List.of("ADMIN"))))
+                    .exchange().expectStatus().isOk();
+        }
+        for (String action : List.of("receipt-confirmations", "receipt-disputes")) {
+            String path = "/api/v1/payments/payouts/" + ID + "/manual-attempts/" + ID + "/" + action;
+            int before = DOMAIN_LOG.size();
+            for (String role : List.of("ADMIN", "SUPPORT_STAFF", "BUYER")) {
+                client.post().uri(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                                c -> c.claim("roles", List.of(role))))
+                        .exchange().expectStatus().isForbidden();
+            }
+            assertThat(DOMAIN_LOG).hasSize(before);
+            for (List<String> roles : List.of(List.of("SELLER"), List.of("ADMIN", "SELLER"),
+                    List.of("SUPPORT_STAFF", "SELLER"))) {
+                client.post().uri(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
+                                c -> c.claim("roles", roles)))
+                        .exchange().expectStatus().isOk();
+            }
+            assertThat(DOMAIN_LOG).hasSize(before + 3);
+        }
+    }
+
+    @Test
     void auctionScheduleRequiresUpdatePrivilegeAndDoesNotInheritPublicGet() {
         String path = "/api/v1/auctions/" + ID + "/schedule";
         client.post().uri(path).exchange().expectStatus().isUnauthorized();
@@ -957,6 +1030,7 @@ class SecurityConfigTest {
     // Thay path variable bằng fixture thật để kiểm tra cả policy cấu hình theo key.
     private static String concretePath(String path) {
         return path.replace("{id}", ID).replace("{bidId}", ID).replace("{userId}", ID).replace("{imageId}", ID).replace("{offerId}", ID)
+                .replace("{payoutId}", ID).replace("{attemptId}", ID).replace("{evidenceId}", ID).replace("{disputeId}", ID)
                 .replace("{key}", "NOTIFICATION_RETRY_LIMIT")
                 .replace("{provider}", "sandbox");
     }

@@ -7,6 +7,8 @@ import com.group5.common_outbox.IdempotentConsumer;
 import com.group5.common_outbox.OutboxWriter;
 import com.group5.paymentservice.payout.provider.PayoutGateway;
 import com.group5.paymentservice.payout.config.PayoutProperties;
+import com.group5.paymentservice.payout.config.ManualPayoutProperties;
+import com.group5.paymentservice.sellerbank.security.BankAccountCipher;
 import com.group5.paymentservice.payout.service.PayoutService;
 import com.group5.paymentservice.payout.repository.PayoutRepository;
 import com.group5.paymentservice.payout.repository.PayoutHistoryRepository;
@@ -83,6 +85,10 @@ public final class PaymentPayoutFixture implements AutoCloseable {
         @Bean JsonMapper mapper() { return JsonMapper.shared(); }
         @Bean Validator validator() { return Validation.buildDefaultValidatorFactory().getValidator(); }
         @Bean PayoutProperties payoutProperties() { return new PayoutProperties(); }
+        @Bean ManualPayoutProperties manualPayoutProperties() { return new ManualPayoutProperties(); }
+        @Bean BankAccountCipher bankAccountCipher() {
+            return new BankAccountCipher("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+        }
         @Bean PayoutGateway payoutGateway(PayoutProperties properties) { return new SandboxPayoutGateway(properties); }
         @Bean Tracer tracer() { return Tracer.NOOP; }
         @Bean EventEnvelopeFactory envelopes(Tracer tracer) { return new EventEnvelopeFactory(tracer, Clock.systemUTC()); }

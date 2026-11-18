@@ -2,6 +2,10 @@ server:
   port: 8087
 
 spring:
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/payment_db
     username: ${DB_USERNAME}
@@ -39,6 +43,7 @@ nexus:
       webhook:
         secret: ${SEPAY_WEBHOOK_SECRET:}
   payout:
+    execution-mode: ${PAYOUT_EXECUTION_MODE:AUTO}
     platform-fee-rate: ${PAYOUT_PLATFORM_FEE_RATE:0.00}
     provider: ${PAYOUT_PROVIDER:sandbox}
     account-encryption-key: ${PAYOUT_ACCOUNT_ENCRYPTION_KEY:}
@@ -47,7 +52,26 @@ nexus:
     reconcile-interval: ${PAYOUT_RECONCILE_INTERVAL:PT1M}
     provider-timeout: ${PAYOUT_PROVIDER_TIMEOUT:PT10S}
     dispatch-cron: ${PAYOUT_DISPATCH_CRON:*/10 * * * * *}
-    jobs-enabled: ${PAYOUT_JOBS_ENABLED:true}
+    jobs-enabled: ${PAYOUT_JOBS_ENABLED:false}
+    manual:
+      enabled: ${PAYOUT_MANUAL_ENABLED:false}
+      claim-lease: ${PAYOUT_MANUAL_CLAIM_LEASE:5m}
+      qr-deadline: ${PAYOUT_MANUAL_QR_DEADLINE:10m}
+      bank-business-zone: ${PAYOUT_MANUAL_BANK_BUSINESS_ZONE:Asia/Ho_Chi_Minh}
+      max-amount-vnd: ${PAYOUT_MANUAL_MAX_AMOUNT_VND:499999999}
+      source-accounts: []
+      source-accounts-json: ${PAYOUT_MANUAL_SOURCE_ACCOUNTS_JSON:}
+      evidence:
+        url: ${PAYOUT_EVIDENCE_SUPABASE_URL:}
+        key: ${PAYOUT_EVIDENCE_SUPABASE_SERVER_KEY:}
+        fallback-url: ${SUPABASE_URL:}
+        fallback-key: ${SUPABASE_SERVICE_KEY:}
+        bucket: ${PAYOUT_EVIDENCE_BUCKET:payout-evidence}
+        max-file-bytes: ${PAYOUT_EVIDENCE_MAX_FILE_BYTES:10485760}
+        request-timeout: ${PAYOUT_EVIDENCE_REQUEST_TIMEOUT:10s}
+        orphan-grace: ${PAYOUT_EVIDENCE_ORPHAN_GRACE:24h}
+        cleanup-interval: ${PAYOUT_EVIDENCE_CLEANUP_INTERVAL:1h}
+        cleanup-enabled: ${PAYOUT_EVIDENCE_CLEANUP_ENABLED:true}
     sandbox-outcome: ${PAYOUT_SANDBOX_OUTCOME:SUCCESS}
     callback-secret: ${PAYOUT_CALLBACK_SECRET:}
     provider-url: ${PAYOUT_PROVIDER_URL:}

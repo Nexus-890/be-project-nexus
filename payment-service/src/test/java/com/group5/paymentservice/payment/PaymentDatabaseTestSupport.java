@@ -5,29 +5,45 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-@SpringBootTest(properties = {
-        "spring.config.name=payment-service-test", "spring.config.import=",
-        "spring.cloud.config.enabled=false", "spring.cloud.discovery.enabled=false",
-        "spring.cloud.compatibility-verifier.enabled=false", "eureka.client.enabled=false",
-        "spring.kafka.listener.auto-startup=false", "nexus.outbox.relay.enabled=false",
-        "nexus.payment.pending-cancellations.cron=-",
-        "nexus.payment.payout-eligibility.cron=-",
-        "nexus.payout.jobs-enabled=false",
-        "management.tracing.export.zipkin.enabled=false", "spring.jpa.hibernate.ddl-auto=validate",
-        "nexus.payment.provider=SEPAY", "nexus.payment.sepay.bank-id=970416",
-        "nexus.payment.sepay.bank-account=0000000002", "nexus.payment.sepay.account-name=DO VAN A",
-        "nexus.payment.sepay.vietqr-template=compact",
-        "nexus.payment.sepay.webhook.secret=unit-test-only-webhook-secret",
-        "nexus.security.public-endpoints[0].method=POST",
-        "nexus.security.public-endpoints[0].path=/api/v1/webhooks/sepay",
-        "nexus.security.jwt.issuer=user-service", "nexus.security.jwt.audience=nexus-services",
-        "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/.well-known/jwks.json"
-})
+@SpringBootTest(
+        properties = {
+            "spring.config.name=payment-service-test",
+            "spring.config.import=",
+            "spring.cloud.config.enabled=false",
+            "spring.cloud.discovery.enabled=false",
+            "spring.cloud.compatibility-verifier.enabled=false",
+            "eureka.client.enabled=false",
+            "spring.kafka.listener.auto-startup=false",
+            "nexus.outbox.relay.enabled=false",
+            "nexus.payment.pending-cancellations.cron=-",
+            "nexus.payment.payout-eligibility.cron=-",
+            "nexus.payout.jobs-enabled=false",
+            "nexus.payout.manual.expiry-cron=-",
+            "nexus.payout.manual.evidence.cleanup-enabled=false",
+            "nexus.payout.manual.evidence.cleanup-enabled=false",
+            "management.tracing.export.zipkin.enabled=false",
+            "spring.jpa.hibernate.ddl-auto=validate",
+            "nexus.payment.provider=SEPAY",
+            "nexus.payment.sepay.bank-id=970416",
+            "nexus.payment.sepay.bank-account=0000000002",
+            "nexus.payment.sepay.account-name=DO VAN A",
+            "nexus.payment.sepay.vietqr-template=compact",
+            "nexus.payment.sepay.webhook.secret=unit-test-only-webhook-secret",
+            "nexus.security.public-endpoints[0].method=POST",
+            "nexus.security.public-endpoints[0].path=/api/v1/webhooks/sepay",
+            "nexus.security.jwt.issuer=user-service",
+            "nexus.security.jwt.audience=nexus-services",
+            "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/.well-known/jwks.json"
+        })
 public abstract class PaymentDatabaseTestSupport {
     private static class ContainerHolder {
-        private static final PostgreSQLContainer DATABASE = new PostgreSQLContainer(
-                System.getProperty("nexus.test.postgres.image", "postgres:18-alpine"));
-        static { DATABASE.start(); }
+        private static final PostgreSQLContainer DATABASE =
+                new PostgreSQLContainer(
+                        System.getProperty("nexus.test.postgres.image", "postgres:18-alpine"));
+
+        static {
+            DATABASE.start();
+        }
     }
 
     @DynamicPropertySource
@@ -45,7 +61,8 @@ public abstract class PaymentDatabaseTestSupport {
 
     private static String required(String name) {
         String value = System.getenv(name);
-        if (value == null || value.isBlank()) throw new IllegalStateException(name + " is required for external DB tests");
+        if (value == null || value.isBlank())
+            throw new IllegalStateException(name + " is required for external DB tests");
         return value;
     }
 }

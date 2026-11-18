@@ -1,0 +1,13 @@
+ALTER TYPE payment_transaction_type ADD VALUE 'PAYOUT_CORRECTION';
+ALTER TYPE payout_history_event ADD VALUE 'MANUAL_CLAIMED';
+ALTER TYPE payout_history_event ADD VALUE 'QR_ISSUED';
+ALTER TYPE payout_history_event ADD VALUE 'CLAIM_RELEASED';
+ALTER TYPE payout_history_event ADD VALUE 'MANUAL_CONFIRMED';
+ALTER TYPE payout_history_event ADD VALUE 'MANUAL_PROBLEM';
+ALTER TYPE payout_history_event ADD VALUE 'MANUAL_RESOLVED';
+ALTER TYPE payout_history_event ADD VALUE 'RECEIPT_CONFIRMED';
+ALTER TYPE payout_history_event ADD VALUE 'RECEIPT_DISPUTED';
+ALTER TYPE payout_history_event ADD VALUE 'DISPUTE_REVIEWED';
+ALTER TYPE payout_history_event ADD VALUE 'CONFIRMATION_CORRECTED';
+ALTER TYPE payout_history_event ADD VALUE 'READINESS_CHECKED';
+ALTER TYPE payout_history_event ADD VALUE 'EVIDENCE_UPLOADED';

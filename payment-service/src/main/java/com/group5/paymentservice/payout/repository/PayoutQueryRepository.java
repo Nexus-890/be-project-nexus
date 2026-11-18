@@ -2,7 +2,9 @@ package com.group5.paymentservice.payout.repository;
 
 import com.group5.paymentservice.payout.dto.request.PayoutListRequest;
 import com.group5.paymentservice.payout.dto.response.PayoutView;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -23,7 +25,8 @@ public class PayoutQueryRepository {
     public long countAdmin(PayoutListRequest request) {
         List<Object> parameters = new ArrayList<>();
         String filter = adminFilter(request, parameters);
-        return jdbc.queryForObject("SELECT count(*) FROM payouts" + filter, Long.class, parameters.toArray());
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM payouts" + filter, Long.class, parameters.toArray());
     }
 
     public List<PayoutView> findAdmin(PayoutListRequest request) {
@@ -31,8 +34,12 @@ public class PayoutQueryRepository {
         String filter = adminFilter(request, parameters);
         parameters.add(request.size());
         parameters.add((long) request.page() * request.size());
-        return jdbc.query("SELECT * FROM payouts" + filter + " ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",
-                (rs, row) -> view(rs), parameters.toArray());
+        return jdbc.query(
+                "SELECT * FROM payouts"
+                        + filter
+                        + " ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",
+                (rs, row) -> view(rs),
+                parameters.toArray());
     }
 
     private static String adminFilter(PayoutListRequest request, List<Object> parameters) {
@@ -43,7 +50,12 @@ public class PayoutQueryRepository {
         }
         if (!request.status().isEmpty()) {
             filter.append(" AND status IN (")
-                    .append(String.join(",", Collections.nCopies(request.status().size(), "?::payout_status"))).append(')');
+                    .append(
+                            String.join(
+                                    ",",
+                                    Collections.nCopies(
+                                            request.status().size(), "?::payout_status")))
+                    .append(')');
             request.status().forEach(status -> parameters.add(status.name()));
         }
         if (request.from() != null) {
@@ -58,41 +70,77 @@ public class PayoutQueryRepository {
     }
 
     public long countBySeller(UUID sellerId) {
-        return jdbc.queryForObject("SELECT count(*) FROM payouts WHERE seller_id=?", Long.class, sellerId);
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM payouts WHERE seller_id=?", Long.class, sellerId);
     }
 
     public List<PayoutView> findBySeller(UUID sellerId, int page, int size) {
-        return jdbc.query("""
+        return jdbc.query(
+                """
                 SELECT * FROM payouts WHERE seller_id=?
                 ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?
-                """, (rs, row) -> view(rs), sellerId, size, (long) page * size);
+                """,
+                (rs, row) -> view(rs),
+                sellerId,
+                size,
+                (long) page * size);
     }
 
     public Optional<PayoutView> findById(UUID id) {
-        return jdbc.query("SELECT * FROM payouts WHERE id=?", (rs, row) -> view(rs), id).stream().findFirst();
+        return jdbc.query("SELECT * FROM payouts WHERE id=?", (rs, row) -> view(rs), id).stream()
+                .findFirst();
     }
 
     public List<PayoutView.History> findHistory(UUID payoutId) {
-        return jdbc.query("SELECT * FROM payout_history WHERE payout_id=? ORDER BY event_seq DESC",
-                (rs, row) -> history(rs), payoutId);
+        return jdbc.query(
+                "SELECT * FROM payout_history WHERE payout_id=? ORDER BY event_seq DESC",
+                (rs, row) -> history(rs),
+                payoutId);
     }
 
     private static PayoutView view(ResultSet rs) throws SQLException {
-        return new PayoutView(rs.getObject("id", UUID.class), rs.getObject("order_id", UUID.class),
-                rs.getObject("seller_id", UUID.class), rs.getBigDecimal("order_amount"), rs.getBigDecimal("shipping_fee"),
-                rs.getBigDecimal("platform_fee_rate"), rs.getBigDecimal("platform_fee"), rs.getBigDecimal("net_amount"),
-                rs.getString("currency"), rs.getString("status"), rs.getInt("attempt_count"),
-                rs.getString("recipient_account_last4"), rs.getString("provider_reference"),
-                "sandbox".equals(rs.getString("provider")), rs.getObject("created_at", OffsetDateTime.class),
-                rs.getObject("updated_at", OffsetDateTime.class), null);
+        return new PayoutView(
+                rs.getObject("id", UUID.class),
+                rs.getObject("order_id", UUID.class),
+                rs.getObject("seller_id", UUID.class),
+                rs.getBigDecimal("order_amount"),
+                rs.getBigDecimal("shipping_fee"),
+                rs.getBigDecimal("platform_fee_rate"),
+                rs.getBigDecimal("platform_fee"),
+                rs.getBigDecimal("net_amount"),
+                rs.getString("currency"),
+                rs.getString("status"),
+                rs.getInt("attempt_count"),
+                rs.getString("recipient_account_last4"),
+                rs.getString("provider_reference"),
+                "sandbox".equals(rs.getString("provider")),
+                rs.getObject("created_at", OffsetDateTime.class),
+                rs.getObject("updated_at", OffsetDateTime.class),
+                null,
+                rs.getString("execution_mode"),
+                rs.getString("confirmation_source"),
+                null);
     }
 
     private static PayoutView.History history(ResultSet rs) throws SQLException {
-        return new PayoutView.History(rs.getObject("id", UUID.class), rs.getString("event"), rs.getLong("event_seq"),
-                rs.getString("from_status"), rs.getString("to_status"), rs.getInt("attempt_no"), rs.getBigDecimal("amount"),
-                rs.getObject("seller_bank_id", UUID.class), rs.getString("recipient_account_last4"), rs.getString("provider"),
-                rs.getString("provider_reference"), rs.getString("provider_status"), rs.getString("error_code"),
-                rs.getString("error_message"), rs.getBoolean("simulated"), rs.getObject("actor_id", UUID.class),
-                rs.getObject("occurred_at", OffsetDateTime.class), rs.getObject("transaction_id", UUID.class));
+        return new PayoutView.History(
+                rs.getObject("id", UUID.class),
+                rs.getString("event"),
+                rs.getLong("event_seq"),
+                rs.getString("from_status"),
+                rs.getString("to_status"),
+                rs.getInt("attempt_no"),
+                rs.getBigDecimal("amount"),
+                rs.getObject("seller_bank_id", UUID.class),
+                rs.getString("recipient_account_last4"),
+                rs.getString("provider"),
+                rs.getString("provider_reference"),
+                rs.getString("provider_status"),
+                rs.getString("error_code"),
+                rs.getString("error_message"),
+                rs.getBoolean("simulated"),
+                rs.getObject("actor_id", UUID.class),
+                rs.getObject("occurred_at", OffsetDateTime.class),
+                rs.getObject("transaction_id", UUID.class));
     }
 }

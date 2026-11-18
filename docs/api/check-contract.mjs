@@ -53,6 +53,8 @@ const services = {
     'src/main/java/com/group5/paymentservice/sellerbank/controller/BankAccountController.java',
     'src/main/java/com/group5/paymentservice/payout/controller/PayoutController.java',
     'src/main/java/com/group5/paymentservice/payout/controller/PayoutCallbackController.java',
+    'src/main/java/com/group5/paymentservice/payout/controller/ManualPayoutController.java',
+    'src/main/java/com/group5/paymentservice/payout/controller/SellerPayoutReceiptController.java',
   ],
   'inventory-service': [
     'src/main/java/com/group5/inventoryservice/inventory/InventoryController.java',

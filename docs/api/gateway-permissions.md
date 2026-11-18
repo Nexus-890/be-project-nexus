@@ -119,7 +119,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/sellers/applications/{userId}/approve` | POST | Roles: ADMIN | #264 — Grants SELLER in Keycloak; a new token carries it |
 | `/api/v1/sellers/applications/{userId}/reject` | POST | Roles: ADMIN | #264 — Reason is required and shown to the applicant |
 | `/api/v1/payments/seller-bank-accounts` | POST | Roles: SELLER | #257 — Seller identity comes from the authenticated user |
-| `/api/v1/payments/seller-bank-accounts` | GET | Roles: ADMIN | #261 — Masked bank-account review list, oldest UNVERIFIED first |
+| `/api/v1/payments/seller-bank-accounts` | GET | Roles: ADMIN | #261 — Masked bank-account review list, oldest active UNVERIFIED first |
 | `/api/v1/payments/seller-bank-accounts/me` | GET | Roles: SELLER | #257 — Own accounts, masked to last four digits |
 | `/api/v1/payments/seller-bank-accounts/{id}` | PUT | Roles: SELLER | #257 — Owning seller only; another seller receives 404 |
 | `/api/v1/payments/seller-bank-accounts/{id}/default` | POST | Roles: SELLER | #257 — Owning seller only; one active default |
@@ -129,6 +129,23 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/payments/payouts/{id}` | GET | Roles: SELLER, ADMIN | #257 — Owning seller or ADMIN; includes history |
 | `/api/v1/payments/payouts/{id}/retry` | POST | Roles: ADMIN | #257 — FAILED/RETURNED only; required Idempotency-Key |
 | `/api/v1/payments/payouts/callbacks/{provider}` | POST | Public | #257 — Signed provider callback; signature checked by payment-service |
+| `/api/v1/payments/manual-payouts/capabilities` | GET | Roles: ADMIN, SUPPORT_STAFF | #272 — Role-scoped rollout state and executor capabilities |
+| `/api/v1/payments/manual-payouts` | GET | Roles: ADMIN, SUPPORT_STAFF | #272 — MANUAL queue including receipt/dispute review filters |
+| `/api/v1/payments/manual-payouts/{payoutId}` | GET | Roles: ADMIN, SUPPORT_STAFF | #272 — Masked detail and authoritative allowed actions |
+| `/api/v1/payments/manual-payouts/{payoutId}/readiness-check` | POST | Roles: ADMIN, SUPPORT_STAFF | #272 — Explicit eligibility recheck; no attempt or transfer |
+| `/api/v1/payments/manual-payouts/{payoutId}/claims` | POST | Roles: ADMIN, SUPPORT_STAFF | #272 — Exclusive claim; own-seller execution denied downstream |
+| `/api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/qr-issuances` | POST | Roles: ADMIN, SUPPORT_STAFF | #272 — Owning executor commits one frozen instruction |
+| `/api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/qr` | GET | Roles: ADMIN, SUPPORT_STAFF | #272 — Private PNG for owning executor only; no business writes |
+| `/api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/release` | POST | Roles: ADMIN, SUPPORT_STAFF | #272 — Unissued owner release or explicit Admin intervention |
+| `/api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/evidence` | POST | Roles: ADMIN, SUPPORT_STAFF | #272 — Private file upload, ownership and matching IDs checked downstream |
+| `/api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/evidence/{evidenceId}` | GET | Roles: ADMIN, SUPPORT_STAFF | #272 — Private bytes for owning executor or Admin reconciliation |
+| `/api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/confirmation` | POST | Roles: ADMIN, SUPPORT_STAFF | #272 — Staff transfer attestation; never bank verification |
+| `/api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/problems` | POST | Roles: ADMIN, SUPPORT_STAFF | #272 — Report uncertainty or post-success exception on own attempt |
+| `/api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/resolution` | POST | Roles: ADMIN | #272 — Financial reconciliation/correction with explicit reason and proof |
+| `/api/v1/payments/manual-payouts/{payoutId}/attempts/{attemptId}/receipt-disputes/{disputeId}/reviews` | POST | Roles: ADMIN | #272 — Nonfinancial review; cannot confirm receipt as seller |
+| `/api/v1/payments/manual-payouts/{payoutId}/retries` | POST | Roles: ADMIN | #272 — Explicit retry after reconciliation under the same payout |
+| `/api/v1/payments/payouts/{payoutId}/manual-attempts/{attemptId}/receipt-confirmations` | POST | Roles: SELLER | #272 — Owning seller acknowledges receipt; no financial posting |
+| `/api/v1/payments/payouts/{payoutId}/manual-attempts/{attemptId}/receipt-disputes` | POST | Roles: SELLER | #272 — Owning seller reports a receipt dispute; no payment or requeue |
 | `/api/v1/products` | POST | PRODUCT.CREATE | #83 — Product create, update and read                   |
 | `/api/v1/products/mine` | GET | PRODUCT.LIST | #99 — Product lists                                     |
 | `/api/v1/products/mine/{id}` | GET | PRODUCT.LIST | Back-office demo (issue TBD) — SELLER reads own nondeleted product, including DRAFT/INACTIVE; another seller receives 404 downstream |

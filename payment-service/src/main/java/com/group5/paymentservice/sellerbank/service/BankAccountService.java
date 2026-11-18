@@ -9,12 +9,15 @@ import com.group5.paymentservice.sellerbank.dto.request.BankAccountRequest;
 import com.group5.paymentservice.sellerbank.dto.request.BankVerificationRequest;
 import com.group5.paymentservice.sellerbank.dto.response.BankAccountPage;
 import com.group5.paymentservice.sellerbank.dto.response.BankAccountView;
+import com.group5.paymentservice.sellerbank.event.BankAccountChanged;
 import com.group5.paymentservice.sellerbank.event.BankAccountVerified;
 import com.group5.paymentservice.sellerbank.model.VerifiedBankAccount;
 import com.group5.paymentservice.sellerbank.repository.BankAccountRepository;
 import com.group5.paymentservice.sellerbank.security.BankAccountCipher;
 import com.group5.paymentservice.shared.exception.PaymentErrorCode;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -35,8 +38,13 @@ public class BankAccountService {
         requireRole(user, "ADMIN");
         if (request.page() < 0 || request.size() < 1 || request.size() > 100) throw invalid();
         long count = accounts.countAdmin(request);
-        return new BankAccountPage(accounts.listAdmin(request), new PageInfo(request.page(), request.size(), count,
-                (int) ((count + request.size() - 1) / request.size())));
+        return new BankAccountPage(
+                accounts.listAdmin(request),
+                new PageInfo(
+                        request.page(),
+                        request.size(),
+                        count,
+                        (int) ((count + request.size() - 1) / request.size())));
     }
 
     @Transactional
@@ -51,6 +59,7 @@ public class BankAccountService {
         String encrypted = cipher.encrypt(request.accountNumber());
         if (isDefault) accounts.clearDefault(user.id(), id, user.id());
         accounts.insert(id, user.id(), request, encrypted, isDefault, active);
+        events.publishEvent(new BankAccountChanged(user.id()));
         return accounts.find(id).orElseThrow();
     }
 
@@ -61,18 +70,21 @@ public class BankAccountService {
         BankAccountView account = owned(user, id);
         validate(request);
         boolean active = request.active() == null ? account.active() : request.active();
-        boolean isDefault = request.isDefault() == null ? account.isDefault() && active : request.isDefault();
+        boolean isDefault =
+                request.isDefault() == null ? account.isDefault() && active : request.isDefault();
         if (isDefault && !active) throw invalid();
         String oldCiphertext = accounts.encryptedNumber(id);
-        boolean changed = !account.bankCode().equals(request.bankCode())
-                || !account.accountHolderName().equals(request.accountHolderName().trim())
-                || !cipher.decrypt(oldCiphertext).equals(request.accountNumber());
+        boolean changed =
+                !account.bankCode().equals(request.bankCode())
+                        || !account.accountHolderName().equals(request.accountHolderName().trim())
+                        || !cipher.decrypt(oldCiphertext).equals(request.accountNumber());
         String encrypted = changed ? cipher.encrypt(request.accountNumber()) : oldCiphertext;
         if (isDefault) accounts.clearDefault(user.id(), id, user.id());
         // Sửa ngân hàng, số tài khoản hoặc tên chủ tài khoản thì phải xóa kết quả xác minh cũ.
         accounts.update(id, user.id(), request, encrypted, changed, isDefault, active);
         BankAccountView updated = accounts.find(id).orElseThrow();
         releaseIfReady(updated);
+        events.publishEvent(new BankAccountChanged(user.id()));
         return updated;
     }
 
@@ -81,7 +93,8 @@ public class BankAccountService {
         requireRole(user, "SELLER");
         if (page < 0 || size < 1 || size > 100) throw invalid();
         long count = accounts.count(user.id());
-        return new BankAccountPage(accounts.list(user.id(), page, size),
+        return new BankAccountPage(
+                accounts.list(user.id(), page, size),
                 new PageInfo(page, size, count, (int) ((count + size - 1) / size)));
     }
 
@@ -97,15 +110,18 @@ public class BankAccountService {
         }
         BankAccountView updated = accounts.find(id).orElseThrow();
         releaseIfReady(updated);
+        events.publishEvent(new BankAccountChanged(user.id()));
         return updated;
     }
 
     @Transactional
     public BankAccountView verify(CurrentUser user, UUID id, BankVerificationRequest request) {
         requireRole(user, "ADMIN");
-        if (request == null || request.expectedVersion() == null || request.expectedVersion() < 0
-                || !("VERIFIED".equals(request.verificationStatus()) || "REJECTED".equals(request.verificationStatus())))
-            throw invalid();
+        if (request == null
+                || request.expectedVersion() == null
+                || request.expectedVersion() < 0
+                || !("VERIFIED".equals(request.verificationStatus())
+                        || "REJECTED".equals(request.verificationStatus()))) throw invalid();
         BankAccountView before = accounts.find(id).orElseThrow(BankAccountService::notFound);
         accounts.lockSeller(before.sellerId());
         BankAccountView account = accounts.find(id).orElseThrow(BankAccountService::notFound);
@@ -113,43 +129,69 @@ public class BankAccountService {
         if (account.version() != request.expectedVersion()) throw conflict();
         if (!account.active()) throw invalid();
         String reason = request.reason() == null ? null : request.reason().trim();
-        if ("REJECTED".equals(request.verificationStatus()) && (reason == null || reason.isEmpty() || reason.length() > 1000))
-            throw invalid();
-        int updatedRows = accounts.verify(id, user.id(), request.verificationStatus(),
-                "REJECTED".equals(request.verificationStatus()) ? reason : null, request.expectedVersion());
+        if ("REJECTED".equals(request.verificationStatus())
+                && (reason == null || reason.isEmpty() || reason.length() > 1000)) throw invalid();
+        int updatedRows =
+                accounts.verify(
+                        id,
+                        user.id(),
+                        request.verificationStatus(),
+                        "REJECTED".equals(request.verificationStatus()) ? reason : null,
+                        request.expectedVersion());
         if (updatedRows != 1) throw conflict();
         BankAccountView updated = accounts.find(id).orElseThrow();
         releaseIfReady(updated);
+        events.publishEvent(new BankAccountChanged(updated.sellerId()));
         return updated;
     }
 
     @Transactional(readOnly = true)
-    public Optional<VerifiedBankAccount> findVerifiedDefault(UUID sellerId) { return accounts.verifiedDefault(sellerId); }
+    public Optional<VerifiedBankAccount> findVerifiedDefault(UUID sellerId) {
+        return accounts.verifiedDefault(sellerId);
+    }
 
     private BankAccountView owned(CurrentUser user, UUID id) {
-        return accounts.find(id).filter(account -> account.sellerId().equals(user.id())).orElseThrow(BankAccountService::notFound);
+        return accounts.find(id)
+                .filter(account -> account.sellerId().equals(user.id()))
+                .orElseThrow(BankAccountService::notFound);
     }
 
     private void releaseIfReady(BankAccountView account) {
         // Chỉ tài khoản mặc định, đang hoạt động và đã xác minh mới giải phóng payout đang giữ.
-        if (account.active() && account.isDefault() && "VERIFIED".equals(account.verificationStatus()))
+        if (account.active()
+                && account.isDefault()
+                && "VERIFIED".equals(account.verificationStatus()))
             events.publishEvent(new BankAccountVerified(account.sellerId()));
     }
 
     private static void validate(BankAccountRequest request) {
-        if (request == null || request.bankCode() == null || !request.bankCode().matches("[0-9]{6}")
-                || request.accountNumber() == null || !request.accountNumber().matches("[0-9]{4,34}")
-                || request.accountHolderName() == null || request.accountHolderName().trim().isEmpty()
+        if (request == null
+                || request.bankCode() == null
+                || !request.bankCode().matches("[0-9]{6}")
+                || request.accountNumber() == null
+                || !request.accountNumber().matches("[0-9]{4,34}")
+                || request.accountHolderName() == null
+                || request.accountHolderName().trim().isEmpty()
                 || request.accountHolderName().trim().length() > 100
-                || request.accountHolderName().codePoints().anyMatch(Character::isISOControl)) throw invalid();
+                || request.accountHolderName().codePoints().anyMatch(Character::isISOControl))
+            throw invalid();
     }
 
     private static void requireRole(CurrentUser user, String role) {
-        if (user == null || user.id() == null) throw new DomainException(PaymentErrorCode.UNAUTHENTICATED);
+        if (user == null || user.id() == null)
+            throw new DomainException(PaymentErrorCode.UNAUTHENTICATED);
         if (!user.hasRole(role)) throw new DomainException(CommonErrorCode.FORBIDDEN);
     }
 
-    private static DomainException invalid() { return new DomainException(PaymentErrorCode.SELLER_BANK_ACCOUNT_INVALID); }
-    private static DomainException conflict() { return new DomainException(PaymentErrorCode.SELLER_BANK_ACCOUNT_CONFLICT); }
-    private static DomainException notFound() { return new DomainException(PaymentErrorCode.SELLER_BANK_ACCOUNT_NOT_FOUND); }
+    private static DomainException invalid() {
+        return new DomainException(PaymentErrorCode.SELLER_BANK_ACCOUNT_INVALID);
+    }
+
+    private static DomainException conflict() {
+        return new DomainException(PaymentErrorCode.SELLER_BANK_ACCOUNT_CONFLICT);
+    }
+
+    private static DomainException notFound() {
+        return new DomainException(PaymentErrorCode.SELLER_BANK_ACCOUNT_NOT_FOUND);
+    }
 }
