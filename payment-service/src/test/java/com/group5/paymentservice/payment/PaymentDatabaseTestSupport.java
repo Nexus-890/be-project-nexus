@@ -23,6 +23,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
             "nexus.payout.manual.evidence.cleanup-enabled=false",
             "management.tracing.export.zipkin.enabled=false",
             "spring.jpa.hibernate.ddl-auto=validate",
+            // Cached Spring contexts share one PostgreSQL container (100 connections by default).
+            "spring.datasource.hikari.maximum-pool-size=3",
             "nexus.payment.provider=SEPAY",
             "nexus.payment.sepay.bank-id=970416",
             "nexus.payment.sepay.bank-account=0000000002",
