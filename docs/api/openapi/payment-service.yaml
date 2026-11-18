@@ -507,6 +507,49 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
   /api/v1/payments/seller-bank-accounts:
+    get:
+      tags: [SellerBankAccounts]
+      operationId: listAdminSellerBankAccounts
+      summary: List seller bank accounts for administrator review
+      security: [{bearerAuth: []}]
+      x-required-roles: [ADMIN]
+      description: >-
+        ADMIN only; SELLER and SUPPORT_STAFF receive 403. Optional filters are
+        combined with AND before counting and pagination. UNVERIFIED accounts
+        come first, oldest createdAt first, then id ascending for ties; remaining
+        accounts follow in the same chronological order. Only accountLast4 is
+        returned, never the full number or ciphertext. This read does not verify
+        accounts, release held payouts or create transfers. Own seller reads
+        remain at /me. Verification uses the displayed version as expectedVersion.
+      parameters:
+        - $ref: '#/components/parameters/AdminSellerId'
+        - name: verificationStatus
+          in: query
+          description: Omit to include every verification state.
+          schema:
+            $ref: '#/components/schemas/BankVerificationStatus'
+        - $ref: '#/components/parameters/AdminPage'
+        - $ref: '#/components/parameters/AdminSize'
+      responses:
+        '200':
+          description: Masked bank-account page with unverified accounts first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerBankAccountListApiResponse'
+              example:
+                code: 0
+                message: response success
+                data: []
+                page: {number: 0, size: 20, totalElements: 0, totalPages: 0}
+        '400':
+          $ref: '#/components/responses/AdminListBadRequest'
+        '401':
+          $ref: '#/components/responses/AdminListUnauthorized'
+        '403':
+          $ref: '#/components/responses/AdminListForbidden'
+        '500':
+          $ref: '#/components/responses/AdminListInternalError'
     post:
       tags: ["SellerBankAccounts"]
       operationId: "createSellerBankAccount"
@@ -877,6 +920,83 @@ paths:
                 detail: "Bank account changed since review; reload it before submitting a decision"
                 instance: "/api/v1/payments/seller-bank-accounts/00000000-0000-4000-8000-000000000001/verify"
                 code: "PAYMENT_SELLER_BANK_ACCOUNT_CONFLICT"
+  /api/v1/payments/payouts:
+    get:
+      tags: [Payouts]
+      operationId: listAdminPayouts
+      summary: List automatic seller payouts for administrators
+      security: [{bearerAuth: []}]
+      x-required-roles: [ADMIN]
+      description: >-
+        ADMIN only; SELLER and SUPPORT_STAFF receive 403. Combines sellerId,
+        any selected status, and inclusive createdAt bounds before counting
+        and pagination. Newest createdAt first, id descending for ties. Send
+        repeated status parameters for needs action: ON_HOLD, UNKNOWN, FAILED,
+        RETURNED. Lists existing #257 payouts without recalculating amounts,
+        consuming completion events, creating payouts or retrying transfers.
+        Each row includes the orderId, sellerId, frozen netAmount, attemptCount
+        and updatedAt. Payout eligibility and the fee rule remain owned by #257;
+        only eligible funded COMPLETED orders without refunds create payouts.
+      parameters:
+        - $ref: '#/components/parameters/AdminSellerId'
+        - name: status
+          in: query
+          description: >-
+            Any of the selected states; repeated query values are supported.
+            Omit to include all seven statuses. Duplicate values do not duplicate rows.
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/PayoutStatus'
+          example: [ON_HOLD, UNKNOWN, FAILED, RETURNED]
+        - name: from
+          in: query
+          description: Inclusive lower bound on payout createdAt; ISO-8601 with a time zone.
+          schema: {type: string, format: date-time}
+        - name: to
+          in: query
+          description: Inclusive upper bound on payout createdAt; must not precede from.
+          schema: {type: string, format: date-time}
+        - $ref: '#/components/parameters/AdminPage'
+        - $ref: '#/components/parameters/AdminSize'
+      responses:
+        '200':
+          description: Existing payout page, newest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayoutListApiResponse'
+              example:
+                code: 0
+                message: response success
+                data:
+                  - id: 00000000-0000-4000-8000-000000000257
+                    orderId: 00000000-0000-4000-8000-000000000001
+                    sellerId: 00000000-0000-4000-8000-000000000004
+                    orderAmount: 325000
+                    shippingFee: 25000
+                    platformFeeRate: 0
+                    platformFee: 0
+                    netAmount: 300000
+                    currency: VND
+                    status: ON_HOLD
+                    attemptCount: 0
+                    recipientAccountLast4: null
+                    providerReference: null
+                    simulated: true
+                    createdAt: '2026-11-16T05:00:00Z'
+                    updatedAt: '2026-11-16T05:00:00Z'
+                page: {number: 0, size: 20, totalElements: 1, totalPages: 1}
+        '400':
+          $ref: '#/components/responses/AdminListBadRequest'
+        '401':
+          $ref: '#/components/responses/AdminListUnauthorized'
+        '403':
+          $ref: '#/components/responses/AdminListForbidden'
+        '500':
+          $ref: '#/components/responses/AdminListInternalError'
   /api/v1/payments/payouts/me:
     get:
       tags: ["Payouts"]
@@ -897,7 +1017,7 @@ paths:
               example:
                 code: 0
                 message: "response success"
-                data: [{"id":"00000000-0000-4000-8000-000000000257","orderId":"00000000-0000-4000-8000-000000000001","sellerId":"00000000-0000-4000-8000-000000000004","orderAmount":325000,"shippingFee":25000,"platformFeeRate":0,"platformFee":0,"netAmount":300000,"currency":"VND","status":"ON_HOLD","attemptCount":0,"recipientAccountLast4":null,"providerReference":null,"simulated":true,"createdAt":"2026-11-16T05:00:00Z"}]
+                data: [{"id":"00000000-0000-4000-8000-000000000257","orderId":"00000000-0000-4000-8000-000000000001","sellerId":"00000000-0000-4000-8000-000000000004","orderAmount":325000,"shippingFee":25000,"platformFeeRate":0,"platformFee":0,"netAmount":300000,"currency":"VND","status":"ON_HOLD","attemptCount":0,"recipientAccountLast4":null,"providerReference":null,"simulated":true,"createdAt":"2026-11-16T05:00:00Z","updatedAt":"2026-11-16T05:00:00Z"}]
                 page:
                   number: 0
                   size: 20
@@ -1170,6 +1290,82 @@ paths:
                 instance: "/api/v1/payments/payouts/callbacks/http"
                 code: "PAYMENT_PAYOUT_PROVIDER_CONFLICT"
 components:
+  parameters:
+    AdminSellerId:
+      name: sellerId
+      in: query
+      description: Restrict the administrator list to one seller UUID.
+      schema: {type: string, format: uuid}
+    AdminPage:
+      name: page
+      in: query
+      description: Zero-based page number; an out-of-range page returns an empty data array.
+      schema: {type: integer, format: int32, minimum: 0, default: 0}
+    AdminSize:
+      name: size
+      in: query
+      description: Maximum rows per page.
+      schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+  responses:
+    AdminListBadRequest:
+      description: >-
+        Invalid UUID, enum, ISO-8601 timestamp or pagination (VALIDATION_FAILED,
+        INVALID_PARAMETER). A reversed payout time range returns
+        PAYMENT_PAYOUT_INVALID_REQUEST. Invalid bank pagination is
+        PAYMENT_SELLER_BANK_ACCOUNT_INVALID when validated at the service boundary.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: urn:problem:domain-error
+            title: Bad Request
+            status: 400
+            detail: Invalid pagination or payout creation-time range
+            instance: /api/v1/payments/payouts
+            code: PAYMENT_PAYOUT_INVALID_REQUEST
+    AdminListUnauthorized:
+      description: Authentication is missing, invalid or expired (UNAUTHENTICATED).
+      headers:
+        WWW-Authenticate:
+          schema: {type: string, example: Bearer}
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://nexus/errors/unauthenticated
+            title: Unauthorized
+            status: 401
+            detail: A valid bearer token is required
+            instance: /api/v1/payments/payouts
+            code: UNAUTHENTICATED
+    AdminListForbidden:
+      description: The authenticated user lacks the ADMIN realm role (FORBIDDEN).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://nexus/errors/forbidden
+            title: Forbidden
+            status: 403
+            detail: You do not have permission to access this resource
+            instance: /api/v1/payments/payouts
+            code: FORBIDDEN
+    AdminListInternalError:
+      description: Unexpected server error; no stack traces or sensitive details (INTERNAL_ERROR).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: urn:problem:internal-server-error
+            title: Internal Server Error
+            status: 500
+            detail: An unexpected error occurred
+            instance: /api/v1/payments/payouts
+            code: INTERNAL_ERROR
   securitySchemes:
     bearerAuth:
       type: http
@@ -1519,6 +1715,9 @@ components:
           format: "int64"
           minimum: 0
           description: "Version from the exact bank-account snapshot the administrator reviewed. Missing or negative is 400; stale is 409."
+    BankVerificationStatus:
+      type: string
+      enum: [UNVERIFIED, VERIFIED, REJECTED]
     SellerBankAccount:
       type: "object"
       required: ["id","sellerId","bankCode","accountLast4","accountHolderName","verificationStatus","isDefault","active","rejectionReason","verifiedBy","verifiedAt","createdAt","updatedAt","version"]
@@ -1539,8 +1738,7 @@ components:
           type: "string"
           maxLength: 100
         verificationStatus:
-          type: "string"
-          enum: ["UNVERIFIED","VERIFIED","REJECTED"]
+          $ref: '#/components/schemas/BankVerificationStatus'
         isDefault:
           type: "boolean"
         active:
@@ -1614,7 +1812,7 @@ components:
       enum: ["ON_HOLD","PENDING","PROCESSING","UNKNOWN","SUCCEEDED","FAILED","RETURNED"]
     Payout:
       type: "object"
-      required: ["id","orderId","sellerId","orderAmount","shippingFee","platformFeeRate","platformFee","netAmount","currency","status","attemptCount","recipientAccountLast4","providerReference","simulated","createdAt"]
+      required: ["id","orderId","sellerId","orderAmount","shippingFee","platformFeeRate","platformFee","netAmount","currency","status","attemptCount","recipientAccountLast4","providerReference","simulated","createdAt","updatedAt"]
       properties:
         id:
           type: "string"
@@ -1672,6 +1870,10 @@ components:
         createdAt:
           type: "string"
           format: "date-time"
+        updatedAt:
+          type: "string"
+          format: "date-time"
+          description: Last persisted payout update, including automatic dispatch, reconciliation or retry.
     PayoutHistory:
       type: "object"
       required: ["id","event","eventSeq","fromStatus","toStatus","attemptNo","amount","sellerBankId","recipientAccountLast4","provider","providerReference","providerStatus","errorCode","errorMessage","simulated","actorId","occurredAt","transactionId"]

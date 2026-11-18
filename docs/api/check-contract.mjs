@@ -50,9 +50,9 @@ const services = {
     'src/main/java/com/group5/paymentservice/payment/controller/PaymentController.java',
     'src/main/java/com/group5/paymentservice/payment/controller/RefundController.java',
     'src/main/java/com/group5/paymentservice/payment/controller/SepayWebhookController.java',
-    'src/main/java/com/group5/paymentservice/sellerbank/BankAccountController.java',
-    'src/main/java/com/group5/paymentservice/payout/PayoutController.java',
-    'src/main/java/com/group5/paymentservice/payout/PayoutCallbackController.java',
+    'src/main/java/com/group5/paymentservice/sellerbank/controller/BankAccountController.java',
+    'src/main/java/com/group5/paymentservice/payout/controller/PayoutController.java',
+    'src/main/java/com/group5/paymentservice/payout/controller/PayoutCallbackController.java',
   ],
   'inventory-service': [
     'src/main/java/com/group5/inventoryservice/inventory/InventoryController.java',

@@ -6,7 +6,7 @@ import com.group5.paymentservice.payment.event.payload.OrderCompleted;
 import com.group5.paymentservice.payment.repository.PaymentSessionRepository;
 import com.group5.paymentservice.payment.repository.PayoutEligibilityRepository;
 import com.group5.paymentservice.payment.repository.PayoutEligibilityRepository.CompletionCursor;
-import com.group5.paymentservice.payout.PayoutService;
+import com.group5.paymentservice.payout.service.PayoutService;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

@@ -1,8 +1,8 @@
 package com.group5.paymentservice.payment;
 
 import com.group5.paymentservice.payment.job.PayoutEligibilityJob;
-import com.group5.paymentservice.payout.PayoutProperties;
-import com.group5.paymentservice.payout.PayoutService;
+import com.group5.paymentservice.payout.config.PayoutProperties;
+import com.group5.paymentservice.payout.service.PayoutService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
