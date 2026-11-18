@@ -29,6 +29,8 @@ nexus:
     tracking-retry-backoff-ms: ${SHIPPING_TRACKING_RETRY_BACKOFF_MS:30000}
     tracking-retry-poll-ms: ${SHIPPING_TRACKING_RETRY_POLL_MS:5000}
     carrier: ${SHIPPING_CARRIER:NONE}
+    quote-carrier: ${SHIPPING_QUOTE_CARRIER:${SHIPPING_CARRIER:NONE}}
+    booking-carrier: ${SHIPPING_BOOKING_CARRIER:${SHIPPING_CARRIER:NONE}}
     api-timeout-ms: ${SHIPPING_API_TIMEOUT_MS:3000}
     retry-limit: ${SHIPPING_RETRY_LIMIT:3}
     retry-backoff-ms: ${SHIPPING_RETRY_BACKOFF_MS:100}

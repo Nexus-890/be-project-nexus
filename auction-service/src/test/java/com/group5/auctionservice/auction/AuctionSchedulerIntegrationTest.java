@@ -189,7 +189,7 @@ class AuctionSchedulerIntegrationTest {
     @Test
     void closingRepositoryQueryUsesExistingIndexWithFiveThousandAuctions() throws Exception {
         Instant cutoff = Instant.now().plusSeconds(86_400);
-        jdbc.execute("TRUNCATE TABLE auctions, bids, auction_watchers, outbox");
+        jdbc.execute("TRUNCATE TABLE auction_offers, auction_payment_timeouts, auction_pending_timeouts, auctions, bids, auction_watchers, outbox");
         seedBatch("closing-index-fixture", 5000, cutoff.minusSeconds(50));
         jdbc.execute("ANALYZE auctions");
         Query query = AuctionRepository.class.getMethod("lockAuctionsDueToEnd", Instant.class, int.class)

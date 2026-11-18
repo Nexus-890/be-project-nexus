@@ -6,6 +6,7 @@ import com.group5.userservice.iam.dto.UserResponse;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.Gender;
 import com.group5.userservice.iam.enums.UserStatus;
+import com.group5.userservice.phone.PhoneVerificationRepository;
 import com.group5.userservice.shared.config.IamProperties;
 import com.group5.userservice.shared.exception.UserErrorCode;
 import org.hibernate.exception.ConstraintViolationException;
@@ -32,6 +33,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -51,6 +53,8 @@ class UserProfileServiceTest {
     private TransactionStatus transactionStatus;
     @Mock
     private KeycloakAdminClient keycloak;
+    @Mock
+    private EmailVerificationService emailVerification;
 
     private final IamProperties iamProperties = new IamProperties();
     private UserService userService;
@@ -59,7 +63,7 @@ class UserProfileServiceTest {
     @BeforeEach
     void setUp() {
         when(transactionManager.getTransaction(any(TransactionDefinition.class))).thenReturn(transactionStatus);
-        userService = new UserService(userRepository, iamProperties, keycloak, transactionManager);
+        userService = new UserService(userRepository, iamProperties, keycloak, transactionManager, emailVerification, mock(PhoneVerificationRepository.class));
         user = existingUser();
     }
 

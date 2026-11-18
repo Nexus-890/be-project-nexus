@@ -99,6 +99,7 @@ class KeycloakTokenTrustTest {
     @MockitoBean private BidRepository bids;
     @MockitoBean private OutboxWriter outbox;
     @MockitoBean private IdempotentConsumer idempotent;
+    @MockitoBean private org.springframework.jdbc.core.JdbcTemplate jdbc;
     @MockitoBean private Clock clock;
     @MockitoBean private PlatformTransactionManager transactionManager;
     private MockMvc client;

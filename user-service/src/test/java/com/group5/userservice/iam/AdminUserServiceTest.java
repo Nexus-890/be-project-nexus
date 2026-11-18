@@ -1,11 +1,13 @@
 package com.group5.userservice.iam;
 
 import com.group5.common_core.exception.DomainException;
+import com.group5.userservice.address.UserAddressRepository;
 import com.group5.userservice.iam.dto.AdminCreateUserRequest;
 import com.group5.userservice.iam.dto.UpdateProfileRequest;
 import com.group5.userservice.iam.entity.User;
 import com.group5.userservice.iam.enums.Gender;
 import com.group5.userservice.iam.enums.UserStatus;
+import com.group5.userservice.phone.PhoneVerificationRepository;
 import com.group5.userservice.seller.SellerRepository;
 import com.group5.userservice.shared.config.IamProperties;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,7 +52,8 @@ class AdminUserServiceTest {
     /** Chuẩn bị profile thật và transaction giả để phân biệt lỗi nghiệp vụ với lỗi commit. */
     @BeforeEach void setUp() {
         properties = new IamProperties();
-        service = new AdminUserService(users, sellers, keycloak, events, properties, CLOCK, manager, journal);
+        service = new AdminUserService(users, sellers, keycloak, events, properties, CLOCK, manager, journal,
+                mock(PhoneVerificationRepository.class), mock(UserAddressRepository.class));
         lenient().when(manager.getTransaction(any(TransactionDefinition.class))).thenReturn(tx);
         user = new User(); user.setId(ID); user.setEmail("buyer@nexus.local"); user.setPhone("0900000001");
         user.setVersion(0L); user.setFullName("Buyer One"); user.setGender(Gender.MALE); user.setAddress("HCM");

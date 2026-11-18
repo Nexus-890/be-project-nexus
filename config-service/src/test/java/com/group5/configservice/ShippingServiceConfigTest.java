@@ -42,6 +42,8 @@ class ShippingServiceConfigTest {
         environment.getPropertySources().remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
         environment.getPropertySources().addFirst(new PropertiesPropertySource("shipping", properties));
         assertThat(environment.getProperty("nexus.shipping.carrier")).isEqualTo("NONE");
+        assertThat(environment.getProperty("nexus.shipping.quote-carrier")).isEqualTo("NONE");
+        assertThat(environment.getProperty("nexus.shipping.booking-carrier")).isEqualTo("NONE");
         assertThat(environment.getProperty("nexus.shipping.api-timeout-ms")).isEqualTo("3000");
         assertThat(environment.getProperty("nexus.shipping.retry-limit")).isEqualTo("3");
         assertThat(environment.getProperty("nexus.shipping.catalog-base-url")).isEmpty();
@@ -53,6 +55,8 @@ class ShippingServiceConfigTest {
                 "SHIPPING_PICKUP_WARD_CODE", "1003646", "GHN_PAYMENT_TYPE_ID", "2",
                 "GHN_REQUIRED_NOTE", "CHOXEMHANGKHONGTHU")));
         assertThat(environment.getProperty("nexus.shipping.carrier")).isEqualTo("GHN");
+        assertThat(environment.getProperty("nexus.shipping.quote-carrier")).isEqualTo("GHN");
+        assertThat(environment.getProperty("nexus.shipping.booking-carrier")).isEqualTo("GHN");
         assertThat(environment.getProperty("nexus.shipping.api-timeout-ms")).isEqualTo("1200");
         assertThat(environment.getProperty("nexus.shipping.retry-limit")).isEqualTo("2");
         assertThat(environment.getProperty("nexus.shipping.free-shipping-threshold")).isEqualTo("500000");
@@ -62,6 +66,23 @@ class ShippingServiceConfigTest {
         environment.getPropertySources().addFirst(new MapPropertySource("catalog-local", Map.of(
                 "SHIPPING_CATALOG_BASE_URL", "http://127.0.0.1:8082")));
         assertThat(environment.getProperty("nexus.shipping.catalog-base-url")).isEqualTo("http://127.0.0.1:8082");
+    }
+
+    @Test
+    void quoteAndBookingDeploymentSettingsOverrideLegacyIndependently() {
+        StandardEnvironment environment = new StandardEnvironment();
+        environment.getPropertySources().remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
+        environment.getPropertySources().addFirst(new PropertiesPropertySource("shipping", yaml("shipment-service")));
+        environment.getPropertySources().addFirst(new MapPropertySource("deployment", Map.of(
+                "SHIPPING_CARRIER", "GHN", "SHIPPING_BOOKING_CARRIER", "FAKE")));
+        assertThat(environment.getProperty("nexus.shipping.quote-carrier")).isEqualTo("GHN");
+        assertThat(environment.getProperty("nexus.shipping.booking-carrier")).isEqualTo("FAKE");
+
+        environment.getPropertySources().addFirst(new MapPropertySource("disable-quotes", Map.of(
+                "SHIPPING_QUOTE_CARRIER", "NONE")));
+        assertThat(environment.getProperty("nexus.shipping.quote-carrier")).isEqualTo("NONE");
+        assertThat(environment.getProperty("nexus.shipping.booking-carrier")).isEqualTo("FAKE");
+        assertThat(environment.getProperty("nexus.shipping.carrier")).isEqualTo("GHN");
     }
 
     private Properties yaml(String service) {

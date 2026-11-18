@@ -127,6 +127,26 @@ class RealmContractTest(unittest.TestCase):
         # Chính sách giữ lịch sử để Admin không đặt lại đúng mật khẩu hiện tại.
         self.assertEqual(self.realm["passwordPolicy"], r"length(8) and passwordHistory(1) and regexPattern((?s).*\S.*)")
 
+    def test_password_reset_and_email_verification_send_mail_without_a_password(self):
+        self.assertTrue(self.realm["resetPasswordAllowed"])
+        self.assertTrue(self.realm["verifyEmail"])
+        self.assertFalse(self.realm["registrationAllowed"])
+        self.assertEqual(self.realm["actionTokenGeneratedByUserLifespan"], 900)
+        smtp = self.realm["smtpServer"]
+        self.assertEqual(smtp["host"], "${NEXUS_SMTP_HOST:mailpit}")
+        self.assertEqual(smtp["port"], "${NEXUS_SMTP_PORT:1025}")
+        self.assertEqual(smtp["auth"], "false")
+        self.assertNotIn("password", smtp)
+        self.assertNotIn("user", smtp)
+
+    def test_password_events_are_recorded_by_keycloak(self):
+        self.assertTrue(self.realm["eventsEnabled"])
+        self.assertTrue(self.realm["adminEventsEnabled"])
+        self.assertFalse(self.realm["adminEventsDetailsEnabled"])
+        for event in ["UPDATE_PASSWORD", "UPDATE_CREDENTIAL", "RESET_PASSWORD", "SEND_RESET_PASSWORD",
+                      "VERIFY_EMAIL", "SEND_VERIFY_EMAIL"]:
+            self.assertIn(event, self.realm["enabledEventTypes"])
+
     def test_session_idle_timeout_covers_access_token_lifetime(self):
         self.assertGreaterEqual(self.realm["ssoSessionIdleTimeout"], self.realm["accessTokenLifespan"])
         self.assertGreaterEqual(self.realm["ssoSessionMaxLifespan"], self.realm["ssoSessionIdleTimeout"])

@@ -15,9 +15,12 @@ info:
     Lỗi do shipment-service phát ra có mã SHIPMENT_*; lỗi do gateway phát ra trước khi tới dịch vụ giữ mã
     chung của gateway. Bản 2.2 bổ sung #202: tạo shipment từ snapshot OrderPaid, tạo thủ công có
     Idempotency-Key và đọc shipment có kiểm tra chủ sở hữu. Bản 2.3 hoàn tất manual creation bằng snapshot
-    PAID đọc trực tiếp từ commerce-service khi shipment chưa tồn tại. Fake hỗ trợ tạo tracking; GHN create thuộc
-    tích hợp riêng. Snapshot thiếu dữ liệu chuẩn bị hoặc carrier chưa khả dụng giữ PENDING_TRACKING.
-    Tracking retry không bổ sung dữ liệu chuẩn bị còn thiếu; #202 chưa có endpoint hoàn tất chuẩn bị.
+    PAID đọc trực tiếp từ commerce-service khi shipment chưa tồn tại. Bản 2.6 bổ sung #258: tạo vận đơn GHN
+    sandbox và tách carrier báo phí khỏi carrier booking. Snapshot thiếu dữ liệu chuẩn bị hoặc carrier chưa
+    khả dụng giữ PENDING_TRACKING.
+    Khi thiếu serviceType, GHN/FAKE suy ra STANDARD/HEAVY từ parcel đã chốt. Pickup còn thiếu chỉ lấy từ
+    cấu hình của đúng warehouse; retry cũng có thể điền các trường dispatch còn trống của shipment pending.
+    Không tự tạo parcel hoặc thông tin người nhận; thiếu dữ liệu/cấu hình tin cậy vẫn giữ PENDING_TRACKING.
     Bản 2.4 bổ sung đọc tracking và lịch sử trạng thái đã lưu cho buyer trên trang đơn hàng.
     Bản 2.4 bổ sung #203: carrier callback có xác thực và chống trùng, tracking poller, lịch sử phân trang,
     cập nhật trạng thái và override có lý do, cùng xử lý OrderCancelled trước khi carrier lấy hàng.
@@ -30,7 +33,7 @@ servers:
     description: Dịch vụ vận chuyển, dùng để kiểm tra trực tiếp
 tags:
   - name: Carriers
-    description: Nhà vận chuyển đã cấu hình
+    description: Nhà vận chuyển báo phí đã cấu hình
   - name: Shipping addresses
     description: Địa giới GHN v3 theo mô hình hai cấp
   - name: Shipping quotes
@@ -53,9 +56,12 @@ paths:
         không tồn tại trả 404 SHIPMENT_ORDER_NOT_FOUND; chưa PAID trả 409 SHIPMENT_ORDER_NOT_PAID; upstream
         không khả dụng trả 503 SHIPMENT_COMMERCE_UNAVAILABLE; snapshot sai trả 502 SHIPMENT_INVALID_ORDER_SNAPSHOT.
         warehouseId, carrier và serviceType tùy chọn được dùng để chọn dispatch cho shipment mới. Kho và
-        pickup phải có nguồn tin cậy; không dùng pickup cũ cho kho khác. Bỏ trống dùng lựa chọn tin cậy của
-        đơn hoặc cấu hình shipping. Khi shipment đã tồn tại, các giá trị nếu gửi phải khớp lựa chọn đã lưu;
-        không đổi carrier/service/kho sau khi có request identity. Khác lựa chọn trả 409 SHIPMENT_IDEMPOTENCY_CONFLICT.
+        pickup phải có nguồn tin cậy; không dùng pickup cũ cho kho khác. Bỏ trống carrier dùng SHIPPING_BOOKING_CARRIER
+        (fallback về SHIPPING_CARRIER khi chưa cấu hình), độc lập với carrier báo phí đã lưu trong snapshot.
+        Các lựa chọn còn lại dùng snapshot tin cậy hoặc cấu hình shipping. Khi shipment đã tồn tại, các giá trị nếu gửi phải khớp lựa chọn đã lưu;
+        không thay carrier/service/kho đã có sau khi có request identity. Service còn trống của GHN/FAKE được
+        suy ra từ parcel đã chốt; pickup còn trống chỉ bổ sung bằng cấu hình của đúng warehouse.
+        Khác lựa chọn đã lưu trả 409 SHIPMENT_IDEMPOTENCY_CONFLICT.
         OrderCancelled đến trước shipment được lưu thành tombstone bền vững; yêu cầu tạo thủ công sau đó
         trả 409 SHIPMENT_ORDER_NOT_PAID và OrderPaid giao muộn không tạo/book shipment cho đơn đã hủy.
         Mỗi order chỉ có một shipment. Cùng Idempotency-Key và cùng yêu cầu trả lại shipment đã tạo;
@@ -69,7 +75,15 @@ paths:
         order và unique order_id, nên chạy đồng thời vẫn chỉ có một shipment và một creation event.
         ShipmentCreated ghi nhận creation PENDING_TRACKING, trackingCode=null;
         GET phản ánh tracking được bổ sung sau, không ghi thêm ShipmentCreated.
-        Retry không thể tự cấp parcel/pickup còn thiếu và #202 chưa có endpoint bổ sung dữ liệu chuẩn bị.
+        SHIPPING_BOOKING_CARRIER=NONE giữ shipment PENDING_TRACKING với trackingCode=null và không lên lịch booking.
+        GHN quote cùng FAKE booking tạo tracking FAKE- mà vẫn giữ shippingFee từ snapshot đã thanh toán.
+        GHN booking chỉ dùng sandbox, dùng shipment.id làm client_order_code và đối soát mã này trước khi
+        retry để tránh tạo vận đơn trùng sau timeout. TO_ADDRESS_CONFLICT thử lại một lần với phường và tỉnh;
+        lịch sử shipment ghi nhận lần dùng địa chỉ dự phòng. expected_delivery_time được lưu khi GHN trả về.
+        Khi tạo và khi retry, GHN/FAKE có thể điền serviceType còn trống từ parcel đã chốt và pickupAddress
+        còn trống từ cấu hình của đúng warehouse. Default pickup chỉ dùng khi warehouse khớp default-warehouse-id.
+        Không thay request identity hoặc lựa chọn đã lưu, không bịa parcel/người nhận/mã địa giới;
+        thiếu parcel, địa chỉ người nhận hợp lệ hoặc cấu hình pickup tin cậy vẫn giữ PENDING_TRACKING.
       security:
         - bearerAuth: []
       x-required-privileges:
@@ -469,11 +483,14 @@ paths:
       summary: Lấy danh sách nhà vận chuyển
       description: >-
         Yêu cầu JWT hợp lệ và quyền SHIPPING.QUOTE; ADMIN không tự bỏ qua quyền này. Đọc metadata và trạng
-        thái circuit breaker của các adapter đã đăng ký, không gọi thử nhà vận chuyển hoặc đọc/ghi cơ sở dữ
-        liệu. isDefault xác định adapter mặc định trong registry. available phản ánh trạng thái breaker hiện
+        thái circuit breaker của adapter báo phí được chọn, không gọi thử nhà vận chuyển hoặc đọc/ghi cơ sở dữ
+        liệu. SHIPPING_QUOTE_CARRIER chọn adapter này, fallback về SHIPPING_CARRIER khi chưa cấu hình.
+        Carrier chỉ dùng để booking không xuất hiện trong danh sách. isDefault xác định adapter báo phí mặc định.
+        available phản ánh trạng thái breaker hiện
         tại: false khi OPEN/FORCED_OPEN, true khi CLOSED/HALF_OPEN hoặc chưa có breaker. HALF_OPEN cho phép
         một lượt thử theo chính sách breaker; available không giữ chỗ và không bảo đảm GHN đang hoạt động. GHN
-        được bật bằng SHIPPING_CARRIER=GHN, FAKE chỉ bật tường minh cho local/test; NONE trả danh sách rỗng.
+        được báo phí bằng SHIPPING_QUOTE_CARRIER=GHN, FAKE chỉ bật tường minh cho local/test; quote carrier NONE trả danh sách rỗng
+        kể cả khi SHIPPING_BOOKING_CARRIER đã bật. GHN quote cùng FAKE booking chỉ trả GHN trong danh sách.
         Không tự chuyển sang FAKE khi GHN lỗi. Trả toàn bộ danh sách trong một trang logic.
       security:
         - bearerAuth: []
@@ -2820,8 +2837,10 @@ components:
           description: >-
             Snapshot recipient, items, parcel và pickupAddress từ OrderPaid hoặc snapshot PAID của commerce.
             Đây là snapshot của đơn, độc lập với DTO quote #201; không tự đổi mã legacy thành mã GHN v3.
-            Parcel/pickupAddress có thể null và shipment khi đó chờ chuẩn bị ở PENDING_TRACKING.
-            Tracking retry không bổ sung các trường thiếu; #202 chưa có endpoint hoàn tất chuẩn bị.
+            Parcel có thể null; thiếu parcel hoặc địa chỉ người nhận hợp lệ vẫn chờ chuẩn bị ở PENDING_TRACKING.
+            PickupAddress còn trống có thể bổ sung từ cấu hình của đúng warehouse khi tạo hoặc retry;
+            default pickup chỉ dùng cho default-warehouse-id. GHN/FAKE suy ra serviceType còn trống từ parcel
+            đã chốt; không tự tạo parcel/người nhận hoặc thay các lựa chọn dispatch đã lưu.
         createdAt:
           type: string
           format: date-time

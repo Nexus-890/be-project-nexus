@@ -9,23 +9,40 @@ import com.group5.commerceservice.shared.exception.CommerceErrorCode;
 import com.group5.common_core.exception.DomainException;
 import com.group5.common_security.CurrentUser;
 import jakarta.persistence.EntityManager;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
+import java.time.Clock;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.UUID;
 
 /** Xác nhận nhận hàng và job tự hoàn tất cùng khóa order, ghi trạng thái và outbox trong một transaction. */
 @Service
-@RequiredArgsConstructor
 public class OrderCompletionService {
     private final OrderRepository orders;
     private final OrderStateMachine stateMachine;
     private final OrderEventPublisher events;
     private final OrderReceiptRenderer receipts;
     private final EntityManager entityManager;
+    private final Clock clock;
+
+    @Autowired
+    public OrderCompletionService(OrderRepository orders, OrderStateMachine stateMachine, OrderEventPublisher events,
+                                  OrderReceiptRenderer receipts, EntityManager entityManager) {
+        this(orders, stateMachine, events, receipts, entityManager, Clock.systemUTC());
+    }
+
+    OrderCompletionService(OrderRepository orders, OrderStateMachine stateMachine, OrderEventPublisher events,
+                           OrderReceiptRenderer receipts, EntityManager entityManager, Clock clock) {
+        this.orders = orders;
+        this.stateMachine = stateMachine;
+        this.events = events;
+        this.receipts = receipts;
+        this.entityManager = entityManager;
+        this.clock = clock;
+    }
 
     @Transactional
     public void confirm(CurrentUser user, UUID orderId) {
@@ -35,20 +52,19 @@ public class OrderCompletionService {
         Order order = locked(orderId);
         // Kiểm tra chủ đơn trước trạng thái; admin cũng không được xác nhận thay buyer khác.
         if (!order.getUserId().equals(user.id())) throw new DomainException(CommerceErrorCode.FORBIDDEN);
-        if (order.getStatus() == OrderStatus.COMPLETED) return;
         if (order.getStatus() != OrderStatus.DELIVERED) throw new DomainException(CommerceErrorCode.ORDER_NOT_DELIVERED);
         if (order.getReceiptIssueReportedAt() != null) throw new DomainException(CommerceErrorCode.RECEIPT_ISSUE_OPEN);
         complete(order, user.id(), "Buyer confirmed receipt");
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean completeIfDue(UUID orderId) {
         if (orders.lockOrder(orderId).isEmpty()) return false;
         Order order = orders.findById(orderId).orElseThrow();
         entityManager.refresh(order);
         if (order.getStatus() != OrderStatus.DELIVERED || order.getReceiptIssueReportedAt() != null || order.getAutoCompleteAt() == null
-                || order.getAutoCompleteAt().isAfter(OffsetDateTime.now(ZoneOffset.UTC))) return false;
-        complete(order, new UUID(0, 0), "Automatically completed after the receipt confirmation period");
+                || order.getAutoCompleteAt().isAfter(OffsetDateTime.now(clock))) return false;
+        complete(order, new UUID(0, 0), "Completed automatically after delivery");
         return true;
     }
 
@@ -62,7 +78,7 @@ public class OrderCompletionService {
         if (!order.getUserId().equals(user.id())) throw new DomainException(CommerceErrorCode.FORBIDDEN);
         if (order.getStatus() != OrderStatus.DELIVERED) throw new DomainException(CommerceErrorCode.ORDER_NOT_DELIVERED);
         if (order.getReceiptIssueReportedAt() != null) return;
-        orders.reportReceiptIssue(orderId, reason.trim(), OffsetDateTime.now(ZoneOffset.UTC), user.id());
+        orders.reportReceiptIssue(orderId, reason.trim(), OffsetDateTime.now(clock), user.id());
         entityManager.refresh(order);
     }
 

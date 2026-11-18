@@ -76,7 +76,7 @@ class CatalogResponseContractTest {
 
     @Test
     void categoryRoutesUseDataEnvelopeAndDeleteKeepsNoContent() throws Exception {
-        CategoryResponse category = new CategoryResponse(id, null, "Shirts", "shirts", (short) 1, "/shirts/");
+        CategoryResponse category = new CategoryResponse(id, null, "Shirts", "shirts", (short) 1, "/shirts/", "Cotton shirts");
         when(categories.create(any())).thenReturn(category);
         when(categories.update(eq(id), any())).thenReturn(category);
         when(categories.getById(id)).thenReturn(category);
@@ -88,6 +88,8 @@ class CatalogResponseContractTest {
         assertObject(patch("/api/v1/categories/{id}", id).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"Shirts\"}"), 200);
         assertObject(get("/api/v1/categories/{id}", id), 200);
+        mvc.perform(get("/api/v1/categories/{id}", id))
+                .andExpect(jsonPath("$.data.description").value("Cotton shirts"));
         mvc.perform(get("/api/v1/categories/tree"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].id").value(id.toString()))
@@ -112,7 +114,7 @@ class CatalogResponseContractTest {
                 id, sellerId, "Draft description", true, List.of(), List.of()));
         var page = new PageImpl<>(List.of(product), PageRequest.of(1, 2), 5);
         when(products.searchProducts(null, null, "relevance", "all", null, 1, 2)).thenReturn(page);
-        when(products.getMyProducts(actor, null, 1, 2)).thenReturn(page);
+        when(products.getMyProducts(actor, null, null, 1, 2)).thenReturn(page);
 
         String request = "{\"name\":\"Shirt\",\"categoryId\":\"" + id + "\",\"auctionEnable\":false}";
         assertObject(post("/api/v1/products").contentType(MediaType.APPLICATION_JSON).content(request), 201);

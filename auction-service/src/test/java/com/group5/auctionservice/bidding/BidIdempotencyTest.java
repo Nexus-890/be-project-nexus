@@ -130,6 +130,8 @@ class BidIdempotencyTest {
                             if (value.isEmpty()
                                     && org.springframework.transaction.support.TransactionSynchronizationManager
                                             .isActualTransactionActive()
+                                    && !org.springframework.transaction.support.TransactionSynchronizationManager
+                                            .isCurrentTransactionReadOnly()
                                     && misses.incrementAndGet() <= 2)
                                 barrier.await(10, TimeUnit.SECONDS);
                             return value;

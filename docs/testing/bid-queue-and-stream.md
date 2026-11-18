@@ -13,7 +13,7 @@ Implementation lives in the primary local project and follows the existing contr
 - Unknown/restricted/deleted auction: 404 before opening. Capacity: 503 `AUCTION_STREAM_BUSY`. Final ENDED/WON/SETTLED/FAILED/CANCELLED/PAYMENT_TIMEOUT state is sent, then the stream closes. Reconnect always receives the current snapshot; historical replay is not required.
 - Existing FE SSE/reconnect/two-second polling stays available. Bid submission now waits for terminal status, shows REJECTED.minimum, preserves the key after an uncertain POST, and retries GET only once the bidId is known.
 
-Migration V9 is additive; local V8 belongs to the separate settlement work and is deliberately not republished by this MR. Flyway permits that version gap on develop. Existing applied migrations are unchanged.
+Migration V10 is additive. Develop already owns V8 settlement and V9 second-chance offers; the bid queue migration was moved from V9 to V10 without changing its SQL body. Existing develop migrations and checksums are unchanged. Fresh databases and upgrades from develop V9 are covered by BidQueueMigrationTest. Second-chance selection uses only PLACED/OUTBID/WON bids, excluding queued, rejected and cancelled requests even when their amount is higher.
 
 ## Configuration and infrastructure
 
@@ -65,7 +65,7 @@ The load helper starts the packaged WebFlux gateway, routes to the real auction 
 
 | Issue item | Important production code | Important test / evidence |
 | --- | --- | --- |
-| Migration + atomic queued acceptance | V9__bid_queue.sql; BidService.accept; BidController.place | BidPlacementIntegrationTest; BidIdempotencyTest.acceptsWithoutChangingPriceThenAppliesCommandAtomically |
+| Migration + atomic queued acceptance | V10__bid_queue.sql; BidService.accept; BidController.place | BidPlacementIntegrationTest; BidIdempotencyTest.acceptsWithoutChangingPriceThenAppliesCommandAtomically |
 | 50 concurrent bids / no queued rows left | BidService.apply; AuctionRepository.acceptQueuedBid | BidConcurrencyIT: 10 runs x 50 real HTTP requests, 10 buyer JWTs; final highest price/leader and one event per placed bid |
 | Duplicate command, restart, rebalance | BidCommandConsumer; IdempotentConsumer; bid processing guard + conditional SQL | BidIdempotencyTest duplicate/restart, competing consumers and conditionalUpdateAloneAllowsOneWinnerForSamePrice |
 | Arrival order / no hidden older admission | BidService.awaitAdmissions and apply; admission locks | BidIdempotencyTest.processingWaitsForEarlierAdmissionBeforeDrainingLaterCommand; newAdmissionDoesNotWaitForConsumerPriceTransaction |
@@ -103,3 +103,13 @@ The reviewer's original-head results are a baseline, not successful final-suite 
 Final checks on the fixed MR source with Node 24.22.3: `npm run test:unit` passed all 417 tests without skips; `npm run test:auction` passed all 30 browser cases in 3.7 minutes, including both new ENDED regressions and the existing winner, loser, shipping and payment handoffs. Both new stream regressions failed against the original production hook before the fix: the initial ENDED room retained an OPEN source after five seconds, and an ENDED push did not close it. Lint, typecheck, production build and the API inventory check (162 delivered operations) passed. Generated-type checking still reports drift only in User, Commerce and Shipment DTOs; auction DTOs are unchanged. These results do not make the combined full-service test criterion green: the backend full-suite baseline above remains unresolved and was not rerun.
 
 The 16 November two-instance/Kafka and 1,000-viewer load figures above remain historical evidence and were not rerun for this fix. STAGING HTTP POST p95 and terminal bid latency remain unmeasured and unchecked. Local frontend fixtures do not establish live cross-service, Kafka, staging or remote CI acceptance.
+
+## Develop conflict resolution — 18 November 2026
+
+Merged develop `9e140179` into the existing reviewed source `e10ff0d4`. Gateway policies retain both the private bid result and all second-chance routes; path fixtures cover both bidId and offerId. The refresh integration fixture uses an admin token with SYSTEM.CONFIG.UPDATE while bid tokens retain BUYER/AUCTION.BID. The idempotency race barrier waits only for write transactions; obsolete synchronous-placement conflict helpers were removed. Frontend conflicts retain the 202/PLACED waits, complete reputation fixture and both ENDED stream regressions.
+
+Develop V1–V9 SQL files are unchanged. The queue migration is now V10 with the exact original SQL body. BidQueueMigrationTest verifies a fresh V1–V10 database and a V9 upgrade with unchanged historical rows and Flyway checksums. Second-chance preview/send excludes QUEUED/REJECTED/CANCELLED requests and retains each bidder's highest accepted bid.
+
+On the merged source, Java 21/PostgreSQL 18 focused auction checks passed 255 cases with zero failures, errors or skips, including both migration regressions, all 19 second-chance cases, refresh, queue rollback/idempotency, settlement, and ten repetitions of 50 simultaneous HTTP bids. Gateway full verify passed 91 cases and Config full verify passed 47. All auction main/test sources compile. API inventory passed all 182 operations. Frontend Node 24 unit tests passed 437 cases; lint, typecheck, generated-type check and production build passed. PostgreSQL used an isolated disposable local cluster; no application database or existing migration history was changed. Full auction verify, fresh Kafka/multi-instance SSE/load and STAGING latency measurements were not rerun by this conflict task.
+
+The merged auction Playwright suite also passed all 30 cases (4.6 minutes), including both native EventSource ENDED regressions and the private winner/order handoff. Browser fixtures simulate HTTP/SSE responses and do not certify a live Kafka or staging deployment.

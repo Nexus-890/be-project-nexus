@@ -42,6 +42,7 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 
 /**
  * HTTP tests against disposable PostgreSQL 18 and Keycloak 26.7 Testcontainers instances.
@@ -60,6 +61,8 @@ import static org.mockito.Mockito.doAnswer;
         "nexus.security.jwt.audience=nexus-services",
         "nexus.security.public-endpoints[0].method=POST",
         "nexus.security.public-endpoints[0].path=/api/v1/auth/register",
+        "nexus.security.public-endpoints[1].method=POST",
+        "nexus.security.public-endpoints[1].path=/api/v1/auth/verification-email",
         "management.endpoints.web.exposure.include=health,refresh",
         "management.tracing.enabled=true",
         "management.tracing.export.enabled=false",
@@ -69,6 +72,8 @@ import static org.mockito.Mockito.doAnswer;
 })
 class RegistrationIntegrationTest {
     private static final String REGISTER = "/api/v1/auth/register";
+    private static final String RESEND = "/api/v1/auth/verification-email";
+    private static final String APPLICATIONS = "/api/v1/sellers/applications";
     private static final String PASSWORD = "registered-password-123!";
     private static final Path TEMP = createTestFiles();
     private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -96,9 +101,14 @@ class RegistrationIntegrationTest {
     @BeforeEach
     void prepareFixtures() {
         // These rows exist only in the disposable Testcontainers database.
+        jdbc.update("delete from user_addresses");
+        jdbc.update("delete from phone_verifications");
+        jdbc.update("delete from verification_email_sends");
+        jdbc.update("delete from seller");
         jdbc.update("delete from users");
         jdbc.update("delete from outbox");
         KeycloakTestServer.deleteRegisteredUsers();
+        KeycloakTestServer.deleteAllMail();
         SqlCapture.STATEMENTS.clear();
     }
 
@@ -146,6 +156,7 @@ class RegistrationIntegrationTest {
     void newAccountSignsInThroughKeycloakAndReadsItsOwnProfile() throws Exception {
         assertThat(post(REGISTER, request("login@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
         UUID keycloakId = KeycloakTestServer.userIdByEmail("login@nexus.test").orElseThrow();
+        KeycloakTestServer.markEmailVerified(keycloakId);
 
         String token = KeycloakTestServer.signIn("LOGIN@NEXUS.TEST", PASSWORD);
         HttpResponse<String> profile = get("/api/v1/users/me", token);
@@ -159,9 +170,75 @@ class RegistrationIntegrationTest {
     }
 
     @Test
+    void newAccountSignsInOnlyAfterTheEmailedLinkIsOpenedAndTheLinkWorksOnce() throws Exception {
+        assertThat(post(REGISTER, request("verify@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+        UUID keycloakId = KeycloakTestServer.userIdByEmail("verify@nexus.test").orElseThrow();
+
+        assertThat(KeycloakTestServer.emailVerified(keycloakId)).isFalse();
+        assertThatThrownBy(() -> KeycloakTestServer.signIn("verify@nexus.test", PASSWORD))
+                .isInstanceOf(IllegalStateException.class);
+        List<String> mail = KeycloakTestServer.mailTo("verify@nexus.test");
+        assertThat(mail).hasSize(1);
+        String link = KeycloakTestServer.actionLink(mail.getFirst());
+
+        KeycloakTestServer.openActionLink(link);
+
+        assertThat(KeycloakTestServer.emailVerified(keycloakId)).isTrue();
+        assertThat(KeycloakTestServer.signIn("verify@nexus.test", PASSWORD)).isNotBlank();
+        assertThat(KeycloakTestServer.openActionLink(link).toLowerCase(java.util.Locale.ROOT))
+                .containsAnyOf("no longer valid", "expired", "already been used");
+    }
+
+    @Test
+    void resendIsLimitedToOneEmailPerMinute() throws Exception {
+        assertThat(post(REGISTER, request("resend@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+
+        HttpResponse<String> tooSoon = post(RESEND, Map.of("email", "Resend@Nexus.Test"));
+        assertThat(tooSoon.statusCode()).isEqualTo(429);
+        assertThat(JSON.readTree(tooSoon.body()).get("code").asString())
+                .isEqualTo("USER_VERIFICATION_EMAIL_RATE_LIMITED");
+        assertThat(KeycloakTestServer.mailTo("resend@nexus.test")).hasSize(1);
+
+        jdbc.update("update verification_email_sends set sent_at = sent_at - interval '61 seconds'");
+        HttpResponse<String> resent = post(RESEND, Map.of("email", "resend@nexus.test"));
+
+        assertThat(resent.statusCode()).isEqualTo(204);
+        assertThat(resent.body()).isEmpty();
+        assertThat(KeycloakTestServer.mailTo("resend@nexus.test")).hasSize(2);
+        assertThat(post(RESEND, Map.of("email", "resend@nexus.test")).statusCode()).isEqualTo(429);
+    }
+
+    @Test
+    void resendForAnUnknownOrVerifiedEmailAnswersTheSameAndSendsNothing() throws Exception {
+        assertThat(post(RESEND, Map.of("email", "nobody@nexus.test")).statusCode()).isEqualTo(204);
+        assertThat(post(REGISTER, request("done@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
+        KeycloakTestServer.markEmailVerified(KeycloakTestServer.userIdByEmail("done@nexus.test").orElseThrow());
+        jdbc.update("update verification_email_sends set sent_at = sent_at - interval '61 seconds'");
+
+        assertThat(post(RESEND, Map.of("email", "done@nexus.test")).statusCode()).isEqualTo(204);
+
+        assertThat(KeycloakTestServer.mailTo("nobody@nexus.test")).isEmpty();
+        assertThat(KeycloakTestServer.mailTo("done@nexus.test")).hasSize(1);
+    }
+
+    @Test
+    void failedVerificationEmailReturns502AndKeepsTheAccountForResend() throws Exception {
+        doThrow(new DomainException(UserErrorCode.USER_VERIFICATION_EMAIL_FAILED))
+                .when(keycloak).sendVerifyEmail(org.mockito.ArgumentMatchers.any());
+
+        HttpResponse<String> response = post(REGISTER, request("unsent@nexus.test", "0901234567", "001234"));
+
+        assertThat(response.statusCode()).isEqualTo(502);
+        assertThat(JSON.readTree(response.body()).get("code").asString()).isEqualTo("USER_VERIFICATION_EMAIL_FAILED");
+        assertThat(KeycloakTestServer.userIdByEmail("unsent@nexus.test")).isPresent();
+        assertThat(jdbc.queryForObject("select email from users", String.class)).isEqualTo("unsent@nexus.test");
+    }
+
+    @Test
     void profileEmailChangeMovesTheKeycloakSignIn() throws Exception {
         assertThat(post(REGISTER, request("before@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
         UUID keycloakId = KeycloakTestServer.userIdByEmail("before@nexus.test").orElseThrow();
+        KeycloakTestServer.markEmailVerified(keycloakId);
         String token = KeycloakTestServer.signIn("before@nexus.test", PASSWORD);
 
         HttpResponse<String> updated = put("/api/v1/users/me", Map.of("email", "After@Nexus.Test"), token);
@@ -170,6 +247,10 @@ class RegistrationIntegrationTest {
         assertThat(JSON.readTree(updated.body()).get("data").get("email").asString()).isEqualTo("after@nexus.test");
         assertThat(KeycloakTestServer.userIdByEmail("after@nexus.test")).contains(keycloakId);
         assertThat(KeycloakTestServer.userIdByEmail("before@nexus.test")).isEmpty();
+        assertThat(KeycloakTestServer.emailVerified(keycloakId)).isFalse();
+        assertThatThrownBy(() -> KeycloakTestServer.signIn("after@nexus.test", PASSWORD))
+                .isInstanceOf(IllegalStateException.class);
+        KeycloakTestServer.markEmailVerified(keycloakId);
         assertThat(KeycloakTestServer.signIn("after@nexus.test", PASSWORD)).isNotBlank();
     }
 
@@ -177,6 +258,7 @@ class RegistrationIntegrationTest {
     void emailChangeKeepsATemporaryKeycloakLockout() throws Exception {
         assertThat(post(REGISTER, request("locked@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
         UUID keycloakId = KeycloakTestServer.userIdByEmail("locked@nexus.test").orElseThrow();
+        KeycloakTestServer.markEmailVerified(keycloakId);
         String token = KeycloakTestServer.signIn("locked@nexus.test", PASSWORD);
         for (int attempt = 0; attempt < 5; attempt++) {
             KeycloakTestServer.failSignIn("locked@nexus.test");
@@ -218,6 +300,7 @@ class RegistrationIntegrationTest {
     void profileEmailHeldByAnotherKeycloakAccountReturns409AndKeepsBothRecords() throws Exception {
         assertThat(post(REGISTER, request("keep@nexus.test", "0901234567", "001234")).statusCode()).isEqualTo(201);
         UUID keycloakId = KeycloakTestServer.userIdByEmail("keep@nexus.test").orElseThrow();
+        KeycloakTestServer.markEmailVerified(keycloakId);
         String token = KeycloakTestServer.signIn("keep@nexus.test", PASSWORD);
 
         HttpResponse<String> rejected = put("/api/v1/users/me", Map.of("email", KeycloakTestServer.DEMO_ADMIN), token);
@@ -421,8 +504,9 @@ class RegistrationIntegrationTest {
         assertThat(count("outbox")).isEqualTo(2);
         assertThat(admin("GET", "/api/v1/roles", Map.of()).statusCode()).isEqualTo(200);
         JsonNode permissions = JSON.readTree(admin("GET", "/api/v1/permissions", Map.of()).body());
-        assertThat(permissions.get("data").size()).isEqualTo(65);
+        assertThat(permissions.get("data").size()).isEqualTo(70);
         assertThat(admin("PUT", "/api/v1/users/" + id, Map.of("email", "managed-new@nexus.test", "address", "New address")).statusCode()).isEqualTo(200);
+        KeycloakTestServer.markEmailVerified(id);
         assertThat(KeycloakTestServer.signIn("managed-new@nexus.test", PASSWORD)).isNotBlank();
         assertThat(admin("PUT", "/api/v1/users/" + id + "/roles", Map.of("roleCodes", List.of("SELLER"))).statusCode()).isEqualTo(200);
         assertThat(KeycloakTestServer.realmRoles(id)).contains("SELLER").doesNotContain("BUYER");
@@ -463,6 +547,8 @@ class RegistrationIntegrationTest {
         assertThat(keycloak.userState(secondId)).containsEntry("username", "original@nexus.test");
         assertThat(KeycloakTestServer.userIdByEmail("changed@nexus.test")).contains(firstId);
         assertThat(KeycloakTestServer.userIdByEmail("original@nexus.test")).contains(secondId);
+        KeycloakTestServer.markEmailVerified(firstId);
+        KeycloakTestServer.markEmailVerified(secondId);
         assertThat(KeycloakTestServer.signIn("changed@nexus.test", PASSWORD)).isNotBlank();
         assertThat(KeycloakTestServer.signIn("original@nexus.test", PASSWORD)).isNotBlank();
         assertThat(jdbc.queryForObject("select email from users where id=?", String.class, firstId))
@@ -480,6 +566,7 @@ class RegistrationIntegrationTest {
         HttpResponse<String> response = admin("POST", "/api/v1/users", create);
         assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
         UUID id = UUID.fromString(JSON.readTree(response.body()).get("data").get("id").asString());
+        KeycloakTestServer.markEmailVerified(id);
         for (int i = 0; i < 5; i++) KeycloakTestServer.failSignIn("unlock@nexus.test");
         assertThat(KeycloakTestServer.bruteForceLocked(id)).isTrue();
         assertThat(admin("POST", "/api/v1/users/" + id + "/unlock", Map.of()).statusCode()).isEqualTo(204);
@@ -487,6 +574,113 @@ class RegistrationIntegrationTest {
         assertThat(KeycloakTestServer.signIn("unlock@nexus.test", PASSWORD)).isNotBlank();
         assertThat(admin("POST", "/api/v1/users/" + id + "/unlock", Map.of()).statusCode()).isEqualTo(409);
         assertThat(jdbc.queryForObject("select count(*) from outbox where event_type='UserUnlocked'", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void approvedSellerApplicationGivesTheSellerRoleInTheNextToken() throws Exception {
+        UUID id = verifiedBuyer("apply@nexus.test", "0901234567", "APPLY-264");
+        String buyerToken = KeycloakTestServer.signIn("apply@nexus.test", PASSWORD);
+        assertThat(JSON.readTree(get(APPLICATIONS + "/me", buyerToken).body()).get("data").isNull()).isTrue();
+
+        HttpResponse<String> applied = send("POST", APPLICATIONS, application("Apply Company"), buyerToken);
+        assertThat(applied.statusCode()).as(applied.body()).isEqualTo(201);
+        JsonNode created = JSON.readTree(applied.body()).get("data");
+        assertThat(created.get("id").asString()).isEqualTo(id.toString());
+        assertThat(created.get("status").asString()).isEqualTo("PENDING");
+        assertThat(created.get("reason").isNull()).isTrue();
+
+        HttpResponse<String> second = send("POST", APPLICATIONS, application("Second Company"), buyerToken);
+        assertThat(second.statusCode()).isEqualTo(409);
+        assertThat(JSON.readTree(second.body()).get("code").asString()).isEqualTo("SELLER_APPLICATION_EXISTS");
+        assertThat(get(APPLICATIONS, buyerToken).statusCode()).isEqualTo(403);
+        assertThat(send("POST", APPLICATIONS + "/" + id + "/approve", Map.of(), buyerToken).statusCode()).isEqualTo(403);
+
+        HttpResponse<String> queue = admin("GET", APPLICATIONS + "?status=PENDING&page=0&size=10", null);
+        assertThat(queue.statusCode()).as(queue.body()).isEqualTo(200);
+        assertThat(JSON.readTree(queue.body()).get("data").get(0).get("id").asString()).isEqualTo(id.toString());
+        assertThat(JSON.readTree(queue.body()).get("page").get("totalElements").asInt()).isEqualTo(1);
+
+        HttpResponse<String> approved = admin("POST", APPLICATIONS + "/" + id + "/approve", Map.of());
+        assertThat(approved.statusCode()).as(approved.body()).isEqualTo(200);
+        assertThat(JSON.readTree(approved.body()).get("data").get("status").asString()).isEqualTo("ACTIVE");
+        assertThat(KeycloakTestServer.realmRoles(id)).contains("BUYER", "SELLER");
+        assertThat(jdbc.queryForObject("select reviewed_by is not null and reviewed_at is not null from seller where user_id=?",
+                Boolean.class, id)).isTrue();
+        assertThat(admin("POST", APPLICATIONS + "/" + id + "/approve", Map.of()).statusCode()).isEqualTo(409);
+
+        assertThat(get("/api/v1/sellers/me", buyerToken).statusCode()).isEqualTo(403);
+        String sellerToken = KeycloakTestServer.signIn("apply@nexus.test", PASSWORD);
+        HttpResponse<String> profile = get("/api/v1/sellers/me", sellerToken);
+        assertThat(profile.statusCode()).as(profile.body()).isEqualTo(200);
+        assertThat(JSON.readTree(profile.body()).get("data").get("companyName").asString()).isEqualTo("Apply Company");
+        assertThat(jdbc.queryForList("select event_type from outbox where aggregate_id=? order by occurred_at",
+                String.class, id.toString())).contains("UserRoleAssigned", "SellerApplicationApproved");
+    }
+
+    @Test
+    void rejectedApplicantSeesTheReasonAndCanApplyAgain() throws Exception {
+        UUID id = verifiedBuyer("rejected@nexus.test", "0901234568", "REJECT-264");
+        String token = KeycloakTestServer.signIn("rejected@nexus.test", PASSWORD);
+        assertThat(send("POST", APPLICATIONS, application("Reject Company"), token).statusCode()).isEqualTo(201);
+        assertThat(admin("POST", APPLICATIONS + "/" + id + "/reject", Map.of("reason", " ")).statusCode()).isEqualTo(400);
+
+        HttpResponse<String> rejected = admin("POST", APPLICATIONS + "/" + id + "/reject",
+                Map.of("reason", "Business licence is missing"));
+        assertThat(rejected.statusCode()).as(rejected.body()).isEqualTo(200);
+        JsonNode own = JSON.readTree(get(APPLICATIONS + "/me", token).body()).get("data");
+        assertThat(own.get("status").asString()).isEqualTo("REJECTED");
+        assertThat(own.get("reason").asString()).isEqualTo("Business licence is missing");
+        assertThat(KeycloakTestServer.realmRoles(id)).contains("BUYER").doesNotContain("SELLER");
+        assertThat(admin("POST", APPLICATIONS + "/" + id + "/reject", Map.of("reason", "again")).statusCode())
+                .isEqualTo(409);
+
+        HttpResponse<String> again = send("POST", APPLICATIONS, application("Licensed Company"), token);
+        assertThat(again.statusCode()).as(again.body()).isEqualTo(201);
+        JsonNode resubmitted = JSON.readTree(again.body()).get("data");
+        assertThat(resubmitted.get("status").asString()).isEqualTo("PENDING");
+        assertThat(resubmitted.get("reason").isNull()).isTrue();
+        assertThat(resubmitted.get("companyName").asString()).isEqualTo("Licensed Company");
+        assertThat(count("seller")).isEqualTo(1);
+    }
+
+    @Test
+    void keycloakFailureLeavesTheApplicationPending() throws Exception {
+        UUID id = verifiedBuyer("pending@nexus.test", "0901234569", "PENDING-264");
+        String token = KeycloakTestServer.signIn("pending@nexus.test", PASSWORD);
+        assertThat(send("POST", APPLICATIONS, application("Pending Company"), token).statusCode()).isEqualTo(201);
+        doThrow(new DomainException(UserErrorCode.USER_IDENTITY_PROVIDER_UNAVAILABLE))
+                .when(keycloak).replaceRealmRoles(org.mockito.ArgumentMatchers.eq(id), org.mockito.ArgumentMatchers.anyList());
+        try {
+            HttpResponse<String> failed = admin("POST", APPLICATIONS + "/" + id + "/approve", Map.of());
+            assertThat(failed.statusCode()).isEqualTo(503);
+            assertThat(JSON.readTree(failed.body()).get("code").asString()).isEqualTo("USER_IDENTITY_PROVIDER_UNAVAILABLE");
+        } finally {
+            org.mockito.Mockito.reset(keycloak);
+        }
+        assertThat(jdbc.queryForObject("select status::text from seller where user_id=?", String.class, id))
+                .isEqualTo("PENDING");
+        assertThat(KeycloakTestServer.realmRoles(id)).doesNotContain("SELLER");
+        assertThat(jdbc.queryForObject("select count(*) from outbox where event_type in ('UserRoleAssigned','SellerApplicationApproved')",
+                Integer.class)).isZero();
+    }
+
+    private UUID verifiedBuyer(String email, String phone, String identity) throws Exception {
+        HttpResponse<String> registered = post(REGISTER, request(email, phone, identity));
+        assertThat(registered.statusCode()).as(registered.body()).isEqualTo(201);
+        UUID id = KeycloakTestServer.userIdByEmail(email).orElseThrow();
+        KeycloakTestServer.markEmailVerified(id);
+        return id;
+    }
+
+    private static Map<String, String> application(String companyName) {
+        return Map.of("companyName", companyName, "phone", "0912345678", "note", "We sell handmade ceramics online.");
+    }
+
+    private HttpResponse<String> send(String method, String path, Map<?, ?> body, String token) throws Exception {
+        return HTTP.send(HttpRequest.newBuilder(uri(path)).timeout(Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + token).header("Content-Type", "application/json")
+                .method(method, HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body))).build(),
+                HttpResponse.BodyHandlers.ofString());
     }
 
     /** Gửi request quản trị bằng token lấy qua đăng nhập PKCE thật của demo Admin. */

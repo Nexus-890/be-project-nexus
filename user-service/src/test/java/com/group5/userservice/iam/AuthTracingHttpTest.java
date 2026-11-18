@@ -118,7 +118,7 @@ class AuthTracingHttpTest {
 
         @Bean
         AuthController authController(UserService userService) {
-            return new AuthController(userService);
+            return new AuthController(userService, mock(EmailVerificationService.class));
         }
     }
 }

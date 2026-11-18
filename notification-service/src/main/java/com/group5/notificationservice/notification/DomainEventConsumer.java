@@ -40,12 +40,13 @@ public class DomainEventConsumer {
     }
 
     @KafkaListener(
-            topics = {Topics.COMMERCE, Topics.CATALOG, Topics.PAYMENT, Topics.SHIPMENT, Topics.AUCTION},
+            topics = {Topics.USER, Topics.COMMERCE, Topics.CATALOG, Topics.PAYMENT, Topics.SHIPMENT, Topics.AUCTION},
             groupId = "${nexus.notification.group-id}",
             containerFactory = EventKafka.LISTENER_CONTAINER_FACTORY
     )
     public void receive(ConsumerRecord<String, EventEnvelope<JsonNode>> record) {
         EventEnvelope<JsonNode> envelope = record.value();
+        if (SecondChanceNotificationConsumer.isOffer(envelope.eventType())) return;
         Optional<NotificationTemplate> template = NotificationTemplate.forEventType(envelope.eventType());
         if (template.isEmpty()) {
             log.debug("NOTIFICATION_SKIPPED eventId={} eventType={} topic={} reason=no-template",

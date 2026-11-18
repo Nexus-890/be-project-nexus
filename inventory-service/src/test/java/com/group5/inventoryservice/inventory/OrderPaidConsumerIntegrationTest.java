@@ -52,7 +52,7 @@ import static org.awaitility.Awaitility.await;
 })
 @ExtendWith(OutputCaptureExtension.class)
 class OrderPaidConsumerIntegrationTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.common_test.PostgresTestDatabase("postgres:18");
     static { POSTGRES.start(); }
 
     private static final UUID SYSTEM_ACTOR = new UUID(0, 0);

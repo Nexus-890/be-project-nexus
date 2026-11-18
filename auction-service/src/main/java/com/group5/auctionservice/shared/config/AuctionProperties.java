@@ -30,6 +30,9 @@ public class AuctionProperties {
     @Positive
     private int paymentDeadlineHours = 24;
 
+    @Positive
+    private int secondChanceOfferHours = 24;
+
     private boolean reputationEnforcementEnabled = false;
 
     @NotNull

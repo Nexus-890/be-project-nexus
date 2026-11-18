@@ -74,6 +74,7 @@ class KeycloakTokenTrustTest {
     @MockitoBean private OutboxWriter outboxWriter;
     @MockitoBean private ReservationExpiryJob reservationExpiryJob;
     @MockitoBean private LockProvider lockProvider;
+    @MockitoBean private org.springframework.jdbc.core.JdbcTemplate jdbc;
     private MockMvc client;
 
     @DynamicPropertySource

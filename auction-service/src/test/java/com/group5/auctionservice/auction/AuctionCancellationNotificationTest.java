@@ -213,7 +213,6 @@ class AuctionCancellationNotificationTest {
         @Bean AuctionCreation creation() { return mock(AuctionCreation.class); }
         // Hủy chỉ dùng dữ liệu local; Inventory không được gọi trong test snapshot bidder.
         @Bean AuctionInventoryClient inventory() { return mock(AuctionInventoryClient.class); }
-        /** Hủy auction không gọi reputation, nhưng constructor mới vẫn cần dependency này. */
         @Bean com.group5.auctionservice.reputation.ReputationGuard reputation() {
             return mock(com.group5.auctionservice.reputation.ReputationGuard.class);
         }

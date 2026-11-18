@@ -210,6 +210,20 @@ class OrderReservationHttpTest {
         return new FeignInventoryClient(feign(InventoryReservationHttpClient.class), new OrderRemoteExecutor(threshold, 30000), mapper);
     }
 
+    @Test
+    void auctionLinkedReservationArrayUsesItsOwnDtoAndRelaysTheBuyer() {
+        status=200;UUID reservation=UUID.randomUUID();
+        reply="{\"code\":0,\"message\":\"response success\",\"data\":[{\"reservationId\":\""+reservation+
+                "\",\"warehouseId\":\""+warehouse+"\",\"status\":\"HELD\"}],\"page\":{\"number\":0,\"size\":1,\"totalElements\":1,\"totalPages\":1}}";
+        var result=feign(InventoryReservationHttpClient.class).linked(order);
+        assertThat(result.data()).containsExactly(new InventoryReservationHttpClient.LinkedReservation(reservation,warehouse,"HELD"));
+        assertThat(bearer).isEqualTo("Bearer test-token");
+        reply="{\"code\":0,\"message\":\"response success\",\"data\":[]}";
+        assertThat(feign(InventoryReservationHttpClient.class).linked(order).data()).isEmpty();
+        reply="{\"code\":0,\"message\":\"response success\",\"data\":[{\"fee\":1,\"carrier\":\"GHN\",\"serviceType\":\"STANDARD\",\"estimatedDeliveryAt\":\"2031-01-01T10:00:00Z\"}]}";
+        assertThatThrownBy(()->feign(InventoryReservationHttpClient.class).linked(order)).isInstanceOf(feign.codec.DecodeException.class);
+    }
+
     private <T> T feign(Class<T> type) {
         return Feign.builder().contract(new SpringMvcContract()).client(transport)
                 .encoder((body, bodyType, template) -> template.body(mapper.writeValueAsString(body)))

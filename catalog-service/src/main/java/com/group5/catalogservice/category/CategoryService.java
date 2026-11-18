@@ -1,5 +1,10 @@
 package com.group5.catalogservice.category;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import java.util.Locale;
+
 import com.group5.catalogservice.category.dto.CategoryRequest;
 import com.group5.catalogservice.category.dto.CategoryResponse;
 import com.group5.catalogservice.category.dto.CategoryTreeResponse;
@@ -368,6 +373,17 @@ public class CategoryService {
             sortCategoryTree(category.getChildren());
         }
     }
+    @Transactional(readOnly = true)
+    public Page<CategoryResponse> getFlatList(String q, UUID parentId, Short level, int page, int size) {
+        if (page < 0 || size < 1 || size > 100 || q.length() > 150 || level != null && level < 0) {
+            throw new DomainException(CatalogErrorCode.DATA_INVALID);
+        }
+        String pattern = "%" + q.strip().toLowerCase(Locale.ROOT)
+                .replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";
+        return categoryRepository.findFlat(pattern, parentId, level,
+                PageRequest.of(page, size, Sort.by("name", "id"))).map(this::toResponse);
+    }
+
     private CategoryResponse toResponse(Category category) {
         return new CategoryResponse(
                 category.getId(),
@@ -375,7 +391,8 @@ public class CategoryService {
                 category.getName(),
                 category.getSlug(),
                 category.getLevel(),
-                category.getPath()
+                category.getPath(),
+                category.getDescription()
         );
     }
 

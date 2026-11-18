@@ -54,6 +54,26 @@ public class ReservationService {
     private final ReservationTimeout reservationTimeout;
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+    public void lockAuctionOrder(UUID orderId) {
+        jdbc.queryForObject("SELECT 1 FROM pg_advisory_xact_lock(hashtextextended('auction-order:'||?::text,0))",Integer.class,orderId);
+    }
+
+    public void rememberAuctionOutcome(UUID orderId,String outcome) {
+        lockAuctionOrder(orderId);
+        jdbc.update("""
+                INSERT INTO inventory_auction_order_outcomes(order_id,outcome) VALUES (?,?)
+                ON CONFLICT(order_id) DO UPDATE SET outcome=CASE
+                  WHEN EXCLUDED.outcome='CANCELLED' THEN 'CANCELLED' ELSE inventory_auction_order_outcomes.outcome END
+                """,orderId,outcome);
+    }
+
+    public void applyAuctionOutcome(UUID orderId) {
+        for(String outcome:jdbc.queryForList("SELECT outcome FROM inventory_auction_order_outcomes WHERE order_id=?",String.class,orderId)) {
+            if("CANCELLED".equals(outcome)) releaseOrder(orderId); else confirmOrder(orderId);
+        }
+    }
 
     @Transactional
     public void holdAuction(UUID auctionId, UUID skuId, Instant endAt) {
@@ -96,6 +116,7 @@ public class ReservationService {
 
     @Transactional
     public void linkAuctionOrder(UUID auctionId, UUID orderId) {
+        lockAuctionOrder(orderId);
         InventoryReservation hold = reservations.findForUpdateByAuctionId(auctionId)
                 .orElseThrow(() -> new DomainException(InventoryErrorCode.RESERVATION_NOT_FOUND));
         if (orderId.equals(hold.getOrderId())) {
@@ -105,6 +126,8 @@ public class ReservationService {
             throw new DomainException(InventoryErrorCode.RESERVATION_CONFLICT);
         }
         hold.linkOrder(orderId);
+        reservations.flush();
+        applyAuctionOutcome(orderId);
     }
 
     @Transactional

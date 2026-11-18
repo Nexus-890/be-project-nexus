@@ -20,7 +20,7 @@ public class AuctionStateMachine {
             WON, Set.of(SETTLED, CANCELLED),
             SETTLED, Set.of(PAYMENT_TIMEOUT),
             FAILED, Set.of(),
-            PAYMENT_TIMEOUT, Set.of(),
+            PAYMENT_TIMEOUT, Set.of(WON),
             CANCELLED, Set.of()
     );
 

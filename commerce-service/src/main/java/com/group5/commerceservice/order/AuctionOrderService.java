@@ -24,11 +24,13 @@ public class AuctionOrderService {
     @Transactional
     public void create(AuctionWon won) {
         groups.lockKey("auction-reference:" + won.auctionId());
-        if (orders.findByReferenceId(won.auctionId()).stream().anyMatch(order -> order.getOrderType() == OrderType.AUCTION)) return;
+        if (orders.findByReferenceId(won.auctionId()).stream().anyMatch(order ->
+                order.getOrderType() == OrderType.AUCTION && java.util.Objects.equals(order.getOfferId(), won.offerId()))) return;
+        String identity = won.offerId() == null ? won.auctionId().toString() : "offer:" + won.offerId();
         var now = OffsetDateTime.now(ZoneOffset.UTC);
         var amount = new BigDecimal(won.finalPrice());
         var group = new OrderGroup();
-        group.setBuyerId(won.winnerId()); group.setIdempotencyKey("auction:" + won.auctionId());
+        group.setBuyerId(won.winnerId()); group.setIdempotencyKey("auction:" + identity);
         group.setTotalAmount(amount); group.setCurrency(won.currency());
         group.setDueAt(won.paymentDueAt().atOffset(ZoneOffset.UTC));
         group.setCreatedAt(now); group.setUpdatedAt(now);
@@ -36,7 +38,8 @@ public class AuctionOrderService {
         var order = new Order();
         order.setOrderGroup(group); order.setUserId(won.winnerId()); order.setSellerId(won.sellerId());
         order.setOrderNumber("AUC-" + orders.nextOrderSequence());
-        order.setIdempotencyKey("auction-order:" + won.auctionId());
+        order.setIdempotencyKey("auction-order:" + identity);
+        order.setOfferId(won.offerId());
         order.setOrderType(OrderType.AUCTION); order.setReferenceId(won.auctionId());
         order.setSubtotal(amount); order.setTotalAmount(amount); order.setPaymentDueAt(group.getDueAt());
         order.setCreatedAt(now); order.setUpdatedAt(now);

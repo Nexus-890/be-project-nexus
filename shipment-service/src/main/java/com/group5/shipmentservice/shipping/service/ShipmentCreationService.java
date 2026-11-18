@@ -81,9 +81,10 @@ public class ShipmentCreationService {
                 return new CreationResult(existing.get().getId(), false);
             }
 
-            String carrier = selectedCarrier(snapshot);
-            String service = selectedService(snapshot, carrier);
-            Shipment shipment = persist(snapshot, snapshot.warehouseId(), carrier, service, snapshot.shippingInfo(),
+            String carrier = selectedCarrier();
+            String service = selectedService(snapshot.shippingInfo(), carrier);
+            Map<String, Object> info = prepareShippingInfo(snapshot.shippingInfo(), snapshot.warehouseId(), false);
+            Shipment shipment = persist(snapshot, snapshot.warehouseId(), carrier, service, info,
                     null, null, event.traceId());
             return new CreationResult(shipment.getId(), true);
         });
@@ -142,7 +143,7 @@ public class ShipmentCreationService {
                 warehouseId, carrier, serviceType, snapshot.shippingFee(), info, key);
         shipment.assignSeller(snapshot.sellerId());
         if (key != null) shipment.claimManualRequest(key, fingerprint);
-        shipment.trackingPending(now());
+        shipment.trackingPending("NONE".equals(carrier) ? null : now());
         shipment = shipments.saveAndFlush(shipment);
         history(shipment, "Shipment created");
         events.created(shipment, traceId);
@@ -159,9 +160,10 @@ public class ShipmentCreationService {
             if (due.isEmpty()) return;
             Shipment shipment = due.get();
             boolean retry = histories.existsByShipment_IdAndDescriptionAndSource(id, FAILED_TRACKING_ATTEMPT, "SYSTEM");
-            boolean failedAttempt = acquireTracking(shipment, retry);
+            TrackingAttempt attempt = acquireTracking(shipment, retry);
+            if (attempt.addressFallback()) history(shipment, "GHN address fallback: ward and province used after TO_ADDRESS_CONFLICT");
             if (shipment.getTrackingCode() != null) history(shipment, "Carrier tracking assigned");
-            else if (failedAttempt) history(shipment, FAILED_TRACKING_ATTEMPT);
+            else if (attempt.failed()) history(shipment, FAILED_TRACKING_ATTEMPT);
             // DB failures must roll this transaction back, not be hidden as carrier failures.
             shipments.flush();
         });
@@ -178,28 +180,37 @@ public class ShipmentCreationService {
         }
     }
 
-    private boolean acquireTracking(Shipment shipment, boolean retry) {
+    private TrackingAttempt acquireTracking(Shipment shipment, boolean retry) {
         AtomicBoolean attempted = new AtomicBoolean();
         try {
+            if (properties.effectiveBookingCarrier() == ShippingProperties.CarrierMode.NONE
+                    || "NONE".equals(shipment.getCarrier())) {
+                shipment.trackingPending(null);
+                return new TrackingAttempt(false, false);
+            }
+            shipment.completeBookingPreparation(selectedService(shipment.getShippingInfo(), shipment.getCarrier()),
+                    prepareShippingInfo(shipment.getShippingInfo(), shipment.getWarehouseId(), false));
             if (!preparedForBooking(shipment)) throw new DomainException(ShipmentErrorCode.CARRIER_CONFIGURATION_ERROR);
             var adapter = carriers.getAdapters().stream().filter(a -> a.code().equals(shipment.getCarrier())).findFirst()
                     .orElseThrow(() -> new DomainException(ShipmentErrorCode.CARRIER_CONFIGURATION_ERROR));
-            String code = executor.execute(shipment.getCarrier(), deadline -> {
+            var booking = executor.execute(shipment.getCarrier(), deadline -> {
                 if (retry) shipment.countTrackingRetry();
                 attempted.set(true);
-                return adapter.createShipment(new CarrierShipmentRequest(shipment.getId(), shipment.getOrderId(),
+                return adapter.bookShipment(new CarrierShipmentRequest(shipment.getId(), shipment.getOrderId(),
                         shipment.getWarehouseId(), shipment.getServiceType(), shipment.getShippingFee(), shipment.getShippingInfo()), deadline);
             });
+            String code = booking == null ? null : booking.trackingCode();
             if (code == null || code.isBlank() || code.length() > 80) throw new DomainException(ShipmentErrorCode.INVALID_CARRIER_RESPONSE);
             shipment.trackingAssigned(code);
-            return false;
+            shipment.recordEstimatedDelivery(booking.estimatedDeliveryAt());
+            return new TrackingAttempt(false, booking.addressFallback());
         } catch (RuntimeException error) {
             log.warn("Tracking pending: shipmentId={} carrier={} failure={}", shipment.getId(),
                     shipment.getCarrier(), error.getClass().getSimpleName());
             long multiplier = 1L << Math.min(shipment.getTrackingRetryCount(), 10);
             long delay = retryBackoffMs > 3600000L / multiplier ? 3600000L : retryBackoffMs * multiplier;
             shipment.trackingPending(now().plusNanos(delay * 1000000L));
-            return attempted.get();
+            return new TrackingAttempt(attempted.get(), false);
         }
     }
 
@@ -241,19 +252,28 @@ public class ShipmentCreationService {
         UUID warehouse = request.warehouseId() != null ? request.warehouseId()
                 : snapshot.warehouseId() != null ? snapshot.warehouseId() : properties.defaultWarehouseId();
         if (warehouse == null) throw new DomainException(ShipmentErrorCode.WAREHOUSE_NOT_FOUND);
-        String carrier = request.carrier() == null ? selectedCarrier(snapshot) : request.carrier();
-        if (carriers.getAdapters().stream().noneMatch(adapter -> adapter.code().equals(carrier))) {
+        String carrier = request.carrier() == null ? selectedCarrier() : request.carrier();
+        if (!"NONE".equals(carrier) && carriers.getAdapters().stream().noneMatch(adapter -> adapter.code().equals(carrier))) {
             throw new DomainException(ShipmentErrorCode.INVALID_PARAMETER);
         }
-        String service = request.serviceType() == null ? selectedService(snapshot, carrier) : request.serviceType();
+        String service = request.serviceType() == null ? selectedService(snapshot.shippingInfo(), carrier) : request.serviceType();
         if (service != null) {
             try { ShippingServiceType.valueOf(service); }
             catch (IllegalArgumentException error) { throw new DomainException(ShipmentErrorCode.NO_SERVICE); }
         }
-        Map<String, Object> info = new LinkedHashMap<>(snapshot.shippingInfo());
-        PickupAddress configured = properties.pickups().get(warehouse);
-        if (configured == null && warehouse.equals(properties.defaultWarehouseId())) configured = properties.defaultPickup();
         boolean differentWarehouse = !warehouse.equals(snapshot.warehouseId());
+        Map<String, Object> info = prepareShippingInfo(snapshot.shippingInfo(), warehouse, differentWarehouse);
+        return new Dispatch(warehouse, carrier, service, info);
+    }
+
+    private Map<String, Object> prepareShippingInfo(Map<String, Object> shippingInfo, UUID warehouse,
+                                                   boolean differentWarehouse) {
+        // Commerce's paid event can omit dispatch details. Only use a trusted pickup for this exact warehouse.
+        Map<String, Object> info = new LinkedHashMap<>(shippingInfo);
+        PickupAddress configured = properties.pickups().get(warehouse);
+        if (configured == null && warehouse != null && warehouse.equals(properties.defaultWarehouseId())) {
+            configured = properties.defaultPickup();
+        }
         if (differentWarehouse || info.get("pickupAddress") == null) {
             if (configured != null && configured.addressLine() != null && !configured.addressLine().isBlank()
                     && configured.provinceCode() != null && !configured.provinceCode().isBlank()
@@ -264,13 +284,7 @@ public class ShipmentCreationService {
                 throw new DomainException(ShipmentErrorCode.WAREHOUSE_NOT_FOUND);
             }
         }
-        if (service == null && "FAKE".equals(carrier)) {
-            JsonNode weight = mapper.valueToTree(info).path("parcel").path("weightGrams");
-            if (weight.isIntegralNumber() && weight.canConvertToInt() && weight.asInt() > 0) {
-                service = ShippingServiceType.forWeight(weight.asInt()).name();
-            }
-        }
-        return new Dispatch(warehouse, carrier, service, info);
+        return info;
     }
 
     private boolean preparedForBooking(Shipment shipment) {
@@ -312,21 +326,22 @@ public class ShipmentCreationService {
 
     private static void conflict() { throw new DomainException(ShipmentErrorCode.IDEMPOTENCY_CONFLICT); }
 
-    private String selectedCarrier(OrderPaidSnapshot snapshot) {
-        String carrier = (String) snapshot.shippingInfo().get("carrier");
-        return carrier != null ? carrier
-                : properties.carrier() == ShippingProperties.CarrierMode.NONE ? "GHN" : properties.carrier().name();
+    private String selectedCarrier() {
+        return properties.effectiveBookingCarrier().name();
     }
 
-    private String selectedService(OrderPaidSnapshot snapshot, String carrier) {
-        String service = (String) snapshot.shippingInfo().get("serviceType");
-        if (service == null && "FAKE".equals(carrier) && snapshot.isPrepared()) {
-            Map<?, ?> parcel = (Map<?, ?>) snapshot.shippingInfo().get("parcel");
-            return ShippingServiceType.forWeight(((Number)parcel.get("weightGrams")).intValue()).name();
+    private String selectedService(Map<String, Object> shippingInfo, String carrier) {
+        String service = (String) shippingInfo.get("serviceType");
+        if (service == null && ("FAKE".equals(carrier) || "GHN".equals(carrier))) {
+            JsonNode weight = mapper.valueToTree(shippingInfo).path("parcel").path("weightGrams");
+            if (weight.isIntegralNumber() && weight.canConvertToInt() && weight.asInt() > 0) {
+                return ShippingServiceType.forWeight(weight.asInt()).name();
+            }
         }
         return service;
     }
 
     public record CreationResult(UUID id, boolean created) { }
+    private record TrackingAttempt(boolean failed, boolean addressFallback) { }
     private record Dispatch(UUID warehouseId, String carrier, String serviceType, Map<String, Object> shippingInfo) { }
 }

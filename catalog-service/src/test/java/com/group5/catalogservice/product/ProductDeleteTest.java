@@ -32,7 +32,7 @@ class ProductDeleteTest {
     private Product product() {
         Product p = new Product();
         p.setSellerId(sellerId);
-        when(repository.findByIdAndDeletedAtIsNull(p.getId())).thenReturn(Optional.of(p));
+        when(repository.findForDeleteByIdAndDeletedAtIsNull(p.getId())).thenReturn(Optional.of(p));
         return p;
     }
 
@@ -84,7 +84,7 @@ class ProductDeleteTest {
     @Test
     void missingOrAlreadyDeletedReturns404() {
         UUID id = UUID.randomUUID();
-        when(repository.findByIdAndDeletedAtIsNull(id)).thenReturn(Optional.empty());
+        when(repository.findForDeleteByIdAndDeletedAtIsNull(id)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service(p -> false).deleteProduct(id, seller))
                 .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.getCode()).isEqualTo(404));
         verify(repository, never()).save(any());

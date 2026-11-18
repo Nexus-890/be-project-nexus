@@ -17,16 +17,35 @@ import jakarta.persistence.criteria.Root;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import javax.sql.DataSource;
 
 /** Apply search and ordering in PostgreSQL before slicing the result page. */
 public class ProductSearchRepositoryImpl implements ProductSearchRepository {
     @PersistenceContext private EntityManager entityManager;
+    private final NamedParameterJdbcTemplate jdbc;
+
+    public ProductSearchRepositoryImpl(DataSource dataSource) {
+        this.jdbc = new NamedParameterJdbcTemplate(dataSource);
+    }
+
+    @Override
+    public Page<ProductResponse> searchFullText(UUID categoryId, String keyword, String sort, Boolean auctionEnabled,
+                                                BigDecimal minPrice, BigDecimal maxPrice, Pageable pageable) {
+        var query = FullTextProductQuery.of(categoryId, keyword, sort, auctionEnabled, minPrice, maxPrice, pageable);
+        var content = jdbc.query(query.content(), query.parameters(), (row, number) -> new ProductResponse(
+                row.getObject("id", UUID.class), row.getString("name"), row.getString("slug"), ProductStatus.ACTIVE,
+                row.getObject("category_id", UUID.class), row.getObject("seller_id", UUID.class),
+                row.getBigDecimal("min_price"), row.getBigDecimal("max_price")));
+        long count = jdbc.queryForObject(query.count(), query.parameters(), Long.class);
+        return new PageImpl<>(content, pageable, count);
+    }
 
     @Override
     public Page<ProductResponse> searchVisibleProducts(UUID categoryId, String keyword, String sort,

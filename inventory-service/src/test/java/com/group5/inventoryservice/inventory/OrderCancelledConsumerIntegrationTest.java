@@ -37,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/jwks", "management.tracing.enabled=false"
 })
 class OrderCancelledConsumerIntegrationTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.common_test.PostgresTestDatabase("postgres:18");
     static { POSTGRES.start(); }
 
     private static final UUID SYSTEM_ACTOR = new UUID(0, 0);

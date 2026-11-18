@@ -12,6 +12,7 @@ import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.type.SqlTypes;
 
 import java.time.OffsetDateTime;
@@ -22,6 +23,7 @@ import java.util.UUID;
 @Getter
 @Setter
 @Entity
+@DynamicUpdate
 @Table(name = "products", indexes = {
         @Index(name = "idx_products_category",
                 columnList = "category_id, status"),

@@ -46,6 +46,9 @@ public class Order {
     @Column(name = "reference_id")
     private UUID referenceId;
 
+    @Column(name = "offer_id")
+    private UUID offerId;
+
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(name = "status", nullable = false, columnDefinition = "order_status")

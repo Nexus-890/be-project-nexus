@@ -5,6 +5,7 @@ import com.group5.catalogservice.category.dto.CategoryResponse;
 import com.group5.catalogservice.category.dto.CategoryUpdateRequest;
 import com.group5.catalogservice.category.dto.CategoryTreeResponse;
 import com.group5.common_core.model.ApiResponse;
+import com.group5.common_core.model.PageInfo;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -40,6 +41,19 @@ public class CategoryController {
 
         return ApiResponse.of(categoryService.update(id, request));
     }
+    @GetMapping
+    @PreAuthorize("permitAll()")
+    public ApiResponse<List<CategoryResponse>> getFlatList(
+            @RequestParam(defaultValue = "") String q,
+            @RequestParam(required = false) UUID parentId,
+            @RequestParam(required = false) Short level,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        var results = categoryService.getFlatList(q, parentId, level, page, size);
+        return ApiResponse.page(results.getContent(), new PageInfo(results.getNumber(), results.getSize(),
+                results.getTotalElements(), results.getTotalPages()));
+    }
+
     @GetMapping("/tree")
     @PreAuthorize("permitAll()")
     public ApiResponse<List<CategoryTreeResponse>> getCategoryTree() {

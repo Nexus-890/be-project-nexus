@@ -169,7 +169,7 @@ class AntiSnipingRefreshIntegrationTest {
         String port = context.getEnvironment().getRequiredProperty("local.server.port");
         HttpResponse<String> response = HTTP.send(HttpRequest.newBuilder(
                         URI.create("http://127.0.0.1:" + port + "/actuator/refresh"))
-                .timeout(Duration.ofSeconds(15)).header("Authorization", "Bearer test-buyer")
+                .timeout(Duration.ofSeconds(15)).header("Authorization", "Bearer test-admin")
                 .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{}"))
                 .build(), HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).as("actuator refresh: %s", response.body()).isEqualTo(200);
@@ -225,7 +225,8 @@ class AntiSnipingRefreshIntegrationTest {
             // Token verification is isolated; actuator authentication and refresh are the real HTTP stack.
             return token -> Jwt.withTokenValue(token).header("alg", "RS256").subject(BUYER.id().toString())
                     .issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(300))
-                    .claim("roles", List.of("ADMIN")).claim("privileges", List.of("SYSTEM.CONFIG.UPDATE")).build();
+                    .claim("roles", List.of("test-admin".equals(token) ? "ADMIN" : "BUYER"))
+                    .claim("privileges", List.of("test-admin".equals(token) ? "SYSTEM.CONFIG.UPDATE" : "AUCTION.BID")).build();
         }
     }
 }

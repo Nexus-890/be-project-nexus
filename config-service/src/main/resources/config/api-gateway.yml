@@ -64,6 +64,10 @@ nexus:
       - method: GET
         path: /api/v1/products
       - method: GET
+        path: /api/v1/products/search
+      - method: GET
+        path: /api/v1/categories
+      - method: GET
         path: /api/v1/products/{id}
       - method: GET
         path: /api/v1/categories/{id}
@@ -81,6 +85,8 @@ nexus:
         path: /api/v1/auth/refresh
       - method: POST
         path: /api/v1/auth/logout
+      - method: POST
+        path: /api/v1/auth/verification-email
       - method: POST
         path: /api/v1/webhooks/sepay
       - method: POST
@@ -118,6 +124,27 @@ nexus:
         privilege: USER.LIST
       - method: PUT
         path: /api/v1/users/me
+        privilege: PROFILE.UPDATE
+      - method: POST
+        path: /api/v1/users/me/phone/verification
+        privilege: PROFILE.UPDATE
+      - method: POST
+        path: /api/v1/users/me/phone/verification/confirm
+        privilege: PROFILE.UPDATE
+      - method: GET
+        path: /api/v1/users/me/addresses
+        privilege: PROFILE.VIEW
+      - method: POST
+        path: /api/v1/users/me/addresses
+        privilege: PROFILE.UPDATE
+      - method: PUT
+        path: /api/v1/users/me/addresses/{id}
+        privilege: PROFILE.UPDATE
+      - method: DELETE
+        path: /api/v1/users/me/addresses/{id}
+        privilege: PROFILE.UPDATE
+      - method: POST
+        path: /api/v1/users/me/addresses/{id}/default
         privilege: PROFILE.UPDATE
       - method: POST
         path: /api/v1/users
@@ -345,6 +372,21 @@ nexus:
       - method: GET
         path: /api/v1/auctions/{id}/bids/{bidId}
         privilege: AUCTION.BID
+      - method: GET
+        path: /api/v1/auctions/{id}/second-chance-offers
+        privilege: AUCTION.LIST
+      - method: POST
+        path: /api/v1/auctions/{id}/second-chance-offers
+        privilege: AUCTION.UPDATE
+      - method: GET
+        path: /api/v1/auctions/offers/me
+        privilege: AUCTION.VIEW_BID_HISTORY
+      - method: POST
+        path: /api/v1/auctions/offers/{offerId}/accept
+        privilege: AUCTION.BID
+      - method: POST
+        path: /api/v1/auctions/offers/{offerId}/decline
+        privilege: AUCTION.BID
       - method: POST
         path: /api/v1/auctions/{id}/schedule
         privilege: AUCTION.UPDATE
@@ -390,6 +432,21 @@ nexus:
       - method: PUT
         path: /api/v1/sellers/me
         roles: [SELLER]
+      - method: POST
+        path: /api/v1/sellers/applications
+        roles: [BUYER]
+      - method: GET
+        path: /api/v1/sellers/applications/me
+        roles: [BUYER, SELLER]
+      - method: GET
+        path: /api/v1/sellers/applications
+        roles: [ADMIN]
+      - method: POST
+        path: /api/v1/sellers/applications/{userId}/approve
+        roles: [ADMIN]
+      - method: POST
+        path: /api/v1/sellers/applications/{userId}/reject
+        roles: [ADMIN]
       - method: POST
         path: /api/v1/payments/seller-bank-accounts
         roles: [SELLER]
@@ -477,6 +534,6 @@ nexus:
   gateway:
     rate-limit:
       # Có thể đổi cả hai quota qua Config Server và /actuator/refresh.
-      requests-per-minute: 100
+      requests-per-minute: 1000
       # Dùng chung cho GET auction state và bid history, tính riêng theo IP.
       auction-read-requests-per-minute: 600

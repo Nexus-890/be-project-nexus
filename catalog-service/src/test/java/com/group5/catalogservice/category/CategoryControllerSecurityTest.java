@@ -220,7 +220,7 @@ class CategoryControllerSecurityTest {
     }
 
     private static CategoryResponse category(String name, String slug) {
-        return new CategoryResponse(CATEGORY_ID, null, name, slug, (short) 1, "/" + slug + "/");
+        return new CategoryResponse(CATEGORY_ID, null, name, slug, (short) 1, "/" + slug + "/", null);
     }
 
     @Configuration(proxyBeanMethods = false)

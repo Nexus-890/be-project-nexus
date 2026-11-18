@@ -20,7 +20,11 @@ public interface ReservationRepository extends JpaRepository<InventoryReservatio
     boolean existsByAuctionId(UUID auctionId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM InventoryReservation r WHERE r.auctionId=:auctionId AND r.offerId IS NULL")
     Optional<InventoryReservation> findForUpdateByAuctionId(UUID auctionId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<InventoryReservation> findForUpdateByOfferId(UUID offerId);
 
     List<InventoryReservation> findByOrderIdAndAuctionWinnerIdOrderById(UUID orderId, UUID buyerId);
 

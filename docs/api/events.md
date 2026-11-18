@@ -10,6 +10,23 @@ fact for automatic payouts. `PayoutSucceeded` and `PayoutFailed` describe the
 outbound result independently of buyer PAID state. Sandbox events explicitly
 carry `simulated: true`; they do not prove a bank transfer.
 
+## Seller application events (#264, 17 November 2026)
+
+user-service writes both events to `nexus.user.events` through its outbox, with
+aggregate type `User` and the applicant's user ID as aggregate ID and Kafka key.
+notification-service sends the applicant an in-app and email notification and
+records the event log.
+
+| Event | Payload |
+| --- | --- |
+| `SellerApplicationApproved` | `userId`, `actorId` (reviewing Admin), `companyName`, `approvedAt` |
+| `SellerApplicationRejected` | `userId`, `actorId` (reviewing Admin), `companyName`, `reason`, `rejectedAt` |
+
+Approval also writes `UserRoleAssigned` with the previous and resulting role
+sets when SELLER is added in Keycloak. Both events commit with the application
+status change; if Keycloak fails, the role change is undone and neither event is
+written.
+
 ## Sprint 3 handoff (#139)
 
 The six contracts below are the #139 handoff for [#171](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/171), [#172](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/172) and their downstream owners. This section was checked against SRS 3.5.3 and the current issue requirements on 2026-11-10. It retains the existing schemas; contract review is separate from implementing or running the flow.
@@ -282,6 +299,9 @@ The contract cell contains only `R2` for out-of-scope names. Each R1 link resolv
 | 36 | `AuctionWon` | [R1 — payload](#auctionwon) |
 | 37 | `AuctionFailed` | [R1 — payload](#auctionfailed) |
 | 38 | `AuctionPaymentTimeout` | [R1 — payload](#auctionpaymenttimeout) |
+| 38a | `SecondChanceOffered` | [R1 — payload](#secondchanceoffered) |
+| 38b | `SecondChanceDeclined` | [R1 — payload](#secondchancedeclined) |
+| 38c | `SecondChanceExpired` | [R1 — payload](#secondchanceexpired) |
 | 39 | `AuctionSettled` | [R1 — payload](#auctionsettled) |
 | 40 | `InventoryChecked` | R2 |
 | 41 | `InventoryReserved` | [R1 — payload](#inventoryreserved) |
@@ -359,6 +379,8 @@ Issue numbers identify implementation ownership, not completed runtime behavior.
 | `UserUpdated` | `nexus.user.events` | [#211](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/211) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit |
 | `UserDeleted` | `nexus.user.events` | [#211](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/211) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit |
 | `UserRoleAssigned` | `nexus.user.events` | [#211](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/211) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log and audit |
+| `SellerApplicationApproved` | `nexus.user.events` | #264 | notification-service #264: notify the applicant; #192 event log |
+| `SellerApplicationRejected` | `nexus.user.events` | #264 | notification-service #264: notify the applicant with the reason; #192 event log |
 | `CategoryCreated` | `nexus.catalog.events` | [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): skip/no template; no notification recipient; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `CategoryUpdated` | `nexus.catalog.events` | [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): skip/no template; no notification recipient; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `CategoryDeleted` | `nexus.catalog.events` | [#106](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/106) | notification-service [#107](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/107): skip/no template; no notification recipient; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
@@ -373,7 +395,7 @@ Issue numbers identify implementation ownership, not completed runtime behavior.
 | `AuctionCreated` | `nexus.auction.events` | [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209) | inventory-service [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209): hold one unit for the auction; catalog-service [#216](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/216): set product in_auction; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `AuctionStarted` | `nexus.auction.events` | [#145](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/145) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `BidPlaced` | `nexus.auction.events` | [#146](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/146) | notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
-| `AuctionCancelled` | `nexus.auction.events` | [#197](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/197) | inventory-service [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209): release the auction hold; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
+| `AuctionCancelled` | `nexus.auction.events` | [#197](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/197) | inventory-service [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209): release the auction hold; catalog-service #215: remove the auction from the product's open-auction flag; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `AuctionEnded` | `nexus.auction.events` | [#145](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/145) | catalog-service [#216](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/216): clear product in_auction; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `AuctionWon` | `nexus.auction.events` | [#171](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/171) | commerce-service [#172](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/172): create the AUCTION order and singleton group; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
 | `AuctionFailed` | `nexus.auction.events` | [#171](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/171) | inventory-service [#209](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/209): release the auction hold; notification-service [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log |
@@ -417,7 +439,7 @@ Issue numbers identify implementation ownership, not completed runtime behavior.
 2. **Delivery/completion:** #202 consumes per-order OrderPaid with the trusted buyer/warehouse/shipping snapshot. #203 publishes normalized Shipment* changes. #204 applies ShipmentPickedUp -> SHIPPED and ShipmentDelivered -> DELIVERED; #258 receipt confirmation or its deadline job later emits OrderCompleted. Post-pickup progress (IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERY_FAILED, RETURNING, RETURNED) also confirms PAID -> SHIPPED if pickup was missed. Delivery received while PAID atomically records PAID -> SHIPPED -> DELIVERED; missing orders or PENDING payment remain durably pending. No new order enum is introduced. #242/#212 populate eligibility; #213 applies the unique canonical outcome and later UserRated inputs.
 3. **Unpaid cancellation:** #189/#159 cancel the complete group and its still-PENDING children atomically in commerce, publishing OrderGroupCancelled and OrderCancelled per child. Payment closes the immutable unpaid session/instructions. A raced successful receipt remains successful financial evidence; a late confirmation cannot resurrect cancelled orders, and #247 compensates each funded cancelled child's own share.
 4. **Paid child cancellation/refund:** R1 allows a PAID seller order to be cancelled until ShipmentPickedUp, with no handover request or request/ACK protocol. #189 publishes the final OrderCancelled; #203 consumes it idempotently. Before pickup, cancel any existing carrier booking through CarrierAdapter, then commit CANCELLED, one history row, one ShipmentCancelled outbox event and the processed marker. After pickup, change nothing and log one WARN for Support for the handled event. A missing shipment completes without error after recording a durable cancellation tombstone, so a later OrderPaid cannot create or book a cancelled order; manual creation then returns 409 SHIPMENT_ORDER_NOT_PAID. Validate the nonblank OrderCancelled reason, at most 500 characters, before any carrier cancellation. Preserve the valid reason in the tombstone and sanitize/truncate to 255 characters for tracking/outbox audit. Carrier cancellation failure remains retryable and must not be marked processed. OrderRefundRequested/Completed identify one child/instruction/refund; never refund the entire multi-seller receipt for each child.
-5. **Auction stock and settlement:** #209 AuctionCreated -> inventory hold/InventoryReserved. If the last unit is taken after the create precheck, Inventory writes AuctionStockRejected and Auction cancels the open auction with STOCK_UNAVAILABLE. AuctionFailed/AuctionCancelled -> release any existing hold/InventoryReleased; AuctionSettled -> link orderId without a stock movement; OrderPaid (#160) -> commit/InventoryCommitted; OrderCancelled (#161) -> release or return stock. #171 AuctionWon -> #172 singleton group/AUCTION order -> OrderCreated -> #173 AuctionSettled. The hold remains HELD until the order payment or cancellation outcome. #208 consumes only AUCTION OrderCancelled with PAYMENT_DEADLINE_EXPIRED and emits AuctionPaymentTimeout for #213's winner-only penalty.
+5. **Auction stock and settlement:** #209 AuctionCreated -> inventory hold/InventoryReserved. If the last unit is taken after the create precheck, Inventory writes AuctionStockRejected and Auction cancels the open auction with STOCK_UNAVAILABLE. AuctionFailed/AuctionCancelled -> release any existing hold/InventoryReleased; AuctionSettled -> link orderId without a stock movement; OrderPaid (#160) -> commit/InventoryCommitted; OrderCancelled (#161) -> release or return stock. #171 AuctionWon -> #172 singleton group/AUCTION order -> OrderCreated -> #173 AuctionSettled. The hold remains HELD until the order payment or cancellation outcome. #208 consumes only AUCTION OrderCancelled with PAYMENT_DEADLINE_EXPIRED and emits AuctionPaymentTimeout for #213's winner-only penalty. Seller POST then writes SecondChanceOffered; Inventory holds a new reservation identified by offerId and publishes SecondChanceStockReady (or SecondChanceStockRejected). Auction records readiness and publishes SecondChanceOfferReady for bidder email. Accept is blocked until ready; it emits AuctionWon with offerId and SecondChanceAccepted. Commerce creates one new order per offer, OrderCreated echoes offerId, and AuctionSettled echoes it to link that reservation. FE waits for a non-null orderId before address/payment. Declined/Expired release only that offer; no penalty. The next accepted winner can time out and start another cycle; Rating outcomes and penalty dedupe use the order identity. Original AuctionWon without offerId remains compatible. Cross-topic cancellation before order linking is persisted and applied when the matching projection arrives; pending stock waits durably for the old hold to release.
 6. **Logging/audit:** #192 independently consumes all eight domain topics and records the seven local notification/health types. #217's config audit delivery is a proposed durable internal handoff with no Kafka topic. Local logging does not subscribe to itself or create recursive notification events.
 
 The existing AuctionWon -> order snapshot mapping remains: winnerId -> buyer, sellerId -> seller, productId/skuId/title/imageUrl/quantity/finalPrice -> immutable order item, referenceId=auctionId, and paymentDueAt is preserved. #172 also creates the singleton group/manifest required by the new payment model. The shared AuctionWon payload validates the copied image and the fixed quantity of one before publication.
@@ -1582,6 +1604,25 @@ and dispatches [automatic seller payouts](../payment-payout-eligibility.md) afte
 verified funding and bank checks. #261 adds administrator lists only. Receipt/email and payout acceptance are covered by
 the [cross-service completion suite](../../infra/receipt-completion-acceptance/README.md).
 
+The first committed delivery records `orders.delivered_at` and a persisted
+`auto_complete_at` using `nexus.order.auto-complete-days` (default **3 days**).
+Repeated delivery facts do not extend that window. The buyer may complete an
+owned DELIVERED order through `POST /api/v1/orders/{id}/confirm-receipt`, with
+history reason `Buyer confirmed receipt`. A repeated confirmation returns
+409 `COMMERCE_ORDER_NOT_DELIVERED`. The deadline job checks every **10 minutes**
+by default, selects a bounded batch, and completes each due order in its own
+transaction with reason `Completed automatically after delivery`. ShedLock
+coordinates job instances; both paths lock and recheck the order before the
+state transition, so a concurrent buyer confirmation and job run commit only
+one completion history row and one outbox event. An open receipt issue pauses
+both paths. Existing persisted deadlines remain unchanged when configuration
+changes, and existing COMPLETED orders remain completed.
+
+Both paths build the payload in the same completion service, including
+`orderAmount` and `shippingFee` from the paid order snapshot. Delivery alone
+does not send the receipt, enable ratings, or start the seller payout; those
+consumers wait for this completion event.
+
 - Topic: `nexus.commerce.events`.
 - Publisher: #258 shared confirmation/deadline completion service, extended by #257 with money; originally [#204](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/204).
 - Consumer: payment-service #257 (automatic payout); rating-service [#242](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/242), [#212](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/212): persist rating_eligibility without calling commerce; rating-service [#213](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/213): update score and transaction counts; notification-service [#191](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/191): deliver the HTML receipt; [#192](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/192): event log.
@@ -1739,8 +1780,10 @@ Shipment facts whose order, payment or pickup prerequisite has not arrived are
 retained in commerce's `pending_order_shipment_events` inbox atomically with the
 consumer marker. The retry job can apply them after a restart without blocking
 the Kafka partition or requiring the carrier to publish again. Successful retry
-removes the inbox row together with the order history and completion outbox;
-failed effects leave the persisted fact available for another attempt.
+removes the inbox row together with the applied order history; failed effects
+leave the persisted fact available for another attempt. Delivery itself does
+not create an OrderCompleted outbox event. A later buyer/job completion
+transaction writes that event.
 
 The money fields are additive: legacy rating/receipt consumers may ignore them.
 New completion producers always supply both; older envelopes may omit both, but
@@ -2668,7 +2711,7 @@ evidence. Provider account details, ciphertext, keys and free-form errors are ab
 }
 ```
 
-#145 publishes after ACTIVE becomes ENDED. endAt includes anti-sniping extensions; endedAt must be at or after endAt. #170 selects ENDED auctions from the database, rather than subscribing to AuctionEnded. #216 now consumes this event and clears productId.in_auction; the old #103 publisher-only classification no longer describes the expanded scope.
+#145 publishes after ACTIVE becomes ENDED. endAt includes anti-sniping extensions; endedAt must be at or after endAt. #170 selects ENDED auctions from the database. Catalog marks the auction closed on AuctionEnded or AuctionCancelled and clears in_auction once no open auction remains for the product. The consumer commits the state and processed marker together. Closed markers also prevent a late AuctionCreated from reopening the flag.
 
 ### AuctionWon
 
@@ -2700,6 +2743,11 @@ evidence. Provider account details, ciphertext, keys and free-form errors are ab
   "title": "AuctionWonPayload",
   "type": "object",
   "properties": {
+    "offerId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Optional second-chance business identity. Absent on the first win; Commerce deduplicates subsequent orders by this ID. OrderCreated and AuctionSettled echo it."
+    },
     "auctionId": {
       "type": "string",
       "format": "uuid"
@@ -5409,7 +5457,7 @@ The payload uses the same history/version/source/actor fields as ShipmentPickedU
 | `historyId` | Immutable reputation_history row. |
 | `userId` | Winner receiving the late-payment penalty. |
 | `operationId` | Stable business operation identity retained across retries. |
-| `sourceId` | Auction causing the one late-payment penalty. |
+| `sourceId` | Timed-out order UUID after #208, so another winner/order in the same auction has its own outcome. Historical events before #208 used auction UUID. |
 | `sourceVersion` | Source auction revision when available. |
 | `changeType` | Penalty source classification. |
 | `policyVersion` | Version of the policy actually applied. |
@@ -6834,7 +6882,7 @@ The file is ready for contract review, with these remaining decisions explicitly
 | #217 / #192, both backend lanes | Confirm config write owner/route (ADR-009 leaves it open) and durable authenticated non-Kafka audit handoff. `none` cannot mean sending Kafka to a literal topic named none or using a nonexistent in-process shared DB. |
 | #202 / #203 / #241 | Approve trusted OrderPaid shippingInfo/warehouse and status mappings, preparation of missing parcel/pickup details, and ShipmentCreated's PENDING_TRACKING creation case. Historical messages need coordinated backfill/replay; never fake carrier measurements/locality codes. |
 | #189 / #203 / #250 | Apply the R1 rule in integration flow 4: a PAID child can be cancelled until ShipmentPickedUp without a handover request/ACK. Keep this distinct from whole-group prepayment cancellation; already-picked-up shipments remain unchanged with a Support WARN. |
-| #209 / #197 / #216 | The create precheck returns 409 for zero stock. AuctionStockRejected handles stock lost before the hold. Product-flag reconciliation remains with #216. |
+| #209 / #197 / #216 | The create precheck returns 409 for zero stock. AuctionStockRejected handles stock lost before the hold. Catalog reconciles the product flag on auction creation, end and cancellation by auction ID. |
 | #141 / #171 / #172 | Review the #139 order-line mapping and proposed image/quantity policy; implement the singleton group without another stock reservation. Defer the payment manifest until shipping confirmation. Record both sides' actual !150 approvals. |
 
 The #186 table's consumers are all named here, including explicit filtering where #204 consumes a topic but only two shipment types move order state. New logging subscriptions in #192 replace the old six publisher-only classifications; they do not invent unrelated business handlers.
@@ -6892,6 +6940,41 @@ The command references the authoritative bid row; the consumer never trusts a cl
 Eligibility and anti-sniping use database `requested_at`, not consumer wall time. Scheduler ending and winner settlement wait for eligible QUEUED requests and coordinate with in-flight POST transactions through admission locks. A rejected request never becomes the winner or a public accepted-history entry. Existing BidPlaced payloads remain unchanged, including decimal-string amount and requestedAt-derived placedAt.
 
 For state delivery, each instance subscribes to `nexus.auction.events` under a distinct `auction-stream-<instance-id>` group with latest offsets. AuctionStarted, BidPlaced, AuctionEnded, AuctionWon, AuctionFailed, AuctionCancelled, AuctionSettled and AuctionPaymentTimeout trigger a 200 ms coalesced read after invalidating the one-second state cache. No processed_events marker is used for this broadcast: every instance must see the same event. The SSE event is named `state`, id is the auction version from the same cached snapshot, and data is exactly the GET/state data without ApiResponse. Heartbeats have no id. Reconnection always receives current state; historical event replay is unnecessary.
+
+### SecondChanceOffered
+
+Topic `nexus.auction.events`; aggregateId and Kafka key `auctionId`. Auction publishes only after the owner seller POSTs, in the offer transaction. Inventory reserves one unit identified by `offerId`, never by reusing the first order's reservation. Notification waits for `SecondChanceOfferReady`, so a pending/failed hold does not invite the bidder to buy unavailable stock.
+
+```json
+{"$schema":"http://json-schema.org/draft-07/schema#","title":"SecondChanceOfferedPayload","type":"object","required":["offerId","auctionId","sellerId","bidderId","skuId","amount","currency","expiresAt"],"properties":{"offerId":{"type":"string","format":"uuid"},"auctionId":{"type":"string","format":"uuid"},"sellerId":{"type":"string","format":"uuid"},"bidderId":{"type":"string","format":"uuid"},"skuId":{"type":"string","format":"uuid"},"amount":{"type":"string","pattern":"^[0-9]+\\.[0-9]{2}$"},"currency":{"const":"VND"},"expiresAt":{"type":"string","format":"date-time"}},"additionalProperties":true}
+```
+
+Example: `{"offerId":"00000000-0000-4000-8000-000000000005","auctionId":"00000000-0000-4000-8000-000000000003","sellerId":"00000000-0000-4000-8000-000000000004","bidderId":"00000000-0000-4000-8000-000000000002","skuId":"00000000-0000-4000-8000-000000000006","amount":"4800000.00","currency":"VND","expiresAt":"2026-11-21T10:00:00Z"}`.
+
+### SecondChanceDeclined
+
+Topic `nexus.auction.events`; aggregateId/key `auctionId`. Auction writes this fact with the one successful OFFERED -> DECLINED update. Inventory releases only the reservation for this offer; Notification emails seller once. No reputation penalty. A tombstone prevents a delayed Offered from taking stock after the decline.
+
+```json
+{"$schema":"http://json-schema.org/draft-07/schema#","title":"SecondChanceDeclinedPayload","type":"object","required":["offerId","auctionId","sellerId","bidderId"],"properties":{"offerId":{"type":"string","format":"uuid"},"auctionId":{"type":"string","format":"uuid"},"sellerId":{"type":"string","format":"uuid"},"bidderId":{"type":"string","format":"uuid"}},"additionalProperties":true}
+```
+
+### SecondChanceExpired
+
+Topic `nexus.auction.events`; aggregateId/key `auctionId`. Same four identity fields as Declined. The ShedLock expiry job writes this with OFFERED -> EXPIRED; stock rejection also terminates the offer with optional `reason=STOCK_UNAVAILABLE`. Inventory releases only this offer and Notification emails seller. No bidder penalty.
+
+```json
+{"$schema":"http://json-schema.org/draft-07/schema#","title":"SecondChanceExpiredPayload","type":"object","required":["offerId","auctionId","sellerId","bidderId"],"properties":{"offerId":{"type":"string","format":"uuid"},"auctionId":{"type":"string","format":"uuid"},"sellerId":{"type":"string","format":"uuid"},"bidderId":{"type":"string","format":"uuid"},"reason":{"type":"string"}},"additionalProperties":true}
+```
+
+### Second chance readiness and acceptance facts
+
+- Inventory publishes `SecondChanceStockReady(auctionId,offerId,reservationId)` or `SecondChanceStockRejected(auctionId,offerId,reason)` to `nexus.inventory.events`, aggregateId/key auctionId, in the stock/outcome transaction. An offer awaiting release of the previous order is persisted in `inventory_pending_offer_holds` and retried by ShedLock; it is not silently discarded after broker retries.
+- Auction consumes the readiness once, sets stockReady, and writes `SecondChanceOfferReady(offerId,auctionId,sellerId,bidderId,amount,currency,expiresAt)` to `nexus.auction.events`. Notification uses this bidder invitation rather than the earlier stock request. Duplicate stock acknowledgements do not create another invitation; the notification consumer also deduplicates by offerId/eventType.
+- Accept writes `SecondChanceAccepted(offerId,auctionId,sellerId,bidderId)` on the auction topic for seller email, together with AuctionWon. The latter adds optional offerId. Commerce's OrderCreated and Auction's AuctionSettled echo that optional identity, absent on the original winner. Money stays a decimal string in events, but offer HTTP DTOs use JSON numbers.
+- `AuctionPaymentTimeout` keeps its existing payload. Each distinct orderId within the auction may time out once; Rating's timeout sourceId is now that orderId. The V5 migration moves existing timeout sources/effects/history to their stored order ID without changing scores/history amounts, so old events remain deduplicated. `reputation_outcomes.auction_id` is indexed and no longer unique.
+
+See [the #208 runtime/test walkthrough](../testing/second-chance-offers.md). These facts use the same local transaction/outbox/processed-marker rules as the original settlement flow. They do not provide a transaction spanning service databases.
 
 ### Administrative identity events added by #211
 

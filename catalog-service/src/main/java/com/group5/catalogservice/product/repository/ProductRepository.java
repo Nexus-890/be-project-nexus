@@ -2,10 +2,12 @@ package com.group5.catalogservice.product.repository;
 import com.group5.catalogservice.product.dto.response.ProductResponse;
 import com.group5.catalogservice.product.entity.Product;
 import com.group5.catalogservice.product.entity.ProductImage;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -24,6 +26,9 @@ public interface ProductRepository extends JpaRepository<Product, UUID>, Product
     List<ProductImage> findImagesForProducts(@Param("productIds") Collection<UUID> productIds);
 
     Optional<Product> findByIdAndDeletedAtIsNull(UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<Product> findForDeleteByIdAndDeletedAtIsNull(UUID id);
 
     /**
      * Product Detail.
@@ -141,6 +146,7 @@ public interface ProductRepository extends JpaRepository<Product, UUID>, Product
                     left join p.skuses s
                     where p.sellerId = :sellerId
                       and p.deletedAt is null
+                      and (:auctionEnable is null or p.auctionEnable = :auctionEnable)
                     group by
                         p.id,
                         p.name,
@@ -148,16 +154,19 @@ public interface ProductRepository extends JpaRepository<Product, UUID>, Product
                         p.status,
                         p.category.id,
                         p.sellerId
+                    order by p.createdAt desc, p.id
                     """,
             countQuery = """
                     select count(p)
                     from Product p
                     where p.sellerId = :sellerId
                       and p.deletedAt is null
+                      and (:auctionEnable is null or p.auctionEnable = :auctionEnable)
                     """
     )
     Page<ProductResponse> findProductResponsesBySeller(
             @Param("sellerId") UUID sellerId,
+            @Param("auctionEnable") Boolean auctionEnable,
             Pageable pageable
     );
 
@@ -178,6 +187,7 @@ public interface ProductRepository extends JpaRepository<Product, UUID>, Product
                     where p.sellerId = :sellerId
                       and p.status = :status
                       and p.deletedAt is null
+                      and (:auctionEnable is null or p.auctionEnable = :auctionEnable)
                     group by
                         p.id,
                         p.name,
@@ -185,6 +195,7 @@ public interface ProductRepository extends JpaRepository<Product, UUID>, Product
                         p.status,
                         p.category.id,
                         p.sellerId
+                    order by p.createdAt desc, p.id
                     """,
             countQuery = """
                     select count(p)
@@ -192,11 +203,13 @@ public interface ProductRepository extends JpaRepository<Product, UUID>, Product
                     where p.sellerId = :sellerId
                       and p.status = :status
                       and p.deletedAt is null
+                      and (:auctionEnable is null or p.auctionEnable = :auctionEnable)
                     """
     )
     Page<ProductResponse> findProductResponsesBySellerAndStatus(
             @Param("sellerId") UUID sellerId,
             @Param("status") ProductStatus status,
+            @Param("auctionEnable") Boolean auctionEnable,
             Pageable pageable
     );
 }

@@ -10,6 +10,923 @@ tags:
 security:
   - bearerAuth: []
 paths:
+  /api/v1/auctions/{id}/second-chance-offers:
+    get:
+      tags:
+        - Auctions
+      operationId: getSellerSecondChanceOffers
+      summary: Preview next eligible bidder and read offer history
+      description: Read only. Never sends an offer/email. Candidate exists only in PAYMENT_TIMEOUT without an OFFERED row. History can contain earlier ACCEPTED offers whose orders later timed out. If Rating eligibility is unavailable, return history with eligibilityUnavailable=true, canOffer=false and candidate=null; this is not an exhausted bidder list. Other responses set eligibilityUnavailable=false. Sending still fails with 503 during Rating outage.
+      x-required-roles:
+        - SELLER
+      x-required-privileges:
+        - AUCTION.LIST
+      x-ownership: JWT subject must own the auction.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Current offer state; accepted order creation can still be pending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecondChanceSellerResponse"
+        "400":
+          description: Invalid UUID or page query
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "401":
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "403":
+          description: OFFER_NOT_YOURS or AUCTION_FORBIDDEN; missing role/privilege
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "404":
+          description: OFFER_NOT_FOUND or AUCTION_NOT_FOUND
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "409":
+          description: OFFER_AUCTION_NOT_TIMED_OUT, OFFER_ALREADY_OPEN, OFFER_NO_ELIGIBLE_BIDDER, OFFER_EXPIRED, OFFER_ALREADY_RESPONDED or OFFER_STOCK_PENDING
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "503":
+          description: AUCTION_REPUTATION_UNAVAILABLE or dependency unavailable
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+    post:
+      tags:
+        - Auctions
+      operationId: sendSecondChanceOffer
+      summary: Offer the item to the next eligible bidder
+      description: No body. Select highest valid own bid per bidder and check Rating eligibility before acquiring an auction row lock or write transaction. Then lock and recheck auction state, open offer and candidate ranking/exclusions. A changed snapshot returns OFFER_CANDIDATE_CHANGED (409); refresh and retry. Skip timed-out winners/previously offered/ineligible bidders; stable earliest-bid tie break. One OFFERED per auction. Inventory asynchronously holds one unit; only then bidder email is sent. No eligible bidder returns 409; Rating outage returns 503.
+      x-required-roles:
+        - SELLER
+      x-required-privileges:
+        - AUCTION.UPDATE
+      x-ownership: JWT subject must own the auction.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Current offer state; accepted order creation can still be pending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecondChanceSellerResponse"
+        "400":
+          description: Invalid UUID or page query
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "401":
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "403":
+          description: OFFER_NOT_YOURS or AUCTION_FORBIDDEN; missing role/privilege
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "404":
+          description: OFFER_NOT_FOUND or AUCTION_NOT_FOUND
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "409":
+          description: OFFER_AUCTION_NOT_TIMED_OUT, OFFER_ALREADY_OPEN, OFFER_NO_ELIGIBLE_BIDDER, OFFER_CANDIDATE_CHANGED, OFFER_EXPIRED, OFFER_ALREADY_RESPONDED or OFFER_STOCK_PENDING
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "503":
+          description: AUCTION_REPUTATION_UNAVAILABLE or dependency unavailable
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+  /api/v1/auctions/offers/me:
+    get:
+      tags:
+        - Auctions
+      operationId: getMySecondChanceOffers
+      summary: Read the buyer’s current and past offers
+      description: JWT-scoped array with sibling page metadata. Sort offeredAt descending then id descending. Includes pending order projections.
+      x-required-roles:
+        - BUYER
+      x-required-privileges:
+        - AUCTION.VIEW_BID_HISTORY
+      x-ownership: JWT subject must be the offered buyer.
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        "200":
+          description: Current offer state; accepted order creation can still be pending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecondChanceListResponse"
+        "400":
+          description: Invalid UUID or page query
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "401":
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "403":
+          description: OFFER_NOT_YOURS or AUCTION_FORBIDDEN; missing role/privilege
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "404":
+          description: OFFER_NOT_FOUND or AUCTION_NOT_FOUND
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "409":
+          description: OFFER_AUCTION_NOT_TIMED_OUT, OFFER_ALREADY_OPEN, OFFER_NO_ELIGIBLE_BIDDER, OFFER_EXPIRED, OFFER_ALREADY_RESPONDED or OFFER_STOCK_PENDING
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "503":
+          description: AUCTION_REPUTATION_UNAVAILABLE or dependency unavailable
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+  /api/v1/auctions/offers/{offerId}/accept:
+    post:
+      tags:
+        - Auctions
+      operationId: acceptSecondChanceOffer
+      summary: Accept an unexpired offer and create an auction order asynchronously
+      description: No body. Requires OFFERED, before expiresAt and stockReady. Commits ACCEPTED/WON/AuctionWon together. Fresh paymentDueAt starts now; orderId remains null until OrderCreated returns. Refresh offers to get the real order ID, then confirm address and pay. A repeated accept returns 409.
+      x-required-roles:
+        - BUYER
+      x-required-privileges:
+        - AUCTION.BID
+      x-ownership: JWT subject must be the offered buyer.
+      parameters:
+        - name: offerId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Current offer state; accepted order creation can still be pending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecondChanceOfferResponse"
+        "400":
+          description: Invalid UUID or page query
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "401":
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "403":
+          description: OFFER_NOT_YOURS or AUCTION_FORBIDDEN; missing role/privilege
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "404":
+          description: OFFER_NOT_FOUND or AUCTION_NOT_FOUND
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "409":
+          description: OFFER_AUCTION_NOT_TIMED_OUT, OFFER_ALREADY_OPEN, OFFER_NO_ELIGIBLE_BIDDER, OFFER_EXPIRED, OFFER_ALREADY_RESPONDED or OFFER_STOCK_PENDING
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "503":
+          description: AUCTION_REPUTATION_UNAVAILABLE or dependency unavailable
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+  /api/v1/auctions/offers/{offerId}/decline:
+    post:
+      tags:
+        - Auctions
+      operationId: declineSecondChanceOffer
+      summary: Decline an unexpired offer without penalty
+      description: No body. Serializes with accept and expiry. Releases this offer’s hold through the outbox and emails seller; never penalizes bidder. Repeated or late response returns 409.
+      x-required-roles:
+        - BUYER
+      x-required-privileges:
+        - AUCTION.BID
+      x-ownership: JWT subject must be the offered buyer.
+      parameters:
+        - name: offerId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Current offer state; accepted order creation can still be pending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecondChanceOfferResponse"
+        "400":
+          description: Invalid UUID or page query
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "401":
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "403":
+          description: OFFER_NOT_YOURS or AUCTION_FORBIDDEN; missing role/privilege
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "404":
+          description: OFFER_NOT_FOUND or AUCTION_NOT_FOUND
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "409":
+          description: OFFER_AUCTION_NOT_TIMED_OUT, OFFER_ALREADY_OPEN, OFFER_NO_ELIGIBLE_BIDDER, OFFER_EXPIRED, OFFER_ALREADY_RESPONDED or OFFER_STOCK_PENDING
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+        "503":
+          description: AUCTION_REPUTATION_UNAVAILABLE or dependency unavailable
+          content:
+            application/problem+json:
+              schema:
+                type: object
+                required:
+                  - type
+                  - title
+                  - status
+                  - detail
+                  - instance
+                  - code
+                properties:
+                  type:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: integer
+                  detail:
+                    type: string
+                  instance:
+                    type: string
+                  code:
+                    type: string
+
   /api/v1/auctions/mine:
     get:
       tags: [Auctions]
@@ -1389,6 +2306,185 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    PageInfo:
+      type: object
+      required: [number, size, totalElements, totalPages]
+      properties:
+        number: {type: integer, minimum: 0}
+        size: {type: integer, minimum: 1}
+        totalElements: {type: integer, minimum: 0}
+        totalPages: {type: integer, minimum: 0}
+    SecondChanceCandidate:
+      type: object
+      required:
+        - bidderId
+        - displayName
+        - amount
+      properties:
+        bidderId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          description: Masked bidder name, never an email.
+        amount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          multipleOf: 0.01
+          description: Offered bidder’s highest valid bid; JSON number.
+    SecondChanceOffer:
+      type: object
+      required:
+        - id
+        - auctionId
+        - bidderId
+        - displayName
+        - amount
+        - status
+        - stockReady
+        - offeredAt
+        - expiresAt
+        - respondedAt
+        - orderId
+        - paymentDueAt
+        - title
+        - imageUrl
+        - currency
+      properties:
+        id:
+          type: string
+          format: uuid
+        auctionId:
+          type: string
+          format: uuid
+        bidderId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        amount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          multipleOf: 0.01
+          description: Offered bidder’s highest valid bid; JSON number.
+        status:
+          type: string
+          enum:
+            - OFFERED
+            - ACCEPTED
+            - DECLINED
+            - EXPIRED
+        stockReady:
+          type: boolean
+          description: Accept is allowed after Inventory confirms the hold; otherwise OFFER_STOCK_PENDING.
+        offeredAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        respondedAt:
+          type: string
+          format: date-time
+          nullable: true
+        orderId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Null until Commerce has created and projected the order. Read the offers again; never infer this ID.
+        paymentDueAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Accept time plus configured payment deadline hours. Present even while order creation is pending.
+        title:
+          type: string
+        imageUrl:
+          type: string
+          nullable: true
+        currency:
+          type: string
+          enum:
+            - VND
+    SecondChanceSellerState:
+      type: object
+      required:
+        - auctionId
+        - canOffer
+        - eligibilityUnavailable
+        - candidate
+        - offers
+      properties:
+        auctionId:
+          type: string
+          format: uuid
+        canOffer:
+          type: boolean
+        eligibilityUnavailable:
+          type: boolean
+          description: True only when the candidate eligibility check failed because Rating is unavailable. Keep history and allow a read-only retry; canOffer is false and candidate is null. False when bidders are exhausted, an offer is open, or the auction is not timed out.
+        candidate:
+          type: object
+          allOf:
+            - $ref: "#/components/schemas/SecondChanceCandidate"
+          nullable: true
+        offers:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecondChanceOffer"
+    SecondChanceSellerResponse:
+      type: object
+      required:
+        - code
+        - message
+        - data
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          $ref: "#/components/schemas/SecondChanceSellerState"
+    SecondChanceOfferResponse:
+      type: object
+      required:
+        - code
+        - message
+        - data
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          $ref: "#/components/schemas/SecondChanceOffer"
+    SecondChanceListResponse:
+      type: object
+      required:
+        - code
+        - message
+        - data
+        - page
+      properties:
+        code:
+          type: integer
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecondChanceOffer"
+        page:
+          $ref: "#/components/schemas/PageInfo"
+
     AuctionState:
       type: object
       additionalProperties: false

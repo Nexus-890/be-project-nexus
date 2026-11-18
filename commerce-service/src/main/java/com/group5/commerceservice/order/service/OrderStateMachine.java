@@ -26,8 +26,8 @@ public class OrderStateMachine {
     private final OrderRepository orderRepository;
     private final OrderStatusHistoryRepository historyRepository;
 
-    @Value("${nexus.order.auto-complete-days:7}")
-    private int autoCompleteDays = 7;
+    @Value("${nexus.order.auto-complete-days:3}")
+    private int autoCompleteDays = 3;
 
     @PostConstruct
     void validateReceiptWindow() {

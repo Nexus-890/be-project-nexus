@@ -131,12 +131,12 @@ public class ReputationService {
     public boolean timeout(ReputationInputs.Timeout input, UUID eventId) {
         var fingerprint = input.fingerprint();
         store.outcome(input.orderId(), input.auctionId(), "PAYMENT_TIMEOUT", fingerprint);
-        store.source("AUCTION_PAYMENT_TIMEOUT", input.auctionId(), fingerprint);
+        store.source("AUCTION_PAYMENT_TIMEOUT", input.orderId(), fingerprint);
         ReputationState state = store.lock(input.winnerId());
-        UUID operation = operation("AUCTION_PAYMENT_TIMEOUT", input.auctionId());
-        if (!store.claim("AUCTION_PAYMENT_TIMEOUT", input.auctionId(), input.winnerId(), operation, fingerprint)) return false;
+        UUID operation = operation("AUCTION_PAYMENT_TIMEOUT", input.orderId());
+        if (!store.claim("AUCTION_PAYMENT_TIMEOUT", input.orderId(), input.winnerId(), operation, fingerprint)) return false;
         int penalty = policy.timeoutPenalty();
-        change(state, operation, "AUCTION_PAYMENT_TIMEOUT", input.auctionId(), input.auctionVersion(), eventId, SYSTEM,
+        change(state, operation, "AUCTION_PAYMENT_TIMEOUT", input.orderId(), input.auctionVersion(), eventId, SYSTEM,
                 "Auction payment deadline expired", aggregate -> {
                     aggregate.setPenaltyPoints(Math.addExact(aggregate.getPenaltyPoints(), penalty));
                     aggregate.setTotalTransaction(Math.incrementExact(aggregate.getTotalTransaction()));

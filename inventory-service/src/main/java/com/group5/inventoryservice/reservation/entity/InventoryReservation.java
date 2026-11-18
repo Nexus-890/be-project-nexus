@@ -43,6 +43,17 @@ public class InventoryReservation extends AuditedEntity {
 
     private UUID auctionWinnerId;
 
+    @Column(name = "offer_id")
+    private UUID offerId;
+
+    public static InventoryReservation heldForOffer(UUID auctionId, UUID offerId, UUID bidderId, UUID skuId,
+                                                    UUID warehouseId, OffsetDateTime now, OffsetDateTime expiresAt) {
+        InventoryReservation row = heldForAuction(auctionId, skuId, warehouseId, now, expiresAt);
+        row.offerId = offerId;
+        row.auctionWinnerId = bidderId;
+        return row;
+    }
+
     @Column(name = "quantity", nullable = false)
     private int quantity;
 

@@ -73,7 +73,8 @@ class AuctionStateMachineTest {
             case SCHEDULED -> from == CREATED;
             case ACTIVE -> from == SCHEDULED;
             case ENDED -> from == ACTIVE;
-            case WON, FAILED -> from == ENDED;
+            case WON -> from == ENDED || from == PAYMENT_TIMEOUT;
+            case FAILED -> from == ENDED;
             case SETTLED -> from == WON;
             case PAYMENT_TIMEOUT -> from == SETTLED;
             case CANCELLED -> Set.of(CREATED, SCHEDULED, ACTIVE, ENDED, WON).contains(from);

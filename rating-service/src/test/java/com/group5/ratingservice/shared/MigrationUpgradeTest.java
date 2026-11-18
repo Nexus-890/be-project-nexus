@@ -12,6 +12,39 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class MigrationUpgradeTest {
     @Test
+    void existingTimeoutEffectsMoveToOrderWithoutLosingReplayProtection() throws Exception {
+        TestPostgres pg=new TestPostgres();pg.start();
+        try {
+            Flyway.configure().dataSource(pg.getJdbcUrl(),pg.getUsername(),pg.getPassword()).target("4").load().migrate();
+            UUID order=UUID.randomUUID(),auction=UUID.randomUUID(),winner=UUID.randomUUID(),operation=UUID.randomUUID();
+            var jdbc=new org.springframework.jdbc.core.JdbcTemplate(new org.springframework.jdbc.datasource.DriverManagerDataSource(pg.getJdbcUrl(),pg.getUsername(),pg.getPassword()));
+            String fingerprint="{\"orderId\":\""+order+"\",\"auctionId\":\""+auction+"\"}";
+            jdbc.update("INSERT INTO reputation_outcomes(order_id,auction_id,outcome,fingerprint) VALUES (?,?,'PAYMENT_TIMEOUT',?::jsonb)",order,auction,fingerprint);
+            jdbc.update("INSERT INTO reputation_sources(change_type,source_id,fingerprint) VALUES ('AUCTION_PAYMENT_TIMEOUT',?,?::jsonb)",auction,fingerprint);
+            jdbc.update("INSERT INTO reputation_effects(change_type,source_id,user_id,operation_id,fingerprint) VALUES ('AUCTION_PAYMENT_TIMEOUT',?,?,?,?::jsonb)",auction,winner,operation,fingerprint);
+            jdbc.update("INSERT INTO user_reputations(user_id,score,trust_level,policy_version) VALUES (?,40,'BASIC','reputation-policy-1')",winner);
+            jdbc.update("""
+                    INSERT INTO reputation_history(operation_id,user_id,source_id,event_id,change_type,
+                      previous_score,new_score,delta,previous_trust_level,new_trust_level,actor_id,reason,policy_version,change_details)
+                    VALUES (?,?,?,gen_random_uuid(),'AUCTION_PAYMENT_TIMEOUT',50,40,-10,'BASIC','BASIC',?,'Old timeout','reputation-policy-1','{}')
+                    """,operation,winner,auction,winner);
+            Flyway.configure().dataSource(pg.getJdbcUrl(),pg.getUsername(),pg.getPassword()).load().migrate();
+            assertThat(jdbc.queryForObject("SELECT source_id FROM reputation_sources",UUID.class)).isEqualTo(order);
+            assertThat(jdbc.queryForObject("SELECT source_id FROM reputation_history",UUID.class)).isEqualTo(order);
+            assertThat(jdbc.queryForObject("SELECT operation_id FROM reputation_effects",UUID.class)).isEqualTo(operation);
+            assertThat(jdbc.queryForObject("SELECT score FROM user_reputations WHERE user_id=?",Integer.class,winner)).isEqualTo(40);
+            int replay=jdbc.update("""
+                    INSERT INTO reputation_effects(change_type,source_id,user_id,operation_id,fingerprint)
+                    VALUES ('AUCTION_PAYMENT_TIMEOUT',?,?,gen_random_uuid(),?::jsonb)
+                    ON CONFLICT (change_type,source_id,user_id) DO NOTHING
+                    """,order,winner,fingerprint);
+            assertThat(replay).isZero();
+            jdbc.update("INSERT INTO reputation_outcomes(order_id,auction_id,outcome,fingerprint) VALUES (?,?,'COMPLETED','{}')",UUID.randomUUID(),auction);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM reputation_outcomes WHERE auction_id=?",Integer.class,auction)).isEqualTo(2);
+        } finally {pg.stop();}
+    }
+
+    @Test
     void appliedV1DataSurvivesV2AndV3WithoutInventedReputationHistoryOrEvents() throws Exception {
         TestPostgres postgres = new TestPostgres();
         postgres.start();
@@ -78,7 +111,7 @@ class MigrationUpgradeTest {
 
             var result = Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
                     .load().migrate();
-            assertThat(result.migrationsExecuted).isEqualTo(3);
+            assertThat(result.migrationsExecuted).isEqualTo(4);
             assertThat(historyCreatedAtDefault(postgres)).containsIgnoringCase("clock_timestamp");
             try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
                 try (var statement = connection.createStatement(); var rows = statement.executeQuery("SELECT * FROM ratings")) {

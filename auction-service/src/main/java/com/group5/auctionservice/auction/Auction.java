@@ -97,6 +97,17 @@ public class Auction extends AuditedEntity {
 
     private Instant settledAt;
 
+    @Column(name = "offer_id")
+    private UUID offerId;
+
+    public void beginOffer(UUID offerId, UUID bidderId, BigDecimal amount, Instant deadline) {
+        if (status != AuctionStatus.PAYMENT_TIMEOUT) throw new IllegalStateException("Auction is not timed out");
+        this.offerId = java.util.Objects.requireNonNull(offerId);
+        this.orderId = null;
+        this.settledAt = null;
+        recordWinner(bidderId, amount, deadline);
+    }
+
     public void recordSettlement(UUID orderId, Instant settledAt) {
         if (status != AuctionStatus.SETTLED || this.orderId != null) {
             throw new IllegalStateException("Auction must transition to SETTLED first");

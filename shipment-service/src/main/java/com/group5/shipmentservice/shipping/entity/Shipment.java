@@ -47,6 +47,9 @@ public class Shipment extends AuditedEntity {
     @Column(name = "tracking_code", length = 80)
     private String trackingCode;
 
+    @Column(name = "estimated_delivery_at")
+    private OffsetDateTime estimatedDeliveryAt;
+
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(name = "shipment_status", nullable = false, columnDefinition = "shipment_status")
@@ -131,6 +134,19 @@ public class Shipment extends AuditedEntity {
         trackingCode = code;
         shipmentStatus = ShipmentStatus.CREATED;
         nextTrackingRetryAt = null;
+    }
+
+    public void recordEstimatedDelivery(OffsetDateTime expectedDeliveryAt) {
+        estimatedDeliveryAt = expectedDeliveryAt;
+    }
+
+    /** Fill only absent dispatch data; retries retain the persisted carrier, service and request identity. */
+    public void completeBookingPreparation(String selectedService, Map<String, Object> preparedInfo) {
+        if (serviceType == null) serviceType = selectedService;
+        if (shippingInfo.get("pickupAddress") == null && preparedInfo.get("pickupAddress") != null) {
+            shippingInfo = new java.util.LinkedHashMap<>(shippingInfo);
+            shippingInfo.put("pickupAddress", preparedInfo.get("pickupAddress"));
+        }
     }
 
     public void trackingPending(OffsetDateTime nextAttempt) {

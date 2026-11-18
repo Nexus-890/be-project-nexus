@@ -645,9 +645,11 @@ class SecurityConfigTest {
             if (endpoint.roles().isEmpty()) continue;
             String path = concretePath(endpoint.path());
             client.method(endpoint.method()).uri(path).exchange().expectStatus().isUnauthorized();
+            String outsider = java.util.stream.Stream.of("BUYER", "SUPPORT_STAFF", "SELLER")
+                    .filter(role -> !endpoint.roles().contains(role)).findFirst().orElseThrow();
             client.method(endpoint.method()).uri(path)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(SIGNING_KEY,
-                            claims -> claims.claim("roles", List.of("BUYER"))))
+                            claims -> claims.claim("roles", List.of(outsider))))
                     .exchange().expectStatus().isForbidden();
             for (String role : endpoint.roles()) {
                 client.method(endpoint.method()).uri(path)
@@ -733,12 +735,20 @@ class SecurityConfigTest {
     }
 
     @Test
+    void catalogSearchAndFlatCategoriesArePublicReads() {
+        client.get().uri("/api/v1/products/search?q=ao%20thun").exchange().expectStatus().isOk();
+        client.get().uri("/api/v1/categories?level=2").exchange().expectStatus().isOk();
+        client.post().uri("/api/v1/categories").exchange().expectStatus().isUnauthorized();
+        assertThat(SERVICE_LOG).hasSize(2);
+    }
+
+    @Test
     void literalRoutesSwaggerActuatorAndUnknownPathsAreNotPublic() {
-        for (String path : List.of("/api/v1/products/mine", "/api/v1/products/search",
+        for (String path : List.of("/api/v1/products/mine",
                 "/api/v1/products/discovery", "/api/v1/products/not-a-uuid",
                 "/api/v1/auctions/mine", "/api/v1/auctions/not-a-uuid", "/api/v1/auctions/not-a-uuid/bids",
                 "/api/v1/auctions/not-a-uuid/state",
-                "/api/v1/categories", "/swagger-ui.html", "/actuator/health", "/unrouted")) {
+                "/swagger-ui.html", "/actuator/health", "/unrouted")) {
             client.get().uri(path).exchange().expectStatus().isUnauthorized();
         }
         assertThat(SERVICE_LOG).isEmpty();
@@ -923,7 +933,7 @@ class SecurityConfigTest {
 
     // Thay path variable bằng fixture thật để kiểm tra cả policy cấu hình theo key.
     private static String concretePath(String path) {
-        return path.replace("{id}", ID).replace("{bidId}", ID).replace("{userId}", ID).replace("{imageId}", ID)
+        return path.replace("{id}", ID).replace("{bidId}", ID).replace("{userId}", ID).replace("{imageId}", ID).replace("{offerId}", ID)
                 .replace("{key}", "NOTIFICATION_RETRY_LIMIT")
                 .replace("{provider}", "sandbox");
     }

@@ -57,8 +57,8 @@ import static org.awaitility.Awaitility.await;
 class EventLogIntegrationTest {
     private static final List<String> TOPICS = List.of(Topics.USER, Topics.CATALOG, Topics.COMMERCE,
             Topics.PAYMENT, Topics.INVENTORY, Topics.SHIPMENT, Topics.RATING, Topics.AUCTION);
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
-    private static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:4.3.1");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.common_test.PostgresTestDatabase("postgres:18-alpine");
+    private static final KafkaContainer KAFKA = new KafkaTestBroker("apache/kafka:4.3.1");
     private static final UUID ACTOR = UUID.randomUUID();
     private static final RSAKey KEY;
     private static final HttpServer JWKS;

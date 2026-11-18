@@ -55,7 +55,7 @@ class OrderReceiptConfirmationHttpTest {
         when(orders.getOrder(any(), eq(ID))).thenReturn(new OrderResponse(ID, "NX-RECEIPT-HTTP", BUYER,
                 UUID.randomUUID(), OrderType.STANDARD, OrderStatus.COMPLETED, delivered.minusDays(3),
                 BigDecimal.TEN, List.of(), null, null, UUID.randomUUID(), BigDecimal.TEN,
-                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null, delivered, delivered.plusDays(7), null, null));
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false, null, delivered, delivered.plusDays(3), null, null));
     }
 
     @Test void buyerPostsNoBodyAndReceivesTheCompletedEnvelopeAndPersistedDates() throws Exception {
@@ -64,8 +64,20 @@ class OrderReceiptConfirmationHttpTest {
                 .andExpect(jsonPath("$.code").value(0)).andExpect(jsonPath("$.data.orderId").value(ID.toString()))
                 .andExpect(jsonPath("$.data.status").value("COMPLETED"))
                 .andExpect(jsonPath("$.data.deliveredAt").value("2026-11-14T08:00:00Z"))
-                .andExpect(jsonPath("$.data.autoCompleteAt").value("2026-11-21T08:00:00Z"));
+                .andExpect(jsonPath("$.data.autoCompleteAt").value("2026-11-17T08:00:00Z"));
         verify(completions).confirm(any(CurrentUser.class), eq(ID));
+    }
+
+    @Test void secondConfirmationReturnsConflictWithTheNamedProblemCode() throws Exception {
+        doNothing().doThrow(new DomainException(CommerceErrorCode.ORDER_NOT_DELIVERED))
+                .when(completions).confirm(any(), eq(ID));
+        mvc.perform(post("/api/v1/orders/{id}/confirm-receipt", ID).header("Authorization", "Bearer owner"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/v1/orders/{id}/confirm-receipt", ID).header("Authorization", "Bearer owner"))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("COMMERCE_ORDER_NOT_DELIVERED"));
+        verify(orders, times(1)).getOrder(any(), eq(ID));
     }
 
     @Test void anonymousWrongRoleAndMissingPrivilegeFailBeforeService() throws Exception {

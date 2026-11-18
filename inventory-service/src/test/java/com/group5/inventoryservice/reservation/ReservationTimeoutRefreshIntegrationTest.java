@@ -49,7 +49,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
         "management.endpoints.web.exposure.include=refresh"
 })
 class ReservationTimeoutRefreshIntegrationTest {
-    private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18");
+    private static final PostgreSQLContainer POSTGRES = new com.group5.common_test.PostgresTestDatabase("postgres:18");
     static final String CONFIG_FILE = "target/reservation-timeout-test/inventory-service.properties";
     private static final Path CONFIG = remoteConfig();
     static { POSTGRES.start(); }
@@ -207,6 +207,6 @@ class ReservationTimeoutRefreshIntegrationTest {
     private static Jwt token(String value, String role) {
         return Jwt.withTokenValue(value).header("alg", "RS256").subject(UUID.randomUUID().toString())
                 .issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(600))
-                .claim("roles", List.of(role)).claim("privileges", List.of()).build();
+                .claim("roles", List.of(role)).claim("privileges", "ADMIN".equals(role) ? List.of("SYSTEM.CONFIG.UPDATE") : List.of()).build();
     }
 }

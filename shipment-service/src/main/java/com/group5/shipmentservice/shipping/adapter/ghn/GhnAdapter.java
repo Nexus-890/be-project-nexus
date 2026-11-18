@@ -9,6 +9,8 @@ import com.group5.shipmentservice.shipping.adapter.CarrierTrackingPayload;
 import com.group5.shipmentservice.shipping.adapter.CarrierWebhookAuthentication;
 import com.group5.shipmentservice.shipping.adapter.model.CarrierAddress;
 import com.group5.shipmentservice.shipping.adapter.model.CarrierQuoteRequest;
+import com.group5.shipmentservice.shipping.adapter.model.CarrierShipmentRequest;
+import com.group5.shipmentservice.shipping.adapter.model.CarrierShipmentResult;
 import com.group5.shipmentservice.shipping.adapter.model.CarrierTrackingUpdate;
 import com.group5.shipmentservice.shipping.adapter.ghn.dto.request.GhnParcelItemRequest;
 import com.group5.shipmentservice.shipping.adapter.ghn.dto.request.GhnPreviewRequest;
@@ -29,6 +31,7 @@ import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,9 +44,12 @@ public class GhnAdapter implements CarrierAdapter {
     private static final String PREVIEW_ORDER = "/shiip/public-api/v2/shipping-order/preview";
     private static final String TRACK_ORDER = "/shiip/public-api/v2/shipping-order/detail?order_code=";
     private static final String CANCEL_ORDER = "/shiip/public-api/v2/switch-status/cancel";
+    private static final String CREATE_ORDER = "/shiip/public-api/v2/shipping-order/create";
+    static final String ADDRESS_FALLBACK_NOTE = "Nexus address fallback: ward and province";
 
     private final GhnHttpClient client;
     private final GhnProperties properties;
+    private final ShippingProperties shipping;
     private final ObjectMapper mapper;
     private final String webhookSecret;
     private final Map<String, CachedLocalities> masterData = new ConcurrentHashMap<>();
@@ -57,6 +63,7 @@ public class GhnAdapter implements CarrierAdapter {
             throw new IllegalStateException("Cần cấu hình GHN_TOKEN, GHN_SHOP_ID và địa chỉ API GHN hợp lệ");
         }
         this.properties = properties;
+        this.shipping = shipping;
         this.mapper = mapper;
         this.webhookSecret = environment.getProperty("GHN_WEBHOOK_SECRET");
         this.client = new GhnHttpClient(properties, shipping, token, mapper);
@@ -70,6 +77,145 @@ public class GhnAdapter implements CarrierAdapter {
     @Override
     public String name() {
         return "Giao Hàng Nhanh";
+    }
+
+    @Override
+    public String createShipment(CarrierShipmentRequest request, ShippingDeadline deadline) {
+        return bookShipment(request, deadline).trackingCode();
+    }
+
+    @Override
+    public CarrierShipmentResult bookShipment(CarrierShipmentRequest request, ShippingDeadline deadline) {
+        requireSandboxBooking();
+        String clientOrderCode = request.requestId().toString();
+        GhnCreateOrderBody body = null;
+        boolean addressFallback = false;
+        for (int attempt = 0; attempt <= shipping.retryLimit(); attempt++) {
+            // Also runs on the first call after a process restart. The requestId is persisted by shipment-service.
+            JsonNode existing = client.findByClientCode(clientOrderCode, deadline);
+            if (existing != null) {
+                if (!clientOrderCode.equals(existing.path("client_order_code").asString())) throw invalidResponse();
+                return bookingResult(existing, ADDRESS_FALLBACK_NOTE.equals(existing.path("note").asString()));
+            }
+            if (body == null) body = createBody(request, deadline);
+            try {
+                JsonNode created;
+                try {
+                    created = client.postOnce(CREATE_ORDER, body, deadline);
+                } catch (GhnProviderException error) {
+                    if (!error.isAddressConflict() || addressFallback) throw error;
+                    body = body.withAreaAddress();
+                    addressFallback = true;
+                    created = client.postOnce(CREATE_ORDER, body, deadline);
+                }
+                return bookingResult(created, addressFallback);
+            } catch (DomainException error) {
+                if (!ShipmentErrorCode.CARRIER_UNAVAILABLE.code().equals(error.getErrorCode())
+                        || attempt >= shipping.retryLimit()) throw error;
+                pauseBeforeBookingRetry(attempt, deadline);
+                // No blind POST retry: the next iteration looks up the very same client_order_code first.
+            }
+        }
+        throw new DomainException(ShipmentErrorCode.CARRIER_UNAVAILABLE);
+    }
+
+    private void requireSandboxBooking() {
+        String host = properties.baseUrl().getHost();
+        boolean sandbox = "https".equals(properties.baseUrl().getScheme())
+                && "dev-online-gateway.ghn.vn".equalsIgnoreCase(host);
+        boolean localTest = List.of("127.0.0.1", "localhost", "[::1]").contains(host);
+        if (!sandbox && !localTest) throw new DomainException(ShipmentErrorCode.CARRIER_CONFIGURATION_ERROR);
+    }
+
+    private CarrierShipmentResult bookingResult(JsonNode data, boolean addressFallback) {
+        String trackingCode = CarrierTrackingPayload.trackingCode(data, "order_code", ShipmentErrorCode.INVALID_CARRIER_RESPONSE);
+        JsonNode estimate = data.path("expected_delivery_time");
+        if (estimate.isMissingNode() || estimate.isNull()) estimate = data.path("leadtime");
+        OffsetDateTime estimatedDelivery = estimate.isMissingNode() || estimate.isNull() ? null : estimatedAt(estimate);
+        return new CarrierShipmentResult(trackingCode, estimatedDelivery, addressFallback);
+    }
+
+    private GhnCreateOrderBody createBody(CarrierShipmentRequest request, ShippingDeadline deadline) {
+        JsonNode info = mapper.valueToTree(request.shippingInfo());
+        JsonNode recipient = info.path("recipient");
+        CarrierAddress destination = bookingAddress(recipient.path("address"), deadline);
+        CarrierAddress pickup = bookingAddress(info.path("pickupAddress"), deadline);
+        JsonNode parcel = info.path("parcel");
+        int weight = parcelMeasurement(parcel, "weightGrams", 50_000);
+        int length = parcelMeasurement(parcel, "lengthCm", 200);
+        int width = parcelMeasurement(parcel, "widthCm", 200);
+        int height = parcelMeasurement(parcel, "heightCm", 200);
+        ShippingServiceType service = ShippingServiceType.forWeight(weight);
+        if (!service.name().equals(request.serviceType())) throw new DomainException(ShipmentErrorCode.NO_SERVICE);
+        List<GhnParcelItemRequest> items = new ArrayList<>();
+        JsonNode snapshotItems = info.path("items");
+        if (!snapshotItems.isArray() || snapshotItems.isEmpty()) throw new DomainException(ShipmentErrorCode.INVALID_ORDER_SNAPSHOT);
+        for (JsonNode item : snapshotItems) {
+            items.add(new GhnParcelItemRequest(snapshotText(item, "productName"),
+                    parcelMeasurement(item, "quantity", Integer.MAX_VALUE), null, null, null, null));
+        }
+        // The paid snapshot contains one measured parcel; heavy service is priced per parcel, not per SKU.
+        String content = "Nexus order " + request.orderId();
+        if (service == ShippingServiceType.HEAVY) {
+            items = List.of(new GhnParcelItemRequest(content, 1, weight, length, width, height));
+        }
+        return GhnCreateOrderBody.builder()
+                .clientOrderCode(request.requestId().toString())
+                .newFromAddress(true).fromProvinceName(pickup.provinceName()).fromWardName(pickup.wardName())
+                .fromAddress(fullAddress(pickup)).newToAddress(true)
+                .toProvinceName(destination.provinceName()).toWardName(destination.wardName())
+                .toAddress(fullAddress(destination)).toName(snapshotText(recipient, "name"))
+                .toPhone(snapshotText(recipient, "phone"))
+                .paymentTypeId(properties.paymentTypeId()).requiredNote(properties.requiredNote().name())
+                .serviceTypeId(service == ShippingServiceType.HEAVY ? 5 : 2)
+                .weight(weight).length(length).width(width).height(height).codAmount(0)
+                .content(content).items(items).build();
+    }
+
+    private CarrierAddress bookingAddress(JsonNode snapshot, ShippingDeadline deadline) {
+        String provinceCode = snapshotText(snapshot, "provinceCode");
+        String wardCode = snapshotText(snapshot, "wardCode");
+        String province = localityName(getProvinces(deadline), provinceCode);
+        String ward = localityName(getWards(provinceCode, deadline), wardCode);
+        return new CarrierAddress(province, ward, snapshotText(snapshot, "line1"));
+    }
+
+    private String localityName(List<LocalityResponse> localities, String code) {
+        return localities.stream().filter(locality -> locality.code().equals(code)).map(LocalityResponse::name)
+                .findFirst().orElseThrow(() -> new DomainException(ShipmentErrorCode.INVALID_ADDRESS));
+    }
+
+    private String snapshotText(JsonNode snapshot, String field) {
+        JsonNode value = snapshot.path(field);
+        if (!value.isString() || value.asString().isBlank()) throw new DomainException(ShipmentErrorCode.INVALID_ORDER_SNAPSHOT);
+        return value.asString();
+    }
+
+    private int parcelMeasurement(JsonNode parcel, String field, int max) {
+        JsonNode value = parcel.path(field);
+        if (!value.isNumber() || value.decimalValue().signum() <= 0
+                || value.decimalValue().compareTo(BigDecimal.valueOf(max)) > 0) {
+            throw new DomainException(ShipmentErrorCode.INVALID_ORDER_SNAPSHOT);
+        }
+        try {
+            // SKU dimensions are decimals; GHN takes centimetres rounded up so a parcel is never underdeclared.
+            return value.decimalValue().setScale(0, java.math.RoundingMode.CEILING).intValueExact();
+        } catch (ArithmeticException error) {
+            throw new DomainException(ShipmentErrorCode.INVALID_ORDER_SNAPSHOT);
+        }
+    }
+
+    private void pauseBeforeBookingRetry(int attempt, ShippingDeadline deadline) {
+        long delay = Math.min(60_000L, shipping.retryBackoffMs() * (1L << Math.min(attempt, 20)));
+        if (deadline.remainingOrThrow().compareTo(Duration.ofMillis(delay + 1)) <= 0) {
+            throw new DomainException(ShipmentErrorCode.CARRIER_UNAVAILABLE);
+        }
+        try {
+            Thread.sleep(delay);
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new DomainException(ShipmentErrorCode.CARRIER_UNAVAILABLE);
+        }
     }
 
     @Override

@@ -29,10 +29,17 @@ public class SettlementStatusUpdater {
     private final EventEnvelopeFactory envelopes;
     private final JsonMapper mapper;
     private final Tracer tracer;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private final com.group5.auctionservice.offer.AuctionPaymentTimeoutHandler timeouts;
 
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
-    public record Created(UUID orderId, String orderType, UUID referenceId) { }
-    public record Settled(UUID auctionId, UUID orderId, Instant settledAt) { }
+    public record Created(UUID orderId, String orderType, UUID referenceId, UUID offerId) {
+        public Created(UUID orderId, String orderType, UUID referenceId) { this(orderId, orderType, referenceId, null); }
+    }
+    public record Settled(UUID auctionId, UUID orderId, Instant settledAt,
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) UUID offerId) {
+        public Settled(UUID auctionId,UUID orderId,Instant settledAt) { this(auctionId,orderId,settledAt,null); }
+    }
 
     @KafkaListener(topics = Topics.COMMERCE, groupId = CONSUMER,
             containerFactory = EventKafka.LISTENER_CONTAINER_FACTORY)
@@ -53,7 +60,8 @@ public class SettlementStatusUpdater {
 
     private void apply(Created created) {
         Auction auction = auctions.findForUpdateByIdAndDeletedAtIsNull(created.referenceId()).orElse(null);
-        if (auction == null || auction.getStatus() != AuctionStatus.WON) {
+        if (auction == null || auction.getStatus() != AuctionStatus.WON
+                || !java.util.Objects.equals(auction.getOfferId(), created.offerId())) {
             log.warn("Settlement ignored: auctionId={}, status={}", created.referenceId(),
                     auction == null ? "MISSING" : auction.getStatus());
             return;
@@ -62,7 +70,10 @@ public class SettlementStatusUpdater {
         var now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
         auction.recordSettlement(created.orderId(), now);
         auctions.saveAndFlush(auction);
+        if (created.offerId() != null) jdbc.update("UPDATE auction_offers SET order_id=? WHERE id=? AND status='ACCEPTED'",
+                created.orderId(), created.offerId());
         outbox.write("Auction", Topics.AUCTION, envelopes.create("AuctionSettled", auction.getId().toString(),
-                new Settled(auction.getId(), created.orderId(), now)));
+                new Settled(auction.getId(), created.orderId(), now, created.offerId())));
+        timeouts.applyPending(created.orderId());
     }
 }

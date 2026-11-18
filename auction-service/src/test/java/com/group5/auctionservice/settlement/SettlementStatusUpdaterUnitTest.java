@@ -64,7 +64,8 @@ class SettlementStatusUpdaterUnitTest {
     private final Tracer tracer = mock(Tracer.class, RETURNS_DEEP_STUBS);
     private final SettlementStatusUpdater updater = new SettlementStatusUpdater(idempotent, auctions,
             new AuctionStateMachine(), outbox,
-            new EventEnvelopeFactory(tracer, Clock.fixed(ENVELOPE_TIME, ZoneOffset.UTC)), JSON, tracer);
+            new EventEnvelopeFactory(tracer, Clock.fixed(ENVELOPE_TIME, ZoneOffset.UTC)), JSON, tracer,
+            mock(org.springframework.jdbc.core.JdbcTemplate.class), mock(com.group5.auctionservice.offer.AuctionPaymentTimeoutHandler.class));
 
     @BeforeEach
     void executeClaimedCallback() {

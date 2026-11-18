@@ -170,7 +170,12 @@ class CategoryOutboxIntegrationTest {
             CategoryService service = context.getBean(CategoryService.class);
             JdbcTemplate jdbc = context.getBean(JdbcTemplate.class);
 
-            UUID id = service.create(request("created-" + UUID.randomUUID())).getId();
+            CategoryRequest input = request("created-" + UUID.randomUUID());
+            input.setDescription("Admin category description");
+            var created = service.create(input);
+            UUID id = created.getId();
+            assertThat(created.getDescription()).isEqualTo("Admin category description");
+            assertThat(service.getById(id).getDescription()).isEqualTo("Admin category description");
             String aggregateId = id.toString();
 
             assertThat(jdbc.queryForObject("""
