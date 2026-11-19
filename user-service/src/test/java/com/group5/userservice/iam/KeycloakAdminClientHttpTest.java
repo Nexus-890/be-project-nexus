@@ -224,6 +224,33 @@ class KeycloakAdminClientHttpTest {
         assertError(() -> client.resetPassword(USER, "same-password"), UserErrorCode.USER_IDENTITY_REJECTED);
     }
 
+    @Test
+    void ownPasswordChangeSeparatesHistoryFromOtherPolicyFailures() {
+        expect("PUT", USER_PATH + "/reset-password", 204, null);
+        expect("PUT", USER_PATH + "/reset-password", 400, Map.of("error", "invalidPasswordHistoryMessage"));
+        expect("PUT", USER_PATH + "/reset-password", 400, Map.of("error", "invalidPasswordMinLengthMessage"));
+        expect("PUT", USER_PATH + "/reset-password", 404, Map.of("error", "User not found"));
+
+        client.setOwnPassword(USER, "a-new-password");
+        assertThat(body(0).get("value").asString()).isEqualTo("a-new-password");
+        assertThat(body(0).get("temporary").asBoolean()).isFalse();
+        assertError(() -> client.setOwnPassword(USER, "same-password"), UserErrorCode.USER_PASSWORD_REUSED);
+        assertError(() -> client.setOwnPassword(USER, "short"), UserErrorCode.USER_PASSWORD_REJECTED);
+        assertError(() -> client.setOwnPassword(USER, "a-new-password"), UserErrorCode.USER_IDENTITY_NOT_FOUND);
+    }
+
+    @Test
+    void signingOutEverywhereNeverFailsTheCaller() {
+        expect("POST", USER_PATH + "/logout", 204, null);
+        expect("POST", USER_PATH + "/logout", 503, Map.of("error", "down"));
+
+        client.signOutEverywhere(USER);
+        client.signOutEverywhere(USER);
+
+        assertThat(requests).hasSize(2);
+        assertThat(requests.getFirst().authorization()).isEqualTo("Bearer token-1");
+    }
+
     /** Đọc khóa và xóa counter sử dụng brute-force API, không sửa cờ enabled của tài khoản. */
     @Test
     void unlockUsesBruteForceEndpointAndClearsLock() {

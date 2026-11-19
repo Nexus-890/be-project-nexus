@@ -24,6 +24,13 @@ nexus:
         path: /api/v1/auth/register
       - method: POST
         path: /api/v1/auth/verification-email
+      - method: POST
+        path: /api/v1/auth/password-reset
+      - method: POST
+        path: /api/v1/auth/password-reset/confirm
+  password-reset:
+    web-base-url: ${NEXUS_WEB_BASE_URL:http://localhost:3000}
+    mail-from: ${PASSWORD_RESET_MAIL_FROM:no-reply@nexus.local}
   avatar:
     supabase-url: ${SUPABASE_URL:}
     service-key: ${SUPABASE_SERVICE_KEY:}

@@ -333,6 +333,32 @@ public class KeycloakAdminClient {
                 .body(new Credential("password", password, false)).retrieve().toBodilessEntity()));
     }
 
+    public void setOwnPassword(UUID userId, String password) {
+        try {
+            withToken(token -> client.put()
+                    .uri("/admin/realms/{realm}/users/{id}/reset-password", properties.getRealm(), userId)
+                    .headers(headers -> headers.setBearerAuth(token)).contentType(MediaType.APPLICATION_JSON)
+                    .body(new Credential("password", password, false)).retrieve().toBodilessEntity());
+        } catch (HttpClientErrorException.BadRequest exception) {
+            throw new DomainException(exception.getResponseBodyAsString().contains("invalidPasswordHistory")
+                    ? UserErrorCode.USER_PASSWORD_REUSED : UserErrorCode.USER_PASSWORD_REJECTED);
+        } catch (HttpClientErrorException.NotFound exception) {
+            throw new DomainException(UserErrorCode.USER_IDENTITY_NOT_FOUND);
+        } catch (RestClientException exception) {
+            throw unavailable("set the password of user " + userId, exception);
+        }
+    }
+
+    public void signOutEverywhere(UUID userId) {
+        try {
+            withToken(token -> client.post()
+                    .uri("/admin/realms/{realm}/users/{id}/logout", properties.getRealm(), userId)
+                    .headers(headers -> headers.setBearerAuth(token)).retrieve().toBodilessEntity());
+        } catch (RestClientException exception) {
+            log.warn("Keycloak could not end the sessions of user {}", userId, exception);
+        }
+    }
+
     /** Kiểm tra khóa do brute-force detector, độc lập với cờ enabled của tài khoản. */
     public boolean isBruteForceLocked(UUID userId) {
         Map<String, Object> state = adminCall("read brute-force lock", () -> withToken(token -> client.get()

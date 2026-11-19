@@ -90,6 +90,10 @@ nexus:
       - method: POST
         path: /api/v1/auth/verification-email
       - method: POST
+        path: /api/v1/auth/password-reset
+      - method: POST
+        path: /api/v1/auth/password-reset/confirm
+      - method: POST
         path: /api/v1/webhooks/sepay
       - method: POST
         path: /api/v1/payments/payouts/callbacks/{provider}

@@ -3482,6 +3482,103 @@ paths:
                     detail: "The service did not answer in time"
                     instance: "/api/v1/auth/verification-email"
                     code: "GATEWAY_TIMEOUT"
+  /api/v1/auth/password-reset:
+    post:
+      tags:
+        - "Authentication"
+      operationId: "requestPasswordReset"
+      summary: "Email a password reset link"
+      description: "When the address belongs to an active account, user-service stores the SHA-256 hash of a one-time token (valid 30 minutes) and emails a link to {NEXUS_WEB_BASE_URL}/reset-password?token=... from PASSWORD_RESET_MAIL_FROM. A new link replaces the unused older ones. An unknown, deleted or inactive address gets the same 204 and no email, so the endpoint does not reveal which accounts exist. One link per account per minute; a request inside that minute also gets 204 and sends nothing. Access: public. Ownership/business restriction: None."
+      security: []
+      x-required-privileges: []
+      x-required-roles: []
+      x-ownership: "None."
+      x-error-codes:
+        "400":
+          - "VALIDATION_FAILED"
+          - "INVALID_REQUEST_BODY"
+        "429":
+          - "RATE_LIMITED"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/PasswordResetRequest"
+            example:
+              email: "buyer@example.com"
+      responses:
+        "204":
+          description: "Done; nothing to return."
+          headers:
+            Cache-Control:
+              description: "Must not be cached."
+              schema:
+                type: "string"
+                enum:
+                  - "no-store"
+        "400":
+          description: "Bad Request. Codes: `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /api/v1/auth/password-reset/confirm:
+    post:
+      tags:
+        - "Authentication"
+      operationId: "confirmPasswordReset"
+      summary: "Set a new password with the emailed link"
+      description: "Checks the token against an unused, unexpired link of an active account, sets the new password in Keycloak under the realm password policy (at least 8 characters, different from the current password), marks every open link of the account used, records the UserPasswordChanged audit event with method RESET_LINK and then ends every Keycloak session of the account. A rejected password keeps the link usable. Access: public. Ownership/business restriction: the token alone identifies the account."
+      security: []
+      x-required-privileges: []
+      x-required-roles: []
+      x-ownership: "Token only."
+      x-error-codes:
+        "400":
+          - "VALIDATION_FAILED"
+          - "INVALID_REQUEST_BODY"
+          - "USER_PASSWORD_RESET_LINK_INVALID"
+          - "USER_PASSWORD_REJECTED"
+          - "USER_PASSWORD_REUSED"
+        "409":
+          - "USER_IDENTITY_NOT_FOUND"
+        "503":
+          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/PasswordResetConfirmRequest"
+      responses:
+        "204":
+          description: "Done; nothing to return."
+          headers:
+            Cache-Control:
+              description: "Must not be cached."
+              schema:
+                type: "string"
+                enum:
+                  - "no-store"
+        "400":
+          description: "Bad Request. Codes: `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `USER_PASSWORD_RESET_LINK_INVALID`, `USER_PASSWORD_REJECTED`, `USER_PASSWORD_REUSED`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: "Conflict. Codes: `USER_IDENTITY_NOT_FOUND`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          description: "Service Unavailable. Codes: `USER_IDENTITY_PROVIDER_UNAVAILABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
   /api/v1/users/me/avatar:
     post:
       tags:
@@ -8673,6 +8770,32 @@ components:
           minLength: 1
           maxLength: 255
           description: "Trimmed and normalized to lower case."
+    PasswordResetRequest:
+      type: "object"
+      required:
+        - "email"
+      properties:
+        email:
+          type: "string"
+          format: "email"
+          minLength: 1
+          maxLength: 255
+          description: "Trimmed and normalized to lower case."
+    PasswordResetConfirmRequest:
+      type: "object"
+      required:
+        - "token"
+        - "newPassword"
+      properties:
+        token:
+          type: "string"
+          pattern: "^[A-Za-z0-9_-]{43}$"
+          description: "The token query parameter of the emailed link."
+        newPassword:
+          type: "string"
+          format: "password"
+          minLength: 8
+          maxLength: 128
     ConfirmPhoneCode:
       type: "object"
       required:

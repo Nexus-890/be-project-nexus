@@ -79,6 +79,8 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/vouchers/{id}/claim` | POST | VOUCHER.CLAIM | #256 — Promotions and vouchers |
 | `/api/v1/auth/register` | POST | Public | #74 — User registration with a default role             |
 | `/api/v1/auth/verification-email` | POST | Public | #210 / #262 — Resend the email verification link (one per address per minute, same answer for unknown addresses) |
+| `/api/v1/auth/password-reset` | POST | Public | Forgot password: email a one-time reset link (one per account per minute, same answer for unknown addresses) |
+| `/api/v1/auth/password-reset/confirm` | POST | Public | Forgot password: set a new password with the emailed link, then sign out every session |
 | `/api/v1/auth/session` | POST | Public | #252 — HttpOnly refresh cookie: sign-in exchange |
 | `/api/v1/auth/refresh` | POST | Public | #252 — HttpOnly refresh cookie: renew the access token |
 | `/api/v1/auth/logout` | POST | Public | #252 — HttpOnly refresh cookie: sign out |

@@ -36,7 +36,11 @@ public enum UserErrorCode implements ErrorCode {
     USER_AVATAR_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "The avatar image is larger than the allowed size"),
     USER_AVATAR_INVALID_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "The avatar must be a JPEG, PNG or WebP image"),
     USER_AVATAR_STORAGE_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE, "Avatar storage is not configured"),
-    USER_AVATAR_STORAGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Avatar storage is unavailable; try again later");
+    USER_AVATAR_STORAGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Avatar storage is unavailable; try again later"),
+    USER_PASSWORD_RESET_LINK_INVALID(HttpStatus.BAD_REQUEST,
+            "The password reset link is invalid, used or expired; ask for a new one"),
+    USER_PASSWORD_REJECTED(HttpStatus.BAD_REQUEST, "The new password does not meet the password policy"),
+    USER_PASSWORD_REUSED(HttpStatus.BAD_REQUEST, "The new password must be different from the current password");
 
     private final HttpStatus status;
     private final String message;
