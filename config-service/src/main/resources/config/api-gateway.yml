@@ -311,6 +311,9 @@ nexus:
       - method: GET
         path: /api/v1/carriers
         privilege: SHIPPING.QUOTE
+      - method: GET
+        path: /api/v1/carriers/performance
+        privilege: SHIPPING.VIEW_SHIPMENT
       - method: POST
         path: /api/v1/shipments
         privilege: SHIPPING.CREATE_SHIPMENT

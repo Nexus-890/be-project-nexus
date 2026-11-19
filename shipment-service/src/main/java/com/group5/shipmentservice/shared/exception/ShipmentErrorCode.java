@@ -17,6 +17,7 @@ public enum ShipmentErrorCode implements ErrorCode {
     INVALID_ORDER_SNAPSHOT(HttpStatus.BAD_GATEWAY, "Snapshot vận chuyển của đơn hàng không hợp lệ"),
     COMMERCE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Dịch vụ đơn hàng hiện không khả dụng"),
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "Dữ liệu báo giá không hợp lệ"),
+    INVALID_PERIOD(HttpStatus.BAD_REQUEST, "Khoảng thời gian thống kê phải có from trước to và dài tối đa 366 ngày"),
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "Dữ liệu yêu cầu không hợp lệ"),
     INVALID_REQUEST_BODY(HttpStatus.BAD_REQUEST, "Nội dung yêu cầu không hợp lệ"),
     INVALID_ADDRESS(HttpStatus.BAD_REQUEST, "Mã địa giới không tồn tại hoặc không đúng quan hệ cha con"),

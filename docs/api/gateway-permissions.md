@@ -201,6 +201,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/refunds/{id}/evidence/{evidenceId}` | GET | ORDER.REFUND | Refund evidence — private bytes of one stored proof |
 | `/api/v1/shipping/quotes` | POST | SHIPPING.QUOTE | #201 — shipment-service |
 | `/api/v1/carriers` | GET | SHIPPING.QUOTE | #201 — shipment-service; SHP-11 |
+| `/api/v1/carriers/performance` | GET | SHIPPING.VIEW_SHIPMENT | Carrier performance — shipment-service; ADMIN or SUPPORT_STAFF downstream; success rate and average delivery time per carrier for shipments created in [from, to) |
 | `/api/v1/shipments` | POST | SHIPPING.CREATE_SHIPMENT | #202 — shipment-service; manual creation additionally requires ADMIN or SUPPORT_STAFF downstream |
 | `/api/v1/shipments` | GET | SHIPPING.VIEW_SHIPMENT | #202 — shipment-service; own-order visibility enforced downstream |
 | `/api/v1/shipments/{id}` | GET | SHIPPING.VIEW_SHIPMENT | #202 — shipment-service; own-order visibility enforced downstream |
