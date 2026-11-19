@@ -3579,6 +3579,90 @@ paths:
             "application/problem+json":
               schema:
                 $ref: "#/components/schemas/Problem"
+  /api/v1/users/me/password:
+    post:
+      tags:
+        - "Users"
+      operationId: "changeOwnPassword"
+      summary: "Change the current user's password"
+      description: "Checks the current password with Keycloak (a password grant of the user-service client whose session is ended at once; failed checks count toward the realm brute-force lock), sets the new password under the realm password policy, records the UserPasswordChanged audit event with method SELF and then ends every other Keycloak session of the account, keeping the session of the calling token (its sid claim). Access: requires PROFILE.UPDATE. Ownership/business restriction: JWT subject only."
+      security:
+        -
+          bearerAuth: []
+      x-required-privileges:
+        - "PROFILE.UPDATE"
+      x-gateway-privilege: "PROFILE.UPDATE"
+      x-required-roles: []
+      x-ownership: "JWT subject only."
+      x-error-codes:
+        "400":
+          - "VALIDATION_FAILED"
+          - "INVALID_REQUEST_BODY"
+          - "USER_CURRENT_PASSWORD_INCORRECT"
+          - "USER_PASSWORD_REJECTED"
+          - "USER_PASSWORD_REUSED"
+        "401":
+          - "UNAUTHENTICATED"
+        "403":
+          - "FORBIDDEN"
+        "404":
+          - "USER_NOT_FOUND"
+        "409":
+          - "USER_IDENTITY_NOT_FOUND"
+        "503":
+          - "USER_IDENTITY_PROVIDER_UNAVAILABLE"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "204":
+          description: "Password changed; nothing to return."
+          headers:
+            Cache-Control:
+              description: "Must not be cached."
+              schema:
+                type: "string"
+                enum:
+                  - "no-store"
+        "400":
+          description: "Bad Request. Codes: `VALIDATION_FAILED`, `INVALID_REQUEST_BODY`, `USER_CURRENT_PASSWORD_INCORRECT`, `USER_PASSWORD_REJECTED`, `USER_PASSWORD_REUSED`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "401":
+          description: "Unauthorized. Codes: `UNAUTHENTICATED`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "403":
+          description: "Forbidden. Codes: `FORBIDDEN`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: "Not Found. Codes: `USER_NOT_FOUND`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: "Conflict. Codes: `USER_IDENTITY_NOT_FOUND`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          description: "Service Unavailable. Codes: `USER_IDENTITY_PROVIDER_UNAVAILABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
   /api/v1/users/me/avatar:
     post:
       tags:
@@ -8796,6 +8880,23 @@ components:
           format: "password"
           minLength: 8
           maxLength: 128
+    ChangePasswordRequest:
+      type: "object"
+      required:
+        - "currentPassword"
+        - "newPassword"
+      properties:
+        currentPassword:
+          type: "string"
+          format: "password"
+          minLength: 1
+          maxLength: 128
+        newPassword:
+          type: "string"
+          format: "password"
+          minLength: 8
+          maxLength: 128
+          description: "Must differ from the current password."
     ConfirmPhoneCode:
       type: "object"
       required:

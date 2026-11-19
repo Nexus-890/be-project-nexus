@@ -40,7 +40,8 @@ public enum UserErrorCode implements ErrorCode {
     USER_PASSWORD_RESET_LINK_INVALID(HttpStatus.BAD_REQUEST,
             "The password reset link is invalid, used or expired; ask for a new one"),
     USER_PASSWORD_REJECTED(HttpStatus.BAD_REQUEST, "The new password does not meet the password policy"),
-    USER_PASSWORD_REUSED(HttpStatus.BAD_REQUEST, "The new password must be different from the current password");
+    USER_PASSWORD_REUSED(HttpStatus.BAD_REQUEST, "The new password must be different from the current password"),
+    USER_CURRENT_PASSWORD_INCORRECT(HttpStatus.BAD_REQUEST, "The current password is incorrect");
 
     private final HttpStatus status;
     private final String message;

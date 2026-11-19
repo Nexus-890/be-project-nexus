@@ -99,6 +99,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/users/me/phone/verification/confirm` | POST | PROFILE.UPDATE | #210 / #263 — Confirm the phone verification code |
 | `/api/v1/users/me/avatar` | POST | PROFILE.UPDATE | Own avatar: multipart `file`, JPEG/PNG/WebP up to 2 MB, stored in Supabase |
 | `/api/v1/users/me/avatar` | DELETE | PROFILE.UPDATE | Own avatar: clear the photo and remove the stored object |
+| `/api/v1/users/me/password` | POST | PROFILE.UPDATE | Own password: check the current one, set a new one, sign out the other sessions |
 | `/api/v1/users/me/reputation` | GET | REPUTATION.VIEW | rating-service — own reputation with rating average and penalty count |
 | `/api/v1/users/me/penalties` | GET | REPUTATION.VIEW | rating-service — own reputation changes that lowered the score |
 | `/api/v1/users/me/addresses` | GET | PROFILE.VIEW | #210 / #265 — Own address book |

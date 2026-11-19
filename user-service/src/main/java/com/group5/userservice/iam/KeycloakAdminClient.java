@@ -349,6 +349,65 @@ public class KeycloakAdminClient {
         }
     }
 
+    public boolean passwordMatches(String username, String password) {
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("grant_type", "password");
+        form.add("client_id", properties.getClientId());
+        form.add("client_secret", properties.getClientSecret());
+        form.add("username", username);
+        form.add("password", password);
+        PasswordGrant grant;
+        try {
+            grant = client.post()
+                    .uri("/realms/{realm}/protocol/openid-connect/token", properties.getRealm())
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(form)
+                    .retrieve()
+                    .body(PasswordGrant.class);
+        } catch (HttpClientErrorException exception) {
+            if (exception.getStatusCode().value() == 400 && exception.getResponseBodyAsString().contains("invalid_grant")) {
+                return false;
+            }
+            throw unavailable("check the current password", exception);
+        } catch (RestClientException exception) {
+            throw unavailable("check the current password", exception);
+        }
+        if (grant != null && grant.refreshToken() != null) {
+            endGrantSession(grant.refreshToken());
+        }
+        return true;
+    }
+
+    public void signOutOtherSessions(UUID userId, String keepSessionId) {
+        try {
+            UserSession[] sessions = withToken(token -> client.get()
+                    .uri("/admin/realms/{realm}/users/{id}/sessions", properties.getRealm(), userId)
+                    .headers(headers -> headers.setBearerAuth(token)).retrieve().body(UserSession[].class));
+            for (UserSession session : sessions == null ? new UserSession[0] : sessions) {
+                if (session.id() != null && !session.id().equals(keepSessionId)) {
+                    withToken(token -> client.delete()
+                            .uri("/admin/realms/{realm}/sessions/{session}", properties.getRealm(), session.id())
+                            .headers(headers -> headers.setBearerAuth(token)).retrieve().toBodilessEntity());
+                }
+            }
+        } catch (RestClientException exception) {
+            log.warn("Keycloak could not end the other sessions of user {}", userId, exception);
+        }
+    }
+
+    private void endGrantSession(String refreshToken) {
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("client_id", properties.getClientId());
+        form.add("client_secret", properties.getClientSecret());
+        form.add("refresh_token", refreshToken);
+        try {
+            client.post().uri("/realms/{realm}/protocol/openid-connect/logout", properties.getRealm())
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED).body(form).retrieve().toBodilessEntity();
+        } catch (RestClientException exception) {
+            log.warn("Keycloak could not end the password check session", exception);
+        }
+    }
+
     public void signOutEverywhere(UUID userId) {
         try {
             withToken(token -> client.post()
@@ -508,6 +567,10 @@ public class KeycloakAdminClient {
     record UserId(UUID id) { }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
+    record PasswordGrant(@JsonProperty("refresh_token") String refreshToken) { }
+
+    record UserSession(String id) { }
+
     record TokenResponse(@JsonProperty("access_token") String accessToken,
                          @JsonProperty("expires_in") long expiresIn) { }
 

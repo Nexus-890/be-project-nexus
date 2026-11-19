@@ -121,9 +121,10 @@ client="$(kc get clients -r nexus -q clientId=user-service --fields id --format 
 if [ -z "$client" ]; then
   client="$(kc create clients -r nexus -s clientId=user-service -s enabled=true -s publicClient=false \
     -s serviceAccountsEnabled=true -s standardFlowEnabled=false -s implicitFlowEnabled=false \
-    -s directAccessGrantsEnabled=false -s clientAuthenticatorType=client-secret -i)"
+    -s directAccessGrantsEnabled=true -s clientAuthenticatorType=client-secret -i)"
 fi
 kc update "clients/$client" -r nexus -s "secret=$KEYCLOAK_USER_SERVICE_CLIENT_SECRET" -n
+kc update "clients/$client" -r nexus -s directAccessGrantsEnabled=true
 kc add-roles -r nexus --uusername service-account-user-service --cclientid realm-management \
   --rolename manage-users --rolename view-users --rolename query-users --rolename view-realm \
   --rolename query-clients --rolename view-clients
