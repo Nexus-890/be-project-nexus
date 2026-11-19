@@ -3574,6 +3574,52 @@ paths:
             "application/problem+json":
               schema:
                 $ref: "#/components/schemas/Problem"
+    delete:
+      tags:
+        - "Users"
+      operationId: "removeOwnAvatar"
+      summary: "Remove the current user's avatar"
+      description: "Clears avatarUrl and then removes the stored object from the Supabase bucket. Removing the object is best effort: a storage failure is logged and the profile stays without an avatar. Without an avatar the call changes nothing and still returns the profile. Access: requires PROFILE.UPDATE. Ownership/business restriction: JWT subject only."
+      security:
+        -
+          bearerAuth: []
+      x-required-privileges:
+        - "PROFILE.UPDATE"
+      x-gateway-privilege: "PROFILE.UPDATE"
+      x-required-roles: []
+      x-ownership: "JWT subject only."
+      x-error-codes:
+        "401":
+          - "UNAUTHENTICATED"
+        "403":
+          - "FORBIDDEN"
+        "404":
+          - "USER_NOT_FOUND"
+      responses:
+        "200":
+          description: "The profile without avatarUrl."
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/GetOwnProfileResponse"
+        "401":
+          description: "Unauthorized. Codes: `UNAUTHENTICATED`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "403":
+          description: "Forbidden. Codes: `FORBIDDEN`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: "Not Found. Codes: `USER_NOT_FOUND`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
   /api/v1/users/me/phone/verification:
     post:
       tags:

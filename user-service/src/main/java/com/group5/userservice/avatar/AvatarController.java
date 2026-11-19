@@ -14,6 +14,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -34,6 +35,12 @@ public class AvatarController {
     @PreAuthorize("hasAuthority('PROFILE.UPDATE')")
     public ApiResponse<UserResponse> upload(CurrentUser user, @RequestPart("file") MultipartFile file) {
         return ApiResponse.of(avatars.replace(user.id(), file));
+    }
+
+    @DeleteMapping
+    @PreAuthorize("hasAuthority('PROFILE.UPDATE')")
+    public ApiResponse<UserResponse> remove(CurrentUser user) {
+        return ApiResponse.of(avatars.remove(user.id()));
     }
 
     @RestControllerAdvice(assignableTypes = AvatarController.class)

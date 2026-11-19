@@ -55,6 +55,21 @@ public class AvatarService {
         return profiles.getOwnProfile(userId);
     }
 
+    public UserResponse remove(UUID userId) {
+        String previous = transaction.execute(status -> {
+            User user = users.findByIdAndDeletedAtIsNull(userId)
+                    .orElseThrow(() -> new DomainException(UserErrorCode.USER_NOT_FOUND));
+            String old = user.getAvatarUrl();
+            if (old != null) {
+                user.setAvatarUrl(null);
+                users.saveAndFlush(user);
+            }
+            return old;
+        });
+        storage.discard(userId, previous);
+        return profiles.getOwnProfile(userId);
+    }
+
     private AvatarImage read(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new DomainException(UserErrorCode.USER_AVATAR_REQUIRED);

@@ -79,6 +79,34 @@ class AvatarServiceTest {
     }
 
     @Test
+    void removingClearsTheUrlThenRemovesTheStoredObjectAndIsSafeToRepeat() {
+        UserResponse profile = mock(UserResponse.class);
+        when(profiles.getOwnProfile(ID)).thenReturn(profile);
+
+        assertThat(service.remove(ID)).isSameAs(profile);
+        assertThat(user.getAvatarUrl()).isNull();
+        verify(users).saveAndFlush(user);
+        verify(storage).discard(ID, OLD_URL);
+
+        assertThat(service.remove(ID)).isSameAs(profile);
+        verify(users).saveAndFlush(user);
+        verify(storage).discard(ID, null);
+        verify(storage, never()).upload(any(), any());
+    }
+
+    @Test
+    void aFailedRemovalKeepsTheStoredObject() {
+        when(users.saveAndFlush(user)).thenThrow(new IllegalStateException("database down"));
+
+        assertThatThrownBy(() -> service.remove(ID)).isInstanceOf(IllegalStateException.class);
+
+        verify(storage, never()).discard(any(), any());
+        when(users.findByIdAndDeletedAtIsNull(ID)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.remove(ID)).isInstanceOfSatisfying(DomainException.class,
+                error -> assertThat(error.getErrorCode()).isEqualTo("USER_NOT_FOUND"));
+    }
+
+    @Test
     void anUnknownUserIsRejectedBeforeUploading() {
         when(users.findByIdAndDeletedAtIsNull(ID)).thenReturn(Optional.empty());
         expect("USER_NOT_FOUND", file("me.jpg", JPEG));

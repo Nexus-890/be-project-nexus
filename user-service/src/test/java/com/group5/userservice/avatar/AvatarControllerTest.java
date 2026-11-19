@@ -45,6 +45,7 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -104,6 +105,25 @@ class AvatarControllerTest {
         mvc.perform(multipart(PATH).file(FILE).header("Authorization", "Bearer viewer"))
                 .andExpect(status().isForbidden());
         mvc.perform(multipart(PATH).file(FILE)).andExpect(status().isUnauthorized());
+        verifyNoInteractions(avatars);
+    }
+
+    @Test
+    void theOwnerRemovesTheAvatarAndGetsTheProfileWithoutIt() throws Exception {
+        when(avatars.remove(USER_ID)).thenReturn(profile(null));
+
+        mvc.perform(delete(PATH).header("Authorization", "Bearer buyer"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.id").value(USER_ID.toString()))
+                .andExpect(jsonPath("$.data.avatarUrl").doesNotExist());
+        verify(avatars).remove(USER_ID);
+    }
+
+    @Test
+    void removingNeedsAValidTokenWithTheProfileUpdatePrivilege() throws Exception {
+        mvc.perform(delete(PATH).header("Authorization", "Bearer viewer")).andExpect(status().isForbidden());
+        mvc.perform(delete(PATH)).andExpect(status().isUnauthorized());
         verifyNoInteractions(avatars);
     }
 
