@@ -1,12 +1,14 @@
 package com.group5.paymentservice.payment;
 
 import com.group5.paymentservice.payment.event.PaymentSessionEventConsumer;
+import com.group5.paymentservice.payout.evidence.PayoutEvidenceStorage;
 import io.micrometer.tracing.Tracer;
 import jakarta.servlet.Filter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -14,14 +16,17 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -30,16 +35,24 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup;
 
 class RefundApiTest extends PaymentDatabaseTestSupport {
     private static final UUID SUPPORT = UUID.randomUUID();
+    private static final byte[] PROOF =
+            "%PDF-1.4\n% synthetic refund proof\n%%EOF\n".getBytes(StandardCharsets.US_ASCII);
 
     @Autowired private WebApplicationContext context;
     @Autowired private PaymentSessionEventConsumer listener;
@@ -47,6 +60,8 @@ class RefundApiTest extends PaymentDatabaseTestSupport {
     @Autowired private JsonMapper mapper;
     @Autowired private Tracer tracer;
     @MockitoBean private JwtDecoder decoder;
+    @MockitoBean private PayoutEvidenceStorage storage;
+    private final Map<String, PayoutEvidenceStorage.StoredEvidence> files = new ConcurrentHashMap<>();
     private RefundFixtures fixtures;
     private MockMvc mvc;
 
@@ -56,6 +71,15 @@ class RefundApiTest extends PaymentDatabaseTestSupport {
         reset(decoder);
         when(decoder.decode("support")).thenReturn(token("support", SUPPORT, List.of("ORDER.REFUND")));
         when(decoder.decode("buyer")).thenReturn(token("buyer", UUID.randomUUID(), List.of("ORDER.VIEW")));
+        files.clear();
+        when(storage.configured()).thenReturn(true);
+        doAnswer(call -> {
+            files.put(call.getArgument(0), new PayoutEvidenceStorage.StoredEvidence(call.getArgument(1),
+                    call.getArgument(2)));
+            return null;
+        }).when(storage).put(anyString(), any(), anyString());
+        doAnswer(call -> files.remove(call.<String>getArgument(0))).when(storage).delete(anyString());
+        when(storage.get(anyString())).thenAnswer(call -> files.get(call.<String>getArgument(0)));
         mvc = webAppContextSetup(context).addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
     }
 
@@ -190,6 +214,7 @@ class RefundApiTest extends PaymentDatabaseTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].refundId").value(refundId))
                 .andExpect(jsonPath("$.data[0].status").value("REQUESTED"));
+        evidence(refundId, "FT-AUTO-1", PROOF).andExpect(status().isOk());
         complete(refundId, "support").andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("COMPLETED"));
 
@@ -248,6 +273,7 @@ class RefundApiTest extends PaymentDatabaseTestSupport {
     void completingARefundRecordsOneRefundTransactionAndOneEvent() throws Exception {
         UUID orderId = cancelledPaidOrder();
         String refundId = requested(orderId, "key-complete");
+        evidence(refundId, "FT-COMPLETE", PROOF).andExpect(status().isOk());
 
         complete(refundId, "support").andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("COMPLETED"))
@@ -277,6 +303,7 @@ class RefundApiTest extends PaymentDatabaseTestSupport {
     void completingTwiceReturnsTheSameRefundAndWritesOnce() throws Exception {
         UUID orderId = cancelledPaidOrder();
         String refundId = requested(orderId, "key-twice");
+        evidence(refundId, "FT-TWICE", PROOF).andExpect(status().isOk());
 
         complete(refundId, "support").andExpect(status().isOk());
         complete(refundId, "support").andExpect(status().isOk())
@@ -294,6 +321,7 @@ class RefundApiTest extends PaymentDatabaseTestSupport {
             for (int round = 0; round < 5; round++) {
                 UUID orderId = cancelledPaidOrder();
                 String refundId = requested(orderId, "key-race-" + round);
+                evidence(refundId, "FT-RACE-" + round, PROOF).andExpect(status().isOk());
                 CyclicBarrier start = new CyclicBarrier(2);
                 Callable<MvcResult> click = () -> {
                     start.await(5, TimeUnit.SECONDS);
@@ -335,6 +363,113 @@ class RefundApiTest extends PaymentDatabaseTestSupport {
         assertThat(fixtures.outbox("OrderRefundCompleted", orderId)).isZero();
     }
 
+    @Test
+    void completingWithoutEvidenceIsRejectedAndWritesNothing() throws Exception {
+        UUID orderId = cancelledPaidOrder();
+        String refundId = requested(orderId, "key-no-evidence");
+
+        complete(refundId, "support").andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PAYMENT_REFUND_EVIDENCE_REQUIRED"));
+        assertThat(fixtures.refund(orderId).get("status")).hasToString("REQUESTED");
+        assertThat(fixtures.outbox("OrderRefundCompleted", orderId)).isZero();
+    }
+
+    @Test
+    void evidenceIsStoredPrivatelyListedAndDownloadable() throws Exception {
+        UUID orderId = cancelledPaidOrder();
+        String refundId = requested(orderId, "key-evidence");
+
+        String response = evidence(refundId, "  FT2611190001  ", PROOF).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("REQUESTED"))
+                .andExpect(jsonPath("$.data.evidence.length()").value(1))
+                .andExpect(jsonPath("$.data.evidence[0].contentType").value("application/pdf"))
+                .andExpect(jsonPath("$.data.evidence[0].bankReference").value("FT2611190001"))
+                .andExpect(jsonPath("$.data.evidence[0].sizeBytes").value(PROOF.length))
+                .andExpect(jsonPath("$.data.evidence[0].uploadedBy").value(SUPPORT.toString()))
+                .andReturn().getResponse().getContentAsString();
+        String evidenceId = mapper.readTree(response).get("data").get("evidence").get(0).get("evidenceId").asString();
+
+        var row = jdbc.queryForMap("SELECT * FROM refund_evidence WHERE id = ?::uuid", evidenceId);
+        assertThat(row.get("object_key")).isEqualTo("refunds/" + refundId + "/" + evidenceId + ".pdf");
+        assertThat(files).containsOnlyKeys("refunds/" + refundId + "/" + evidenceId + ".pdf");
+        perform(get("/api/v1/refunds").param("orderId", orderId.toString()).header("Authorization", "Bearer support"))
+                .andExpect(jsonPath("$.data[0].evidence[0].evidenceId").value(evidenceId));
+        perform(get("/api/v1/refunds/" + refundId + "/evidence/" + evidenceId).header("Authorization", "Bearer support"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("application/pdf"))
+                .andExpect(header().string("Cache-Control", "no-store, private"))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                .andExpect(content().bytes(PROOF));
+        perform(get("/api/v1/refunds/" + refundId + "/evidence/" + UUID.randomUUID())
+                .header("Authorization", "Bearer support"))
+                .andExpect(status().isNotFound());
+        perform(get("/api/v1/refunds/" + refundId + "/evidence/" + evidenceId).header("Authorization", "Bearer buyer"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void theSameFileTwiceKeepsOneRowAndNoOrphan() throws Exception {
+        UUID orderId = cancelledPaidOrder();
+        String refundId = requested(orderId, "key-evidence-replay");
+
+        evidence(refundId, "FT-1", PROOF).andExpect(status().isOk());
+        evidence(refundId, "FT-1 again", PROOF).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.evidence.length()").value(1))
+                .andExpect(jsonPath("$.data.evidence[0].bankReference").value("FT-1"));
+        assertThat(files).hasSize(1);
+    }
+
+    @Test
+    void aFourthFileIsRejectedAndNothingIsLeftInStorage() throws Exception {
+        UUID orderId = cancelledPaidOrder();
+        String refundId = requested(orderId, "key-evidence-limit");
+        for (int n = 1; n <= 3; n++) {
+            evidence(refundId, "FT-" + n, proof(n)).andExpect(status().isOk());
+        }
+
+        evidence(refundId, "FT-4", proof(4)).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PAYMENT_REFUND_EVIDENCE_LIMIT"));
+        assertThat(files).hasSize(3);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM refund_evidence WHERE refund_id = ?::uuid",
+                Long.class, refundId)).isEqualTo(3);
+    }
+
+    @Test
+    void aBlankBankReferenceOrABadFileOrACompletedRefundIsRejected() throws Exception {
+        UUID orderId = cancelledPaidOrder();
+        String refundId = requested(orderId, "key-evidence-bad");
+
+        evidence(refundId, "   ", PROOF).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PAYMENT_REFUND_EVIDENCE_INVALID"));
+        evidence(refundId, "x".repeat(101), PROOF).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PAYMENT_REFUND_EVIDENCE_INVALID"));
+        evidence(refundId, "FT-TXT", "plain text, not a receipt".getBytes(StandardCharsets.US_ASCII))
+                .andExpect(status().isUnsupportedMediaType());
+        evidence(UUID.randomUUID().toString(), "FT-404", PROOF).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PAYMENT_REFUND_NOT_FOUND"));
+        perform(multipart("/api/v1/refunds/" + refundId + "/evidence")
+                .file(new MockMultipartFile("file", "proof.pdf", "application/pdf", PROOF))
+                .param("bankReference", "FT-BUYER").header("Authorization", "Bearer buyer"))
+                .andExpect(status().isForbidden());
+
+        evidence(refundId, "FT-DONE", PROOF).andExpect(status().isOk());
+        complete(refundId, "support").andExpect(status().isOk());
+        evidence(refundId, "FT-LATE", proof(9)).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PAYMENT_REFUND_COMPLETED"));
+        assertThat(files).hasSize(1);
+    }
+
+    private static byte[] proof(int n) {
+        return ("%PDF-1.4\n% synthetic refund proof " + n + "\n%%EOF\n").getBytes(StandardCharsets.US_ASCII);
+    }
+
+    private ResultActions evidence(String refundId, String bankReference, byte[] bytes) throws Exception {
+        return perform(multipart("/api/v1/refunds/" + refundId + "/evidence")
+                .file(new MockMultipartFile("file", "proof.pdf", "application/pdf", bytes))
+                .param("bankReference", bankReference)
+                .header("Authorization", "Bearer support"));
+    }
+
     private String requested(UUID orderId, String key) throws Exception {
         return requestedWith(orderId, key, null, "Seller out of stock");
     }
@@ -360,7 +495,7 @@ class RefundApiTest extends PaymentDatabaseTestSupport {
                 .header("Idempotency-Key", key).contentType(MediaType.APPLICATION_JSON).content(body));
     }
 
-    private ResultActions perform(MockHttpServletRequestBuilder request) throws Exception {
+    private ResultActions perform(RequestBuilder request) throws Exception {
         try {
             return fixtures.traced(() -> {
                 try {

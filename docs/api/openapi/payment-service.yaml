@@ -460,8 +460,9 @@ paths:
       summary: Record that the manual transfer back to the buyer is done
       description: >-
         Requires ORDER.REFUND. Records one REFUND payment transaction (MANUAL_TRANSFER) and
-        emits OrderRefundCompleted. Calling it again on a completed refund returns the stored
-        refund without a second transaction or event.
+        emits OrderRefundCompleted. At least one transfer evidence file must be uploaded first.
+        Calling it again on a completed refund returns the stored refund without a second
+        transaction or event.
       security:
         - bearerAuth: []
       x-actor-roles: [ADMIN, SUPPORT_STAFF]
@@ -505,7 +506,131 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
         '409':
-          description: Refund changed by a concurrent request (PAYMENT_REFUND_CONFLICT)
+          description: >-
+            Refund changed by a concurrent request (PAYMENT_REFUND_CONFLICT) or no evidence
+            uploaded yet (PAYMENT_REFUND_EVIDENCE_REQUIRED)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/refunds/{id}/evidence:
+    post:
+      tags: [Refunds]
+      operationId: uploadRefundEvidence
+      summary: Attach proof of the manual bank transfer to a refund
+      description: >-
+        Requires ORDER.REFUND. Stores a JPEG, PNG or PDF (detected from the bytes, up to 10 MiB) in
+        private storage with the bank transaction reference. Uploading the same file again returns
+        the stored refund. A refund keeps at most 3 files and accepts none after completion.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [ADMIN, SUPPORT_STAFF]
+      x-required-privileges: [ORDER.REFUND]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, bankReference]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                bankReference:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+      responses:
+        '200':
+          description: Refund with its evidence list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundApiResponse'
+        '400':
+          description: Missing file or bank reference (PAYMENT_REFUND_EVIDENCE_INVALID)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Missing ORDER.REFUND (FORBIDDEN)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Unknown refund (PAYMENT_REFUND_NOT_FOUND)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Completed refund (PAYMENT_REFUND_COMPLETED) or three files already (PAYMENT_REFUND_EVIDENCE_LIMIT)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: File larger than 10 MiB
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '415':
+          description: Not a JPEG, PNG or PDF
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Private evidence storage is not configured
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/refunds/{id}/evidence/{evidenceId}:
+    get:
+      tags: [Refunds]
+      operationId: getRefundEvidence
+      summary: Download one refund transfer proof
+      security:
+        - bearerAuth: []
+      x-actor-roles: [ADMIN, SUPPORT_STAFF]
+      x-required-privileges: [ORDER.REFUND]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: evidenceId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Private evidence bytes
+          content:
+            image/png:
+              schema: {type: string, format: binary}
+            image/jpeg:
+              schema: {type: string, format: binary}
+            application/pdf:
+              schema: {type: string, format: binary}
+        '404':
+          description: Unknown refund or evidence (PAYMENT_REFUND_NOT_FOUND)
           content:
             application/problem+json:
               schema:
@@ -2507,7 +2632,7 @@ components:
       enum: [REQUESTED, COMPLETED]
     Refund:
       type: object
-      required: [refundId, orderId, amount, currency, status, reason, requestedAt, completedAt]
+      required: [refundId, orderId, amount, currency, status, reason, requestedAt, completedAt, evidence]
       properties:
         refundId:
           type: string
@@ -2532,6 +2657,34 @@ components:
           type: string
           format: date-time
           nullable: true
+        evidence:
+          type: array
+          maxItems: 3
+          items:
+            $ref: '#/components/schemas/RefundEvidence'
+    RefundEvidence:
+      type: object
+      required: [evidenceId, contentType, sizeBytes, bankReference, uploadedBy, uploadedAt]
+      properties:
+        evidenceId:
+          type: string
+          format: uuid
+        contentType:
+          type: string
+          enum: [image/jpeg, image/png, application/pdf]
+        sizeBytes:
+          type: integer
+          minimum: 1
+          maximum: 10485760
+        bankReference:
+          type: string
+          maxLength: 100
+        uploadedBy:
+          type: string
+          format: uuid
+        uploadedAt:
+          type: string
+          format: date-time
     RefundApiResponse:
       type: object
       required: [code, message, data]

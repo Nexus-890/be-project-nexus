@@ -197,6 +197,8 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/refunds` | POST | ORDER.REFUND | #247 — payment-service; funded amount and idempotency enforced downstream |
 | `/api/v1/refunds` | GET | ORDER.REFUND | #247 — payment-service; order visibility enforced downstream |
 | `/api/v1/refunds/{id}/complete` | POST | ORDER.REFUND | #247 — payment-service; manual transfer confirmation enforced downstream |
+| `/api/v1/refunds/{id}/evidence` | POST | ORDER.REFUND | Refund evidence — private transfer proof with bank reference; at most 3 files while REQUESTED |
+| `/api/v1/refunds/{id}/evidence/{evidenceId}` | GET | ORDER.REFUND | Refund evidence — private bytes of one stored proof |
 | `/api/v1/shipping/quotes` | POST | SHIPPING.QUOTE | #201 — shipment-service |
 | `/api/v1/carriers` | GET | SHIPPING.QUOTE | #201 — shipment-service; SHP-11 |
 | `/api/v1/shipments` | POST | SHIPPING.CREATE_SHIPMENT | #202 — shipment-service; manual creation additionally requires ADMIN or SUPPORT_STAFF downstream |
@@ -520,7 +522,9 @@ These older drafts add no public method/path pairs to the active table above.
 | POST | `/api/v1/payments` | BUYER | CHECKOUT.START | CHECKOUT.START | Own PENDING group/session before dueAt; repeated call returns the same instructions | #120, #121 |
 | POST | `/api/v1/refunds` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Cancelled, paid order; one refund per order; same Idempotency-Key and body returns the stored refund | #247 |
 | GET | `/api/v1/refunds` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Refund of one order by orderId | #247 |
-| POST | `/api/v1/refunds/{id}/complete` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Records one manual REFUND transaction; repeating returns the completed refund | #247 |
+| POST | `/api/v1/refunds/{id}/complete` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Needs at least one evidence file; records one manual REFUND transaction; repeating returns the completed refund | #247 |
+| POST | `/api/v1/refunds/{id}/evidence` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | JPEG, PNG or PDF up to 10 MiB with a bank reference; same file again returns the stored refund; at most 3 files; closed after completion | Refund evidence |
+| GET | `/api/v1/refunds/{id}/evidence/{evidenceId}` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Private evidence bytes, no-store | Refund evidence |
 | GET | `/api/v1/notifications` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notifications only, including for ADMIN | #108 |
 | GET | `/api/v1/notifications/unread-count` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Count own unread notifications only | #108 |
 | PATCH | `/api/v1/notifications/{id}/read` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notification only; other caller returns 403 | #109 |

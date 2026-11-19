@@ -4,6 +4,7 @@ import com.group5.paymentservice.payment.enums.RefundStatus;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
 public record RefundView(
@@ -14,5 +15,10 @@ public record RefundView(
         RefundStatus status,
         String reason,
         OffsetDateTime requestedAt,
-        OffsetDateTime completedAt) {
+        OffsetDateTime completedAt,
+        List<RefundEvidenceView> evidence) {
+    public RefundView withEvidence(List<RefundEvidenceView> files) {
+        return new RefundView(refundId, orderId, amount, currency, status, reason, requestedAt, completedAt,
+                List.copyOf(files));
+    }
 }

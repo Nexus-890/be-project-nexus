@@ -300,6 +300,12 @@ nexus:
         path: /api/v1/refunds/{id}/complete
         privilege: ORDER.REFUND
       - method: POST
+        path: /api/v1/refunds/{id}/evidence
+        privilege: ORDER.REFUND
+      - method: GET
+        path: /api/v1/refunds/{id}/evidence/{evidenceId}
+        privilege: ORDER.REFUND
+      - method: POST
         path: /api/v1/shipping/quotes
         privilege: SHIPPING.QUOTE
       - method: GET

@@ -387,6 +387,9 @@ public class RefundService {
             return view(refund);
         }
         requireRefundProceeds(orderId);
+        if (refunds.countEvidence(refundId) == 0) {
+            throw new DomainException(PaymentErrorCode.REFUND_EVIDENCE_REQUIRED);
+        }
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
         // TIỀN ĐÃ CHUYỂN TAY NGOÀI HỆ THỐNG -> GHI 1 GIAO DỊCH REFUND ĐỂ ĐỐI SOÁT
@@ -458,7 +461,8 @@ public class RefundService {
                 refund.getStatus(),
                 refund.getReason(),
                 refund.getRequestedAt(),
-                refund.getCompletedAt());
+                refund.getCompletedAt(),
+                List.of());
     }
 
     // ĐÃ TRẢ TIỀN HAY CHƯA LÀ DO DỮ LIỆU CỦA PAYMENT QUYẾT ĐỊNH, KHÔNG TIN paidAmount CỦA COMMERCE
