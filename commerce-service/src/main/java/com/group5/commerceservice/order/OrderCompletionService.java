@@ -102,6 +102,8 @@ public class OrderCompletionService {
                 completion.getCreatedAt().toInstant().toString(), order.getOrderNumber(),
                 receipts.renderForEmail(order, completion.getCreatedAt()),
                 order.getTotalAmount().setScale(2).toPlainString(),
-                order.getShippingFee().setScale(2).toPlainString()));
+                order.getShippingFee().setScale(2).toPlainString(),
+                order.getItems().stream().map(item -> new OrderCompleted.Item(item.getProductId(), item.getSkuId(),
+                        item.getQuantity())).toList()));
     }
 }

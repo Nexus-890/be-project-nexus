@@ -84,6 +84,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/auth/logout` | POST | Public | #252 — HttpOnly refresh cookie: sign out |
 | `/api/v1/products` | GET | Public | #99 / #220 — Database search, listing type, price ceiling and stable sorting before pagination |
 | `/api/v1/products/search` | GET | Public | #215 — Full-text product search |
+| `/api/v1/products/discovery` | GET | Public | Home page best sellers and new arrivals |
 | `/api/v1/categories` | GET | Public | #215 — Flat category list |
 | `/api/v1/products/{id}` | GET | Public | #83 — Product create, update and read                   |
 | `/api/v1/categories/{id}` | GET | Public | #80 — Category create, update and read                  |
@@ -369,8 +370,8 @@ require their owning implementations.
 - Exactly thirteen method/path pairs are public. No public `/**`, method-less rule,
   or implicit public HEAD/OPTIONS, Swagger or Actuator exception. TRACE is rejected
   earlier by Spring Security's HTTP firewall with 400, never forwarded.
-- `{id}` is a UUID. UUID-constrained matchers keep `/products/mine`,
-  `/products/search`, `/products/discovery`, and future literal paths from
+- `{id}` is a UUID. UUID-constrained matchers keep `/products/mine`
+  and future literal paths from
   inheriting public product-detail access. Category `tree` has its own public row.
 - Category updates use PATCH in the current controller; the external endpoint
   catalogue says PUT. A later contract change must update both files.

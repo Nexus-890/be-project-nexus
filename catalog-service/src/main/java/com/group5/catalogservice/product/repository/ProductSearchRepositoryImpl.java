@@ -23,6 +23,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import javax.sql.DataSource;
 
@@ -45,6 +46,25 @@ public class ProductSearchRepositoryImpl implements ProductSearchRepository {
                 row.getBigDecimal("min_price"), row.getBigDecimal("max_price")));
         long count = jdbc.queryForObject(query.count(), query.parameters(), Long.class);
         return new PageImpl<>(content, pageable, count);
+    }
+
+    @Override
+    public List<ProductResponse> discover(boolean popular, int limit) {
+        String sql = """
+                SELECT p.id, p.name, p.slug, p.category_id, p.seller_id, price.min_price, price.max_price
+                FROM products p
+                CROSS JOIN LATERAL (
+                    SELECT min(s.price) AS min_price, max(s.price) AS max_price
+                    FROM skus s WHERE s.product_id = p.id AND s.status = 'ACTIVE'
+                ) price
+                """ + (popular ? "JOIN product_stats stats ON stats.product_id = p.id AND stats.order_count > 0\n" : "")
+                + """
+                WHERE p.status = 'ACTIVE' AND p.deleted_at IS NULL AND price.min_price IS NOT NULL
+                ORDER BY """ + (popular ? " stats.order_count DESC," : "") + " p.created_at DESC, p.id LIMIT :limit";
+        return jdbc.query(sql, Map.of("limit", limit), (row, number) -> new ProductResponse(
+                row.getObject("id", UUID.class), row.getString("name"), row.getString("slug"), ProductStatus.ACTIVE,
+                row.getObject("category_id", UUID.class), row.getObject("seller_id", UUID.class),
+                row.getBigDecimal("min_price"), row.getBigDecimal("max_price")));
     }
 
     @Override

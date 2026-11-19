@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 public interface ProductSearchRepository {
@@ -13,4 +14,6 @@ public interface ProductSearchRepository {
 
     Page<ProductResponse> searchVisibleProducts(UUID categoryId, String keyword, String sort,
                                                Boolean auctionEnabled, BigDecimal maxPrice, Pageable pageable);
+
+    List<ProductResponse> discover(boolean popular, int limit);
 }

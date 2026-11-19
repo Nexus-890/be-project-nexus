@@ -12,6 +12,7 @@ import tools.jackson.databind.JsonNode;
 
 import java.util.HashSet;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.Set;
 import java.util.UUID;
 
@@ -28,6 +29,7 @@ public class ProductFlagsConsumer {
     public void receive(EventEnvelope<JsonNode> event) {
         switch (event.eventType()) {
             case "OrderCreated" -> idempotent.handle(CONSUMER, event, message -> markOrdered(message.payload()));
+            case "OrderCompleted" -> idempotent.handle(CONSUMER, event, message -> countCompleted(message.payload()));
             case "AuctionCreated" -> idempotent.handle(CONSUMER, event, message -> updateAuction(message, true));
             case "AuctionEnded", "AuctionCancelled" ->
                     idempotent.handle(CONSUMER, event, message -> updateAuction(message, false));
@@ -50,6 +52,27 @@ public class ProductFlagsConsumer {
                 )
                 UPDATE products p SET has_order = true FROM locked WHERE p.id = locked.id
                 """, Map.of("ids", products));
+    }
+
+    private void countCompleted(JsonNode payload) {
+        JsonNode items = payload.path("items");
+        if (!items.isArray() || items.isEmpty()) {
+            return;
+        }
+        Map<UUID, Integer> quantities = new TreeMap<>();
+        items.forEach(item -> {
+            int quantity = item.required("quantity").asInt();
+            if (quantity < 1) {
+                throw new IllegalArgumentException("OrderCompleted item quantity must be positive");
+            }
+            quantities.merge(UUID.fromString(item.required("productId").asString()), quantity, Integer::sum);
+        });
+        quantities.forEach((product, quantity) -> jdbc.update("""
+                INSERT INTO product_stats (product_id, order_count)
+                SELECT id, :quantity FROM products WHERE id = :product
+                ON CONFLICT (product_id) DO UPDATE
+                SET order_count = product_stats.order_count + EXCLUDED.order_count, updated_at = now()
+                """, Map.of("product", product, "quantity", quantity)));
     }
 
     private void updateAuction(EventEnvelope<JsonNode> event, boolean open) {

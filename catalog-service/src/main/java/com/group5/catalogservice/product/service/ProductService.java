@@ -36,6 +36,7 @@ import org.springframework.stereotype.Service;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 @Service
@@ -166,6 +167,16 @@ public class ProductService {
         Page<ProductResponse> results = productRepository.searchFullText(categoryId, q.strip(), sort, auctionEnabled,
                 minPrice, maxPrice, PageRequest.of(page, size));
         return attachImages(results);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ProductResponse> discover(String type, int size) {
+        if (!List.of("popular", "new").contains(type) || size < 1 || size > 24) {
+            throw new DomainException(CatalogErrorCode.DATA_INVALID, "Invalid product discovery parameters");
+        }
+        List<ProductResponse> products = productRepository.discover(type.equals("popular"), size);
+        attachImages(new PageImpl<>(products));
+        return products;
     }
 
     @Transactional(readOnly = true)
