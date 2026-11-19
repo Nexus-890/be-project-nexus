@@ -584,6 +584,157 @@ paths:
                 detail: You do not have permission to access this resource
                 instance: /api/v1/inventory/reservations
                 code: FORBIDDEN
+  /api/v1/inventory/reservations/fulfillment:
+    get:
+      tags: [Reservations]
+      operationId: getOrderFulfillment
+      summary: Read the pick and pack steps of one seller order
+      description: >-
+        Every reservation of the order, by SKU, with pickedAt and shippedAt. A seller sees
+        the order only when they own every SKU in it. The gateway only requires a valid token;
+        the service requires ADMIN or SELLER.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [SELLER, ADMIN]
+      x-required-roles: [SELLER, ADMIN]
+      parameters:
+        - name: orderId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The reservations of the order; empty when nothing was reserved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationViewListApiResponse'
+        '400':
+          description: Missing or malformed orderId (INVALID_PARAMETER)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Not ADMIN or SELLER, or a SKU of the order belongs to another seller (FORBIDDEN)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/inventory/reservations/{id}/pick:
+    post:
+      tags: [Reservations]
+      operationId: pickReservation
+      summary: Mark paid stock as picked from the shelf
+      description: >-
+        Sets pickedAt on a CONFIRMED reservation and writes one PICK ledger row with the reservation quantity and the reservation id as referenceId. Balances do not change: the stock already left on-hand at COMMIT. Repeating returns the reservation without a second row. The gateway only requires a valid token; the service requires ADMIN, or SELLER
+        owning the SKU (checked with catalog-service).
+      security:
+        - bearerAuth: []
+      x-actor-roles: [SELLER, ADMIN]
+      x-required-roles: [SELLER, ADMIN]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The reservation with its fulfilment steps
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationViewApiResponse'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Not ADMIN and not the seller of the SKU (FORBIDDEN)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Unknown reservation (INVENTORY_RESERVATION_NOT_FOUND)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Not CONFIRMED (INVENTORY_NOT_PICKABLE)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: catalog-service could not confirm the SKU owner (INVENTORY_CATALOG_UNAVAILABLE)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/inventory/reservations/{id}/ship:
+    post:
+      tags: [Reservations]
+      operationId: shipReservation
+      summary: Mark picked stock as packed for the carrier
+      description: >-
+        Sets shippedAt on a picked CONFIRMED reservation and writes one SHIP ledger row with the reservation quantity. Balances do not change. Repeating returns the reservation without a second row. The gateway only requires a valid token; the service requires ADMIN, or SELLER
+        owning the SKU (checked with catalog-service).
+      security:
+        - bearerAuth: []
+      x-actor-roles: [SELLER, ADMIN]
+      x-required-roles: [SELLER, ADMIN]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The reservation with its fulfilment steps
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationViewApiResponse'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Not ADMIN and not the seller of the SKU (FORBIDDEN)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Unknown reservation (INVENTORY_RESERVATION_NOT_FOUND)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Not CONFIRMED (INVENTORY_NOT_PICKABLE) or not picked yet (INVENTORY_NOT_PICKED)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: catalog-service could not confirm the SKU owner (INVENTORY_CATALOG_UNAVAILABLE)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/inventory/adjustments:
     post:
       tags: [Stock]
@@ -2014,7 +2165,7 @@ components:
           $ref: '#/components/schemas/PageInfo'
     ReservationView:
       type: object
-      required: [id, skuId, warehouseId, orderId, quantity, status, expiresAt, releasedAt]
+      required: [id, skuId, warehouseId, orderId, quantity, status, expiresAt, releasedAt, pickedAt, shippedAt]
       properties:
         id:
           type: string
@@ -2044,6 +2195,44 @@ components:
           format: date-time
           nullable: true
           description: In UTC; null while HELD
+        pickedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: In UTC; set when the seller marks the items picked
+        shippedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: In UTC; set when the seller marks the picked items packed for the carrier
+    ReservationViewApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          example: response success
+        data:
+          $ref: '#/components/schemas/ReservationView'
+    ReservationViewListApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          example: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReservationView'
     ReservationPageApiResponse:
       type: object
       required: [code, message, data, page]
@@ -2064,7 +2253,7 @@ components:
           $ref: '#/components/schemas/PageInfo'
     MovementType:
       type: string
-      enum: [INTAKE, RESERVE, RELEASE, COMMIT, ADJUSTMENT, RETURN]
+      enum: [INTAKE, RESERVE, RELEASE, COMMIT, ADJUSTMENT, RETURN, PICK, SHIP]
     Movement:
       type: object
       required: [id, skuId, warehouseId, movementType, quantity, referenceId, reason, createdAt]

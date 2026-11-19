@@ -265,6 +265,9 @@ above: any valid token passes the gateway and the owning service checks the role
 | POST | `/api/v1/inventory/reservations/{id}/confirm` | not routed | Service requires ADMIN; the OrderPaid consumer calls the service method in-process | #136 — Confirm and release a reservation |
 | POST | `/api/v1/inventory/reservations/{id}/release` | not routed | Service requires ADMIN; the OrderCancelled consumer calls the service method in-process | #136 — Confirm and release a reservation |
 | GET | `/api/v1/inventory/reservations` | token only | Service requires ADMIN or SUPPORT_STAFF | #200 — Inventory support reads and stock adjustment |
+| GET | `/api/v1/inventory/reservations/fulfillment` | token only | Service requires ADMIN, or SELLER owning every SKU of the order | Pick and pack — fulfilment steps of one seller order |
+| POST | `/api/v1/inventory/reservations/{id}/pick` | token only | Service requires ADMIN, or SELLER owning the SKU; CONFIRMED only; writes one PICK ledger row | Pick and pack |
+| POST | `/api/v1/inventory/reservations/{id}/ship` | token only | Service requires ADMIN, or SELLER owning the SKU; after pick; writes one SHIP ledger row | Pick and pack |
 | GET | `/api/v1/inventory/balances` | token only | Service requires ADMIN, or SELLER with `skuId` of a SKU whose product catalog-service shows with the caller as `sellerId` | #200 — Inventory support reads and stock adjustment |
 | POST | `/api/v1/inventory/adjustments` | token only | Service requires ADMIN; writes one ADJUSTMENT ledger row with the reason | #200 — Inventory support reads and stock adjustment |
 | GET | `/api/v1/inventory/movements` | token only | Service requires ADMIN or SUPPORT_STAFF | #200 — Inventory support reads and stock adjustment |
@@ -744,6 +747,9 @@ A path with several roles in `x-required-roles` accepts any one of them.
 | POST | `/api/v1/inventory/reservations/{id}/confirm` | system | not routed | none (service-to-service) | Called by the event consumers of #160 and #161; conditional on status HELD | #136 |
 | POST | `/api/v1/inventory/reservations/{id}/release` | system | not routed | none (service-to-service) | Called by the event consumers of #160 and #161; conditional on status HELD | #136 |
 | GET | `/api/v1/inventory/reservations` | ADMIN, SUPPORT_STAFF | token only | none (role-only) | Service requires ADMIN or SUPPORT_STAFF | #200 |
+| GET | `/api/v1/inventory/reservations/fulfillment` | ADMIN, SELLER | token only | none (role-only) | Seller sees only orders whose SKUs they own | Pick and pack |
+| POST | `/api/v1/inventory/reservations/{id}/pick` | ADMIN, SELLER | token only | none (role-only) | Conditional on CONFIRMED and not picked; repeating returns the reservation | Pick and pack |
+| POST | `/api/v1/inventory/reservations/{id}/ship` | ADMIN, SELLER | token only | none (role-only) | Conditional on picked and not shipped; repeating returns the reservation | Pick and pack |
 | GET | `/api/v1/inventory/balances` | ADMIN, SELLER | token only | none (role-only) | Service requires ADMIN, or SELLER for their own SKUs | #200 |
 | POST | `/api/v1/inventory/adjustments` | ADMIN | token only | none (role-only) | Service requires ADMIN; writes one ledger row | #200 |
 | GET | `/api/v1/inventory/movements` | ADMIN, SUPPORT_STAFF | token only | none (role-only) | Service requires ADMIN or SUPPORT_STAFF | #200 |
@@ -803,7 +809,8 @@ A path with several roles in `x-required-roles` accepts any one of them.
   and #198 are in Sprint 2. AUC-09, AUC-11 and AUC-12 have no issue and are left out.
   `GET /internal/v1/inventory/reservations` (#209, Sprint 3) is not in this draft.
 - **Movement types:** `movementType` and the `type` filter use the eight
-  `inventory_movement_type` values plus `INTAKE` and `COMMIT`, which V6 adds (#131).
+  `inventory_movement_type` values plus `INTAKE` and `COMMIT`, which V6 adds (#131),
+  and `PICK` and `SHIP`, which V13 adds for pick and pack.
   #200 writes `ADJUSTMENT`. The schema document still names an `ADJUST` value that no
   issue writes.
   As delivered, the `type` filter and `movementType` use only the six values the

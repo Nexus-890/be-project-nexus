@@ -68,6 +68,12 @@ public class InventoryReservation extends AuditedEntity {
     @Column(name = "released_at")
     private OffsetDateTime releasedAt;
 
+    @Column(name = "picked_at")
+    private OffsetDateTime pickedAt;
+
+    @Column(name = "shipped_at")
+    private OffsetDateTime shippedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 

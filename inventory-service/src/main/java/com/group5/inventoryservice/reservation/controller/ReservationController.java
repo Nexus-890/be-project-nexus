@@ -6,6 +6,7 @@ import com.group5.inventoryservice.reservation.ReservationStatus;
 import com.group5.inventoryservice.reservation.dto.request.ReserveRequest;
 import com.group5.inventoryservice.reservation.dto.response.ReservationResponse;
 import com.group5.inventoryservice.reservation.dto.response.ReservationView;
+import com.group5.inventoryservice.reservation.service.ReservationFulfillmentService;
 import com.group5.inventoryservice.reservation.service.ReservationQueryService;
 import com.group5.inventoryservice.reservation.service.ReservationService;
 import com.group5.inventoryservice.shared.web.Pages;
@@ -34,6 +35,7 @@ public class ReservationController {
 
     private final ReservationService reservationService;
     private final ReservationQueryService reservationQueries;
+    private final ReservationFulfillmentService fulfillment;
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -55,6 +57,24 @@ public class ReservationController {
     @PreAuthorize("hasRole('ADMIN')")
     public void release(@PathVariable UUID id, CurrentUser currentUser) {
         reservationService.release(id, currentUser);
+    }
+
+    @PostMapping("/{id}/pick")
+    @PreAuthorize("hasAnyRole('SELLER', 'ADMIN')")
+    public ApiResponse<ReservationView> pick(@PathVariable UUID id, CurrentUser currentUser) {
+        return ApiResponse.of(fulfillment.pick(id, currentUser));
+    }
+
+    @PostMapping("/{id}/ship")
+    @PreAuthorize("hasAnyRole('SELLER', 'ADMIN')")
+    public ApiResponse<ReservationView> ship(@PathVariable UUID id, CurrentUser currentUser) {
+        return ApiResponse.of(fulfillment.ship(id, currentUser));
+    }
+
+    @GetMapping("/fulfillment")
+    @PreAuthorize("hasAnyRole('SELLER', 'ADMIN')")
+    public ApiResponse<List<ReservationView>> fulfillment(@RequestParam UUID orderId, CurrentUser currentUser) {
+        return ApiResponse.of(fulfillment.forOrder(orderId, currentUser));
     }
 
     @GetMapping
