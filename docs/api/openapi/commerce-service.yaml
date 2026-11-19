@@ -10404,6 +10404,8 @@ components:
           type: "string"
         skuCode:
           type: "string"
+          nullable: true
+          description: "Null only on auction orders created before the auction kept a SKU code snapshot."
         imageUrl:
           type: "string"
           nullable: true

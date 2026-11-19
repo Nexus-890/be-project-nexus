@@ -112,8 +112,9 @@ class AuctionCatalogIntegrationTest {
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.title").value("Catalog product"))
                 .andExpect(jsonPath("$.data.imageUrl").value(IMAGE));
-        assertThat(jdbc.queryForMap("SELECT title, image_url, seller_id FROM auctions"))
+        assertThat(jdbc.queryForMap("SELECT title, image_url, sku_code, seller_id FROM auctions"))
                 .containsEntry("title", "Catalog product").containsEntry("image_url", IMAGE)
+                .containsEntry("sku_code", "NX-CATALOG-1")
                 .containsEntry("seller_id", OWNER);
         assertThat(CALLS.get()).isEqualTo(1);
         assertThat(jdbc.queryForMap("SELECT event_type, payload->'payload'->>'skuId' AS sku FROM outbox"))
@@ -202,7 +203,7 @@ class AuctionCatalogIntegrationTest {
     private static String productJson(String images) {
         return """
                 {"code":0,"message":"response success","data":{"id":"%s","sellerId":"%s","name":"Catalog product",
-                 "status":"ACTIVE","skus":[{"id":"%s","productId":"%s"}],"images":%s}}
+                 "status":"ACTIVE","skus":[{"id":"%s","productId":"%s","skuCode":"NX-CATALOG-1"}],"images":%s}}
                 """.formatted(PRODUCT, OWNER, SKU, PRODUCT, images);
     }
 

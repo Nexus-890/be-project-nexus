@@ -55,7 +55,7 @@ class AuctionOrderServiceUnitTest {
         assertThat(item.getQuantity()).isEqualTo(1);
         assertThat(item.getUnitPrice()).isEqualByComparingTo(won.finalPrice());
         assertThat(item.getTotalPrice()).isEqualByComparingTo(won.finalPrice());
-        assertThat(item.getSkuCode()).isNull();
+        assertThat(item.getSkuCode()).isEqualTo("NX-ITEM-1");
         var sequence = inOrder(groups, orders, history, events);
         sequence.verify(groups).lockKey("auction-reference:" + won.auctionId());
         sequence.verify(orders).findByReferenceId(won.auctionId());
@@ -92,6 +92,6 @@ class AuctionOrderServiceUnitTest {
     private AuctionWon won() {
         return new AuctionWon(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                 UUID.randomUUID(), "1500000.00", "VND", "Winning snapshot", "https://example.com/item.jpg",
-                1, Instant.parse("2031-01-01T00:00:00Z"), Instant.parse("2031-01-02T00:00:00Z"));
+                1, Instant.parse("2031-01-01T00:00:00Z"), Instant.parse("2031-01-02T00:00:00Z"), null, "NX-ITEM-1");
     }
 }

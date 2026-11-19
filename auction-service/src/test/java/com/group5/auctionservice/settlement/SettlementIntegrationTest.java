@@ -99,10 +99,12 @@ class SettlementIntegrationTest {
 
         var payload = JsonMapper.shared().readTree(outbox(auctionId, "AuctionWon")).required("payload");
         assertThat(payload.propertyNames()).containsExactlyInAnyOrder("auctionId", "sellerId", "productId",
-                "skuId", "winnerId", "finalPrice", "currency", "title", "imageUrl", "quantity", "endAt", "paymentDueAt");
+                "skuId", "winnerId", "finalPrice", "currency", "title", "imageUrl", "quantity", "endAt", "paymentDueAt",
+                "skuCode");
         assertThat(payload).allMatch(field -> !field.isNull());
         assertThat(payload.required("finalPrice").asText()).isEqualTo("1500000.00");
         assertThat(payload.required("imageUrl").asText()).isEqualTo("https://example.com/auction.png");
+        assertThat(payload.required("skuCode").asText()).isEqualTo("NX-SETTLE-1");
 
         var row = jdbc.queryForMap("SELECT * FROM auctions WHERE id = ?", auctionId);
         settle(auctionId);
@@ -219,9 +221,9 @@ class SettlementIntegrationTest {
 
     private UUID endedAuction() {
         return jdbc.queryForObject("""
-                INSERT INTO auctions (product_id, sku_id, seller_id, title, image_url, starting_price,
+                INSERT INTO auctions (product_id, sku_id, sku_code, seller_id, title, image_url, starting_price,
                     bid_increment, current_price, status, start_at, end_at, original_end_at)
-                VALUES (gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'Settlement fixture',
+                VALUES (gen_random_uuid(), gen_random_uuid(), 'NX-SETTLE-1', gen_random_uuid(), 'Settlement fixture',
                     'https://example.com/auction.png', 100, 10, 100, 'ENDED', ?, ?, ?)
                 RETURNING id
                 """, UUID.class, END.minusHours(1), END, END);

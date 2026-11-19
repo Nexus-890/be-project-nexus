@@ -45,6 +45,7 @@ public class AuctionOrderService {
         order.setCreatedAt(now); order.setUpdatedAt(now);
         var item = new OrderItem();
         item.setOrder(order); item.setProductId(won.productId()); item.setSkuId(won.skuId());
+        item.setSkuCode(won.skuCode());
         item.setProductName(won.title()); item.setImageUrl(won.imageUrl()); item.setQuantity(won.quantity());
         item.setUnitPrice(amount); item.setTotalPrice(amount); order.getItems().add(item);
         group.getOrders().add(order); groups.saveAndFlush(group);

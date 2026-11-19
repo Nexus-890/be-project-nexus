@@ -20,7 +20,11 @@ public interface CatalogClient {
         }
     }
 
-    record Sku(UUID id) {}
+    record Sku(UUID id, String skuCode) {
+        public Sku(UUID id) {
+            this(id, null);
+        }
+    }
 
     record Image(String imageUrl) {}
 }

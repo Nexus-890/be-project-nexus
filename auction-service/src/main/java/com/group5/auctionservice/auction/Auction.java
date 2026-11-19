@@ -46,6 +46,9 @@ public class Auction extends AuditedEntity {
     @Column(length = 500)
     private String imageUrl;
 
+    @Column(length = 60)
+    private String skuCode;
+
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal startingPrice;
 
@@ -139,10 +142,11 @@ public class Auction extends AuditedEntity {
 
     private Instant deletedAt;
 
-    Auction(UUID productId, UUID skuId, UUID sellerId, String title, String imageUrl, BigDecimal startingPrice,
-            BigDecimal bidIncrement, Instant startAt, Instant endAt) {
+    Auction(UUID productId, UUID skuId, String skuCode, UUID sellerId, String title, String imageUrl,
+            BigDecimal startingPrice, BigDecimal bidIncrement, Instant startAt, Instant endAt) {
         this.productId = productId;
         this.skuId = skuId;
+        this.skuCode = skuCode;
         this.sellerId = sellerId;
         this.title = title;
         this.imageUrl = imageUrl;
