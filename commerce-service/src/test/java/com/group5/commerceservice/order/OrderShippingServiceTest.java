@@ -116,6 +116,34 @@ class OrderShippingServiceTest {
     }
 
     @Test
+    void aSellerPickupIsSentToShipmentAndKeptOnTheChosenQuote() {
+        UUID warehouse = UUID.randomUUID();
+        var pickup = new OrderShippingService.Pickup(warehouse, "201", "20309", "12 Kim Mã");
+        when(http.quote(any())).thenReturn(ApiResponse.list(List.of(new ShippingQuoteHttpClient.Response(
+                "GHN", "STANDARD", new BigDecimal("31000"), OffsetDateTime.now().plusDays(1)))));
+
+        var quote = service.offer(address, List.of(line(1, 1200, 30, 20, 15)), pickup).select(null);
+
+        assertThat(quote.pickup()).isEqualTo(pickup);
+        assertThat(quote.pickup().snapshot()).containsEntry("line1", "12 Kim Mã").containsEntry("wardCode", "20309")
+                .containsEntry("provinceCode", "201");
+        var sent = ArgumentCaptor.forClass(ShippingQuoteHttpClient.Request.class);
+        verify(http).quote(sent.capture());
+        assertThat(sent.getValue().warehouseId()).isEqualTo(warehouse);
+        var json = JsonMapper.shared().valueToTree(sent.getValue());
+        assertThat(json.path("pickupAddress").path("provinceCode").asString()).isEqualTo("201");
+        assertThat(json.path("pickupAddress").path("wardCode").asString()).isEqualTo("20309");
+        assertThat(json.path("pickupAddress").path("line1").asString()).isEqualTo("12 Kim Mã");
+
+        reset(http);
+        when(http.quote(any())).thenReturn(ApiResponse.list(List.of(new ShippingQuoteHttpClient.Response(
+                "GHN", "STANDARD", new BigDecimal("30000"), OffsetDateTime.now().plusDays(1)))));
+        assertThat(service.offer(address, List.of(line(1, 1200, 30, 20, 15))).select(null).pickup()).isNull();
+        verify(http).quote(sent.capture());
+        assertThat(JsonMapper.shared().valueToTree(sent.getValue()).has("pickupAddress")).isFalse();
+    }
+
+    @Test
     void auctionQuoteUsesLinkedWarehouseAndDisablesCatalogPriceFreeShipping() {
         UUID warehouse = UUID.randomUUID();
         when(http.quote(any())).thenReturn(ApiResponse.list(List.of(new ShippingQuoteHttpClient.Response(

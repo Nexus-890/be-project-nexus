@@ -42,7 +42,9 @@ public class ShippingQuoteService {
 
     public List<ShippingQuoteResponse> quote(ShippingQuoteRequest request) {
         ShippingDeadline deadline = ShippingDeadline.after(Duration.ofMillis(properties.apiTimeoutMs()));
-        PickupAddress pickup = resolvePickup(request.warehouseId());
+        PickupAddress pickup = request.pickupAddress() == null ? resolvePickup(request.warehouseId())
+                : new PickupAddress(request.pickupAddress().provinceCode(), request.pickupAddress().wardCode(),
+                request.pickupAddress().line1().strip());
         List<CarrierAdapter> offered = carriers.getQuoteAdapters();
         if (offered.isEmpty()) offered = List.of(carriers.getDefaultAdapter());
         AtomicReference<BigDecimal> subtotal = new AtomicReference<>();

@@ -354,6 +354,54 @@ class WarehouseManagementIntegrationTest {
     }
 
     @Test
+    void aSellerSetsThePickupAreaAndCheckoutReadsItOnlyWhenComplete() throws Exception {
+        UUID sellerId = UUID.randomUUID();
+        when(decoder.decode("pickup-seller")).thenReturn(token("pickup-seller", sellerId, "SELLER"));
+        String pickup = "/internal/v1/inventory/warehouses/pickup?sellerId=" + sellerId;
+        request("buyer", get(pickup)).andExpect(status().isOk()).andExpect(jsonPath("$.data").value(nullValue()));
+
+        request("pickup-seller", put(PATH + "/me").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Kho Ba Đình\",\"address\":\" 12 Kim Mã \",\"provinceCode\":\"201\",\"wardCode\":\"20309\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.provinceCode").value("201"))
+                .andExpect(jsonPath("$.data.wardCode").value("20309"))
+                .andExpect(jsonPath("$.data.address").value("12 Kim Mã"));
+        UUID warehouseId = jdbc.queryForObject("SELECT id FROM warehouses WHERE seller_id = ?", UUID.class, sellerId);
+        request("buyer", get(pickup)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.warehouseId").value(warehouseId.toString()))
+                .andExpect(jsonPath("$.data.sellerId").value(sellerId.toString()))
+                .andExpect(jsonPath("$.data.provinceCode").value("201"))
+                .andExpect(jsonPath("$.data.wardCode").value("20309"))
+                .andExpect(jsonPath("$.data.line1").value("12 Kim Mã"));
+        request("pickup-seller", get(PATH + "/me")).andExpect(jsonPath("$.data.wardCode").value("20309"));
+
+        for (String body : List.of(
+                "{\"name\":\"Kho\",\"address\":\"12 Kim Mã\",\"provinceCode\":\"201\"}",
+                "{\"name\":\"Kho\",\"address\":\"12 Kim Mã\",\"wardCode\":\"20309\"}",
+                "{\"name\":\"Kho\",\"address\":\" \",\"provinceCode\":\"201\",\"wardCode\":\"20309\"}",
+                "{\"name\":\"Kho\",\"address\":\"" + "x".repeat(256) + "\",\"provinceCode\":\"201\",\"wardCode\":\"20309\"}",
+                "{\"name\":\"Kho\",\"address\":\"12 Kim Mã\",\"provinceCode\":\"0\",\"wardCode\":\"20309\"}",
+                "{\"name\":\"Kho\",\"address\":\"12 Kim Mã\",\"provinceCode\":\"201\",\"wardCode\":\"20A\"}")) {
+            request("pickup-seller", put(PATH + "/me").contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        }
+        request("buyer", get(pickup)).andExpect(jsonPath("$.data.line1").value("12 Kim Mã"));
+
+        jdbc.update("UPDATE warehouses SET status = 'MAINTENANCE' WHERE id = ?", warehouseId);
+        request("buyer", get(pickup)).andExpect(status().isOk()).andExpect(jsonPath("$.data").value(nullValue()));
+        jdbc.update("UPDATE warehouses SET status = 'ACTIVE' WHERE id = ?", warehouseId);
+
+        request("pickup-seller", put(PATH + "/me").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Kho Ba Đình\",\"address\":\"12 Kim Mã\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.provinceCode").value(nullValue()));
+        request("buyer", get(pickup)).andExpect(jsonPath("$.data").value(nullValue()));
+
+        request("admin", get(pickup)).andExpect(status().isForbidden());
+        mvc.perform(get(pickup)).andExpect(status().isUnauthorized());
+        request("buyer", get("/internal/v1/inventory/warehouses/pickup?sellerId=nope")).andExpect(status().isBadRequest());
+    }
+
+    @Test
     void maintenanceAndInactiveBlockExplicitAndDefaultIntakeWithoutChangingBalancesOrLedger() throws Exception {
         UUID sku = UUID.randomUUID();
         intake(sku, null, 20).andExpect(status().isCreated());

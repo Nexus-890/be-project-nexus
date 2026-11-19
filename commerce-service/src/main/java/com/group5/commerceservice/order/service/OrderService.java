@@ -274,13 +274,16 @@ public class OrderService {
             order.getItems().add(item);
         }
         // Báo giá tất cả shop trước khi giữ hàng: lỗi Shipping không tạo reservation.
+        Map<UUID, OrderShippingService.Pickup> pickups = new HashMap<>();
         for (Order order : sellers.values()) {
             BigDecimal subtotal = order.getItems().stream().map(OrderItem::getTotalPrice)
                     .reduce(new BigDecimal("0.00"), BigDecimal::add);
             order.setSubtotal(money(subtotal));
             OrderShippingService.Quote quote = pricingService.shippingQuote(request.shippingAddress(),
                     order.getItems().stream().map(item -> new OrderShippingService.Line(
-                            item.getSkuId(), item.getQuantity(), skus.get(item.getSkuId()))).toList(), request.carrier());
+                            item.getSkuId(), item.getQuantity(), skus.get(item.getSkuId()))).toList(), request.carrier(),
+                    order.getSellerId());
+            if (quote.pickup() != null) pickups.put(order.getSellerId(), quote.pickup());
             order.setShippingFee(money(quote.fee()));
             order.getShippingInfo().put("parcel", Map.of("weightGrams", quote.parcel().weightGrams(),
                     "lengthCm", quote.parcel().lengthCm(), "widthCm", quote.parcel().widthCm(),
@@ -314,7 +317,12 @@ public class OrderService {
         savedGroup.setDueAt(reservation.expiresAt());
         savedGroup.getOrders().forEach(order -> {
             order.setPaymentDueAt(reservation.expiresAt());
-            order.getShippingInfo().put("warehouseId", reservation.warehouseFor(order.getId()).toString());
+            UUID warehouseId = reservation.warehouseFor(order.getId());
+            order.getShippingInfo().put("warehouseId", warehouseId.toString());
+            OrderShippingService.Pickup pickup = pickups.get(order.getSellerId());
+            if (pickup != null && pickup.warehouseId().equals(warehouseId)) {
+                order.getShippingInfo().put("pickupAddress", pickup.snapshot());
+            }
         });
         groupRepository.saveAndFlush(savedGroup);
         if (confirmedQuote != null) vouchers.persistReservations(user.id(), savedGroup.getOrders(), confirmedQuote, reservedAt);

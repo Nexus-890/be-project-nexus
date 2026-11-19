@@ -83,8 +83,9 @@ public class CartPricingService {
             sellers.computeIfAbsent(product.sellerId(), ignored -> new ArrayList<>()).add(
                     new OrderShippingService.Line(item.skuId(), item.quantity(), result.skus().get(item.skuId())));
         }
-        List<OrderShippingService.Offer> offers = sellers.values().stream()
-                .map(seller -> orderPricing.shippingOffer(request.shippingAddress(), seller)).toList();
+        List<OrderShippingService.Offer> offers = sellers.entrySet().stream()
+                .map(seller -> orderPricing.shippingOffer(request.shippingAddress(), seller.getValue(), seller.getKey()))
+                .toList();
         List<CheckoutPreviewResponse.ShippingOption> options = ShippingChoices.common(offers);
         String selected = ShippingChoices.selected(options, request.carrier());
         BigDecimal shipping = BigDecimal.ZERO;

@@ -34,16 +34,30 @@ public class OrderShippingService {
 
     public record Line(UUID skuId, int quantity, CatalogSkuResponse sku) { }
     public record Parcel(int weightGrams, int lengthCm, int widthCm, int heightCm) { }
+    public record Pickup(UUID warehouseId, String provinceCode, String wardCode, String line1) {
+        public Map<String, Object> snapshot() {
+            return Map.of("line1", line1, "provinceCode", provinceCode, "wardCode", wardCode);
+        }
+    }
     public record Quote(BigDecimal fee, Parcel parcel, String carrier, String serviceType,
-                        OffsetDateTime estimatedDeliveryAt) { }
+                        OffsetDateTime estimatedDeliveryAt, Pickup pickup) {
+        public Quote(BigDecimal fee, Parcel parcel, String carrier, String serviceType,
+                     OffsetDateTime estimatedDeliveryAt) {
+            this(fee, parcel, carrier, serviceType, estimatedDeliveryAt, null);
+        }
+    }
     public record Option(String carrier, String carrierName, BigDecimal fee, OffsetDateTime estimatedDeliveryAt,
                          boolean recommended) { }
-    public record Offer(Parcel parcel, String serviceType, List<Option> options) {
+    public record Offer(Parcel parcel, String serviceType, List<Option> options, Pickup pickup) {
+        public Offer(Parcel parcel, String serviceType, List<Option> options) {
+            this(parcel, serviceType, options, null);
+        }
+
         public Quote select(String carrier) {
             Option chosen = carrier == null ? recommended()
                     : options.stream().filter(option -> option.carrier().equals(carrier)).findFirst()
                     .orElseThrow(() -> new DomainException(CommerceErrorCode.SHIPPING_CARRIER_UNAVAILABLE));
-            return new Quote(chosen.fee(), parcel, chosen.carrier(), serviceType, chosen.estimatedDeliveryAt());
+            return new Quote(chosen.fee(), parcel, chosen.carrier(), serviceType, chosen.estimatedDeliveryAt(), pickup);
         }
 
         public Option recommended() {
@@ -59,19 +73,28 @@ public class OrderShippingService {
     }
 
     public Quote quote(ShippingAddress address, List<Line> lines, UUID warehouseId) {
-        return offer(address, lines, warehouseId, null).select(null);
+        return offer(address, lines, warehouseId, null, null).select(null);
     }
 
     public Offer offer(ShippingAddress address, List<Line> lines) {
-        return offer(address, lines, null, null);
+        return offer(address, lines, null, null, null);
+    }
+
+    public Offer offer(ShippingAddress address, List<Line> lines, Pickup pickup) {
+        return offer(address, lines, pickup == null ? null : pickup.warehouseId(), null, pickup);
     }
 
     /** Shipment trả phí carrier gốc; Commerce dùng giá đấu thắng để xét miễn phí. */
     public Quote quoteAuction(ShippingAddress address, List<Line> lines, UUID warehouseId) {
-        return offer(address, lines, warehouseId, false).select(null);
+        return offer(address, lines, warehouseId, false, null).select(null);
     }
 
-    private Offer offer(ShippingAddress address, List<Line> lines, UUID warehouseId, Boolean applyFreeShipping) {
+    public Quote quoteAuction(ShippingAddress address, List<Line> lines, UUID warehouseId, Pickup pickup) {
+        return offer(address, lines, warehouseId, false, pickup).select(null);
+    }
+
+    private Offer offer(ShippingAddress address, List<Line> lines, UUID warehouseId, Boolean applyFreeShipping,
+                        Pickup pickup) {
         Parcel parcel = pack(lines);
         var destination = new ShippingQuoteHttpClient.Address(address.provinceCode(), address.wardCode(),
                 address.addressLine(), address.recipientName(), address.phoneNumber());
@@ -79,7 +102,8 @@ public class OrderShippingService {
         // Commerce không giữ mã kho và chỉ lưu UUID thật khi reservation trả về.
         var request = new ShippingQuoteHttpClient.Request(destination,
                 lines.stream().map(line -> new ShippingQuoteHttpClient.Item(line.skuId(), line.quantity())).toList(),
-                parcel, warehouseId, applyFreeShipping);
+                parcel, warehouseId, applyFreeShipping, pickup == null ? null
+                : new ShippingQuoteHttpClient.PickupAddress(pickup.provinceCode(), pickup.wardCode(), pickup.line1()));
         return executor.execute("shipping", CommerceErrorCode.SHIPPING_UNAVAILABLE, () -> {
             try {
                 var response = http.quote(request);
@@ -100,7 +124,7 @@ public class OrderShippingService {
                 return new Offer(parcel, service, cheapest.values().stream().map(quote -> new Option(quote.carrier(),
                         quote.carrierName() == null || quote.carrierName().isBlank() ? quote.carrier() : quote.carrierName(),
                         quote.fee().setScale(2), quote.estimatedDeliveryAt(), quotes.stream().anyMatch(row ->
-                        row.carrier().equals(quote.carrier()) && Boolean.TRUE.equals(row.recommended())))).toList());
+                        row.carrier().equals(quote.carrier()) && Boolean.TRUE.equals(row.recommended())))).toList(), pickup);
             } catch (FeignException error) {
                 // Chỉ ghi trạng thái/lớp lỗi, không ghi token, địa chỉ hay body của người nhận.
                 log.warn("Shipping quote call failed: status={}, failure={}, code={}", error.status(),

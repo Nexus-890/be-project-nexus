@@ -2,10 +2,15 @@ package com.group5.commerceservice.order.service;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface InventoryClient {
     Reservation reserve(UUID orderGroupId, List<Item> items);
+
+    default Optional<OrderShippingService.Pickup> pickup(UUID sellerId) {
+        return Optional.empty();
+    }
 
     record Item(UUID orderId, UUID skuId, int quantity) { }
 

@@ -14,6 +14,7 @@ import com.group5.shipmentservice.shipping.adapter.model.PickupAddress;
 import com.group5.shipmentservice.shipping.dto.request.ParcelRequest;
 import com.group5.shipmentservice.shipping.dto.request.ShippingAddressRequest;
 import com.group5.shipmentservice.shipping.dto.request.ShippingItemRequest;
+import com.group5.shipmentservice.shipping.dto.request.PickupAddressRequest;
 import com.group5.shipmentservice.shipping.dto.request.ShippingQuoteRequest;
 import com.group5.shipmentservice.shipping.resilience.CarrierExecutor;
 import org.junit.jupiter.api.Test;
@@ -124,6 +125,30 @@ class ShippingQuoteServiceTest {
         assertThat(carrierRequest.recipientPhone()).isEqualTo("0901234567");
         assertThat(carrierRequest.insuranceValue()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(carrierRequest.content()).isEqualTo("Đơn hàng gồm 1 sản phẩm thuộc 1 SKU, đóng trong 1 kiện");
+    }
+
+    @Test
+    void aSellerWarehousePickupInTheRequestReplacesThePlatformPickup() {
+        ShippingProperties properties = new ShippingProperties(ShippingProperties.CarrierMode.FAKE,
+                3000, 3, 100, new BigDecimal("1000000"), 5, 30000,
+                "http://catalog-service", WAREHOUSE,
+                new PickupAddress("1000001", "1003646", "Địa chỉ lấy hàng kiểm thử"), Map.of());
+        CarrierExecutor realExecutor = new CarrierExecutor(properties);
+        FakeCarrierAdapter adapter = spy(new FakeCarrierAdapter());
+        CarrierRegistry registry = new CarrierRegistry(List.of(adapter));
+        when(catalog.getSubtotal(anyList(), any())).thenReturn(new BigDecimal("500000"));
+        ShippingQuoteService service = new ShippingQuoteService(properties, registry,
+                new ShippingAddressService(registry, realExecutor), catalog, realExecutor);
+        ShippingQuoteRequest baseline = request();
+
+        service.quote(new ShippingQuoteRequest(baseline.toAddress(), baseline.items(), baseline.parcel(),
+                UUID.randomUUID(), null, true, new PickupAddressRequest("1000002", "1000003", " 12 Kho người bán ")));
+
+        ArgumentCaptor<CarrierQuoteRequest> captured = ArgumentCaptor.forClass(CarrierQuoteRequest.class);
+        verify(adapter).quote(captured.capture(), any());
+        assertThat(captured.getValue().pickup().provinceName()).isEqualTo("Hà Nội");
+        assertThat(captured.getValue().pickup().wardName()).isEqualTo("Phường Ba Đình");
+        assertThat(captured.getValue().pickup().addressLine()).isEqualTo("12 Kho người bán");
     }
 
     @Test

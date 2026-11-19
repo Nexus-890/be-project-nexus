@@ -57,7 +57,7 @@ class AuctionShippingServiceUnitTest {
         when(groups.lockStatus(group.getId())).thenReturn(Optional.of("PENDING"));
         when(inventory.linked(order.getId())).thenReturn(ApiResponse.of(List.of(
                 new InventoryReservationHttpClient.LinkedReservation(UUID.randomUUID(), warehouse, "HELD"))));
-        when(pricing.auctionShippingQuote(any(), any(), any(), any(), any())).thenReturn(quote("30000.00"));
+        when(pricing.auctionShippingQuote(any(), any(), any(), any(), any(), any())).thenReturn(quote("30000.00"));
     }
 
     @Test void persistsExactTotalsAndSnapshotBeforeRequestingPayment() {

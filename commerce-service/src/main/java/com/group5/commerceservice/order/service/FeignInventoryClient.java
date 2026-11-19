@@ -13,6 +13,7 @@ import java.time.OffsetDateTime;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /** Một lần gọi giữ toàn bộ nhóm đơn; lỗi bất kỳ để transaction Commerce rollback. */
@@ -45,6 +46,31 @@ public class FeignInventoryClient implements InventoryClient {
                         result.orders() == null ? null : List.copyOf(result.orders()));
             } catch (FeignException error) {
                 throw translate(error, items);
+            }
+        });
+    }
+
+    @Override
+    public Optional<OrderShippingService.Pickup> pickup(UUID sellerId) {
+        if (sellerId == null) return Optional.empty();
+        return executor.execute("inventory", CommerceErrorCode.INVENTORY_UNAVAILABLE, () -> {
+            try {
+                var response = http.pickup(sellerId);
+                if (response == null || response.code() != 0) throw new DomainException(CommerceErrorCode.INVENTORY_UNAVAILABLE);
+                var pickup = response.data();
+                if (pickup == null) return Optional.<OrderShippingService.Pickup>empty();
+                if (pickup.warehouseId() == null || !sellerId.equals(pickup.sellerId())
+                        || pickup.provinceCode() == null || !pickup.provinceCode().matches("[1-9][0-9]{0,8}")
+                        || pickup.wardCode() == null || !pickup.wardCode().matches("[1-9][0-9]{0,8}")
+                        || pickup.line1() == null || pickup.line1().isBlank() || pickup.line1().length() > 255) {
+                    throw new DomainException(CommerceErrorCode.INVENTORY_UNAVAILABLE);
+                }
+                return Optional.of(new OrderShippingService.Pickup(pickup.warehouseId(), pickup.provinceCode(),
+                        pickup.wardCode(), pickup.line1()));
+            } catch (FeignException error) {
+                if (error.status() == 401) throw new DomainException(CommerceErrorCode.UNAUTHENTICATED);
+                if (error.status() == 403) throw new DomainException(CommerceErrorCode.FORBIDDEN);
+                throw new DomainException(CommerceErrorCode.INVENTORY_UNAVAILABLE);
             }
         });
     }

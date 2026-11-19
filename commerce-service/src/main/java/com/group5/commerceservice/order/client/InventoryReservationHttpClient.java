@@ -21,6 +21,10 @@ public interface InventoryReservationHttpClient {
     @GetMapping("/internal/v1/inventory/reservations")
     ApiResponse<List<LinkedReservation>> linked(@RequestParam("orderId") UUID orderId);
 
+    @GetMapping("/internal/v1/inventory/warehouses/pickup")
+    ApiResponse<Pickup> pickup(@RequestParam("sellerId") UUID sellerId);
+
     record Request(UUID orderGroupId, List<InventoryClient.Item> items) { }
+    record Pickup(UUID warehouseId, UUID sellerId, String provinceCode, String wardCode, String line1) { }
     record LinkedReservation(UUID reservationId, UUID warehouseId, String status) { }
 }

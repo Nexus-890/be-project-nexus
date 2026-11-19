@@ -18,7 +18,8 @@ public record ShippingQuoteRequest(
         @NotNull @Valid ParcelRequest parcel,
         UUID warehouseId,
         @DecimalMin("0") @DecimalMax("5000000") @Digits(integer = 7, fraction = 0) BigDecimal insuranceValue,
-        Boolean applyFreeShipping) {
+        Boolean applyFreeShipping,
+        @Valid PickupAddressRequest pickupAddress) {
 
     public ShippingQuoteRequest {
         // Request cũ không gửi cờ vẫn giữ chính sách miễn phí dựa trên giá Catalog.
@@ -27,6 +28,12 @@ public record ShippingQuoteRequest(
 
     public ShippingQuoteRequest(ShippingAddressRequest toAddress, List<ShippingItemRequest> items,
                                 ParcelRequest parcel, UUID warehouseId, BigDecimal insuranceValue) {
-        this(toAddress, items, parcel, warehouseId, insuranceValue, true);
+        this(toAddress, items, parcel, warehouseId, insuranceValue, true, null);
+    }
+
+    public ShippingQuoteRequest(ShippingAddressRequest toAddress, List<ShippingItemRequest> items,
+                                ParcelRequest parcel, UUID warehouseId, BigDecimal insuranceValue,
+                                Boolean applyFreeShipping) {
+        this(toAddress, items, parcel, warehouseId, insuranceValue, applyFreeShipping, null);
     }
 }

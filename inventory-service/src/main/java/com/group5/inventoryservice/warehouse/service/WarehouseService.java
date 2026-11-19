@@ -8,6 +8,7 @@ import com.group5.inventoryservice.shared.exception.InventoryErrorCode;
 import com.group5.inventoryservice.warehouse.dto.request.CreateWarehouseRequest;
 import com.group5.inventoryservice.warehouse.dto.request.UpdateOwnWarehouseRequest;
 import com.group5.inventoryservice.warehouse.dto.request.UpdateWarehouseRequest;
+import com.group5.inventoryservice.warehouse.dto.response.WarehousePickupResponse;
 import com.group5.inventoryservice.warehouse.dto.response.WarehouseResponse;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -76,7 +77,21 @@ public class WarehouseService {
                 .orElseThrow(() -> new DomainException(InventoryErrorCode.DUPLICATE_WAREHOUSE_CODE));
         warehouse.setName(request.name().strip());
         warehouse.setAddress(address);
+        warehouse.setProvinceCode(request.provinceCode());
+        warehouse.setWardCode(request.wardCode());
         return toResponse(warehouses.saveAndFlush(warehouse));
+    }
+
+    @Transactional(readOnly = true)
+    public WarehousePickupResponse pickup(UUID sellerId) {
+        return warehouses.findBySellerId(sellerId)
+                .filter(warehouse -> warehouse.getStatus() == WarehouseStatus.ACTIVE
+                        && warehouse.getProvinceCode() != null && warehouse.getWardCode() != null
+                        && warehouse.getAddress() != null && !warehouse.getAddress().isBlank()
+                        && warehouse.getAddress().length() <= 255)
+                .map(warehouse -> new WarehousePickupResponse(warehouse.getId(), sellerId,
+                        warehouse.getProvinceCode(), warehouse.getWardCode(), warehouse.getAddress()))
+                .orElse(null);
     }
 
     @Transactional
@@ -116,6 +131,7 @@ public class WarehouseService {
 
     public static WarehouseResponse toResponse(Warehouse warehouse) {
         return new WarehouseResponse(warehouse.getId(), warehouse.getCode(), warehouse.getName(),
-                warehouse.getAddress(), warehouse.getStatus(), warehouse.getSellerId());
+                warehouse.getAddress(), warehouse.getStatus(), warehouse.getSellerId(), warehouse.getProvinceCode(),
+                warehouse.getWardCode());
     }
 }

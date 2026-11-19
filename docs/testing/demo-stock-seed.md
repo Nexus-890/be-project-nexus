@@ -65,6 +65,13 @@ warehouse. That intake (by the seller, or by an admin without a warehouse) moves
 SKU's available units out of WH_001 with a TRANSFER pair (-q in WH_001, +q in the
 seller warehouse). Units reserved at that moment stay in WH_001 and are settled there.
 
+Since inventory V15 a seller can set the pickup area of that warehouse (province,
+ward and house number and street) on the seller Warehouse page. Checkout and auction
+quotes then send that pickup to shipment-service, and the order keeps it in
+`shipping_info.pickupAddress` when its stock is held in the seller warehouse. A
+warehouse without a complete pickup area, or one that is not ACTIVE, keeps quoting
+from the platform pickup (`SHIPPING_PICKUP_*`).
+
 ## Verify in disposable PostgreSQL 18 databases
 
 With an existing disposable PostgreSQL 18 container (no host psql or exposed

@@ -225,6 +225,32 @@ class OrderReservationHttpTest {
         assertThat(calls).hasValue(1);
     }
 
+    @Test
+    void sellerPickupIsReadWithTheBuyerTokenAndOnlyACompleteMatchingPickupIsAccepted() {
+        UUID seller = UUID.randomUUID();
+        status = 200;
+        UUID sellerWarehouse = UUID.randomUUID();
+        String valid = "{\"code\":0,\"message\":\"response success\",\"data\":{\"warehouseId\":\"" + sellerWarehouse
+                + "\",\"sellerId\":\"" + seller + "\",\"provinceCode\":\"201\",\"wardCode\":\"20309\",\"line1\":\"12 Kim Mã\"}}";
+        reply = valid;
+        assertThat(client(5).pickup(seller)).contains(new OrderShippingService.Pickup(sellerWarehouse, "201", "20309", "12 Kim Mã"));
+        assertThat(bearer).isEqualTo("Bearer test-token");
+        reply = "{\"code\":0,\"message\":\"response success\",\"data\":null}";
+        assertThat(client(5).pickup(seller)).isEmpty();
+        assertThat(client(5).pickup(null)).isEmpty();
+        for (String body : List.of(valid.replace(seller.toString(), UUID.randomUUID().toString()),
+                valid.replace("\"20309\"", "\"20A\""), valid.replace("\"12 Kim Mã\"", "\" \""),
+                valid.replace("\"warehouseId\":\"" + sellerWarehouse + "\",", ""), valid.replace("\"code\":0", "\"code\":3"))) {
+            reply = body;
+            assertThatThrownBy(() -> client(5).pickup(seller)).isInstanceOfSatisfying(DomainException.class,
+                    error -> assertThat(error.getErrorCode()).isEqualTo("COMMERCE_INVENTORY_UNAVAILABLE"));
+        }
+        status = 403;
+        reply = "{\"code\":\"FORBIDDEN\"}";
+        assertThatThrownBy(() -> client(5).pickup(seller)).isInstanceOfSatisfying(DomainException.class,
+                error -> assertThat(error.getErrorCode()).isEqualTo("COMMERCE_FORBIDDEN"));
+    }
+
     private FeignInventoryClient client(int threshold) {
         return new FeignInventoryClient(feign(InventoryReservationHttpClient.class), new OrderRemoteExecutor(threshold, 30000), mapper);
     }

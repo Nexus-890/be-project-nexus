@@ -118,6 +118,31 @@ class OrderReservationIntegrationTest {
                 .isEqualTo(warehouses.get(order.orderId()).toString()));
     }
 
+    @Test void aSellerWarehousePickupIsQuotedAndStoredOnlyWhenTheStockIsHeldThere() {
+        var buyer = cart(2);
+        var otherWarehouse = UUID.randomUUID();
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        when(inventory.pickup(any())).thenAnswer(call -> java.util.Optional.of(new OrderShippingService.Pickup(
+                calls.getAndIncrement() == 0 ? WAREHOUSE : otherWarehouse, "201", "20309", "12 Kim Mã")));
+        when(shipping.offer(any(), anyList(), any())).thenAnswer(call -> new OrderShippingService.Offer(
+                new OrderShippingService.Parcel(1000, 20, 15, 10), "STANDARD", List.of(new OrderShippingService.Option(
+                "GHN", "GHN", new BigDecimal("31000.00"), expiry.plusDays(2), true)), call.getArgument(2)));
+
+        var group = orders.create(buyer, UUID.randomUUID().toString(), REQUEST).response();
+
+        verify(inventory, times(2)).pickup(any());
+        verify(shipping, never()).quote(any(), anyList());
+        assertThat(group.orders()).allSatisfy(order -> assertThat(order.shippingFee()).isEqualByComparingTo("31000.00"));
+        var stored = group.orders().stream().map(order -> jdbc().queryForObject(
+                "SELECT shipping_info->>'pickupAddress' FROM orders WHERE id = ?", String.class, order.orderId())).toList();
+        assertThat(stored).filteredOn(java.util.Objects::nonNull).singleElement().satisfies(pickup -> {
+            assertThat(pickup).contains("\"line1\": \"12 Kim Mã\"");
+            assertThat(pickup).contains("\"wardCode\": \"20309\"");
+            assertThat(pickup).contains("\"provinceCode\": \"201\"");
+        });
+        assertThat(stored).filteredOn(java.util.Objects::isNull).hasSize(1);
+    }
+
     @Test void insufficientStockRollsBackBothSellerOrdersGroupAndCart() {
         var buyer = cart(2);
         when(inventory.reserve(any(), anyList())).thenThrow(new DomainException(CommerceErrorCode.INSUFFICIENT_STOCK,
@@ -136,7 +161,8 @@ class OrderReservationIntegrationTest {
         assertThatThrownBy(() -> orders.create(buyer, UUID.randomUUID().toString(), REQUEST))
                 .isInstanceOf(DomainException.class).extracting("errorCode").isEqualTo("COMMERCE_SHIPPING_UNAVAILABLE");
         assertUnchanged(buyer);
-        verifyNoInteractions(inventory, events);
+        verify(inventory, never()).reserve(any(), anyList());
+        verifyNoInteractions(events);
     }
 
     @Test void inventoryTimeoutRollsBackSavedOrdersAndLeavesCartActive() {

@@ -74,6 +74,8 @@ Tạo dữ liệu `.env` trên máy chạy backend; không commit file thật v�
 
 Cấu hình `nexus.shipping.default-warehouse-id` cùng `nexus.shipping.default-pickup` cho kho mặc định bằng các biến môi trường lấy hàng trên. Thêm `nexus.shipping.pickups[UUID]` để ánh xạ các kho khác sang `provinceCode`, `wardCode`, `addressLine`. Kho mặc định phải là UUID thực tế của kho `WH_001` trong môi trường đó; `WH_001` là mã kho, không phải UUID. Không đọc `inventory_db` từ shipment-service. `warehouseId` bỏ trống hoặc null dùng kho mặc định; UUID được chỉ định nhưng không có mapping trả 404; thiếu mapping/kho mặc định cần thiết trả lỗi cấu hình 503.
 
+Từ contract `2.8.0`, request quote có thể kèm `pickupAddress` (`provinceCode`, `wardCode`, `line1` tối đa 255 ký tự). Khi có, shipment quote từ địa chỉ này thay cho mapping kho và kho mặc định. Commerce chỉ gửi `pickupAddress` khi seller đã đặt đủ tỉnh, phường và địa chỉ cụ thể cho kho riêng đang ACTIVE (`GET /internal/v1/inventory/warehouses/pickup`); đơn chỉ lưu `shipping_info.pickupAddress` khi hàng được giữ trong chính kho đó, nên tạo vận đơn dùng đúng điểm lấy hàng đã báo giá.
+
 Cấu hình dưới đây chỉ dành cho bộ fake. UUID là fixture; mã Hà Nội `1000002` và phường `1000003` ở nhánh fake cũng là fixture, không phải xác nhận mã GHN thật. Không dùng fixture làm dữ liệu mặc định cho GHN sandbox hoặc production. Catalog local vẫn phải có SKU và giá trong bộ dữ liệu kiểm thử:
 
 ```properties

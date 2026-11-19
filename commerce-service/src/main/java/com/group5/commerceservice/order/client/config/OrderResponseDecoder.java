@@ -22,6 +22,15 @@ public final class OrderResponseDecoder implements Decoder {
         if (response.body() == null) throw invalid(response);
         try {
             var root = mapper.readTree(response.body().asInputStream().readAllBytes());
+            var payload = mapper.constructType(type).containedType(0);
+            if (payload != null && payload.hasRawClass(com.group5.commerceservice.order.client.InventoryReservationHttpClient.Pickup.class)) {
+                if (!root.isObject() || !root.path("code").isIntegralNumber() || !root.path("message").isString()
+                        || root.path("data").isMissingNode()
+                        || !(root.path("data").isNull() || root.path("data").isObject())) {
+                    throw invalid(response);
+                }
+                return mapper.convertValue(root, mapper.constructType(type));
+            }
             if (!root.isObject() || !root.path("code").isIntegralNumber()
                     || root.path("code").bigIntegerValue().signum() != 0 || !root.path("message").isString()
                     || root.path("data").isMissingNode() || root.path("data").isNull()) {

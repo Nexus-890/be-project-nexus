@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Nexus vận chuyển
-  version: 2.7.0
+  version: 2.8.0
   description: >-
     Issue #201: danh sách nhà vận chuyển, địa giới GHN v3 hai cấp sau sáp nhập và báo giá bằng preview. Bản
     2.6 bổ sung applyFreeShipping tùy chọn cho #172; mặc định true, false trả phí carrier gốc để Commerce
@@ -3299,6 +3299,24 @@ components:
           format: uuid
           nullable: true
           description: UUID kho có mapping lấy hàng đã cấu hình; bỏ trống hoặc null dùng kho mặc định.
+        pickupAddress:
+          type: object
+          nullable: true
+          description: >-
+            Địa chỉ lấy hàng của kho riêng seller do Commerce đọc từ Inventory. Có giá trị thì thay cho mapping
+            theo warehouseId và địa chỉ lấy hàng của nền tảng; bỏ trống giữ cách chọn cũ.
+          required: [provinceCode, wardCode, line1]
+          properties:
+            provinceCode:
+              type: string
+              pattern: '^[1-9][0-9]{0,8}$'
+            wardCode:
+              type: string
+              pattern: '^[1-9][0-9]{0,8}$'
+            line1:
+              type: string
+              minLength: 1
+              maxLength: 255
         insuranceValue:
           type: number
           nullable: true

@@ -23,12 +23,18 @@ import java.util.UUID;
 public class PricingService {
     private final CatalogClient catalogClient;
     private final OrderShippingService shipping;
+    private final InventoryClient inventory;
 
     @Value("${nexus.checkout.free-shipping-threshold:1000000}")
     private BigDecimal freeShippingThreshold = new BigDecimal("1000000");
 
     public OrderShippingService.Quote auctionShippingQuote(ShippingAddress address, UUID skuId,
                                                            UUID productId, UUID warehouseId, BigDecimal finalPrice) {
+        return auctionShippingQuote(address, skuId, productId, warehouseId, finalPrice, null);
+    }
+
+    public OrderShippingService.Quote auctionShippingQuote(ShippingAddress address, UUID skuId, UUID productId,
+                                                           UUID warehouseId, BigDecimal finalPrice, UUID sellerId) {
         CatalogSkuResponse sku;
         try {
             var response = catalogClient.getSkuById(skuId);
@@ -39,9 +45,14 @@ public class PricingService {
         if (sku == null || !skuId.equals(sku.getId()) || !productId.equals(sku.getProductId())) {
             throw new DomainException(CommerceErrorCode.INVALID_CATALOG_RESPONSE);
         }
-        var quote = shipping.quoteAuction(address, List.of(new OrderShippingService.Line(skuId, 1, sku)), warehouseId);
+        var pickup = pickup(sellerId);
+        var lines = List.of(new OrderShippingService.Line(skuId, 1, sku));
+        var quote = pickup != null && pickup.warehouseId().equals(warehouseId)
+                ? shipping.quoteAuction(address, lines, warehouseId, pickup)
+                : shipping.quoteAuction(address, lines, warehouseId);
         BigDecimal fee = finalPrice.compareTo(freeShippingThreshold) >= 0 ? new BigDecimal("0.00") : quote.fee();
-        return new OrderShippingService.Quote(fee, quote.parcel(), quote.carrier(), quote.serviceType(), quote.estimatedDeliveryAt());
+        return new OrderShippingService.Quote(fee, quote.parcel(), quote.carrier(), quote.serviceType(),
+                quote.estimatedDeliveryAt(), quote.pickup());
     }
 
     /** Preview và tạo đơn dùng chung một nguồn phí, không nhận giá vận chuyển do client gửi lên. */
@@ -56,6 +67,23 @@ public class PricingService {
 
     public OrderShippingService.Offer shippingOffer(ShippingAddress address, List<OrderShippingService.Line> lines) {
         return shipping.offer(address, lines);
+    }
+
+    /** Kho riêng của seller có đủ tỉnh/phường thì hãng vận chuyển lấy hàng tại đó, không dùng địa chỉ nền tảng. */
+    public OrderShippingService.Offer shippingOffer(ShippingAddress address, List<OrderShippingService.Line> lines,
+                                                    UUID sellerId) {
+        var pickup = pickup(sellerId);
+        return pickup == null ? shipping.offer(address, lines) : shipping.offer(address, lines, pickup);
+    }
+
+    public OrderShippingService.Quote shippingQuote(ShippingAddress address, List<OrderShippingService.Line> lines,
+                                                    String carrier, UUID sellerId) {
+        var pickup = pickup(sellerId);
+        return pickup == null ? shippingQuote(address, lines, carrier) : shipping.offer(address, lines, pickup).select(carrier);
+    }
+
+    private OrderShippingService.Pickup pickup(UUID sellerId) {
+        return sellerId == null ? null : inventory.pickup(sellerId).orElse(null);
     }
 
     @Value("${nexus.checkout.price-revalidation:true}")

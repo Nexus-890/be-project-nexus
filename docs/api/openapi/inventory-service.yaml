@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Nexus inventory
-  version: 1.0.0
+  version: 1.1.0
   description: >-
     Issue #130 stock intake, #134 stock reservation, #136 confirming and releasing a
     reservation, #199 warehouse management (WH-01 to WH-04) and #200 support reads
@@ -56,6 +56,56 @@ paths:
                 $ref: '#/components/schemas/LinkedAuctionReservationApiResponse'
         '400':
           description: orderId is missing or invalid
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Caller lacks the BUYER role
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /internal/v1/inventory/warehouses/pickup:
+    get:
+      tags: [Warehouses]
+      operationId: getSellerPickup
+      summary: Read where carriers collect a seller's parcels
+      description: >-
+        Internal service endpoint for Commerce shipping quotes and order creation.
+        Commerce relays the buyer's bearer token. data is null when the seller has no
+        warehouse, the warehouse is not ACTIVE, or it has no complete pickup (province,
+        ward and a street address of at most 255 characters); Commerce then quotes from
+        the platform pickup.
+      servers:
+        - url: http://localhost:8085
+          description: Inventory service directly
+      security:
+        - bearerAuth: []
+      x-roles: [BUYER]
+      parameters:
+        - name: sellerId
+          in: query
+          required: true
+          description: Seller UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The seller warehouse pickup, or null data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerPickupApiResponse'
+        '400':
+          description: sellerId is missing or invalid
           content:
             application/problem+json:
               schema:
@@ -1649,9 +1699,11 @@ paths:
       operationId: updateOwnWarehouse
       summary: Create or rename the seller's own warehouse
       description: >-
-        Creates the caller's warehouse when it does not exist yet, then stores the name
-        and address. Code, status and owner are not request fields. A blank address is
-        stored as null. The gateway requires a valid token; the service requires the
+        Creates the caller's warehouse when it does not exist yet, then stores the name,
+        address and pickup area. Code, status and owner are not request fields. A blank
+        address is stored as null. With provinceCode and wardCode the address is the
+        house number and street carriers collect from; without them orders ship from
+        the platform pickup. The gateway requires a valid token; the service requires the
         SELLER role.
       x-service: inventory-service
       x-actor-roles: [SELLER]
@@ -1672,7 +1724,7 @@ paths:
         '200':
           $ref: '#/components/responses/WarehouseRead'
         '400':
-          description: VALIDATION_FAILED (missing, blank or overlong name, overlong address) or INVALID_REQUEST_BODY.
+          description: VALIDATION_FAILED (missing, blank or overlong name, overlong address, only one of provinceCode and wardCode, a malformed code, or a pickup area without a street address of at most 255 characters) or INVALID_REQUEST_BODY.
           content:
             application/problem+json:
               schema:
@@ -2457,7 +2509,17 @@ components:
           type: string
           nullable: true
           maxLength: 500
-          description: Omit, null or blank clears the address
+          description: Omit, null or blank clears the address. With a pickup area it is the house number and street, at most 255 characters.
+        provinceCode:
+          type: string
+          nullable: true
+          pattern: '^[1-9][0-9]{0,8}$'
+          description: Province code from the public shipping localities; send together with wardCode, or omit both to clear the pickup area
+        wardCode:
+          type: string
+          nullable: true
+          pattern: '^[1-9][0-9]{0,8}$'
+          description: Ward code inside provinceCode
     UpdateWarehouseRequest:
       type: object
       required: [name, status]
@@ -2520,6 +2582,41 @@ components:
           format: uuid
           nullable: true
           description: Owner of a seller warehouse; null for a platform warehouse
+        provinceCode:
+          type: string
+          nullable: true
+          description: Pickup province code; null when no pickup area is set
+        wardCode:
+          type: string
+          nullable: true
+          description: Pickup ward code; null when no pickup area is set
+    SellerPickupApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          enum: [0]
+        message:
+          type: string
+        data:
+          type: object
+          nullable: true
+          required: [warehouseId, sellerId, provinceCode, wardCode, line1]
+          properties:
+            warehouseId:
+              type: string
+              format: uuid
+            sellerId:
+              type: string
+              format: uuid
+            provinceCode:
+              type: string
+            wardCode:
+              type: string
+            line1:
+              type: string
+              maxLength: 255
     WarehousePageInfo:
       type: object
       required: [number, size, totalElements, totalPages]
