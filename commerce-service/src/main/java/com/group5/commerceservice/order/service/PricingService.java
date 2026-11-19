@@ -49,6 +49,15 @@ public class PricingService {
         return shipping.quote(address, lines);
     }
 
+    public OrderShippingService.Quote shippingQuote(ShippingAddress address, List<OrderShippingService.Line> lines,
+                                                    String carrier) {
+        return carrier == null ? shipping.quote(address, lines) : shipping.offer(address, lines).select(carrier);
+    }
+
+    public OrderShippingService.Offer shippingOffer(ShippingAddress address, List<OrderShippingService.Line> lines) {
+        return shipping.offer(address, lines);
+    }
+
     @Value("${nexus.checkout.price-revalidation:true}")
     private boolean priceRevalidation = true;
 

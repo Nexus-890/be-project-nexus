@@ -56,6 +56,7 @@ public enum CommerceErrorCode implements ErrorCode {
     INVALID_PARCEL(HttpStatus.CONFLICT, "The combined seller parcel exceeds shipping limits"),
     INVALID_SHIPPING_ADDRESS(HttpStatus.BAD_REQUEST, "The shipping address is invalid"),
     SHIPPING_NOT_AVAILABLE(HttpStatus.UNPROCESSABLE_ENTITY, "No shipping service is available for this order"),
+    SHIPPING_CARRIER_UNAVAILABLE(HttpStatus.UNPROCESSABLE_ENTITY, "The selected carrier does not deliver this order; choose another carrier"),
     INVALID_ORDER_AMOUNT(HttpStatus.CONFLICT, "An item price or order total cannot be represented as numeric(19,2)"),
     ORDER_NOT_CANCELLABLE(HttpStatus.CONFLICT, "The order can no longer be cancelled"),
     RESERVED_CANCEL_REASON(HttpStatus.BAD_REQUEST, "This cancellation reason is reserved for payment expiry"),

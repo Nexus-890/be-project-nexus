@@ -15,6 +15,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -27,11 +28,30 @@ public class OrderShippingService {
     private final ShippingQuoteHttpClient http;
     private final OrderRemoteExecutor executor;
     private final ObjectMapper mapper;
+    private static final Comparator<ShippingQuoteHttpClient.Response> BY_PRICE = Comparator
+            .comparing(ShippingQuoteHttpClient.Response::fee)
+            .thenComparing(ShippingQuoteHttpClient.Response::estimatedDeliveryAt);
 
     public record Line(UUID skuId, int quantity, CatalogSkuResponse sku) { }
     public record Parcel(int weightGrams, int lengthCm, int widthCm, int heightCm) { }
     public record Quote(BigDecimal fee, Parcel parcel, String carrier, String serviceType,
                         OffsetDateTime estimatedDeliveryAt) { }
+    public record Option(String carrier, String carrierName, BigDecimal fee, OffsetDateTime estimatedDeliveryAt,
+                         boolean recommended) { }
+    public record Offer(Parcel parcel, String serviceType, List<Option> options) {
+        public Quote select(String carrier) {
+            Option chosen = carrier == null ? recommended()
+                    : options.stream().filter(option -> option.carrier().equals(carrier)).findFirst()
+                    .orElseThrow(() -> new DomainException(CommerceErrorCode.SHIPPING_CARRIER_UNAVAILABLE));
+            return new Quote(chosen.fee(), parcel, chosen.carrier(), serviceType, chosen.estimatedDeliveryAt());
+        }
+
+        public Option recommended() {
+            return options.stream().filter(Option::recommended).findFirst()
+                    .orElseGet(() -> options.stream().min(Comparator.comparing(Option::fee)
+                            .thenComparing(Option::carrier).thenComparing(Option::estimatedDeliveryAt)).orElseThrow());
+        }
+    }
 
     /** Chốt kiện từ Catalog, gửi địa chỉ hai cấp và nhận giá/loại dịch vụ đã kiểm tra từ Shipping. */
     public Quote quote(ShippingAddress address, List<Line> lines) {
@@ -39,15 +59,19 @@ public class OrderShippingService {
     }
 
     public Quote quote(ShippingAddress address, List<Line> lines, UUID warehouseId) {
-        return quote(address, lines, warehouseId, null);
+        return offer(address, lines, warehouseId, null).select(null);
+    }
+
+    public Offer offer(ShippingAddress address, List<Line> lines) {
+        return offer(address, lines, null, null);
     }
 
     /** Shipment trả phí carrier gốc; Commerce dùng giá đấu thắng để xét miễn phí. */
     public Quote quoteAuction(ShippingAddress address, List<Line> lines, UUID warehouseId) {
-        return quote(address, lines, warehouseId, false);
+        return offer(address, lines, warehouseId, false).select(null);
     }
 
-    private Quote quote(ShippingAddress address, List<Line> lines, UUID warehouseId, Boolean applyFreeShipping) {
+    private Offer offer(ShippingAddress address, List<Line> lines, UUID warehouseId, Boolean applyFreeShipping) {
         Parcel parcel = pack(lines);
         var destination = new ShippingQuoteHttpClient.Address(address.provinceCode(), address.wardCode(),
                 address.addressLine(), address.recipientName(), address.phoneNumber());
@@ -69,11 +93,14 @@ public class OrderShippingService {
                     throw new DomainException(CommerceErrorCode.SHIPPING_UNAVAILABLE);
                 }
                 // Chọn giá thấp nhất, dùng carrier/ETA để thứ tự lựa chọn luôn xác định khi đồng giá.
-                var selected = quotes.stream().min(Comparator.comparing(ShippingQuoteHttpClient.Response::fee)
-                        .thenComparing(ShippingQuoteHttpClient.Response::carrier)
-                        .thenComparing(ShippingQuoteHttpClient.Response::estimatedDeliveryAt)).orElseThrow();
-                return new Quote(selected.fee().setScale(2), parcel, selected.carrier(), selected.serviceType(),
-                        selected.estimatedDeliveryAt());
+                Map<String, ShippingQuoteHttpClient.Response> cheapest = new LinkedHashMap<>();
+                for (var quote : quotes) {
+                    cheapest.merge(quote.carrier(), quote, (kept, next) -> BY_PRICE.compare(next, kept) < 0 ? next : kept);
+                }
+                return new Offer(parcel, service, cheapest.values().stream().map(quote -> new Option(quote.carrier(),
+                        quote.carrierName() == null || quote.carrierName().isBlank() ? quote.carrier() : quote.carrierName(),
+                        quote.fee().setScale(2), quote.estimatedDeliveryAt(), quotes.stream().anyMatch(row ->
+                        row.carrier().equals(quote.carrier()) && Boolean.TRUE.equals(row.recommended())))).toList());
             } catch (FeignException error) {
                 // Chỉ ghi trạng thái/lớp lỗi, không ghi token, địa chỉ hay body của người nhận.
                 log.warn("Shipping quote call failed: status={}, failure={}, code={}", error.status(),

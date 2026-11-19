@@ -9,9 +9,15 @@ import java.util.List;
 public record CheckoutPreviewRequest(
         @NotNull @Valid ShippingAddress shippingAddress,
         @NotNull @Pattern(regexp = "SEPAY") String paymentMethod,
-        String promoCode, List<String> voucherCodes) {
+        String promoCode, List<String> voucherCodes,
+        @Pattern(regexp = "^[A-Z][A-Z0-9_]{0,29}$") String carrier) {
     public CheckoutPreviewRequest(ShippingAddress shippingAddress, String paymentMethod, String promoCode) {
-        this(shippingAddress, paymentMethod, promoCode, null);
+        this(shippingAddress, paymentMethod, promoCode, null, null);
+    }
+
+    public CheckoutPreviewRequest(ShippingAddress shippingAddress, String paymentMethod, String promoCode,
+                                  List<String> voucherCodes) {
+        this(shippingAddress, paymentMethod, promoCode, voucherCodes, null);
     }
 
     public CheckoutPreviewRequest {

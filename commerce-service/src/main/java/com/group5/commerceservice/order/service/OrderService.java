@@ -280,7 +280,7 @@ public class OrderService {
             order.setSubtotal(money(subtotal));
             OrderShippingService.Quote quote = pricingService.shippingQuote(request.shippingAddress(),
                     order.getItems().stream().map(item -> new OrderShippingService.Line(
-                            item.getSkuId(), item.getQuantity(), skus.get(item.getSkuId()))).toList());
+                            item.getSkuId(), item.getQuantity(), skus.get(item.getSkuId()))).toList(), request.carrier());
             order.setShippingFee(money(quote.fee()));
             order.getShippingInfo().put("parcel", Map.of("weightGrams", quote.parcel().weightGrams(),
                     "lengthCm", quote.parcel().lengthCm(), "widthCm", quote.parcel().widthCm(),

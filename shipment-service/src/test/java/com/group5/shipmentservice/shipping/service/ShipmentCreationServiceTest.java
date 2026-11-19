@@ -140,6 +140,52 @@ class ShipmentCreationServiceTest {
     }
 
     @Test
+    void checkoutWithSeveralCarriersBooksTheCarrierTheBuyerChoseAndFallsBackForAnUnofferedOne() {
+        CarrierAdapter ghn = mock(CarrierAdapter.class);
+        when(ghn.code()).thenReturn("GHN");
+        when(ghn.name()).thenReturn("GHN");
+        when(ghn.bookShipment(any(), any())).thenReturn(new CarrierShipmentResult("GHN258", null, false));
+        FakeCarrierAdapter fake = spy(new FakeCarrierAdapter());
+        var pickup = new PickupAddress("1000001", "1003646", "Configured warehouse street");
+        var properties = new ShippingProperties(CarrierMode.NONE, 3000, 0, 0, new BigDecimal("1000000"), 5, 30000, "",
+                WAREHOUSE, pickup, Map.of(), CarrierMode.GHN, CarrierMode.GHN, List.of(CarrierMode.FAKE),
+                ShippingProperties.CarrierStrategy.CHEAPEST);
+        var service = service(properties, List.of(ghn, fake));
+        Map<String, Object> chosen = commerceInfo();
+        chosen.put("carrier", "FAKE");
+        Shipment shipment = create(service, WAREHOUSE, chosen);
+
+        service.assignInitialTracking(shipment.getId());
+
+        assertThat(shipment.getCarrier()).isEqualTo("FAKE");
+        assertThat(shipment.getTrackingCode()).isEqualTo("FAKE-" + shipment.getId());
+        verify(ghn, never()).bookShipment(any(), any());
+
+        clearInvocations(shipments);
+        Map<String, Object> unoffered = commerceInfo();
+        unoffered.put("carrier", "VNPOST");
+        Shipment fallback = create(service, WAREHOUSE, unoffered);
+        service.assignInitialTracking(fallback.getId());
+        assertThat(fallback.getCarrier()).isEqualTo("GHN");
+        assertThat(fallback.getTrackingCode()).isEqualTo("GHN258");
+    }
+
+    @Test
+    void singleCarrierCheckoutKeepsTheConfiguredBookingCarrierWhateverTheSnapshotSays() {
+        FakeCarrierAdapter fake = spy(new FakeCarrierAdapter());
+        CarrierAdapter ghn = mock(CarrierAdapter.class);
+        when(ghn.code()).thenReturn("GHN");
+        when(ghn.name()).thenReturn("GHN");
+        var pickup = new PickupAddress("1000001", "1003646", "Configured warehouse street");
+        var service = service(properties(CarrierMode.FAKE, WAREHOUSE, pickup, Map.of()), List.of(ghn, fake));
+        Map<String, Object> info = commerceInfo();
+        info.put("carrier", "GHN");
+        Shipment shipment = create(service, WAREHOUSE, info);
+
+        assertThat(shipment.getCarrier()).isEqualTo("FAKE");
+    }
+
+    @Test
     void bookingPersistsEtaAndOneFallbackHistoryEvenWhenWorkerRunsAgain() {
         CarrierAdapter ghn = mock(CarrierAdapter.class);
         when(ghn.code()).thenReturn("GHN");

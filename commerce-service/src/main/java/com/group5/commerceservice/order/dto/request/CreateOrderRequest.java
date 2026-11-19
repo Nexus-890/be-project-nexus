@@ -15,10 +15,16 @@ import java.util.Map;
 public record CreateOrderRequest(
         @NotNull @Valid ShippingAddress shippingAddress,
         @NotNull @Pattern(regexp = "SEPAY") String paymentMethod,
-        String promoCode, List<String> voucherCodes) {
+        String promoCode, List<String> voucherCodes,
+        @Pattern(regexp = "^[A-Z][A-Z0-9_]{0,29}$") String carrier) {
 
     public CreateOrderRequest(ShippingAddress shippingAddress, String paymentMethod) {
-        this(shippingAddress, paymentMethod, null, null);
+        this(shippingAddress, paymentMethod, null, null, null);
+    }
+
+    public CreateOrderRequest(ShippingAddress shippingAddress, String paymentMethod, String promoCode,
+                              List<String> voucherCodes) {
+        this(shippingAddress, paymentMethod, promoCode, voucherCodes, null);
     }
 
     public CreateOrderRequest {
@@ -36,6 +42,7 @@ public record CreateOrderRequest(
                                 "provinceCode", address.provinceCode()))));
         List<String> requested = requestedVouchers();
         if (requested != null) snapshot.put("voucherCodes", requested);
+        if (carrier != null) snapshot.put("carrier", carrier);
         return snapshot;
     }
 

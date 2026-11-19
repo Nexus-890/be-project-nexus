@@ -27,5 +27,10 @@ public interface ShippingQuoteHttpClient {
     }
     record Address(String provinceCode, String wardCode, String line1, String recipientName, String recipientPhone) { }
     record Item(UUID skuId, int quantity) { }
-    record Response(String carrier, String serviceType, BigDecimal fee, OffsetDateTime estimatedDeliveryAt) { }
+    record Response(String carrier, String serviceType, BigDecimal fee, OffsetDateTime estimatedDeliveryAt,
+                    String carrierName, Boolean recommended) {
+        public Response(String carrier, String serviceType, BigDecimal fee, OffsetDateTime estimatedDeliveryAt) {
+            this(carrier, serviceType, fee, estimatedDeliveryAt, null, null);
+        }
+    }
 }

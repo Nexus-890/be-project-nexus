@@ -14,6 +14,7 @@ import com.group5.commerceservice.checkout.dto.CheckoutPreviewResponse;
 import com.group5.commerceservice.checkout.dto.CheckoutPreviewResponse.Item;
 import com.group5.commerceservice.checkout.dto.CheckoutPreviewRequest;
 import com.group5.commerceservice.order.service.OrderShippingService;
+import com.group5.commerceservice.order.service.ShippingChoices;
 import com.group5.commerceservice.order.service.PricingService;
 import com.group5.commerceservice.promotion.VoucherCheckoutService;
 import com.group5.commerceservice.promotion.VoucherCodes;
@@ -82,11 +83,18 @@ public class CartPricingService {
             sellers.computeIfAbsent(product.sellerId(), ignored -> new ArrayList<>()).add(
                     new OrderShippingService.Line(item.skuId(), item.quantity(), result.skus().get(item.skuId())));
         }
+        List<OrderShippingService.Offer> offers = sellers.values().stream()
+                .map(seller -> orderPricing.shippingOffer(request.shippingAddress(), seller)).toList();
+        List<CheckoutPreviewResponse.ShippingOption> options = ShippingChoices.common(offers);
+        String selected = ShippingChoices.selected(options, request.carrier());
         BigDecimal shipping = BigDecimal.ZERO;
-        for (var seller : sellers.values()) {
-            shipping = shipping.add(orderPricing.shippingQuote(request.shippingAddress(), seller).fee());
+        for (var offer : offers) {
+            shipping = shipping.add(offer.select(selected).fee());
         }
-        return preview(result, quote, shipping);
+        PriceBreakdown price = breakdown(result, quote, shipping);
+        return new CheckoutPreviewResponse(result.items(), price.subtotal(), price.shippingFee(),
+                price.taxAmount(), price.discountAmount(), price.total(), result.issues(), quote.vouchers(),
+                options, selected);
     }
 
     private static CheckoutPreviewResponse preview(Calculation result, VoucherPricing.Result quote, BigDecimal shipping) {

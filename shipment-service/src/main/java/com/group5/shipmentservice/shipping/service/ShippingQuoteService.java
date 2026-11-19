@@ -16,8 +16,11 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 public class ShippingQuoteService {
@@ -40,19 +43,56 @@ public class ShippingQuoteService {
     public List<ShippingQuoteResponse> quote(ShippingQuoteRequest request) {
         ShippingDeadline deadline = ShippingDeadline.after(Duration.ofMillis(properties.apiTimeoutMs()));
         PickupAddress pickup = resolvePickup(request.warehouseId());
-        CarrierAdapter adapter = carriers.getDefaultAdapter();
+        List<CarrierAdapter> offered = carriers.getQuoteAdapters();
+        if (offered.isEmpty()) offered = List.of(carriers.getDefaultAdapter());
+        AtomicReference<BigDecimal> subtotal = new AtomicReference<>();
+        List<ShippingQuoteResponse> options = new ArrayList<>();
+        DomainException firstFailure = null;
+        for (CarrierAdapter adapter : offered) {
+            try {
+                options.addAll(quoteWith(adapter, request, pickup, subtotal, deadline));
+            } catch (DomainException failure) {
+                if (offered.size() == 1) throw failure;
+                if (firstFailure == null) firstFailure = failure;
+            }
+        }
+        if (options.isEmpty()) throw firstFailure;
+        options.sort(order());
+        List<ShippingQuoteResponse> ranked = new ArrayList<>();
+        for (int index = 0; index < options.size(); index++) {
+            ShippingQuoteResponse option = options.get(index);
+            ranked.add(option.withChoice(carrierName(offered, option.carrier()), index == 0));
+        }
+        return ranked;
+    }
+
+    private List<ShippingQuoteResponse> quoteWith(CarrierAdapter adapter, ShippingQuoteRequest request, PickupAddress pickup,
+                                                  AtomicReference<BigDecimal> subtotal, ShippingDeadline deadline) {
         return executor.execute(adapter.code(), deadline, remaining -> {
             var destination = request.toAddress();
             CarrierAddress toAddress = addresses.resolveAddress(adapter, destination.provinceCode(),
                     destination.wardCode(), destination.line1(), remaining);
             CarrierAddress fromAddress = resolvePickupAddress(adapter, pickup, remaining);
-            BigDecimal subtotal = catalog.getSubtotal(request.items(), remaining);
+            if (subtotal.get() == null) subtotal.set(catalog.getSubtotal(request.items(), remaining));
             BigDecimal insuranceValue = request.insuranceValue() == null ? BigDecimal.ZERO : request.insuranceValue();
             List<ShippingQuoteResponse> quotes = adapter.quote(
                     new CarrierQuoteRequest(fromAddress, toAddress, request.parcel(), insuranceValue,
                             destination.recipientName(), destination.recipientPhone(), shipmentContent(request)), remaining);
-            return applyShippingPolicy(adapter, quotes, subtotal, request.applyFreeShipping());
+            return applyShippingPolicy(adapter, quotes, subtotal.get(), request.applyFreeShipping());
         });
+    }
+
+    private Comparator<ShippingQuoteResponse> order() {
+        Comparator<ShippingQuoteResponse> byFee = Comparator.comparing(ShippingQuoteResponse::fee);
+        Comparator<ShippingQuoteResponse> byArrival = Comparator.comparing(ShippingQuoteResponse::estimatedDeliveryAt);
+        Comparator<ShippingQuoteResponse> rule = properties.carrierStrategy() == ShippingProperties.CarrierStrategy.FASTEST
+                ? byArrival.thenComparing(byFee) : byFee.thenComparing(byArrival);
+        return rule.thenComparing(ShippingQuoteResponse::carrier);
+    }
+
+    private static String carrierName(List<CarrierAdapter> offered, String code) {
+        return offered.stream().filter(adapter -> adapter.code().equals(code)).map(CarrierAdapter::name)
+                .findFirst().orElse(code);
     }
 
     private String shipmentContent(ShippingQuoteRequest request) {

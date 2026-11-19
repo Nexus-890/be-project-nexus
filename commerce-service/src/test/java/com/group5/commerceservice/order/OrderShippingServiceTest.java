@@ -81,6 +81,41 @@ class OrderShippingServiceTest {
     }
 
     @Test
+    void offerKeepsTheCheapestRowPerCarrierAndTheBuyerPicksAmongThem() {
+        var soon = OffsetDateTime.now().plusDays(1);
+        var later = OffsetDateTime.now().plusDays(3);
+        when(http.quote(any())).thenReturn(ApiResponse.list(List.of(
+                new ShippingQuoteHttpClient.Response("GHN", "STANDARD", new BigDecimal("45000"), soon, "Giao Hàng Nhanh", false),
+                new ShippingQuoteHttpClient.Response("FAKE", "STANDARD", new BigDecimal("30000"), later, null, true),
+                new ShippingQuoteHttpClient.Response("GHN", "STANDARD", new BigDecimal("40000"), soon, "Giao Hàng Nhanh", false))));
+
+        var offer = service.offer(address, List.of(line(1, 1200, 30, 20, 15)));
+
+        assertThat(offer.options()).extracting(OrderShippingService.Option::carrier).containsExactly("GHN", "FAKE");
+        assertThat(offer.options()).extracting(OrderShippingService.Option::carrierName)
+                .containsExactly("Giao Hàng Nhanh", "FAKE");
+        assertThat(offer.options().getFirst().fee()).isEqualByComparingTo("40000.00");
+        assertThat(offer.recommended().carrier()).isEqualTo("FAKE");
+        assertThat(offer.select(null).carrier()).isEqualTo("FAKE");
+        var ghn = offer.select("GHN");
+        assertThat(ghn.fee()).isEqualByComparingTo("40000.00");
+        assertThat(ghn.estimatedDeliveryAt()).isEqualTo(soon);
+        assertThat(ghn.serviceType()).isEqualTo("STANDARD");
+        assertThatThrownBy(() -> offer.select("VNPOST")).isInstanceOfSatisfying(DomainException.class,
+                error -> assertThat(error.getErrorCode()).isEqualTo("COMMERCE_SHIPPING_CARRIER_UNAVAILABLE"));
+    }
+
+    @Test
+    void withoutARecommendedFlagTheCheapestCarrierIsChosen() {
+        var eta = OffsetDateTime.now().plusDays(2);
+        when(http.quote(any())).thenReturn(ApiResponse.list(List.of(
+                new ShippingQuoteHttpClient.Response("GHN", "STANDARD", new BigDecimal("45000"), eta),
+                new ShippingQuoteHttpClient.Response("FAKE", "STANDARD", new BigDecimal("30000"), eta))));
+
+        assertThat(service.quote(address, List.of(line(1, 1200, 30, 20, 15))).carrier()).isEqualTo("FAKE");
+    }
+
+    @Test
     void auctionQuoteUsesLinkedWarehouseAndDisablesCatalogPriceFreeShipping() {
         UUID warehouse = UUID.randomUUID();
         when(http.quote(any())).thenReturn(ApiResponse.list(List.of(new ShippingQuoteHttpClient.Response(

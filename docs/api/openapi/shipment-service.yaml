@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Nexus vận chuyển
-  version: 2.6.0
+  version: 2.7.0
   description: >-
     Issue #201: danh sách nhà vận chuyển, địa giới GHN v3 hai cấp sau sáp nhập và báo giá bằng preview. Bản
     2.6 bổ sung applyFreeShipping tùy chọn cho #172; mặc định true, false trả phí carrier gốc để Commerce
@@ -903,6 +903,10 @@ paths:
         gửi bằng 0 vì luồng hiện tại không thu hộ. Tên và số điện thoại người gửi không gửi riêng sẽ theo hồ
         sơ ShopId được GHN công bố. Items cung cấp số lượng đơn vị và số SKU để tóm tắt nội dung; parcel là
         một kiện đã đóng gói. Khi GHN cần items theo kiện, quantity=1 là số kiện, không phải số đơn vị SKU.
+        Khi SHIPPING_CHECKOUT_CARRIERS có giá trị (ví dụ FAKE), mỗi hãng đang bật (quote carrier trước, rồi
+        các hãng trong danh sách) được báo giá riêng; hãng lỗi bị bỏ qua, chỉ khi mọi hãng lỗi mới trả lỗi.
+        Danh sách được sắp theo SHIPPING_CARRIER_STRATEGY (CHEAPEST: phí rồi ngày giao; FASTEST: ngày giao
+        rồi phí) và phần tử đầu có recommended=true. Không đặt biến này thì chỉ quote carrier trả lời.
         InsuranceValue là giá trị khai bảo hiểm tùy chọn: VND nguyên từ 0 đến 5.000.000, bỏ trống hoặc null
         gửi 0; không tự lấy subtotal, không cắt ngưỡng hoặc làm tròn. WarehouseId ánh xạ tới pickup được cấu
         hình; bỏ trống dùng defaultWarehouseId cho WH_001. Subtotal miễn phí lấy toàn bộ giá SKU hiện tại nhân
@@ -3266,6 +3270,13 @@ components:
           format: date-time
           description: Thời điểm dự kiến giao hàng có múi giờ, từ expected_delivery_time của preview hợp lệ.
           example: '2026-11-13T16:59:59Z'
+        carrierName:
+          type: string
+          description: Tên hiển thị của hãng vận chuyển.
+          example: Giao Hàng Nhanh
+        recommended:
+          type: boolean
+          description: true cho lựa chọn đứng đầu theo SHIPPING_CARRIER_STRATEGY.
     ShippingQuoteRequest:
       type: object
       required:

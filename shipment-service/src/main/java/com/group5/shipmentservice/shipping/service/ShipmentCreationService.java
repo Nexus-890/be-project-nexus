@@ -81,7 +81,7 @@ public class ShipmentCreationService {
                 return new CreationResult(existing.get().getId(), false);
             }
 
-            String carrier = selectedCarrier();
+            String carrier = bookingCarrier(snapshot.shippingInfo());
             String service = selectedService(snapshot.shippingInfo(), carrier);
             Map<String, Object> info = prepareShippingInfo(snapshot.shippingInfo(), snapshot.warehouseId(), false);
             Shipment shipment = persist(snapshot, snapshot.warehouseId(), carrier, service, info,
@@ -252,7 +252,7 @@ public class ShipmentCreationService {
         UUID warehouse = request.warehouseId() != null ? request.warehouseId()
                 : snapshot.warehouseId() != null ? snapshot.warehouseId() : properties.defaultWarehouseId();
         if (warehouse == null) throw new DomainException(ShipmentErrorCode.WAREHOUSE_NOT_FOUND);
-        String carrier = request.carrier() == null ? selectedCarrier() : request.carrier();
+        String carrier = request.carrier() == null ? bookingCarrier(snapshot.shippingInfo()) : request.carrier();
         if (!"NONE".equals(carrier) && carriers.getAdapters().stream().noneMatch(adapter -> adapter.code().equals(carrier))) {
             throw new DomainException(ShipmentErrorCode.INVALID_PARAMETER);
         }
@@ -329,6 +329,18 @@ public class ShipmentCreationService {
 
     private String selectedCarrier() {
         return properties.effectiveBookingCarrier().name();
+    }
+
+    private String bookingCarrier(Map<String, Object> shippingInfo) {
+        if (!properties.buyerChoosesCarrier() || properties.effectiveBookingCarrier() == ShippingProperties.CarrierMode.NONE) {
+            return selectedCarrier();
+        }
+        Object chosen = shippingInfo == null ? null : shippingInfo.get("carrier");
+        if (chosen instanceof String code && properties.offeredCarriers().contains(code)
+                && carriers.getAdapters().stream().anyMatch(adapter -> adapter.code().equals(code))) {
+            return code;
+        }
+        return selectedCarrier();
     }
 
     private String selectedService(Map<String, Object> shippingInfo, String carrier) {

@@ -554,6 +554,9 @@ class OrderCreationOutboxTest {
             Mockito.when(shipping.quote(Mockito.any(), Mockito.any())).thenReturn(new OrderShippingService.Quote(
                     BigDecimal.ZERO, new OrderShippingService.Parcel(1200, 30, 20, 15), "FAKE", "STANDARD",
                     java.time.OffsetDateTime.parse("2031-02-04T04:05:06Z")));
+            Mockito.when(shipping.offer(Mockito.any(), Mockito.any())).thenReturn(new OrderShippingService.Offer(
+                    new OrderShippingService.Parcel(1200, 30, 20, 15), "STANDARD", List.of(new OrderShippingService.Option(
+                    "FAKE", "FAKE", BigDecimal.ZERO, java.time.OffsetDateTime.parse("2031-02-04T04:05:06Z"), true))));
             return shipping;
         }
         @Bean

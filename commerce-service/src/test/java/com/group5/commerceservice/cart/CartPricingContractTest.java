@@ -85,6 +85,32 @@ class CartPricingContractTest {
                 .andExpect(jsonPath("$.page").doesNotExist());
     }
 
+    @Test void previewPassesTheChosenCarrierAndListsEveryShippingOption() throws Exception {
+        var eta = java.time.OffsetDateTime.parse("2031-02-03T00:00:00Z");
+        when(service.previewCheckout(any(), argThat(request -> "FAKE".equals(request.carrier()))))
+                .thenReturn(new CheckoutPreviewResponse(List.of(), BigDecimal.ZERO, new BigDecimal("30000"),
+                        BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal("30000"), List.of(), List.of(), List.of(
+                        new CheckoutPreviewResponse.ShippingOption("GHN", "Giao Hàng Nhanh", new BigDecimal("45000"), eta, false),
+                        new CheckoutPreviewResponse.ShippingOption("FAKE", "FAKE", new BigDecimal("30000"), eta, true)), "FAKE"));
+        mvc.perform(post("/api/v1/checkout/preview").contentType(MediaType.APPLICATION_JSON)
+                        .content(BODY.replace("\"promoCode\":\"D01\"", "\"carrier\":\"FAKE\"")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.selectedCarrier").value("FAKE"))
+                .andExpect(jsonPath("$.data.shippingOptions.length()").value(2))
+                .andExpect(jsonPath("$.data.shippingOptions[0].carrierName").value("Giao Hàng Nhanh"))
+                .andExpect(jsonPath("$.data.shippingOptions[0].fee").value(45000))
+                .andExpect(jsonPath("$.data.shippingOptions[1].recommended").value(true));
+    }
+
+    @Test void previewWithoutOptionsStillSendsANullSelectedCarrier() throws Exception {
+        when(service.previewCheckout(any(), any())).thenReturn(new CheckoutPreviewResponse(List.of(),
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, List.of(), List.of()));
+        mvc.perform(post("/api/v1/checkout/preview").contentType(MediaType.APPLICATION_JSON).content(BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.shippingOptions").isEmpty())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("\"selectedCarrier\":null")));
+    }
+
     @Test void emptyCartPreviewReturns400CommerceProblemDetails() throws Exception {
         when(service.previewCheckout(any(), any())).thenThrow(new DomainException(CommerceErrorCode.CART_EMPTY));
         mvc.perform(post("/api/v1/checkout/preview").contentType(MediaType.APPLICATION_JSON).content(BODY))
@@ -104,6 +130,10 @@ class CartPricingContractTest {
                         .content(BODY.replace("\"SEPAY\"", "\"INVALID\"").replace("\"0901234567\"", "\"\"")))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.errors.length()").value(2));
+        mvc.perform(post("/api/v1/checkout/preview").contentType(MediaType.APPLICATION_JSON)
+                        .content(BODY.replace("\"promoCode\":\"D01\"", "\"carrier\":\"ghn express\"")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[0].field").value("carrier"));
         verifyNoInteractions(service);
     }
 }
