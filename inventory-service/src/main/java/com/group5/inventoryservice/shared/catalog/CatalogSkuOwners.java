@@ -35,7 +35,7 @@ public class CatalogSkuOwners {
             return product == null ? Optional.empty() : Optional.ofNullable(product.sellerId());
         } catch (HttpClientErrorException.NotFound missing) {
             return Optional.empty();
-        } catch (RestClientException failure) {
+        } catch (RestClientException | IllegalStateException failure) {
             throw new DomainException(InventoryErrorCode.CATALOG_UNAVAILABLE);
         }
     }

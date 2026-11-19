@@ -314,7 +314,7 @@ public class OrderService {
         savedGroup.setDueAt(reservation.expiresAt());
         savedGroup.getOrders().forEach(order -> {
             order.setPaymentDueAt(reservation.expiresAt());
-            order.getShippingInfo().put("warehouseId", reservation.warehouseId().toString());
+            order.getShippingInfo().put("warehouseId", reservation.warehouseFor(order.getId()).toString());
         });
         groupRepository.saveAndFlush(savedGroup);
         if (confirmedQuote != null) vouchers.persistReservations(user.id(), savedGroup.getOrders(), confirmedQuote, reservedAt);

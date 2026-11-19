@@ -74,6 +74,7 @@ class WarehouseManagementIntegrationTest {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PlatformTransactionManager transactionManager;
     @MockitoBean private JwtDecoder decoder;
+    @MockitoBean private com.group5.inventoryservice.shared.catalog.CatalogSkuOwners skuOwners;
     private MockMvc mvc;
     private UUID defaultWarehouse;
 
@@ -311,6 +312,45 @@ class WarehouseManagementIntegrationTest {
             }
         }
         assertThat(warehouseRow(defaultWarehouse)).isEqualTo(before);
+    }
+
+    @Test
+    void aSellerReadsAndSavesTheirOwnWarehouseAndOthersCannotUseTheseRoutes() throws Exception {
+        request("seller", get(PATH + "/me"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("INVENTORY_WAREHOUSE_NOT_FOUND"));
+
+        String created = request("seller", put(PATH + "/me").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"  Kho Quận 7  \",\"address\":\"12 Nguyễn Thị Thập\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("Kho Quận 7"))
+                .andExpect(jsonPath("$.data.address").value("12 Nguyễn Thị Thập"))
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.data.code").value(org.hamcrest.Matchers.startsWith("SELLER-")))
+                .andExpect(jsonPath("$.data.sellerId").isNotEmpty())
+                .andReturn().getResponse().getContentAsString();
+        String id = com.jayway.jsonpath.JsonPath.read(created, "$.data.id");
+
+        request("seller", put(PATH + "/me").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Kho mới\",\"address\":\" \"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(id));
+        assertThat(jdbc.queryForObject("SELECT address FROM warehouses WHERE id = ?::uuid", String.class, id)).isNull();
+        request("seller", get(PATH + "/me"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("Kho mới"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM warehouses WHERE seller_id IS NOT NULL", Integer.class))
+                .isEqualTo(1);
+
+        request("seller", put(PATH + "/me").contentType(MediaType.APPLICATION_JSON).content("{\"name\":\" \"}"))
+                .andExpect(status().isBadRequest());
+        for (String actor : List.of("admin", "buyer", "support")) {
+            request(actor, get(PATH + "/me")).andExpect(status().isForbidden());
+            request(actor, put(PATH + "/me").contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"X\"}"))
+                    .andExpect(status().isForbidden());
+        }
+        request("admin", get(PATH))
+                .andExpect(jsonPath("$.data[?(@.id == '" + id + "')].sellerId").isNotEmpty());
     }
 
     @Test

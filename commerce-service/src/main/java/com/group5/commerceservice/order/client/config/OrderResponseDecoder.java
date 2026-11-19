@@ -45,6 +45,14 @@ public final class OrderResponseDecoder implements Decoder {
                 throw invalid(response);
             } else {
                 for (JsonNode id : data.path("reservationIds")) if (!id.isString()) throw invalid(response);
+                JsonNode orders = data.path("orders");
+                if (!orders.isMissingNode() && !orders.isNull()) {
+                    if (!orders.isArray()) throw invalid(response);
+                    for (JsonNode order : orders) {
+                        if (!order.isObject() || !order.path("orderId").isString()
+                                || !order.path("warehouseId").isString()) throw invalid(response);
+                    }
+                }
             }
             return mapper.convertValue(root, mapper.constructType(type));
         } catch (DecodeException error) {

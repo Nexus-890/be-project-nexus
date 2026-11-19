@@ -1,6 +1,5 @@
 package com.group5.inventoryservice.inventory;
 
-import com.group5.inventoryservice.inventory.dto.StockResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -8,22 +7,12 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.util.Collection;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 public interface InventoryBalanceRepository extends JpaRepository<InventoryBalance, UUID> {
 
     Optional<InventoryBalance> findBySkuIdAndWarehouseId(UUID skuId, UUID warehouseId);
-
-    @Query("""
-            SELECT new com.group5.inventoryservice.inventory.dto.StockResponse(b.skuId, b.availableQuantity)
-            FROM InventoryBalance b
-            WHERE b.warehouseId = :warehouseId AND b.skuId IN :skuIds
-            """)
-    List<StockResponse> findAvailable(@Param("warehouseId") UUID warehouseId,
-                                      @Param("skuIds") Collection<UUID> skuIds);
 
     // 1 CÂU SQL DUY NHẤT: CHƯA CÓ DÒNG (SKU + KHO) THÌ INSERT, CÓ RỒI THÌ CỘNG DỒN TOTAL VÀ AVAILABLE
     // 2 REQUEST NHẬP KHO CÙNG LÚC -> POSTGRES TỰ XẾP HÀNG, KHÔNG TẠO 2 DÒNG, KHÔNG MẤT SỐ LƯỢNG

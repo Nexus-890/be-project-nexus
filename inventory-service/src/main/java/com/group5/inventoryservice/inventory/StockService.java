@@ -9,7 +9,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 public class StockService {
@@ -17,9 +16,9 @@ public class StockService {
     public static final int MAX_BATCH_SIZE = 100;
 
     private final InventoryBalanceRepository balances;
-    private final WarehouseResolver warehouses;
+    private final SkuWarehouses warehouses;
 
-    public StockService(InventoryBalanceRepository balances, WarehouseResolver warehouses) {
+    public StockService(InventoryBalanceRepository balances, SkuWarehouses warehouses) {
         this.balances = balances;
         this.warehouses = warehouses;
     }
@@ -35,10 +34,9 @@ public class StockService {
             throw new DomainException(InventoryErrorCode.TOO_MANY_SKUS);
         }
         List<UUID> distinct = skuIds.stream().distinct().toList();
-        Map<UUID, Integer> found = balances.findAvailable(warehouses.defaultWarehouseId(), distinct).stream()
-                .collect(Collectors.toMap(StockResponse::skuId, StockResponse::available));
+        Map<UUID, SkuWarehouses.Home> homes = warehouses.homes(distinct);
         return distinct.stream()
-                .map(skuId -> new StockResponse(skuId, found.getOrDefault(skuId, 0)))
+                .map(skuId -> new StockResponse(skuId, homes.containsKey(skuId) ? homes.get(skuId).available() : 0))
                 .toList();
     }
 }

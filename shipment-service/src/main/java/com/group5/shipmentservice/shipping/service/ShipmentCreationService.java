@@ -271,8 +271,9 @@ public class ShipmentCreationService {
         // Commerce's paid event can omit dispatch details. Only use a trusted pickup for this exact warehouse.
         Map<String, Object> info = new LinkedHashMap<>(shippingInfo);
         PickupAddress configured = properties.pickups().get(warehouse);
-        if (configured == null && warehouse != null && warehouse.equals(properties.defaultWarehouseId())) {
-            configured = properties.defaultPickup();
+        if (configured == null && warehouse != null
+                && (!differentWarehouse || warehouse.equals(properties.defaultWarehouseId()))) {
+            configured = properties.platformPickup();
         }
         if (differentWarehouse || info.get("pickupAddress") == null) {
             if (configured != null && configured.addressLine() != null && !configured.addressLine().isBlank()

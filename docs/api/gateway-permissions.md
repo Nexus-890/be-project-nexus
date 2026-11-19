@@ -759,6 +759,8 @@ A path with several roles in `x-required-roles` accepts any one of them.
 | GET | `/api/v1/inventory/movements` | ADMIN, SUPPORT_STAFF | token only | none (role-only) | Service requires ADMIN or SUPPORT_STAFF | #200 |
 | POST | `/api/v1/warehouses` | ADMIN | token only | none (role-only) | Service requires ADMIN | #199 |
 | GET | `/api/v1/warehouses` | ADMIN, SUPPORT_STAFF | token only | none (role-only) | Service requires ADMIN or SUPPORT_STAFF | #199 |
+| GET | `/api/v1/warehouses/me` | SELLER | token only | none (role-only) | Service requires SELLER; 404 until the seller's warehouse exists | one warehouse per seller |
+| PUT | `/api/v1/warehouses/me` | SELLER | token only | none (role-only) | Service requires SELLER; creates the warehouse on first save | one warehouse per seller |
 | GET | `/api/v1/warehouses/{id}` | ADMIN, SUPPORT_STAFF | token only | none (role-only) | Service requires ADMIN or SUPPORT_STAFF | #199 |
 | PUT | `/api/v1/warehouses/{id}` | ADMIN | token only | none (role-only) | Service requires ADMIN | #199 |
 
@@ -814,7 +816,9 @@ A path with several roles in `x-required-roles` accepts any one of them.
   `GET /internal/v1/inventory/reservations` (#209, Sprint 3) is not in this draft.
 - **Movement types:** `movementType` and the `type` filter use the eight
   `inventory_movement_type` values plus `INTAKE` and `COMMIT`, which V6 adds (#131),
-  and `PICK` and `SHIP`, which V13 adds for pick and pack.
+  and `PICK` and `SHIP`, which V13 adds for pick and pack, and `TRANSFER`, which V14
+  adds: when a seller warehouse receives stock, available stock of the SKU left in
+  platform warehouses moves there as a -q / +q pair.
   #200 writes `ADJUSTMENT`. The schema document still names an `ADJUST` value that no
   issue writes.
   As delivered, the `type` filter and `movementType` use only the six values the

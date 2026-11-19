@@ -88,18 +88,18 @@ class ShipmentCreationServiceTest {
     }
 
     @Test
-    void unconfiguredWarehouseStaysPendingWithoutBorrowingDefaultPickup() {
+    void sellerWarehouseWithoutItsOwnPickupShipsFromThePlatformPickup() {
         FakeCarrierAdapter fake = spy(new FakeCarrierAdapter());
-        var properties = properties(CarrierMode.FAKE, UUID.randomUUID(),
-                new PickupAddress("1000001", "1003646", "Different warehouse street"), Map.of());
+        PickupAddress platform = new PickupAddress("1000001", "1003646", "Platform warehouse street");
+        var properties = properties(CarrierMode.FAKE, UUID.randomUUID(), platform, Map.of());
         var service = service(properties, List.of(fake));
         Shipment shipment = create(service, WAREHOUSE, commerceInfo());
 
         service.assignInitialTracking(shipment.getId());
 
-        assertThat(shipment.getTrackingCode()).isNull();
-        assertThat(shipment.getShippingInfo().get("pickupAddress")).isNull();
-        verify(fake, never()).createShipment(any(), any());
+        assertThat(shipment.getTrackingCode()).isEqualTo("FAKE-" + shipment.getId());
+        assertThat(shipment.getShippingInfo().get("pickupAddress")).isEqualTo(Map.of("line1", platform.addressLine(),
+                "provinceCode", platform.provinceCode(), "wardCode", platform.wardCode()));
     }
 
     @Test

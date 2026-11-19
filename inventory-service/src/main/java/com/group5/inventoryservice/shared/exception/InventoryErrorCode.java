@@ -7,6 +7,7 @@ public enum InventoryErrorCode implements ErrorCode {
     DUPLICATE_WAREHOUSE_CODE(HttpStatus.CONFLICT, "Warehouse code already exists"),
     WAREHOUSE_UNAVAILABLE(HttpStatus.CONFLICT, "Warehouse is not active for stock intake"),
     WAREHOUSE_NOT_FOUND(HttpStatus.NOT_FOUND, "Warehouse not found"),
+    WAREHOUSE_NOT_SKU_HOME(HttpStatus.CONFLICT, "This SKU is stocked in another warehouse"),
     TOO_MANY_SKUS(HttpStatus.BAD_REQUEST, "At most 100 SKU ids can be read at once"),
     DEFAULT_WAREHOUSE_NOT_FOUND(HttpStatus.INTERNAL_SERVER_ERROR,
             "The configured default warehouse does not exist"),

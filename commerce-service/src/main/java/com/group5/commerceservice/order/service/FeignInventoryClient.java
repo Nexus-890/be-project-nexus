@@ -37,14 +37,28 @@ public class FeignInventoryClient implements InventoryClient {
                         || result.expiresAt() == null || !result.expiresAt().isAfter(OffsetDateTime.now())
                         || result.reservationIds() == null || result.reservationIds().size() != items.size()
                         || result.reservationIds().stream().anyMatch(java.util.Objects::isNull)
-                        || new HashSet<>(result.reservationIds()).size() != items.size()) {
+                        || new HashSet<>(result.reservationIds()).size() != items.size()
+                        || !coversEveryOrder(result.orders(), items)) {
                     throw new DomainException(CommerceErrorCode.INVENTORY_UNAVAILABLE);
                 }
-                return new Reservation(List.copyOf(result.reservationIds()), result.warehouseId(), result.expiresAt());
+                return new Reservation(List.copyOf(result.reservationIds()), result.warehouseId(), result.expiresAt(),
+                        result.orders() == null ? null : List.copyOf(result.orders()));
             } catch (FeignException error) {
                 throw translate(error, items);
             }
         });
+    }
+
+    private static boolean coversEveryOrder(List<OrderWarehouse> orders, List<Item> items) {
+        if (orders == null) return true;
+        if (orders.stream().anyMatch(order -> order == null || order.orderId() == null || order.warehouseId() == null)) {
+            return false;
+        }
+        var expected = new HashSet<UUID>();
+        items.forEach(item -> expected.add(item.orderId()));
+        var returned = new HashSet<UUID>();
+        orders.forEach(order -> returned.add(order.orderId()));
+        return returned.size() == orders.size() && returned.equals(expected);
     }
 
     /** Chỉ chuyển lỗi thiếu tồn đã xác minh thành 409; lỗi khả dụng trả 503 để checkout rollback. */

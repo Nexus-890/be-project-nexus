@@ -28,7 +28,7 @@ public interface ReservationRepository extends JpaRepository<InventoryReservatio
 
     List<InventoryReservation> findByOrderIdAndAuctionWinnerIdOrderById(UUID orderId, UUID buyerId);
 
-    List<InventoryReservation> findByOrderIdInAndWarehouseId(Collection<UUID> orderIds, UUID warehouseId);
+    List<InventoryReservation> findByOrderIdIn(Collection<UUID> orderIds);
 
     List<InventoryReservation> findByOrderIdOrderBySkuIdAscIdAsc(UUID orderId);
 

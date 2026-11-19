@@ -88,8 +88,8 @@ public class ShippingQuoteService {
             throw new DomainException(ShipmentErrorCode.CARRIER_CONFIGURATION_ERROR);
         }
         PickupAddress pickup = properties.pickups().get(warehouseId);
-        if (pickup == null && warehouseId.equals(properties.defaultWarehouseId())) {
-            pickup = properties.defaultPickup();
+        if (pickup == null) {
+            pickup = properties.platformPickup();
         }
         if (pickup == null) {
             throw new DomainException(requestedWarehouse == null ? ShipmentErrorCode.CARRIER_CONFIGURATION_ERROR

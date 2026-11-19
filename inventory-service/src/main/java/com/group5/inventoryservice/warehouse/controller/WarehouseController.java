@@ -1,7 +1,9 @@
 package com.group5.inventoryservice.warehouse.controller;
 
 import com.group5.common_core.model.ApiResponse;
+import com.group5.common_security.CurrentUser;
 import com.group5.inventoryservice.warehouse.dto.request.CreateWarehouseRequest;
+import com.group5.inventoryservice.warehouse.dto.request.UpdateOwnWarehouseRequest;
 import com.group5.inventoryservice.warehouse.dto.request.UpdateWarehouseRequest;
 import com.group5.inventoryservice.warehouse.dto.response.WarehouseResponse;
 import com.group5.inventoryservice.warehouse.enums.WarehouseStatus;
@@ -43,6 +45,19 @@ public class WarehouseController {
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPPORT_STAFF')")
     public ApiResponse<List<WarehouseResponse>> list(@RequestParam(required = false) WarehouseStatus status) {
         return ApiResponse.list(service.list(status));
+    }
+
+    @GetMapping("/me")
+    @PreAuthorize("hasRole('SELLER')")
+    public ApiResponse<WarehouseResponse> mine(CurrentUser currentUser) {
+        return ApiResponse.of(service.mine(currentUser.id()));
+    }
+
+    @PutMapping("/me")
+    @PreAuthorize("hasRole('SELLER')")
+    public ApiResponse<WarehouseResponse> updateMine(@Valid @RequestBody UpdateOwnWarehouseRequest request,
+                                                     CurrentUser currentUser) {
+        return ApiResponse.of(service.updateMine(currentUser.id(), request));
     }
 
     @GetMapping("/{id}")

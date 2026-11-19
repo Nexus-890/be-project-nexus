@@ -56,6 +56,15 @@ After restarting the app, stock remains persisted. Restarting or explicitly
 rerunning this script does not add another seed intake. Query `inventory_balances`
 to verify quantities; the seed verifier does not exercise the HTTP stock API.
 
+## One warehouse per seller (V14)
+
+Since inventory V14 each seller has one warehouse, created on the seller's first
+intake (or first save on the seller Warehouse page). The seed still writes to WH_001;
+those units stay readable and reservable there until the SKU first lands in a seller
+warehouse. That intake (by the seller, or by an admin without a warehouse) moves the
+SKU's available units out of WH_001 with a TRANSFER pair (-q in WH_001, +q in the
+seller warehouse). Units reserved at that moment stay in WH_001 and are settled there.
+
 ## Verify in disposable PostgreSQL 18 databases
 
 With an existing disposable PostgreSQL 18 container (no host psql or exposed

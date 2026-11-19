@@ -9,7 +9,7 @@ import com.group5.inventoryservice.inventory.InventoryBalance;
 import com.group5.inventoryservice.inventory.InventoryBalanceRepository;
 import com.group5.inventoryservice.inventory.InventoryMovementRepository;
 import com.group5.inventoryservice.inventory.MovementType;
-import com.group5.inventoryservice.inventory.WarehouseResolver;
+import com.group5.inventoryservice.inventory.SkuWarehouses;
 import com.group5.inventoryservice.reservation.InventoryStockUnavailable;
 import com.group5.inventoryservice.reservation.ReservationStatus;
 import com.group5.inventoryservice.reservation.dto.request.ReserveRequest;
@@ -50,7 +50,7 @@ public class ReservationService {
     private final InventoryBalanceRepository balances;
     private final InventoryMovementRepository movements;
     private final ReservationRepository reservations;
-    private final WarehouseResolver warehouses;
+    private final SkuWarehouses warehouses;
     private final ReservationTimeout reservationTimeout;
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
@@ -80,7 +80,7 @@ public class ReservationService {
         if (reservations.existsByAuctionId(auctionId)) {
             return;
         }
-        UUID warehouseId = warehouses.defaultWarehouseId();
+        UUID warehouseId = warehouses.warehouseFor(skuId);
         if (balances.reserve(skuId, warehouseId, 1, SYSTEM_ACTOR) == 0) {
             outbox.write("Auction", Topics.INVENTORY, envelopes.create("AuctionStockRejected", auctionId.toString(),
                     Map.of("auctionId", auctionId, "skuId", skuId, "reason", "OUT_OF_STOCK")));
@@ -155,16 +155,18 @@ public class ReservationService {
     public ReservationResponse reserve(ReserveRequest request, CurrentUser currentUser) {
         List<ReserveRequest.Item> items = request.items();
         rejectDuplicateItems(items);
-        UUID warehouseId = warehouses.defaultWarehouseId();
 
         Set<UUID> orderIds = items.stream().map(ReserveRequest.Item::orderId).collect(Collectors.toSet());
-        List<InventoryReservation> existing = reservations.findByOrderIdInAndWarehouseId(orderIds, warehouseId);
+        List<InventoryReservation> existing = reservations.findByOrderIdIn(orderIds);
         if (!existing.isEmpty()) {
-            return replay(items, existing, warehouseId);
+            return replay(items, existing);
         }
 
         UUID actor = currentUser.id();
-        for (Map.Entry<UUID, Integer> sku : quantitiesBySku(items).entrySet()) {
+        SortedMap<UUID, Integer> quantities = quantitiesBySku(items);
+        Map<UUID, UUID> homes = warehouses.warehousesFor(quantities.keySet());
+        for (Map.Entry<UUID, Integer> sku : quantities.entrySet()) {
+            UUID warehouseId = homes.get(sku.getKey());
             if (balances.reserve(sku.getKey(), warehouseId, sku.getValue(), actor) == 0) {
                 throw insufficientStock(sku.getKey(), warehouseId, sku.getValue());
             }
@@ -173,14 +175,13 @@ public class ReservationService {
         OffsetDateTime createdAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
         OffsetDateTime expiresAt = reservationTimeout.expiresAt(createdAt);
         List<InventoryReservation> created = save(items.stream()
-                .map(item -> InventoryReservation.held(item.orderId(), item.skuId(), warehouseId, item.quantity(),
-                        createdAt, expiresAt))
+                .map(item -> InventoryReservation.held(item.orderId(), item.skuId(), homes.get(item.skuId()),
+                        item.quantity(), createdAt, expiresAt))
                 .toList());
-        created.forEach(reservation -> movements.record(reservation.getSkuId(), warehouseId, MovementType.RESERVE,
-                reservation.getQuantity(), reservation.getId(), actor));
+        created.forEach(reservation -> movements.record(reservation.getSkuId(), reservation.getWarehouseId(),
+                MovementType.RESERVE, reservation.getQuantity(), reservation.getId(), actor));
 
-        return new ReservationResponse(created.stream().map(InventoryReservation::getId).toList(), warehouseId,
-                expiresAt);
+        return response(items, created, expiresAt);
     }
 
     @Transactional
@@ -374,8 +375,8 @@ public class ReservationService {
         }
     }
 
-    private static ReservationResponse replay(List<ReserveRequest.Item> items, List<InventoryReservation> existing,
-                                              UUID warehouseId) {
+    private static ReservationResponse replay(List<ReserveRequest.Item> items,
+                                              List<InventoryReservation> existing) {
         if (existing.stream().anyMatch(row -> row.getStatus() != ReservationStatus.HELD)) {
             throw new DomainException(InventoryErrorCode.RESERVATION_CONFLICT);
         }
@@ -384,14 +385,27 @@ public class ReservationService {
         if (held.size() != items.size()) {
             throw new DomainException(InventoryErrorCode.RESERVATION_CONFLICT);
         }
-        List<UUID> ids = items.stream().map(item -> {
+        List<InventoryReservation> rows = items.stream().map(item -> {
             InventoryReservation row = held.get(new ItemKey(item.orderId(), item.skuId()));
             if (row == null || row.getQuantity() != item.quantity()) {
                 throw new DomainException(InventoryErrorCode.RESERVATION_CONFLICT);
             }
-            return row.getId();
+            return row;
         }).toList();
-        return new ReservationResponse(ids, warehouseId, existing.getFirst().getExpiresAt());
+        return response(items, rows, existing.getFirst().getExpiresAt());
+    }
+
+    private static ReservationResponse response(List<ReserveRequest.Item> items, List<InventoryReservation> rows,
+                                                OffsetDateTime expiresAt) {
+        Map<UUID, UUID> warehouseByOrder = new java.util.LinkedHashMap<>();
+        for (InventoryReservation row : rows) {
+            warehouseByOrder.putIfAbsent(row.getOrderId(), row.getWarehouseId());
+        }
+        List<ReservationResponse.OrderWarehouse> orders = warehouseByOrder.entrySet().stream()
+                .map(entry -> new ReservationResponse.OrderWarehouse(entry.getKey(), entry.getValue()))
+                .toList();
+        return new ReservationResponse(rows.stream().map(InventoryReservation::getId).toList(),
+                orders.getFirst().warehouseId(), expiresAt, orders);
     }
 
     private record ItemKey(UUID orderId, UUID skuId) {

@@ -6,6 +6,7 @@ import com.group5.inventoryservice.warehouse.enums.WarehouseStatus;
 import com.group5.inventoryservice.warehouse.repository.WarehouseRepository;
 import com.group5.inventoryservice.shared.exception.InventoryErrorCode;
 import com.group5.inventoryservice.warehouse.dto.request.CreateWarehouseRequest;
+import com.group5.inventoryservice.warehouse.dto.request.UpdateOwnWarehouseRequest;
 import com.group5.inventoryservice.warehouse.dto.request.UpdateWarehouseRequest;
 import com.group5.inventoryservice.warehouse.dto.response.WarehouseResponse;
 import org.hibernate.exception.ConstraintViolationException;
@@ -21,9 +22,11 @@ import java.util.UUID;
 public class WarehouseService {
 
     private final WarehouseRepository warehouses;
+    private final SellerWarehouses sellerWarehouses;
 
-    public WarehouseService(WarehouseRepository warehouses) {
+    public WarehouseService(WarehouseRepository warehouses, SellerWarehouses sellerWarehouses) {
         this.warehouses = warehouses;
+        this.sellerWarehouses = sellerWarehouses;
     }
 
     @Transactional
@@ -48,7 +51,7 @@ public class WarehouseService {
         List<Warehouse> result = status == null
                 ? warehouses.findAll(sort)
                 : warehouses.findAllByStatus(status, sort);
-        return result.stream().map(this::toResponse).toList();
+        return result.stream().map(WarehouseService::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
@@ -56,6 +59,24 @@ public class WarehouseService {
         Warehouse warehouse = warehouses.findById(id)
                 .orElseThrow(() -> new DomainException(InventoryErrorCode.WAREHOUSE_NOT_FOUND));
         return toResponse(warehouse);
+    }
+
+    @Transactional(readOnly = true)
+    public WarehouseResponse mine(UUID sellerId) {
+        return warehouses.findBySellerId(sellerId).map(WarehouseService::toResponse)
+                .orElseThrow(() -> new DomainException(InventoryErrorCode.WAREHOUSE_NOT_FOUND,
+                        "Your warehouse is created with your first stock intake or when you save its details"));
+    }
+
+    @Transactional
+    public WarehouseResponse updateMine(UUID sellerId, UpdateOwnWarehouseRequest request) {
+        String address = request.address() == null || request.address().isBlank() ? null : request.address().strip();
+        sellerWarehouses.ensure(sellerId, request.name().strip(), address);
+        Warehouse warehouse = warehouses.findBySellerIdForUpdate(sellerId)
+                .orElseThrow(() -> new DomainException(InventoryErrorCode.DUPLICATE_WAREHOUSE_CODE));
+        warehouse.setName(request.name().strip());
+        warehouse.setAddress(address);
+        return toResponse(warehouses.saveAndFlush(warehouse));
     }
 
     @Transactional
@@ -93,8 +114,8 @@ public class WarehouseService {
         return false;
     }
 
-    private WarehouseResponse toResponse(Warehouse warehouse) {
+    public static WarehouseResponse toResponse(Warehouse warehouse) {
         return new WarehouseResponse(warehouse.getId(), warehouse.getCode(), warehouse.getName(),
-                warehouse.getAddress(), warehouse.getStatus());
+                warehouse.getAddress(), warehouse.getStatus(), warehouse.getSellerId());
     }
 }

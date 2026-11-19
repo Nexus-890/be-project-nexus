@@ -43,6 +43,9 @@ public class Warehouse extends AuditedEntity {
     @Column(name = "address", columnDefinition = "text")
     private String address;
 
+    @Column(name = "seller_id", updatable = false)
+    private UUID sellerId;
+
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(name = "status", nullable = false, columnDefinition = "warehouse_status")

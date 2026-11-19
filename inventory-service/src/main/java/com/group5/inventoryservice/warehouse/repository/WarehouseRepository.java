@@ -33,4 +33,14 @@ public interface WarehouseRepository extends JpaRepository<Warehouse, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select warehouse from Warehouse warehouse where warehouse.id = :id")
     Optional<Warehouse> findByIdForUpdate(@Param("id") UUID id);
+
+    Optional<Warehouse> findBySellerId(UUID sellerId);
+
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select warehouse from Warehouse warehouse where warehouse.sellerId = :sellerId")
+    Optional<Warehouse> findBySellerIdForIntake(@Param("sellerId") UUID sellerId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select warehouse from Warehouse warehouse where warehouse.sellerId = :sellerId")
+    Optional<Warehouse> findBySellerIdForUpdate(@Param("sellerId") UUID sellerId);
 }

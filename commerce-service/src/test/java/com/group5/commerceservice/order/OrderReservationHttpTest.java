@@ -183,6 +183,25 @@ class OrderReservationHttpTest {
     }
 
     @Test
+    void eachOrderKeepsTheSellerWarehouseInventoryReturned() {
+        var other = UUID.randomUUID();
+        var otherWarehouse = UUID.randomUUID();
+        String orders = ",\"orders\":[{\"orderId\":\"" + order + "\",\"warehouseId\":\"" + warehouse
+                + "\"},{\"orderId\":\"" + other + "\",\"warehouseId\":\"" + otherWarehouse + "\"}]}}";
+        reply = success().replace("[\"", "[\"" + UUID.randomUUID() + "\",\"").replaceFirst("}}$", orders);
+        var items = List.of(new InventoryClient.Item(order, sku, 2), new InventoryClient.Item(other, UUID.randomUUID(), 1));
+        var reservation = client(5).reserve(group, items);
+        assertThat(reservation.warehouseFor(order)).isEqualTo(warehouse);
+        assertThat(reservation.warehouseFor(other)).isEqualTo(otherWarehouse);
+
+        reply = success().replaceFirst("}}$", ",\"orders\":[{\"orderId\":\"" + other + "\",\"warehouseId\":\""
+                + otherWarehouse + "\"}]}}");
+        assertUnavailable(client(5));
+        reply = success().replaceFirst("}}$", ",\"orders\":[{\"orderId\":\"" + order + "\",\"warehouseId\":7}]}}");
+        assertUnavailable(client(5));
+    }
+
+    @Test
     void invalidEnvelopeAndInvalidReservationNeverBecomeSuccess() {
         for (String body : List.of("{\"data\":{}}", success().replace("\"warehouseId\":\"" + warehouse + "\"", "\"warehouseId\":null"),
                 success().replace(OffsetDateTime.now().plusMinutes(30).getYear() + "-", "2000-"),

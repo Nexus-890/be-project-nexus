@@ -250,17 +250,72 @@ class InventoryIntakeIntegrationTest {
     }
 
     @Test
-    void sellerAddsStockToTheirOwnSkuInTheDefaultWarehouse() throws Exception {
+    void sellerAddsStockToTheirOwnSkuInTheirOwnWarehouse() throws Exception {
         UUID sku = UUID.randomUUID();
         when(skuOwners.sellerOf(sku)).thenReturn(Optional.of(SELLER_ID));
         intake("seller", body(sku, null, 30))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.data.warehouseId").value(defaultWarehouse.toString()))
                 .andExpect(jsonPath("$.data.available").value(30));
 
-        assertThat(row(sku, defaultWarehouse)).containsEntry("total_quantity", 30)
-                .containsEntry("created_by", SELLER_ID);
+        UUID own = sellerWarehouse(SELLER_ID);
+        assertThat(jdbc.queryForMap("SELECT code, name, status::text AS status FROM warehouses WHERE id = ?", own))
+                .containsEntry("code", "SELLER-" + SELLER_ID.toString().replace("-", "").toUpperCase())
+                .containsEntry("name", "Seller warehouse").containsEntry("status", "ACTIVE");
+        assertThat(row(sku, own)).containsEntry("total_quantity", 30).containsEntry("created_by", SELLER_ID);
+        assertThat(rowCount(sku)).isEqualTo(1);
         assertThat(movementCount(sku)).isEqualTo(1);
+    }
+
+    @Test
+    void theFirstSellerIntakeMovesSharedAvailableStockWithTransferMovements() throws Exception {
+        UUID sku = UUID.randomUUID();
+        intake("admin", body(sku, null, 20)).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.warehouseId").value(defaultWarehouse.toString()));
+        jdbc.update("""
+                UPDATE inventory_balances SET available_quantity = 17, reserved_quantity = 3
+                WHERE sku_id = ? AND warehouse_id = ?
+                """, sku, defaultWarehouse);
+
+        when(skuOwners.sellerOf(sku)).thenReturn(Optional.of(SELLER_ID));
+        intake("seller", body(sku, null, 5))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.total").value(22))
+                .andExpect(jsonPath("$.data.available").value(22));
+
+        UUID own = sellerWarehouse(SELLER_ID);
+        assertThat(row(sku, defaultWarehouse)).containsEntry("total_quantity", 3)
+                .containsEntry("available_quantity", 0).containsEntry("reserved_quantity", 3);
+        assertThat(row(sku, own)).containsEntry("total_quantity", 22).containsEntry("available_quantity", 22);
+        assertThat(jdbc.queryForList("""
+                SELECT warehouse_id, quantity FROM inventory_movements
+                WHERE sku_id = ? AND movement_type = 'TRANSFER' ORDER BY quantity
+                """, sku)).extracting(r -> r.get("warehouse_id") + ":" + r.get("quantity"))
+                .containsExactly(defaultWarehouse + ":-17", own + ":17");
+        assertThat(jdbc.queryForObject("""
+                SELECT COALESCE(sum(quantity), 0)::int FROM inventory_movements WHERE sku_id = ? AND warehouse_id = ?
+                """, Integer.class, sku, own)).isEqualTo(22);
+
+        intake("seller", body(sku, null, 1)).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.available").value(23));
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM inventory_movements WHERE sku_id = ? AND movement_type = 'TRANSFER'
+                """, Integer.class, sku)).isEqualTo(2);
+    }
+
+    @Test
+    void adminIntakeWithoutWarehouseGoesToTheOwnersWarehouseAndAnotherOneIsRefused() throws Exception {
+        UUID sku = UUID.randomUUID();
+        when(skuOwners.sellerOf(sku)).thenReturn(Optional.of(SELLER_ID));
+        intake("admin", body(sku, null, 4)).andExpect(status().isCreated());
+        UUID own = sellerWarehouse(SELLER_ID);
+        assertThat(row(sku, own)).containsEntry("total_quantity", 4).containsEntry("created_by", ADMIN_ID);
+
+        intake("admin", body(sku, warehouseId("WH_001"), 4))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVENTORY_WAREHOUSE_NOT_SKU_HOME"));
+        intake("admin", body(sku, own, 1)).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.total").value(5));
+        assertThat(rowCount(sku)).isEqualTo(1);
     }
 
     @Test
@@ -302,9 +357,11 @@ class InventoryIntakeIntegrationTest {
     }
 
     @Test
-    void adminIntakeDoesNotAskCatalogForTheOwner() throws Exception {
-        intake("admin", body(UUID.randomUUID(), null, 5)).andExpect(status().isCreated());
-        verify(skuOwners, never()).sellerOf(any());
+    void adminIntakeForASkuWithoutAKnownOwnerUsesTheDefaultWarehouse() throws Exception {
+        UUID sku = UUID.randomUUID();
+        intake("admin", body(sku, null, 5)).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.warehouseId").value(defaultWarehouse.toString()));
+        verify(skuOwners).sellerOf(sku);
     }
 
     private ResultActions intake(String token, String body) throws Exception {
@@ -319,6 +376,10 @@ class InventoryIntakeIntegrationTest {
 
     private UUID warehouseId(String code) {
         return jdbc.queryForObject("SELECT id FROM warehouses WHERE code = ?", UUID.class, code);
+    }
+
+    private UUID sellerWarehouse(UUID seller) {
+        return jdbc.queryForObject("SELECT id FROM warehouses WHERE seller_id = ?", UUID.class, seller);
     }
 
     private Map<String, Object> row(UUID sku, UUID warehouse) {

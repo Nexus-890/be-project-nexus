@@ -22,7 +22,7 @@ public class OfferReservationService {
     private final ReservationRepository reservations;
     private final InventoryBalanceRepository balances;
     private final InventoryMovementRepository movements;
-    private final WarehouseResolver warehouses;
+    private final SkuWarehouses warehouses;
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
     private final ReservationService orderOutcomes;
@@ -45,7 +45,7 @@ public class OfferReservationService {
                     """,offer,auction,bidder,sku,java.sql.Timestamp.from(expires));
             return;
         }
-        UUID warehouse=warehouses.defaultWarehouseId();
+        UUID warehouse=warehouses.warehouseFor(sku);
         if (!Instant.now().isBefore(expires) || balances.reserve(sku,warehouse,1,SYSTEM)==0) {
             jdbc.update("INSERT INTO inventory_offer_outcomes(offer_id,auction_id,outcome) VALUES (?,?,'REJECTED') ON CONFLICT DO NOTHING",offer,auction);
             emit("SecondChanceStockRejected",auction,offer,Map.of("reason","STOCK_UNAVAILABLE"));

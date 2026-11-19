@@ -8,5 +8,6 @@ public enum MovementType {
     RETURN,
     ADJUSTMENT,
     PICK,
-    SHIP
+    SHIP,
+    TRANSFER
 }

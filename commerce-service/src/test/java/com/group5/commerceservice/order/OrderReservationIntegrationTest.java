@@ -98,6 +98,26 @@ class OrderReservationIntegrationTest {
                 assertThat(order.orderGroupId()).isEqualTo(group.orderGroupId()));
     }
 
+    @Test void eachSellerOrderStoresTheWarehouseItsStockIsHeldIn() {
+        var buyer = cart(2);
+        var warehouses = new java.util.HashMap<UUID, UUID>();
+        doAnswer(call -> {
+            List<InventoryClient.Item> items = call.getArgument(1);
+            var orders = items.stream().map(InventoryClient.Item::orderId).distinct()
+                    .map(order -> new InventoryClient.OrderWarehouse(order,
+                            warehouses.computeIfAbsent(order, ignored -> UUID.randomUUID()))).toList();
+            return new InventoryClient.Reservation(items.stream().map(x -> UUID.randomUUID()).toList(),
+                    orders.getFirst().warehouseId(), expiry, orders);
+        }).when(inventory).reserve(any(), anyList());
+
+        var group = orders.create(buyer, UUID.randomUUID().toString(), REQUEST).response();
+
+        assertThat(warehouses).hasSize(2);
+        assertThat(group.orders()).allSatisfy(order -> assertThat(jdbc().queryForObject(
+                "SELECT shipping_info->>'warehouseId' FROM orders WHERE id = ?", String.class, order.orderId()))
+                .isEqualTo(warehouses.get(order.orderId()).toString()));
+    }
+
     @Test void insufficientStockRollsBackBothSellerOrdersGroupAndCart() {
         var buyer = cart(2);
         when(inventory.reserve(any(), anyList())).thenThrow(new DomainException(CommerceErrorCode.INSUFFICIENT_STOCK,

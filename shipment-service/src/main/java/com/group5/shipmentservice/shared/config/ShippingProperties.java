@@ -42,6 +42,11 @@ public record ShippingProperties(
                 breakerOpenMs, catalogBaseUrl, defaultWarehouseId, defaultPickup, pickups, null, null);
     }
 
+    public PickupAddress platformPickup() {
+        PickupAddress configured = defaultWarehouseId == null ? null : pickups.get(defaultWarehouseId);
+        return configured != null ? configured : defaultPickup;
+    }
+
     public CarrierMode effectiveQuoteCarrier() { return quoteCarrier == null ? carrier : quoteCarrier; }
 
     public CarrierMode effectiveBookingCarrier() { return bookingCarrier == null ? carrier : bookingCarrier; }

@@ -381,13 +381,16 @@ class ShippingControllerTest {
     }
 
     @Test
-    void unknownWarehouseReturnsNotFound() throws Exception {
+    void sellerWarehouseWithoutItsOwnPickupQuotesFromThePlatformPickup() throws Exception {
         mvc.perform(post(PATH + "/quotes").header("Authorization", "Bearer buyer")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request("33333333-3333-4333-8333-333333333333")))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("SHIPMENT_WAREHOUSE_NOT_FOUND"));
-        verifyNoInteractions(catalog);
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].carrier").value("FAKE"));
+
+        ArgumentCaptor<CarrierQuoteRequest> captured = ArgumentCaptor.forClass(CarrierQuoteRequest.class);
+        verify(fakeCarrier).quote(captured.capture(), any());
+        assertThat(captured.getValue().pickup().addressLine()).isEqualTo("Địa chỉ lấy hàng kiểm thử");
     }
 
     @Test
