@@ -375,6 +375,20 @@ class WarehouseManagementIntegrationTest {
                 .andExpect(jsonPath("$.data.line1").value("12 Kim Mã"));
         request("pickup-seller", get(PATH + "/me")).andExpect(jsonPath("$.data.wardCode").value("20309"));
 
+        UUID ownSku = UUID.randomUUID();
+        UUID sharedSku = UUID.randomUUID();
+        UUID shared = jdbc.queryForObject("SELECT id FROM warehouses WHERE seller_id IS NULL ORDER BY code LIMIT 1", UUID.class);
+        jdbc.update("""
+                INSERT INTO inventory_balances (sku_id, warehouse_id, total_quantity, available_quantity)
+                VALUES (?, ?, 6, 6), (?, ?, 4, 4)
+                """, ownSku, warehouseId, sharedSku, shared);
+        request("buyer", get(pickup + "&skuIds=" + ownSku)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.warehouseId").value(warehouseId.toString()));
+        for (String skus : List.of("&skuIds=" + sharedSku, "&skuIds=" + ownSku + "&skuIds=" + sharedSku,
+                "&skuIds=" + UUID.randomUUID())) {
+            request("buyer", get(pickup + skus)).andExpect(status().isOk()).andExpect(jsonPath("$.data").value(nullValue()));
+        }
+
         for (String body : List.of(
                 "{\"name\":\"Kho\",\"address\":\"12 Kim Mã\",\"provinceCode\":\"201\"}",
                 "{\"name\":\"Kho\",\"address\":\"12 Kim Mã\",\"wardCode\":\"20309\"}",

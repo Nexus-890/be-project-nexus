@@ -3,6 +3,7 @@ package com.group5.inventoryservice.reservation;
 import com.group5.common_events.EventEnvelopeFactory;
 import com.group5.common_events.Topics;
 import com.group5.common_outbox.OutboxWriter;
+import com.group5.inventoryservice.inventory.SellerStockMover;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import lombok.extern.slf4j.Slf4j;
@@ -61,6 +62,7 @@ public class ReservationExpiryJob {
     private final EventEnvelopeFactory envelopes;
     private final TransactionTemplate transaction;
     private final Tracer tracer;
+    private final SellerStockMover stockMover;
 
     @Value("${nexus.inventory.reservation-expiry-batch-size:500}")
     private int batchSize = 500;
@@ -69,12 +71,14 @@ public class ReservationExpiryJob {
     private Duration grace = Duration.ofMinutes(10);
 
     public ReservationExpiryJob(JdbcTemplate jdbc, OutboxWriter outbox, EventEnvelopeFactory envelopes,
-                                PlatformTransactionManager transactions, Tracer tracer) {
+                                PlatformTransactionManager transactions, Tracer tracer,
+                                SellerStockMover stockMover) {
         this.jdbc = jdbc;
         this.outbox = outbox;
         this.envelopes = envelopes;
         this.transaction = new TransactionTemplate(transactions);
         this.tracer = tracer;
+        this.stockMover = stockMover;
     }
 
     @Scheduled(fixedDelayString = "${nexus.inventory.reservation-expiry-interval:30s}",
@@ -91,6 +95,8 @@ public class ReservationExpiryJob {
                 List<InventoryReservationExpired> rows = jdbc.query(EXPIRE, ReservationExpiryJob::expired,
                         SYSTEM_ACTOR, (double) grace.toSeconds(), batchSize, SYSTEM_ACTOR, SYSTEM_ACTOR,
                         SYSTEM_ACTOR);
+                rows.stream().map(row -> List.of(row.skuId(), row.warehouseId())).distinct()
+                        .forEach(key -> stockMover.afterReturn(key.get(0), key.get(1), SYSTEM_ACTOR));
                 rows.forEach(row -> outbox.write("InventoryReservation", Topics.INVENTORY,
                         envelopes.create("InventoryReservationExpired", row.reservationId().toString(), row)));
                 return rows.size();

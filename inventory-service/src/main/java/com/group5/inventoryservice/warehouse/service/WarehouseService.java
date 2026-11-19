@@ -1,6 +1,7 @@
 package com.group5.inventoryservice.warehouse.service;
 
 import com.group5.common_core.exception.DomainException;
+import com.group5.inventoryservice.inventory.SkuWarehouses;
 import com.group5.inventoryservice.warehouse.entity.Warehouse;
 import com.group5.inventoryservice.warehouse.enums.WarehouseStatus;
 import com.group5.inventoryservice.warehouse.repository.WarehouseRepository;
@@ -24,10 +25,13 @@ public class WarehouseService {
 
     private final WarehouseRepository warehouses;
     private final SellerWarehouses sellerWarehouses;
+    private final SkuWarehouses skuWarehouses;
 
-    public WarehouseService(WarehouseRepository warehouses, SellerWarehouses sellerWarehouses) {
+    public WarehouseService(WarehouseRepository warehouses, SellerWarehouses sellerWarehouses,
+                            SkuWarehouses skuWarehouses) {
         this.warehouses = warehouses;
         this.sellerWarehouses = sellerWarehouses;
+        this.skuWarehouses = skuWarehouses;
     }
 
     @Transactional
@@ -83,8 +87,10 @@ public class WarehouseService {
     }
 
     @Transactional(readOnly = true)
-    public WarehousePickupResponse pickup(UUID sellerId) {
+    public WarehousePickupResponse pickup(UUID sellerId, List<UUID> skuIds) {
         return warehouses.findBySellerId(sellerId)
+                .filter(warehouse -> skuIds == null || skuIds.isEmpty()
+                        || skuWarehouses.warehousesFor(skuIds).values().stream().allMatch(warehouse.getId()::equals))
                 .filter(warehouse -> warehouse.getStatus() == WarehouseStatus.ACTIVE
                         && warehouse.getProvinceCode() != null && warehouse.getWardCode() != null
                         && warehouse.getAddress() != null && !warehouse.getAddress().isBlank()

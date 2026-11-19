@@ -59,7 +59,7 @@ public class CartPricingService {
     }
 
     public CartValidationResponse validate(CurrentUser user) {
-        Calculation result = calculate(user, false);
+        Calculation result = calculate(user, false, true);
         return new CartValidationResponse(result.issues().isEmpty(), result.issues());
     }
 
@@ -112,7 +112,7 @@ public class CartPricingService {
         return calculate(user, rejectEmpty, false);
     }
 
-    private Calculation calculate(CurrentUser user, boolean rejectEmpty, boolean merging) {
+    private Calculation calculate(CurrentUser user, boolean rejectEmpty, boolean flagOwnProducts) {
         if (user == null || user.id() == null) throw new DomainException(CommerceErrorCode.UNAUTHENTICATED);
         if (!properties.isPriceRevalidation()) {
             throw new DomainException(CommerceErrorCode.INVALID_PRICING_CONFIGURATION);
@@ -142,7 +142,7 @@ public class CartPricingService {
             }
             //else nếu map có productId đó rùi - lấy ra product được bth
             CatalogClient.ProductResponse product = products.get(line.getProductId());
-            if (merging && product != null && user.id().equals(product.sellerId())) {
+            if (flagOwnProducts && product != null && user.id().equals(product.sellerId())) {
                 issues.add(new CartIssue(line.getId(), line.getSkuId(), SELF_PURCHASE));
             }
             //

@@ -1,6 +1,10 @@
 package com.group5.inventoryservice.inventory;
 
 import com.group5.common_core.exception.DomainException;
+import com.group5.common_security.CurrentUser;
+import com.group5.inventoryservice.reservation.ReservationExpiryJob;
+import com.group5.inventoryservice.reservation.dto.request.ReserveRequest;
+import com.group5.inventoryservice.reservation.service.ReservationService;
 import com.group5.inventoryservice.shared.catalog.CatalogSkuOwners;
 import com.group5.inventoryservice.shared.exception.InventoryErrorCode;
 import jakarta.servlet.Filter;
@@ -26,6 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -67,6 +72,8 @@ class InventoryIntakeIntegrationTest {
     @Autowired private WebApplicationContext context;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private InventoryMovementRepository movements;
+    @Autowired private ReservationService reservations;
+    @Autowired private ReservationExpiryJob expiry;
     @MockitoBean private JwtDecoder decoder;
     @MockitoBean private CatalogSkuOwners skuOwners;
     private MockMvc mvc;
@@ -300,6 +307,44 @@ class InventoryIntakeIntegrationTest {
         assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM inventory_movements WHERE sku_id = ? AND movement_type = 'TRANSFER'
                 """, Integer.class, sku)).isEqualTo(2);
+    }
+
+    @Test
+    void stockReleasedIntoTheSharedWarehouseAfterTheMoveGoesOnToTheSellerWarehouse() throws Exception {
+        UUID sku = UUID.randomUUID();
+        intake("admin", body(sku, null, 20)).andExpect(status().isCreated());
+        CurrentUser buyer = new CurrentUser(BUYER_ID, Set.of("BUYER"), Set.of());
+        UUID cancelled = UUID.randomUUID();
+        UUID expired = UUID.randomUUID();
+        reservations.reserve(new ReserveRequest(UUID.randomUUID(), List.of(new ReserveRequest.Item(cancelled, sku, 2))), buyer);
+        reservations.reserve(new ReserveRequest(UUID.randomUUID(), List.of(new ReserveRequest.Item(expired, sku, 1))), buyer);
+        when(skuOwners.sellerOf(sku)).thenReturn(Optional.of(SELLER_ID));
+        intake("seller", body(sku, null, 5)).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.available").value(22));
+        UUID own = sellerWarehouse(SELLER_ID);
+
+        reservations.releaseOrder(cancelled);
+        assertThat(row(sku, defaultWarehouse)).containsEntry("total_quantity", 1)
+                .containsEntry("available_quantity", 0).containsEntry("reserved_quantity", 1);
+        assertThat(row(sku, own)).containsEntry("total_quantity", 24).containsEntry("available_quantity", 24);
+
+        jdbc.update("""
+                UPDATE inventory_reservations SET created_at = now() - interval '2 hours', expires_at = now() - interval '1 hour'
+                WHERE order_id = ?
+                """, expired);
+        expiry.runOnce();
+        assertThat(jdbc.queryForObject("SELECT status::text FROM inventory_reservations WHERE order_id = ?",
+                String.class, expired)).isEqualTo("EXPIRED");
+        assertThat(row(sku, defaultWarehouse)).containsEntry("total_quantity", 0)
+                .containsEntry("available_quantity", 0).containsEntry("reserved_quantity", 0);
+        assertThat(row(sku, own)).containsEntry("total_quantity", 25).containsEntry("available_quantity", 25);
+        assertThat(jdbc.queryForList("""
+                SELECT quantity FROM inventory_movements
+                WHERE sku_id = ? AND warehouse_id = ? AND movement_type = 'TRANSFER' ORDER BY created_at, quantity DESC
+                """, Integer.class, sku, own)).containsExactly(17, 2, 1);
+        assertThat(jdbc.queryForObject("""
+                SELECT COALESCE(sum(quantity), 0)::int FROM inventory_movements WHERE sku_id = ? AND warehouse_id = ?
+                """, Integer.class, sku, own)).isEqualTo(25);
     }
 
     @Test

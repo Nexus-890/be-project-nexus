@@ -43,9 +43,10 @@ class SellerPickupPricingTest {
         when(shipping.offer(ADDRESS, lines, pickup)).thenReturn(withPickup);
         when(shipping.offer(ADDRESS, lines)).thenReturn(platform);
 
-        when(inventory.pickup(seller)).thenReturn(Optional.of(pickup));
+        List<UUID> skuIds = lines.stream().map(OrderShippingService.Line::skuId).toList();
+        when(inventory.pickup(seller, skuIds)).thenReturn(Optional.of(pickup));
         assertThat(pricing.shippingOffer(ADDRESS, lines, seller)).isSameAs(withPickup);
-        when(inventory.pickup(seller)).thenReturn(Optional.empty());
+        when(inventory.pickup(seller, skuIds)).thenReturn(Optional.empty());
         assertThat(pricing.shippingOffer(ADDRESS, lines, seller)).isSameAs(platform);
         assertThat(pricing.shippingOffer(ADDRESS, lines, null)).isSameAs(platform);
     }
@@ -58,7 +59,7 @@ class SellerPickupPricingTest {
         item.setId(sku);
         item.setProductId(product);
         when(catalog.getSkuById(sku)).thenReturn(ApiResponse.of(item));
-        when(inventory.pickup(seller)).thenReturn(Optional.of(pickup));
+        when(inventory.pickup(seller, List.of(sku))).thenReturn(Optional.of(pickup));
         var eta = OffsetDateTime.now().plusDays(1);
         when(shipping.quoteAuction(eq(ADDRESS), anyList(), eq(warehouse), eq(pickup))).thenReturn(new OrderShippingService.Quote(
                 new BigDecimal("31000.00"), null, "GHN", "STANDARD", eta, pickup));

@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -23,7 +24,8 @@ public class InternalWarehouseController {
 
     @GetMapping("/pickup")
     @PreAuthorize("hasRole('BUYER')")
-    public ApiResponse<WarehousePickupResponse> pickup(@RequestParam UUID sellerId) {
-        return ApiResponse.of(service.pickup(sellerId));
+    public ApiResponse<WarehousePickupResponse> pickup(@RequestParam UUID sellerId,
+                                                       @RequestParam(required = false) List<UUID> skuIds) {
+        return ApiResponse.of(service.pickup(sellerId, skuIds));
     }
 }

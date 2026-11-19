@@ -9,6 +9,7 @@ import com.group5.inventoryservice.inventory.InventoryBalance;
 import com.group5.inventoryservice.inventory.InventoryBalanceRepository;
 import com.group5.inventoryservice.inventory.InventoryMovementRepository;
 import com.group5.inventoryservice.inventory.MovementType;
+import com.group5.inventoryservice.inventory.SellerStockMover;
 import com.group5.inventoryservice.inventory.SkuWarehouses;
 import com.group5.inventoryservice.reservation.InventoryStockUnavailable;
 import com.group5.inventoryservice.reservation.ReservationStatus;
@@ -51,6 +52,7 @@ public class ReservationService {
     private final InventoryMovementRepository movements;
     private final ReservationRepository reservations;
     private final SkuWarehouses warehouses;
+    private final SellerStockMover stockMover;
     private final ReservationTimeout reservationTimeout;
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
@@ -109,6 +111,7 @@ public class ReservationService {
                 SYSTEM_ACTOR), hold);
         movements.record(hold.getSkuId(), hold.getWarehouseId(), MovementType.RELEASE, hold.getQuantity(),
                 hold.getId(), SYSTEM_ACTOR);
+        stockMover.afterReturn(hold.getSkuId(), hold.getWarehouseId(), SYSTEM_ACTOR);
         outbox.write("InventoryReservation", Topics.INVENTORY, envelopes.create("InventoryReleased", hold.getId().toString(),
                 new AuctionStockReleased(hold.getId(), auctionId, null, hold.getSkuId(), hold.getWarehouseId(),
                         hold.getQuantity(), ReservationStatus.RELEASED, find(hold.getId()).getReleasedAt(), reason)));
@@ -295,6 +298,7 @@ public class ReservationService {
                 reservation.getQuantity(), actor), reservation);
         movements.record(reservation.getSkuId(), reservation.getWarehouseId(), MovementType.RELEASE,
                 reservation.getQuantity(), reservation.getId(), actor);
+        stockMover.afterReturn(reservation.getSkuId(), reservation.getWarehouseId(), actor);
     }
 
     @Transactional
@@ -308,12 +312,14 @@ public class ReservationService {
                         reservation.getQuantity(), SYSTEM_ACTOR), reservation);
                 movements.record(reservation.getSkuId(), reservation.getWarehouseId(), MovementType.RELEASE,
                         reservation.getQuantity(), id, SYSTEM_ACTOR);
+                stockMover.afterReturn(reservation.getSkuId(), reservation.getWarehouseId(), SYSTEM_ACTOR);
                 released++;
             } else if (reservations.returnConfirmed(id, SYSTEM_ACTOR) == 1) {
                 requireMoved(balances.returnCommitted(reservation.getSkuId(), reservation.getWarehouseId(),
                         reservation.getQuantity(), SYSTEM_ACTOR), reservation);
                 movements.record(reservation.getSkuId(), reservation.getWarehouseId(), MovementType.RETURN,
                         reservation.getQuantity(), id, SYSTEM_ACTOR);
+                stockMover.afterReturn(reservation.getSkuId(), reservation.getWarehouseId(), SYSTEM_ACTOR);
                 returned++;
             }
         }

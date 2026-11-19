@@ -206,6 +206,14 @@ class CartPricingServiceTest {
         assertCode(() -> service.validate(user), "COMMERCE_INVALID_CATALOG_RESPONSE");
     }
 
+    @Test void validatingACartWithTheBuyersOwnProductReportsSelfPurchase() {
+        when(catalog.getProductById(line.getProductId())).thenReturn(ApiResponse.of(
+                new CatalogClient.ProductResponse(line.getProductId(), user.id(), "Product", "ACTIVE", List.of())));
+        var validation = service.validate(user);
+        assertThat(validation.valid()).isFalse();
+        assertThat(validation.issues()).extracting(issue -> issue.code()).containsExactly(SELF_PURCHASE);
+    }
+
     @Test void missingSellerIdentityCannotSilentlySkipMergeOwnershipChecks() {
         when(catalog.getProductById(line.getProductId())).thenReturn(ApiResponse.of(
                 new CatalogClient.ProductResponse(line.getProductId(), null, "Product", "ACTIVE", List.of())));

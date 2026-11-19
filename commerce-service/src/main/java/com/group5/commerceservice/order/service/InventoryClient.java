@@ -8,7 +8,7 @@ import java.util.UUID;
 public interface InventoryClient {
     Reservation reserve(UUID orderGroupId, List<Item> items);
 
-    default Optional<OrderShippingService.Pickup> pickup(UUID sellerId) {
+    default Optional<OrderShippingService.Pickup> pickup(UUID sellerId, List<UUID> skuIds) {
         return Optional.empty();
     }
 

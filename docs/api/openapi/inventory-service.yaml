@@ -81,8 +81,10 @@ paths:
         Internal service endpoint for Commerce shipping quotes and order creation.
         Commerce relays the buyer's bearer token. data is null when the seller has no
         warehouse, the warehouse is not ACTIVE, or it has no complete pickup (province,
-        ward and a street address of at most 255 characters); Commerce then quotes from
-        the platform pickup.
+        ward and a street address of at most 255 characters), or when skuIds is sent and
+        any of those SKUs is stocked outside the seller warehouse (the reservation will be
+        held there, so the parcel leaves from the platform pickup); Commerce then quotes
+        from the platform pickup.
       servers:
         - url: http://localhost:8085
           description: Inventory service directly
@@ -97,6 +99,15 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: skuIds
+          in: query
+          required: false
+          description: SKUs of the parcel; repeat the parameter for each SKU. Commerce always sends them.
+          schema:
+            type: array
+            items:
+              type: string
+              format: uuid
       responses:
         '200':
           description: The seller warehouse pickup, or null data

@@ -23,6 +23,7 @@ public class OfferReservationService {
     private final InventoryBalanceRepository balances;
     private final InventoryMovementRepository movements;
     private final SkuWarehouses warehouses;
+    private final SellerStockMover stockMover;
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
     private final ReservationService orderOutcomes;
@@ -71,6 +72,7 @@ public class OfferReservationService {
         if(balances.releaseReserved(hold.getSkuId(),hold.getWarehouseId(),hold.getQuantity(),SYSTEM)!=1)
             throw new IllegalStateException("Offer balance missing");
         movements.record(hold.getSkuId(),hold.getWarehouseId(),MovementType.RELEASE,hold.getQuantity(),hold.getId(),SYSTEM);
+        stockMover.afterReturn(hold.getSkuId(),hold.getWarehouseId(),SYSTEM);
     }
     public List<UUID> pending() { return jdbc.queryForList("SELECT offer_id FROM inventory_pending_offer_holds ORDER BY expires_at LIMIT 100",UUID.class); }
     @Transactional

@@ -122,7 +122,7 @@ class OrderReservationIntegrationTest {
         var buyer = cart(2);
         var otherWarehouse = UUID.randomUUID();
         var calls = new java.util.concurrent.atomic.AtomicInteger();
-        when(inventory.pickup(any())).thenAnswer(call -> java.util.Optional.of(new OrderShippingService.Pickup(
+        when(inventory.pickup(any(), anyList())).thenAnswer(call -> java.util.Optional.of(new OrderShippingService.Pickup(
                 calls.getAndIncrement() == 0 ? WAREHOUSE : otherWarehouse, "201", "20309", "12 Kim Mã")));
         when(shipping.offer(any(), anyList(), any())).thenAnswer(call -> new OrderShippingService.Offer(
                 new OrderShippingService.Parcel(1000, 20, 15, 10), "STANDARD", List.of(new OrderShippingService.Option(
@@ -130,7 +130,7 @@ class OrderReservationIntegrationTest {
 
         var group = orders.create(buyer, UUID.randomUUID().toString(), REQUEST).response();
 
-        verify(inventory, times(2)).pickup(any());
+        verify(inventory, times(2)).pickup(any(), anyList());
         verify(shipping, never()).quote(any(), anyList());
         assertThat(group.orders()).allSatisfy(order -> assertThat(order.shippingFee()).isEqualByComparingTo("31000.00"));
         var stored = group.orders().stream().map(order -> jdbc().queryForObject(

@@ -45,8 +45,8 @@ public class PricingService {
         if (sku == null || !skuId.equals(sku.getId()) || !productId.equals(sku.getProductId())) {
             throw new DomainException(CommerceErrorCode.INVALID_CATALOG_RESPONSE);
         }
-        var pickup = pickup(sellerId);
         var lines = List.of(new OrderShippingService.Line(skuId, 1, sku));
+        var pickup = pickup(sellerId, lines);
         var quote = pickup != null && pickup.warehouseId().equals(warehouseId)
                 ? shipping.quoteAuction(address, lines, warehouseId, pickup)
                 : shipping.quoteAuction(address, lines, warehouseId);
@@ -72,18 +72,19 @@ public class PricingService {
     /** Kho riêng của seller có đủ tỉnh/phường thì hãng vận chuyển lấy hàng tại đó, không dùng địa chỉ nền tảng. */
     public OrderShippingService.Offer shippingOffer(ShippingAddress address, List<OrderShippingService.Line> lines,
                                                     UUID sellerId) {
-        var pickup = pickup(sellerId);
+        var pickup = pickup(sellerId, lines);
         return pickup == null ? shipping.offer(address, lines) : shipping.offer(address, lines, pickup);
     }
 
     public OrderShippingService.Quote shippingQuote(ShippingAddress address, List<OrderShippingService.Line> lines,
                                                     String carrier, UUID sellerId) {
-        var pickup = pickup(sellerId);
+        var pickup = pickup(sellerId, lines);
         return pickup == null ? shippingQuote(address, lines, carrier) : shipping.offer(address, lines, pickup).select(carrier);
     }
 
-    private OrderShippingService.Pickup pickup(UUID sellerId) {
-        return sellerId == null ? null : inventory.pickup(sellerId).orElse(null);
+    private OrderShippingService.Pickup pickup(UUID sellerId, List<OrderShippingService.Line> lines) {
+        return sellerId == null ? null
+                : inventory.pickup(sellerId, lines.stream().map(OrderShippingService.Line::skuId).toList()).orElse(null);
     }
 
     @Value("${nexus.checkout.price-revalidation:true}")

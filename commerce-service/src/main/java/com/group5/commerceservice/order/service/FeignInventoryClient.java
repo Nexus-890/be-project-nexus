@@ -51,11 +51,11 @@ public class FeignInventoryClient implements InventoryClient {
     }
 
     @Override
-    public Optional<OrderShippingService.Pickup> pickup(UUID sellerId) {
-        if (sellerId == null) return Optional.empty();
+    public Optional<OrderShippingService.Pickup> pickup(UUID sellerId, List<UUID> skuIds) {
+        if (sellerId == null || skuIds == null || skuIds.isEmpty()) return Optional.empty();
         return executor.execute("inventory", CommerceErrorCode.INVENTORY_UNAVAILABLE, () -> {
             try {
-                var response = http.pickup(sellerId);
+                var response = http.pickup(sellerId, skuIds.stream().distinct().sorted().toList());
                 if (response == null || response.code() != 0) throw new DomainException(CommerceErrorCode.INVENTORY_UNAVAILABLE);
                 var pickup = response.data();
                 if (pickup == null) return Optional.<OrderShippingService.Pickup>empty();
