@@ -1,5 +1,6 @@
 package com.group5.ratingservice.reputation.repository;
 
+import com.group5.ratingservice.reputation.dto.PenaltyItem;
 import com.group5.ratingservice.reputation.dto.ReputationHistoryItem;
 import com.group5.ratingservice.reputation.dto.ReputationSnapshot;
 import com.group5.ratingservice.reputation.enums.TrustLevel;
@@ -106,6 +107,15 @@ public class ReputationStore {
                 HISTORY, userId, size, Math.multiplyExact((long) page, size));
     }
 
+    public List<PenaltyItem> penalties(UUID userId, int page, int size) {
+        return jdbc.query("SELECT * FROM reputation_history WHERE user_id=? AND delta<0 ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",
+                PENALTY, userId, size, Math.multiplyExact((long) page, size));
+    }
+
+    public long penaltyCount(UUID userId) {
+        return jdbc.queryForObject("SELECT count(*) FROM reputation_history WHERE user_id=? AND delta<0", Long.class, userId);
+    }
+
     public long historyCount(UUID userId) {
         return jdbc.queryForObject("SELECT count(*) FROM reputation_history WHERE user_id=?", Long.class, userId);
     }
@@ -143,6 +153,12 @@ public class ReputationStore {
         state.setPolicyVersion(row.getString("policy_version"));
         return state;
     }
+
+    private static final RowMapper<PenaltyItem> PENALTY = (row, index) -> new PenaltyItem(
+            row.getObject("id", UUID.class), row.getString("change_type"), row.getObject("source_id", UUID.class),
+            row.getInt("delta"), row.getInt("previous_score"), row.getInt("new_score"),
+            TrustLevel.valueOf(row.getString("previous_trust_level")), TrustLevel.valueOf(row.getString("new_trust_level")),
+            row.getString("reason"), row.getObject("created_at", OffsetDateTime.class).withOffsetSameInstant(ZoneOffset.UTC));
 
     private static final RowMapper<ReputationHistoryItem> HISTORY = (row, index) -> new ReputationHistoryItem(
             row.getObject("id", UUID.class), row.getObject("operation_id", UUID.class), row.getObject("user_id", UUID.class),

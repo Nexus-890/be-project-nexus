@@ -21,7 +21,8 @@ public record UserResponse(
         UserStatus status,
         OffsetDateTime createdAt,
         OffsetDateTime phoneVerifiedAt,
-        String identityNumberMasked
+        String identityNumberMasked,
+        String avatarUrl
 ) {
     public static UserResponse from(User user, List<String> roles) {
         return new UserResponse(
@@ -29,7 +30,7 @@ public record UserResponse(
                 user.getGender(), user.getAddress(), user.getDateOfBirth(),
                 roles.stream().sorted().toList(),
                 user.getStatus(), user.getCreatedAt(), user.getPhoneVerifiedAt(),
-                mask(user.getIdentityNumber()));
+                mask(user.getIdentityNumber()), user.getAvatarUrl());
     }
 
     static String mask(String identityNumber) {

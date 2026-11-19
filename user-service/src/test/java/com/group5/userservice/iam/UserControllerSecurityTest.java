@@ -320,7 +320,7 @@ class UserControllerSecurityTest {
     private static UserResponse profile(String name, String email, String address) {
         return new UserResponse(USER_ID, email, "0900000001", name, Gender.MALE, address,
                 LocalDate.of(2000, 1, 2), List.of("BUYER"), UserStatus.ACTIVE,
-                OffsetDateTime.parse("2026-10-14T08:00:00Z"), null, null);
+                OffsetDateTime.parse("2026-10-14T08:00:00Z"), null, null, null);
     }
 
     private static String token(Consumer<JWTClaimsSet.Builder> customizer) {

@@ -3482,6 +3482,98 @@ paths:
                     detail: "The service did not answer in time"
                     instance: "/api/v1/auth/verification-email"
                     code: "GATEWAY_TIMEOUT"
+  /api/v1/users/me/avatar:
+    post:
+      tags:
+        - "Users"
+      operationId: "uploadOwnAvatar"
+      summary: "Upload or replace the current user's avatar"
+      description: "Multipart form with one part named file. The type is detected from the file content, not from the file name or the claimed Content-Type: JPEG, PNG or WebP only, at most 2 MB (MAX_AVATAR_FILE_SIZE). The image is stored in the Supabase bucket under avatars/{userId}/ and the profile keeps its public URL. A replaced avatar object is removed after the profile is saved; if saving fails, the new object is removed and the old avatar stays. Access: requires PROFILE.UPDATE. Ownership/business restriction: JWT subject only."
+      security:
+        -
+          bearerAuth: []
+      x-required-privileges:
+        - "PROFILE.UPDATE"
+      x-gateway-privilege: "PROFILE.UPDATE"
+      x-required-roles: []
+      x-ownership: "JWT subject only."
+      x-error-codes:
+        "400":
+          - "USER_AVATAR_REQUIRED"
+        "401":
+          - "UNAUTHENTICATED"
+        "403":
+          - "FORBIDDEN"
+        "404":
+          - "USER_NOT_FOUND"
+        "413":
+          - "USER_AVATAR_TOO_LARGE"
+        "415":
+          - "USER_AVATAR_INVALID_TYPE"
+        "503":
+          - "USER_AVATAR_STORAGE_NOT_CONFIGURED"
+          - "USER_AVATAR_STORAGE_UNAVAILABLE"
+      requestBody:
+        required: true
+        content:
+          "multipart/form-data":
+            schema:
+              type: "object"
+              required:
+                - "file"
+              properties:
+                file:
+                  type: "string"
+                  format: "binary"
+      responses:
+        "200":
+          description: "The profile with its new avatarUrl."
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/GetOwnProfileResponse"
+        "400":
+          description: "Bad Request. Codes: `USER_AVATAR_REQUIRED`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "401":
+          description: "Unauthorized. Codes: `UNAUTHENTICATED`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "403":
+          description: "Forbidden. Codes: `FORBIDDEN`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: "Not Found. Codes: `USER_NOT_FOUND`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "413":
+          description: "Payload Too Large. Codes: `USER_AVATAR_TOO_LARGE`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "415":
+          description: "Unsupported Media Type. Codes: `USER_AVATAR_INVALID_TYPE`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          description: "Service Unavailable. Codes: `USER_AVATAR_STORAGE_NOT_CONFIGURED`, `USER_AVATAR_STORAGE_UNAVAILABLE`."
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
   /api/v1/users/me/phone/verification:
     post:
       tags:
@@ -8323,6 +8415,11 @@ components:
           nullable: true
           description: "The stored identity number with all but the last four characters replaced by '*'; null when no identity number is set. The full value is never returned."
           example: "********1234"
+        avatarUrl:
+          type: "string"
+          format: "uri"
+          nullable: true
+          description: "Public URL of the uploaded avatar; null until the user uploads one."
     Register:
       type: "object"
       required:

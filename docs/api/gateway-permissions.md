@@ -95,6 +95,9 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/users/me` | PUT | PROFILE.UPDATE | #75 — Own profile: read and update                      |
 | `/api/v1/users/me/phone/verification` | POST | PROFILE.UPDATE | #210 / #263 — Send a phone verification code |
 | `/api/v1/users/me/phone/verification/confirm` | POST | PROFILE.UPDATE | #210 / #263 — Confirm the phone verification code |
+| `/api/v1/users/me/avatar` | POST | PROFILE.UPDATE | Own avatar: multipart `file`, JPEG/PNG/WebP up to 2 MB, stored in Supabase |
+| `/api/v1/users/me/reputation` | GET | REPUTATION.VIEW | rating-service — own reputation with rating average and penalty count |
+| `/api/v1/users/me/penalties` | GET | REPUTATION.VIEW | rating-service — own reputation changes that lowered the score |
 | `/api/v1/users/me/addresses` | GET | PROFILE.VIEW | #210 / #265 — Own address book |
 | `/api/v1/users/me/addresses` | POST | PROFILE.UPDATE | #210 / #265 — Own address book |
 | `/api/v1/users/me/addresses/{id}` | PUT | PROFILE.UPDATE | #210 / #265 — Own address book |

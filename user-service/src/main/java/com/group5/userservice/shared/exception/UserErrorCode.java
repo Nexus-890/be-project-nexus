@@ -31,7 +31,12 @@ public enum UserErrorCode implements ErrorCode {
     ADDRESS_NOT_FOUND(HttpStatus.NOT_FOUND, "Address not found"),
     SELLER_APPLICATION_EXISTS(HttpStatus.CONFLICT, "An open or approved seller application already exists"),
     SELLER_APPLICATION_NOT_PENDING(HttpStatus.CONFLICT, "Only a pending seller application can be decided"),
-    SELLER_APPLICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "Seller application not found");
+    SELLER_APPLICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "Seller application not found"),
+    USER_AVATAR_REQUIRED(HttpStatus.BAD_REQUEST, "Choose an image file for the avatar"),
+    USER_AVATAR_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "The avatar image is larger than the allowed size"),
+    USER_AVATAR_INVALID_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "The avatar must be a JPEG, PNG or WebP image"),
+    USER_AVATAR_STORAGE_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE, "Avatar storage is not configured"),
+    USER_AVATAR_STORAGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Avatar storage is unavailable; try again later");
 
     private final HttpStatus status;
     private final String message;

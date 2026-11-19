@@ -133,6 +133,15 @@ nexus:
       - method: POST
         path: /api/v1/users/me/phone/verification/confirm
         privilege: PROFILE.UPDATE
+      - method: POST
+        path: /api/v1/users/me/avatar
+        privilege: PROFILE.UPDATE
+      - method: GET
+        path: /api/v1/users/me/reputation
+        privilege: REPUTATION.VIEW
+      - method: GET
+        path: /api/v1/users/me/penalties
+        privilege: REPUTATION.VIEW
       - method: GET
         path: /api/v1/users/me/addresses
         privilege: PROFILE.VIEW

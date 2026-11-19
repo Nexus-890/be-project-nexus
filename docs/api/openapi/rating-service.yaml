@@ -465,6 +465,66 @@ paths:
           $ref: '#/components/responses/NotAcceptable'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/v1/users/me/reputation:
+    get:
+      tags: [Reputations]
+      operationId: getOwnReputation
+      summary: Read the caller's own reputation
+      description: >-
+        Requires REPUTATION.VIEW. The gateway routes this path to rating-service.
+        The owner is the JWT subject. Returns the committed score and trust level
+        with transaction and auction counters, the average rating rounded to one
+        decimal (null without ratings) and how many history entries lowered the
+        score. A user without an aggregate receives neutral score 50, trust NEW
+        and zero counters; reading never creates an aggregate.
+      x-required-privileges: [REPUTATION.VIEW]
+      x-ownership: JWT subject only.
+      responses:
+        '200':
+          description: Own reputation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyReputationEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/users/me/penalties:
+    get:
+      tags: [Reputations]
+      operationId: listOwnPenalties
+      summary: List the caller's own score losses
+      description: >-
+        Requires REPUTATION.VIEW. The owner is the JWT subject. Returns reputation
+        history entries with delta below zero (payment timeouts, low ratings and
+        admin deductions), newest first, then id descending. Defaults page=0,
+        size=10; maximum size=50. The acting admin is not exposed.
+      x-required-privileges: [REPUTATION.VIEW]
+      x-ownership: JWT subject only.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - name: size
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 50, default: 10}
+      responses:
+        '200':
+          description: A page of own score losses.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PenaltyEnvelope'
+        '400':
+          $ref: '#/components/responses/InvalidQuery'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /internal/v1/eligibility/{userId}:
     get:
       tags: [Internal eligibility]
@@ -1027,6 +1087,69 @@ components:
           type: string
           format: date-time
           description: Persisted change time normalized to UTC.
+    MyReputation:
+      type: object
+      required: [score, trustLevel, totalTransaction, successfulTransaction, failedTransaction, ratingCount, averageRating, successfulAuctions, failedAuctions, penaltyCount, policyVersion]
+      properties:
+        score: {type: integer, minimum: 0, maximum: 100}
+        trustLevel:
+          $ref: '#/components/schemas/TrustLevel'
+        totalTransaction: {type: integer, minimum: 0}
+        successfulTransaction: {type: integer, minimum: 0}
+        failedTransaction: {type: integer, minimum: 0}
+        ratingCount: {type: integer, format: int64, minimum: 0}
+        averageRating:
+          type: number
+          nullable: true
+          minimum: 1
+          maximum: 5
+          description: Average star rating with one decimal; null without ratings.
+        successfulAuctions: {type: integer, minimum: 0}
+        failedAuctions: {type: integer, minimum: 0}
+        penaltyCount: {type: integer, format: int64, minimum: 0}
+        policyVersion: {type: string, minLength: 1, maxLength: 60}
+    MyReputationEnvelope:
+      type: object
+      required: [code, message, data]
+      properties:
+        code: {type: integer, default: 0}
+        message: {type: string, default: response success}
+        data:
+          $ref: '#/components/schemas/MyReputation'
+    Penalty:
+      type: object
+      required: [id, changeType, sourceId, delta, previousScore, newScore, previousLevel, newLevel, reason, changedAt]
+      properties:
+        id: {type: string, format: uuid}
+        changeType:
+          type: string
+          enum: [USER_RATED, ORDER_COMPLETED, AUCTION_PAYMENT_TIMEOUT, ADMIN_ADJUSTMENT]
+        sourceId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Rating, order or auction behind the change; null for an admin adjustment.
+        delta: {type: integer, minimum: -100, maximum: -1}
+        previousScore: {type: integer, minimum: 0, maximum: 100}
+        newScore: {type: integer, minimum: 0, maximum: 100}
+        previousLevel:
+          $ref: '#/components/schemas/TrustLevel'
+        newLevel:
+          $ref: '#/components/schemas/TrustLevel'
+        reason: {type: string, minLength: 1}
+        changedAt: {type: string, format: date-time}
+    PenaltyEnvelope:
+      type: object
+      required: [code, message, data, page]
+      properties:
+        code: {type: integer, default: 0}
+        message: {type: string, default: response success}
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Penalty'
+        page:
+          $ref: '#/components/schemas/PageInfo'
     ReputationHistoryEnvelope:
       type: object
       required: [code, message, data, page]
