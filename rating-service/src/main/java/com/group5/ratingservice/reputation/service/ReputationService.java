@@ -117,6 +117,8 @@ public class ReputationService {
         var fingerprint = input.fingerprint();
         store.source("USER_RATED", input.ratingId(), fingerprint);
         ReputationState state = store.lock(input.toUserId());
+        // The same aggregate lock serializes a late UserRated event with dispute approval.
+        if (store.hiddenRating(input.ratingId())) return false;
         UUID operation = operation("USER_RATED", input.ratingId());
         if (!store.claim("USER_RATED", input.ratingId(), input.toUserId(), operation, fingerprint)) return false;
         change(state, operation, "USER_RATED", input.ratingId(), 0L, eventId, SYSTEM, "Completed-order user rating",
@@ -125,6 +127,23 @@ public class ReputationService {
                     aggregate.setRatingScoreSum(Math.addExact(aggregate.getRatingScoreSum(), input.score()));
                 }, null);
         return true;
+    }
+
+    @Transactional
+    public void removeDisputedRating(UUID ratingId, UUID userId, UUID disputeId, UUID actor, String reason) {
+        ReputationState state = store.lock(userId, actor);
+        requireReconciled(state);
+        store.hideRating(ratingId, actor);
+        UUID operation = operation("RATING_DISPUTE_APPROVED", ratingId);
+        var fingerprint = Map.of("ratingId", ratingId, "disputeId", disputeId, "actorId", actor);
+        if (!store.claim("RATING_DISPUTE_APPROVED", ratingId, userId, operation, fingerprint)) return;
+        var appliedScore = store.appliedRatingScore(ratingId, userId);
+        change(state, operation, "RATING_DISPUTE_APPROVED", ratingId, 0L, null, actor, reason, aggregate -> {
+            if (appliedScore.isPresent()) {
+                aggregate.setRatingCount(Math.decrementExact(aggregate.getRatingCount()));
+                aggregate.setRatingScoreSum(Math.subtractExact(aggregate.getRatingScoreSum(), appliedScore.get()));
+            }
+        }, null);
     }
 
     @Transactional

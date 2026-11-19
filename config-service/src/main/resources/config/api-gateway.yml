@@ -286,6 +286,21 @@ nexus:
         path: /api/v1/notifications/unread-count
         privilege: NOTIFICATION.VIEW
       - method: GET
+        path: /api/v1/notifications/preferences
+        privilege: NOTIFICATION.VIEW
+      - method: PUT
+        path: /api/v1/notifications/preferences
+        privilege: NOTIFICATION.MANAGE_PREFERENCE
+      - method: GET
+        path: /api/v1/notifications/stream
+        privilege: NOTIFICATION.VIEW
+      - method: GET
+        path: /api/v1/notifications/deliveries
+        roles: [ADMIN]
+      - method: GET
+        path: /api/v1/notifications/deliveries/{id}
+        roles: [ADMIN]
+      - method: GET
         path: /api/v1/payments
         privilege: ORDER.REFUND
       - method: POST
@@ -333,6 +348,24 @@ nexus:
       - method: GET
         path: /api/v1/reputations/{userId}
         privilege: REPUTATION.VIEW
+      - method: GET
+        path: /api/v1/reputations/{userId}/restrictions
+        privilege: REPUTATION.VIEW
+      - method: POST
+        path: /api/v1/reputations/{userId}/restrictions
+        privilege: USER.REPUTATION.ADJUST
+      - method: DELETE
+        path: /api/v1/reputations/{userId}/restrictions/{id}
+        privilege: USER.REPUTATION.ADJUST
+      - method: POST
+        path: /api/v1/ratings/{id}/disputes
+        privilege: REPUTATION.RATE
+      - method: GET
+        path: /api/v1/ratings/disputes
+        privilege: USER.REPUTATION.VIEW
+      - method: PATCH
+        path: /api/v1/ratings/disputes/{id}
+        privilege: USER.REPUTATION.ADJUST
       - method: POST
         path: /api/v1/reputations/{userId}/adjustments
         privilege: USER.REPUTATION.ADJUST

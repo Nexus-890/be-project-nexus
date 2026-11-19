@@ -21,7 +21,7 @@ nexus:
   rating:
     group-id: nexus.rating.order-completed.v1
     eligibility:
-      allowed-clients: ${RATING_ELIGIBILITY_ALLOWED_CLIENTS:nexus-auction-service}
+      allowed-clients: ${RATING_ELIGIBILITY_ALLOWED_CLIENTS:nexus-auction-service,nexus-catalog-service}
   reputation:
     version: reputation-policy-1
     rating-weight: 30

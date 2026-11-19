@@ -126,6 +126,20 @@ class RemoteEligibilityClientTest {
     }
 
     @Test
+    void restrictionExpiryIsParsedAndDeniesEvenWhenScoreExceedsMinimum() {
+        String until = "2099-01-01T00:00:00Z";
+        String restricted = valid().replace("\"eligible\":true", "\"eligible\":false")
+                .replace("\"policyVersion\":\"v1\"", "\"policyVersion\":\"v1\",\"restrictedUntil\":\"" + until + "\"");
+        decisionReply.set(new Reply(200, restricted, 0));
+        var decision = client.check(USER, EligibilityAction.BID);
+        assertThat(decision.eligible()).isFalse();
+        assertThat(decision.restrictedUntil()).isEqualTo(java.time.OffsetDateTime.parse(until));
+        assertThat(registry.circuitBreaker("auctionReputation").getMetrics().getNumberOfFailedCalls()).isZero();
+        decisionReply.set(new Reply(200, restricted.replace(until, "invalid-timestamp"), 0));
+        unavailable();
+    }
+
+    @Test
     void malformedFieldsMissingEnvelopeAndInconsistentDecisionsFailClosed() {
         List<String> invalid = List.of("{}", "[]", "null", "{", valid().replace("\"code\":0,", ""),
                 valid().replace("\"code\":0", "\"code\":\"0\""),

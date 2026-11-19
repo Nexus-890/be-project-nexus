@@ -157,6 +157,7 @@ public class BidService {
      */
     private void applyOne(Bid bid) {
         Instant processedAt = auctions.currentWallTime();
+        Optional<UUID> previousLeader = auctions.lockLeaderForOutbid(bid.getAuctionId());
         if (auctions.acceptQueuedBid(
                         bid.getAuctionId(),
                         bid.getBidderId(),
@@ -198,6 +199,10 @@ public class BidService {
                                 bid.getAmount().toPlainString(),
                                 "VND",
                                 bid.getPlacedAt())));
+        previousLeader.filter(leader -> !leader.equals(bid.getBidderId())).ifPresent(leader ->
+                outbox.write("Auction", Topics.AUCTION, envelopes.create("BidOutbid", bid.getAuctionId().toString(),
+                        new BidOutbid(bid.getAuctionId(), bid.getId(), leader, bid.getBidderId(),
+                                bid.getAmount().toPlainString(), "VND", bid.getPlacedAt()))));
     }
 
     /** Chỉ chủ yêu cầu đọc được kết quả; id sai, auction sai hoặc người khác đều trả cùng 404. */
@@ -252,4 +257,7 @@ public class BidService {
             String amount,
             String currency,
             Instant placedAt) {}
+
+    private record BidOutbid(UUID auctionId, UUID bidId, UUID outbidUserId, UUID bidderId,
+                             String amount, String currency, Instant placedAt) {}
 }

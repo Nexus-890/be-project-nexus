@@ -19,6 +19,7 @@ class ReputationGuardTest {
 
     @Test
     void disabledEnforcementSkipsTheClient() {
+        properties.setReputationEnforcementEnabled(false);
         EligibilityClient client = mock(EligibilityClient.class);
         var guard = new ReputationGuard(properties, client);
         guard.requireEligible(user, EligibilityAction.BID);
@@ -44,6 +45,7 @@ class ReputationGuardTest {
 
     @Test
     void changingTheExistingPropertiesSwitchesTheExistingGuard() {
+        properties.setReputationEnforcementEnabled(false);
         var guard = new ReputationGuard(properties, (id, action) -> decision(id, action, false, 39, 40));
         guard.requireEligible(user, EligibilityAction.BID);
         properties.setReputationEnforcementEnabled(true);
@@ -51,6 +53,19 @@ class ReputationGuardTest {
                 .isInstanceOf(DomainException.class).extracting("errorCode").isEqualTo("AUCTION_REPUTATION_TOO_LOW");
         properties.setReputationEnforcementEnabled(false);
         guard.requireEligible(user, EligibilityAction.BID);
+    }
+
+    @ParameterizedTest
+    @EnumSource(EligibilityAction.class)
+    void temporaryRestrictionBlocksHighScoreAndReportsTheExpiry(EligibilityAction action) {
+        var until = java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).plusHours(2);
+        var guard = new ReputationGuard(properties, (id, selected) -> new EligibilityClient.Decision(
+                id, selected, false, 99, "TOP", 40, "Temporarily restricted", "policy-v1", until));
+        assertThatThrownBy(() -> guard.requireEligible(user, action)).isInstanceOfSatisfying(DomainException.class, failure -> {
+            assertThat(failure.getErrorCode()).isEqualTo("AUCTION_REPUTATION_RESTRICTED");
+            assertThat(failure.getCode()).isEqualTo(403);
+            assertThat(failure.getProperties()).containsEntry("restrictedUntil", until).containsEntry("action", action.name());
+        });
     }
 
     @Test

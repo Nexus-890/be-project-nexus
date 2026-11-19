@@ -3,7 +3,7 @@
 `GET /internal/v1/eligibility/{userId}?action=BID|SELL` requires a Keycloak service-account token. The rating service verifies the token with the shared RS256 decoder, then `EligibilityAuthorization` requires all of:
 
 - A verified, authenticated `JwtAuthenticationToken` with the configured issuer and `nexus-services` audience.
-- `azp` in `nexus.rating.eligibility.allowed-clients`, default `nexus-auction-service`.
+- `azp` in `nexus.rating.eligibility.allowed-clients`, default `nexus-auction-service,nexus-catalog-service`.
 - The JSON boolean claim `service_account: true`.
 - The exact `RATING.ELIGIBILITY.CHECK` authority from the flat `privileges` claim.
 
@@ -12,6 +12,15 @@ Buyer, Seller, Admin and Support tokens do not gain internal access from their r
 ## Provision the caller
 
 The secret-free client definition is [auction-rating-client.json](../../infra/local-dev/keycloak/auction-rating-client.json). It allows client credentials through a confidential service account, disables browser/password/implicit/device/CIBA/token-exchange flows, and emits only the internal eligibility privilege, machine marker and service audience. `privileges` is a JSON array and `service_account` is a boolean; changing either to a string makes authorization fail.
+
+Catalog uses the equivalent [catalog-rating-client.json](../../infra/local-dev/keycloak/catalog-rating-client.json)
+with client ID `nexus-catalog-service`. Set `CATALOG_RATING_CLIENT_SECRET` before
+running the same seed command to create/update that confidential client. Catalog
+checks SELL before publishing a product ACTIVE; auction checks SELL both when
+creating and scheduling a draft. Both guards default to enabled and fail closed
+if machine credentials or rating-service are unavailable. Configure
+`CATALOG_RATING_BASE_URL` for a direct rating-service URL when localhost is not
+appropriate; `/internal/v1` stays unavailable through the public gateway.
 
 Set `AUCTION_RATING_CLIENT_SECRET` to a generated secret in the untracked `infra/local-dev/.env`, then run the existing bootstrap command from `infra/local-dev`:
 

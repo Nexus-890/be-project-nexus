@@ -111,7 +111,7 @@ class MigrationUpgradeTest {
 
             var result = Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
                     .load().migrate();
-            assertThat(result.migrationsExecuted).isEqualTo(4);
+            assertThat(result.migrationsExecuted).isEqualTo(5);
             assertThat(historyCreatedAtDefault(postgres)).containsIgnoringCase("clock_timestamp");
             try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
                 try (var statement = connection.createStatement(); var rows = statement.executeQuery("SELECT * FROM ratings")) {

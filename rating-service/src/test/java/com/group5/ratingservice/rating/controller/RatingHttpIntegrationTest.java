@@ -65,7 +65,7 @@ class RatingHttpIntegrationTest extends RatingPostgresIntegrationTest {
 
     @BeforeEach
     void reset() {
-        jdbc.execute("TRUNCATE reputation_adjustment_requests,reputation_history,reputation_effects,reputation_sources,reputation_outcomes,ratings,rating_eligibility,user_reputations,outbox,processed_events");
+        jdbc.execute("TRUNCATE rating_disputes,reputation_restrictions,reputation_moderation_audit,reputation_adjustment_requests,reputation_history,reputation_effects,reputation_sources,reputation_outcomes,ratings,rating_eligibility,user_reputations,outbox,processed_events");
         jdbc.update("""
                 INSERT INTO rating_eligibility(order_id,buyer_id,seller_id,completed_at,source_event_id)
                 VALUES (?,?,?,now(),?)

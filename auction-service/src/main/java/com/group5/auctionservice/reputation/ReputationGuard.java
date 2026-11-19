@@ -32,6 +32,10 @@ public class ReputationGuard {
             throw new DomainException(AuctionErrorCode.AUCTION_REPUTATION_UNAVAILABLE);
         }
         if (!decision.eligible()) {
+            if (decision.restrictedUntil() != null) {
+                throw new DomainException(AuctionErrorCode.AUCTION_REPUTATION_RESTRICTED, decision.reason(),
+                        Map.of("reason", decision.reason(), "restrictedUntil", decision.restrictedUntil(), "action", action.name()));
+            }
             throw new DomainException(AuctionErrorCode.AUCTION_REPUTATION_TOO_LOW, decision.reason(),
                     Map.of("reason", decision.reason()));
         }
@@ -44,7 +48,7 @@ public class ReputationGuard {
                 || !TRUST_LEVELS.contains(decision.trustLevel())
                 || decision.reason() == null || decision.reason().isBlank()
                 || decision.policyVersion() == null || decision.policyVersion().isBlank()
-                || decision.eligible() != (decision.score() >= decision.minimumScore())) {
+                || decision.eligible() != (decision.score() >= decision.minimumScore() && decision.restrictedUntil() == null)) {
             throw new IllegalStateException("Invalid eligibility decision");
         }
     }

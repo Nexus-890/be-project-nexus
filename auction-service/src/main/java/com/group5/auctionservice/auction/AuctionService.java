@@ -235,6 +235,7 @@ public class AuctionService {
         if (!auction.getSellerId().equals(seller.id())) {
             throw new DomainException(AuctionErrorCode.AUCTION_FORBIDDEN);
         }
+        reputation.requireEligible(seller.id(), EligibilityAction.SELL);
         stateMachine.transition(auction, AuctionStatus.SCHEDULED);
         return AuctionResponse.from(auction);
     }

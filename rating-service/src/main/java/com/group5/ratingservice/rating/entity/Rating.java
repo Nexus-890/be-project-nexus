@@ -12,6 +12,7 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.SourceType;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.annotations.Formula;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.OffsetDateTime;
@@ -49,6 +50,12 @@ public class Rating extends AuditedEntity {
 
     @Column(name = "rater_name", length = 16)
     private String raterName;
+
+    @Column(nullable = false)
+    private boolean hidden;
+
+    @Formula("(select d.status from rating_disputes d where d.rating_id = id)")
+    private String disputeStatus;
 
     @CreationTimestamp(source = SourceType.DB)
     @Column(name = "created_at", nullable = false, updatable = false)

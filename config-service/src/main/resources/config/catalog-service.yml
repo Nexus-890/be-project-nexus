@@ -43,6 +43,15 @@ nexus:
       - method: GET
         path: /swagger-ui/**
   catalog:
+    reputation:
+      enabled: ${FEATURE_CATALOG_REPUTATION_ENFORCEMENT:true}
+      base-url: ${CATALOG_RATING_BASE_URL:${RATING_SERVICE_URL:http://localhost:8089}}
+      token-uri: ${CATALOG_RATING_TOKEN_URI:${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}/protocol/openid-connect/token}
+      client-id: ${CATALOG_RATING_CLIENT_ID:nexus-catalog-service}
+      client-secret: ${CATALOG_RATING_CLIENT_SECRET:}
+      connect-timeout-ms: 1500
+      read-timeout-ms: 2000
+      token-timeout-ms: 1500
     max-product-images: ${MAX_PRODUCT_IMAGES:5}
     category-max-level: 3
     category-tree:

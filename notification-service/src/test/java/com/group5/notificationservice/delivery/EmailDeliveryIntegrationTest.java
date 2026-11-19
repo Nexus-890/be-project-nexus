@@ -236,11 +236,11 @@ class EmailDeliveryIntegrationTest {
     }
 
     @Test
-    void oneBidderOptingOutDoesNotSuppressOtherAuctionRecipients() throws Exception {
+    void mandatoryAuctionCancellationOverridesHistoricalOptOut() throws Exception {
         preference(BUYER, "AUCTION_CANCELLED", "EMAIL", false);
         ConsumerRecord<String, EventEnvelope<JsonNode>> record = domainRecord(Topics.AUCTION, "AuctionCancelled",
                 sample("AuctionCancelled"));
-        // Preference thuộc từng người nhận: cả ba vẫn có in-app, chỉ buyer tắt bị SKIPPED.
+        // Transactional cancellation reaches every recipient despite a historical opt-out.
         consumer.receive(record);
         consumer.receive(record);
 
@@ -248,15 +248,15 @@ class EmailDeliveryIntegrationTest {
         assertThat(jdbc.queryForObject("""
                 SELECT d.status::text FROM notification_deliveries d JOIN notifications n ON n.id = d.notification_id
                 WHERE n.user_id = ?
-                """, String.class, BUYER)).isEqualTo("SKIPPED");
-        assertThat(job.runOnce()).isEqualTo(2);
+                """, String.class, BUYER)).isEqualTo("PENDING");
+        assertThat(job.runOnce()).isEqualTo(3);
         assertThat(messages().stream().map(email -> email.get("To").get(0).get("Address").asString()).toList())
-                .containsExactlyInAnyOrder(SECOND_BIDDER_EMAIL, SELLER_EMAIL);
+                .containsExactlyInAnyOrder(BUYER_EMAIL, SECOND_BIDDER_EMAIL, SELLER_EMAIL);
         assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM notification_delivery_attempts a
                 JOIN notification_deliveries d ON d.id = a.delivery_id JOIN notifications n ON n.id = d.notification_id
                 WHERE n.user_id = ?
-                """, Long.class, BUYER)).isZero();
+                """, Long.class, BUYER)).isEqualTo(1);
         assertThat(processedCount(record)).isEqualTo(1);
     }
 
@@ -293,9 +293,9 @@ class EmailDeliveryIntegrationTest {
     @Test
     void disabledEmailPreferenceKeepsTheNotificationButSkipsDeliveryWithoutAnAttempt() throws Exception {
         // Tắt đúng loại EMAIL trước khi nhận event: vẫn có thông báo trong ứng dụng để người dùng đọc.
-        preference(BUYER, "ORDER_CREATED", "EMAIL", false);
+        preference(BUYER, "BID_OUTBID", "EMAIL", false);
 
-        UUID notificationId = receiveOrderCreated("NX-259-DISABLED");
+        UUID notificationId = receiveOutbid("NX-259-DISABLED");
 
         assertThat(jdbc.queryForObject("SELECT count(*) FROM notifications WHERE id = ?", Long.class,
                 notificationId)).isEqualTo(1);
@@ -311,10 +311,10 @@ class EmailDeliveryIntegrationTest {
     @Test
     void preferencesForAnotherUserTypeOrChannelDoNotDisableEmail() throws Exception {
         // Mặc định vẫn bật khi không có preference khớp cả ba chiều người dùng, loại và kênh.
-        preference(STRANGER, "ORDER_CREATED", "EMAIL", false);
+        preference(STRANGER, "BID_OUTBID", "EMAIL", false);
         preference(BUYER, "ORDER_COMPLETED", "EMAIL", false);
-        preference(BUYER, "ORDER_CREATED", "PUSH", false);
-        UUID notificationId = receiveOrderCreated("NX-259-DEFAULT");
+        preference(BUYER, "BID_OUTBID", "PUSH", false);
+        UUID notificationId = receiveOutbid("NX-259-DEFAULT");
 
         assertThat(delivery(notificationId).get("status")).isEqualTo("PENDING");
         assertThat(job.runOnce()).isEqualTo(1);
@@ -325,8 +325,8 @@ class EmailDeliveryIntegrationTest {
     @Test
     void explicitlyEnabledPreferenceStillDeliversEmail() throws Exception {
         // Một preference bật phải giữ nguyên đường gửi SMTP hiện có.
-        preference(BUYER, "ORDER_CREATED", "EMAIL", true);
-        UUID notificationId = receiveOrderCreated("NX-259-ENABLED");
+        preference(BUYER, "BID_OUTBID", "EMAIL", true);
+        UUID notificationId = receiveOutbid("NX-259-ENABLED");
 
         assertThat(job.runOnce()).isEqualTo(1);
         assertThat(delivery(notificationId).get("status")).isEqualTo("SENT");
@@ -335,9 +335,9 @@ class EmailDeliveryIntegrationTest {
 
     @Test
     void disablingAfterQueueingSkipsTheEmailBeforeStartingAnAttempt() throws Exception {
-        UUID notificationId = receiveOrderCreated("NX-259-QUEUED");
+        UUID notificationId = receiveOutbid("NX-259-QUEUED");
         // Preference thay đổi lúc email còn chờ; worker phải đọc lại thay vì dùng quyết định lúc nhận event.
-        preference(BUYER, "ORDER_CREATED", "EMAIL", false);
+        preference(BUYER, "BID_OUTBID", "EMAIL", false);
 
         assertThat(job.runOnce()).isZero();
 
@@ -350,11 +350,11 @@ class EmailDeliveryIntegrationTest {
 
     @Test
     void disablingAfterSmtpFailureStopsFurtherRetries() throws Exception {
-        UUID notificationId = receiveOrderCreated("NX-259-RETRY");
+        UUID notificationId = receiveOutbid("NX-259-RETRY");
         smtpPort(CLOSED_PORT);
         assertThat(job.runOnce()).isEqualTo(1);
         // Giữ lịch sử lần lỗi trước đó nhưng không gửi lại khi người dùng đã tắt loại email này.
-        preference(BUYER, "ORDER_CREATED", "EMAIL", false);
+        preference(BUYER, "BID_OUTBID", "EMAIL", false);
         smtpPort(MAILPIT.getMappedPort(1025));
 
         assertThat(job.runOnce()).isZero();
@@ -369,10 +369,10 @@ class EmailDeliveryIntegrationTest {
 
     @Test
     void disablingDuringRecipientLookupClosesTheClaimWithoutSending() throws Exception {
-        UUID notificationId = receiveOrderCreated("NX-259-LOOKUP");
+        UUID notificationId = receiveOutbid("NX-259-LOOKUP");
         // Mô phỏng preference bị tắt trong lúc gọi Keycloak; kiểm tra cuối trước SMTP phải ngăn email.
         when(recipients.emailOf(BUYER)).thenAnswer(invocation -> {
-            preference(BUYER, "ORDER_CREATED", "EMAIL", false);
+            preference(BUYER, "BID_OUTBID", "EMAIL", false);
             return BUYER_EMAIL;
         });
 
@@ -749,6 +749,16 @@ class EmailDeliveryIntegrationTest {
         consumer.receive(new ConsumerRecord<>(Topics.COMMERCE, 0, 0L, orderId.toString(), envelope));
         return jdbc.queryForObject("SELECT id FROM notifications WHERE content LIKE ?", UUID.class,
                 "%" + orderNumber + "%");
+    }
+
+    private UUID receiveOutbid(String label) {
+        UUID auction = UUID.randomUUID();
+        JsonNode payload = JsonMapper.shared().valueToTree(Map.of("auctionId", auction.toString(),
+                "outbidUserId", BUYER.toString(), "amount", "100000.00", "currency", "VND"));
+        EventEnvelope<JsonNode> event = new EventEnvelope<>(UUID.randomUUID(), "BidOutbid", auction.toString(),
+                Instant.now(), "optional-outbid", payload);
+        consumer.receive(new ConsumerRecord<>(Topics.AUCTION, 0, 0L, auction.toString(), event));
+        return jdbc.queryForObject("SELECT id FROM notifications WHERE content LIKE ?", UUID.class, "%" + auction + "%");
     }
 
     private Map<String, Object> delivery(UUID notificationId) {

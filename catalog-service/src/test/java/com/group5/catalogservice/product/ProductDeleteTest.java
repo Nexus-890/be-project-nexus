@@ -26,7 +26,7 @@ class ProductDeleteTest {
 
     private ProductService service(OrderReferenceChecker checker) {
         return new ProductService(repository, mock(CategoryRepository.class),
-                new ProductSlugGenerator(), checker, properties);
+                new ProductSlugGenerator(), checker, properties, mock(com.group5.catalogservice.reputation.SellingEligibilityClient.class));
     }
 
     private Product product() {

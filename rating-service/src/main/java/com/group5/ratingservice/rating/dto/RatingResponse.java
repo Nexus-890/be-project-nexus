@@ -14,7 +14,8 @@ public record RatingResponse(
         String comment,
         String raterName,
         OffsetDateTime createdAt,
-        boolean ratedByMe
+        boolean ratedByMe,
+        String disputeStatus
 ) {
     public static RatingResponse from(Rating rating, UUID viewerId) {
         String name = rating.getRaterName();
@@ -22,6 +23,6 @@ public record RatingResponse(
                 rating.getId(), rating.getOrderId(), rating.getAuctionId(), rating.getScore(),
                 rating.getComment(), name == null || name.isBlank() ? "***" : name,
                 rating.getCreatedAt().withOffsetSameInstant(ZoneOffset.UTC),
-                rating.getFromUserId().equals(viewerId));
+                rating.getFromUserId().equals(viewerId), rating.getDisputeStatus());
     }
 }

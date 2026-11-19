@@ -67,7 +67,7 @@ class ReputationApiIntegrationTest extends RatingPostgresIntegrationTest {
     @BeforeEach
     void setup() {
         TOKENS.clear();
-        jdbc.execute("TRUNCATE reputation_adjustment_requests, reputation_history, reputation_effects, reputation_sources, reputation_outcomes, ratings, rating_eligibility, user_reputations, outbox, processed_events");
+        jdbc.execute("TRUNCATE rating_disputes,reputation_restrictions,reputation_moderation_audit,reputation_adjustment_requests, reputation_history, reputation_effects, reputation_sources, reputation_outcomes, ratings, rating_eligibility, user_reputations, outbox, processed_events");
         client = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
     }

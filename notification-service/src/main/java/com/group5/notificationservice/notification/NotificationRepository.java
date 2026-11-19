@@ -11,14 +11,16 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 public interface NotificationRepository extends JpaRepository<Notification, UUID> {
+    @Query("SELECT n FROM Notification n WHERE n.userId = :userId AND n.inAppEnabled = true")
     Page<Notification> findByUserId(UUID userId, Pageable pageable);
 
+    @Query("SELECT count(n) FROM Notification n WHERE n.userId = :userId AND n.readAt IS NULL AND n.inAppEnabled = true")
     long countByUserIdAndReadAtIsNull(UUID userId);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             UPDATE Notification n SET n.readAt = :readAt, n.updatedBy = :userId
-            WHERE n.id = :id AND n.userId = :userId AND n.readAt IS NULL
+            WHERE n.id = :id AND n.userId = :userId AND n.readAt IS NULL AND n.inAppEnabled = true
             """)
     int markAsRead(@Param("id") UUID id, @Param("userId") UUID userId,
                    @Param("readAt") OffsetDateTime readAt);
@@ -26,7 +28,7 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             UPDATE Notification n SET n.readAt = :readAt, n.updatedBy = :userId
-            WHERE n.userId = :userId AND n.readAt IS NULL
+            WHERE n.userId = :userId AND n.readAt IS NULL AND n.inAppEnabled = true
             """)
     int markAllAsRead(@Param("userId") UUID userId, @Param("readAt") OffsetDateTime readAt);
 }

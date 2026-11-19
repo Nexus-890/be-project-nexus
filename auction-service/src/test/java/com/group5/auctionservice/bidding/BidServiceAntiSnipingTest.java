@@ -178,6 +178,31 @@ class BidServiceAntiSnipingTest {
         return bid;
     }
 
+    @Test
+    void changingLeaderWritesOutbidAlongsideAcceptedBid() {
+        Bid bid = queued(); allowQueue(bid);
+        UUID oldLeader = UUID.randomUUID();
+        when(auctions.lockLeaderForOutbid(AUCTION)).thenReturn(Optional.of(oldLeader));
+        when(auctions.acceptQueuedBid(AUCTION, BUYER.id(), AMOUNT, "***", REQUESTED)).thenReturn(1);
+        envelope("BidPlaced"); envelope("BidOutbid");
+        service.apply(AUCTION, BID);
+        ArgumentCaptor<EventEnvelope<?>> events = ArgumentCaptor.forClass(EventEnvelope.class);
+        verify(outbox, times(2)).write(eq("Auction"), eq(Topics.AUCTION), events.capture());
+        assertThat(events.getAllValues()).extracting(EventEnvelope::eventType).containsExactly("BidPlaced", "BidOutbid");
+        assertThat(ReflectionTestUtils.getField(events.getAllValues().getLast().payload(), "outbidUserId")).isEqualTo(oldLeader);
+    }
+
+    @Test
+    void sameLeaderIncreasingOwnBidDoesNotReceiveOutbid() {
+        Bid bid = queued(); allowQueue(bid);
+        when(auctions.lockLeaderForOutbid(AUCTION)).thenReturn(Optional.of(BUYER.id()));
+        when(auctions.acceptQueuedBid(AUCTION, BUYER.id(), AMOUNT, "***", REQUESTED)).thenReturn(1);
+        envelope("BidPlaced");
+        service.apply(AUCTION, BID);
+        verify(outbox).write(eq("Auction"), eq(Topics.AUCTION), any());
+        verify(envelopes, never()).create(eq("BidOutbid"), anyString(), any());
+    }
+
     /** Danh sách queue thật được test DB; unit chỉ chỉ định một request cần áp dụng. */
     private void allowQueue(Bid bid) {
         when(bids.findById(BID)).thenReturn(Optional.of(bid));

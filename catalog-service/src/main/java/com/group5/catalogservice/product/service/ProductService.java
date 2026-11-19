@@ -20,6 +20,7 @@ import java.util.stream.Collectors;
 import java.util.function.Function;
 import java.time.OffsetDateTime;
 import com.group5.catalogservice.product.OrderReferenceChecker;
+import com.group5.catalogservice.reputation.SellingEligibilityClient;
 import com.group5.catalogservice.shared.config.CatalogProperties;
 import com.group5.catalogservice.product.entity.Product;
 import com.group5.catalogservice.product.enums.ProductStatus;
@@ -48,6 +49,7 @@ public class ProductService {
     private final ProductSlugGenerator productSlugGenerator;
     private final OrderReferenceChecker orderReferenceChecker;
     private final CatalogProperties catalogProperties;
+    private final SellingEligibilityClient sellingEligibility;
 
     @Transactional
     public void deleteProduct(UUID id, CurrentUser currentUser) {
@@ -263,6 +265,8 @@ public class ProductService {
                     CatalogErrorCode.INVALID_PRODUCT_STATUS_TRANSITION
             );
         }
+
+        if (targetStatus == ProductStatus.ACTIVE) sellingEligibility.requireEligible(product.getSellerId());
 
         product.setStatus(targetStatus);
         Product saved = productRepository.save(product);

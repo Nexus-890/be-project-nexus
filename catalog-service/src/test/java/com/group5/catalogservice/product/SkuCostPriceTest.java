@@ -34,7 +34,7 @@ class SkuCostPriceTest {
     private final ProductRepository products = mock(ProductRepository.class);
     private final SkuService skuService = new SkuService(skus, products);
     private final ProductService productService = new ProductService(products, mock(CategoryRepository.class),
-            new ProductSlugGenerator(), id -> false, new CatalogProperties());
+            new ProductSlugGenerator(), id -> false, new CatalogProperties(), mock(com.group5.catalogservice.reputation.SellingEligibilityClient.class));
     private final UUID sellerId = UUID.randomUUID();
     private final CurrentUser seller = new CurrentUser(sellerId, Set.of("SELLER"),
             Set.of("PRODUCT.UPDATE", "PRODUCT.LIST"));

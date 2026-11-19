@@ -5,6 +5,7 @@ import com.group5.ratingservice.eligibility.enums.EligibilityAction;
 import com.group5.ratingservice.reputation.enums.TrustLevel;
 
 import java.util.UUID;
+import java.time.OffsetDateTime;
 
 public record EligibilityResponse(
         UUID userId,
@@ -14,6 +15,7 @@ public record EligibilityResponse(
         TrustLevel trustLevel,
         int minimumScore,
         String reason,
-        String policyVersion
+        String policyVersion,
+        OffsetDateTime restrictedUntil
 ) {
 }

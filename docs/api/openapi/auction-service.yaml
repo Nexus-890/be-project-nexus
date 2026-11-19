@@ -1195,7 +1195,7 @@ paths:
         With FEATURE_REPUTATION_ENFORCEMENT enabled, the seller must pass the
         direct rating-service SELL eligibility check before the auction is written.
         A score below MIN_REPUTATION_TO_SELL (default 50) returns 403
-        AUCTION_REPUTATION_TOO_LOW with the policy reason. When the flag is off,
+        AUCTION_REPUTATION_TOO_LOW with the policy reason. An active temporary restriction returns 403 AUCTION_REPUTATION_RESTRICTED with reason and restrictedUntil. When the flag is off,
         this check and its dependency calls are skipped. With enforcement on,
         unavailable rating-service, malformed decisions, machine-token failures
         or an open circuit return 503 AUCTION_REPUTATION_UNAVAILABLE. Refusal
@@ -1310,7 +1310,7 @@ paths:
                   - type: object
                     properties:
                       code:
-                        enum: [FORBIDDEN, AUCTION_FORBIDDEN, AUCTION_REPUTATION_TOO_LOW]
+                        enum: [FORBIDDEN, AUCTION_FORBIDDEN, AUCTION_REPUTATION_TOO_LOW, AUCTION_REPUTATION_RESTRICTED]
                       reason:
                         type: string
                         minLength: 1
@@ -1605,7 +1605,7 @@ paths:
         With FEATURE_REPUTATION_ENFORCEMENT enabled, each new bid request must pass
         rating-service BID eligibility before any queued bid or outbox write.
         A score below MIN_REPUTATION_TO_BID (default 40) returns 403
-        AUCTION_REPUTATION_TOO_LOW with the policy reason. When the flag is off,
+        AUCTION_REPUTATION_TOO_LOW with the policy reason. An active temporary restriction returns 403 AUCTION_REPUTATION_RESTRICTED with reason and restrictedUntil. When the flag is off,
         the reputation check and its dependency calls are skipped. When on,
         rating-service unavailability, malformed decisions, machine-token failures
         or an open circuit fail closed with 503 AUCTION_REPUTATION_UNAVAILABLE.
@@ -1738,7 +1738,7 @@ paths:
                   - type: object
                     properties:
                       code:
-                        enum: [FORBIDDEN, AUCTION_REPUTATION_TOO_LOW]
+                        enum: [FORBIDDEN, AUCTION_REPUTATION_TOO_LOW, AUCTION_REPUTATION_RESTRICTED]
                       reason:
                         type: string
                         minLength: 1

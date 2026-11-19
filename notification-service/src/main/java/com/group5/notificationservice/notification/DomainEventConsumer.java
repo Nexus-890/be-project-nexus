@@ -4,6 +4,7 @@ import com.group5.common_events.EventEnvelope;
 import com.group5.common_events.EventKafka;
 import com.group5.common_events.Topics;
 import com.group5.common_outbox.IdempotentConsumer;
+import com.group5.notificationservice.preference.NotificationPreferenceService;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
@@ -28,6 +29,10 @@ public class DomainEventConsumer {
     private final NotificationRepository notificationRepository;
     private final List<NotificationChannel> channels;
     private final String frontendBaseUrl;
+    private NotificationPreferenceService preferences;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void preferences(NotificationPreferenceService preferences) { this.preferences = preferences; }
 
     public DomainEventConsumer(IdempotentConsumer idempotentConsumer,
                                NotificationRepository notificationRepository,
@@ -57,6 +62,7 @@ public class DomainEventConsumer {
         boolean handled = idempotentConsumer.handle(CONSUMER, envelope, event -> {
             // Marker, mọi notification và delivery cùng transaction: fan-out lỗi thì rollback toàn bộ.
             for (Notification rendered : template.get().render(event.payload(), frontendBaseUrl)) {
+                if (preferences != null) rendered.setInAppEnabled(preferences.enabled(rendered.getUserId(), rendered.getType(), "IN_APP"));
                 Notification notification = notificationRepository.save(rendered);
                 channels.forEach(channel -> channel.send(notification));
             }

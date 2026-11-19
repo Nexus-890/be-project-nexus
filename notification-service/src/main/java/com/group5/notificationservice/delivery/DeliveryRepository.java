@@ -26,9 +26,9 @@ public class DeliveryRepository {
         jdbc.update("""
                 INSERT INTO notification_deliveries (notification_id, channel, status, next_attempt_at)
                 SELECT n.id, 'EMAIL',
-                       CASE WHEN COALESCE(p.enabled, true) THEN 'PENDING'::notification_delivery_status
+                       CASE WHEN n.type <> 'BID_OUTBID' OR COALESCE(p.enabled, true) THEN 'PENDING'::notification_delivery_status
                             ELSE 'SKIPPED'::notification_delivery_status END,
-                       CASE WHEN COALESCE(p.enabled, true) THEN CAST(? AS timestamptz) ELSE NULL END
+                       CASE WHEN n.type <> 'BID_OUTBID' OR COALESCE(p.enabled, true) THEN CAST(? AS timestamptz) ELSE NULL END
                 FROM notifications n
                 LEFT JOIN notification_preferences p
                   ON p.user_id = n.user_id AND p.notification_type = n.type AND p.channel = 'EMAIL'
@@ -45,7 +45,7 @@ public class DeliveryRepository {
                 FROM notifications n, notification_preferences p
                 WHERE d.id = ? AND d.notification_id = n.id AND d.channel = 'EMAIL' AND d.status = 'PENDING'
                   AND p.user_id = n.user_id AND p.notification_type = n.type AND p.channel = 'EMAIL'
-                  AND NOT p.enabled
+                  AND n.type = 'BID_OUTBID' AND NOT p.enabled
                 """, Timestamp.from(now), deliveryId) > 0;
     }
 

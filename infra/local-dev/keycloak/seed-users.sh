@@ -173,3 +173,16 @@ if [ -n "${AUCTION_RATING_CLIENT_SECRET:-}" ]; then
 else
   echo "Skipped client nexus-auction-service: AUCTION_RATING_CLIENT_SECRET is empty"
 fi
+
+if [ -n "${CATALOG_RATING_CLIENT_SECRET:-}" ]; then
+  client="$(kc get clients -r nexus -q clientId=nexus-catalog-service --fields id --format csv --noquotes)"
+  if [ -z "$client" ]; then
+    client="$(kc create clients -r nexus -f /opt/nexus/catalog-rating-client.json -i)"
+  else
+    kc update "clients/$client" -r nexus -f /opt/nexus/catalog-rating-client.json -n
+  fi
+  kc update "clients/$client" -r nexus -s "secret=$CATALOG_RATING_CLIENT_SECRET" -n
+  echo "Seeded client nexus-catalog-service ($client)"
+else
+  echo "Skipped client nexus-catalog-service: CATALOG_RATING_CLIENT_SECRET is empty"
+fi

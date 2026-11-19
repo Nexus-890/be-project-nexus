@@ -19,6 +19,8 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
 import com.group5.auctionservice.TestPostgres;
+import com.group5.auctionservice.reputation.EligibilityClient;
+import com.group5.auctionservice.reputation.EligibilityAction;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
@@ -49,6 +51,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
         "spring.kafka.listener.auto-startup=false", "spring.kafka.admin.auto-create=false",
         "spring.jpa.open-in-view=false", "management.tracing.enabled=false",
         "nexus.auction.scheduler.enabled=false", "nexus.outbox.relay.enabled=false",
+        "nexus.auction.reputation-enforcement-enabled=true",
         "nexus.security.jwt.issuer=http://localhost:18080/realms/nexus",
         "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/certs"
 })
@@ -69,6 +72,7 @@ class AuctionScheduleIntegrationTest {
     @MockitoBean private JwtDecoder decoder;
     @MockitoBean private CatalogClient catalog;
     @MockitoBean private AuctionInventoryClient inventory;
+    @MockitoBean private EligibilityClient eligibility;
     private MockMvc client;
     private UUID auctionId;
 
@@ -81,6 +85,9 @@ class AuctionScheduleIntegrationTest {
 
     @BeforeEach
     void createAuction() throws Exception {
+        jdbc.execute("TRUNCATE TABLE auctions CASCADE");
+        when(eligibility.check(any(), any())).thenAnswer(call -> new EligibilityClient.Decision(
+                call.getArgument(0), call.getArgument(1), true, 90, "TOP", 50, "Eligible", "policy-v1"));
         client = webAppContextSetup(context)
                 .addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
         when(decoder.decode("owner")).thenReturn(token("owner", OWNER, "SELLER", "AUCTION.CREATE", "AUCTION.UPDATE"));
@@ -105,6 +112,18 @@ class AuctionScheduleIntegrationTest {
                 .andExpect(jsonPath("$.data.status").value("CREATED"))
                 .andReturn().getResponse().getContentAsString();
         auctionId = UUID.fromString(json.readTree(response).path("data").path("id").asText());
+    }
+
+    @Test
+    void restrictionAppliedAfterDraftCreationPreventsSchedulingWithoutWrites() throws Exception {
+        Map<String, Object> before = row();
+        when(eligibility.check(OWNER, EligibilityAction.SELL)).thenReturn(new EligibilityClient.Decision(
+                OWNER, EligibilityAction.SELL, false, 90, "TOP", 50, "Selling is restricted", "policy-v1",
+                java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).plusHours(1)));
+        schedule("owner").andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("AUCTION_REPUTATION_RESTRICTED"))
+                .andExpect(jsonPath("$.restrictedUntil").isNotEmpty());
+        assertThat(row()).isEqualTo(before);
     }
 
     @Test

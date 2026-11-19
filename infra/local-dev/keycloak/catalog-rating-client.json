@@ -1,0 +1,65 @@
+{
+  "clientId": "nexus-catalog-service",
+  "name": "Catalog selling eligibility",
+  "enabled": true,
+  "protocol": "openid-connect",
+  "publicClient": false,
+  "bearerOnly": false,
+  "clientAuthenticatorType": "client-secret",
+  "serviceAccountsEnabled": true,
+  "standardFlowEnabled": false,
+  "implicitFlowEnabled": false,
+  "directAccessGrantsEnabled": false,
+  "authorizationServicesEnabled": false,
+  "fullScopeAllowed": false,
+  "redirectUris": [],
+  "webOrigins": [],
+  "defaultClientScopes": ["basic"],
+  "optionalClientScopes": [],
+  "attributes": {
+    "oauth2.device.authorization.grant.enabled": "false",
+    "oidc.ciba.grant.enabled": "false",
+    "standard.token.exchange.enabled": "false"
+  },
+  "protocolMappers": [
+    {
+      "name": "rating-eligibility-authority",
+      "protocol": "openid-connect",
+      "protocolMapper": "oidc-hardcoded-claim-mapper",
+      "consentRequired": false,
+      "config": {
+        "claim.name": "privileges",
+        "claim.value": "[\"RATING.ELIGIBILITY.CHECK\"]",
+        "jsonType.label": "JSON",
+        "access.token.claim": "true",
+        "id.token.claim": "false",
+        "userinfo.token.claim": "false"
+      }
+    },
+    {
+      "name": "rating-machine-identity",
+      "protocol": "openid-connect",
+      "protocolMapper": "oidc-hardcoded-claim-mapper",
+      "consentRequired": false,
+      "config": {
+        "claim.name": "service_account",
+        "claim.value": "true",
+        "jsonType.label": "boolean",
+        "access.token.claim": "true",
+        "id.token.claim": "false",
+        "userinfo.token.claim": "false"
+      }
+    },
+    {
+      "name": "nexus-services-audience",
+      "protocol": "openid-connect",
+      "protocolMapper": "oidc-audience-mapper",
+      "consentRequired": false,
+      "config": {
+        "included.custom.audience": "nexus-services",
+        "access.token.claim": "true",
+        "id.token.claim": "false"
+      }
+    }
+  ]
+}

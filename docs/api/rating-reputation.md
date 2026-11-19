@@ -52,6 +52,16 @@ Buyer và seller của một canonical completed order được đánh giá đ�
 
 Response có `ratedByMe`, được tính từ JWT của người đang đọc. Buyer tìm rating của đơn bằng `orderId` và `ratedByMe=true`, không cần lộ raw rater ID cho người khác. Client gửi `orderId`, `score`, `comment`; service tự xác định đối tác từ completed-order projection.
 
+## Hạn chế hành động và khiếu nại đánh giá
+
+Admin có `USER.REPUTATION.ADJUST` tạo hạn chế qua `POST /api/v1/reputations/{userId}/restrictions` với `action` (`BID` hoặc `SELL`), `reason` tối đa 1000 ký tự và `restrictedUntil` trong tương lai. `DELETE /api/v1/reputations/{userId}/restrictions/{id}?reason=...` gỡ hạn chế, giữ người thao tác, thời gian và lý do. Admin có `USER.REPUTATION.VIEW` xem danh sách có phân trang; buyer/seller có `REPUTATION.VIEW` chỉ xem hạn chế của chính mình. Hạn chế đã hết hạn hoặc được gỡ tự ngừng áp dụng. Nhiều hạn chế đang hiệu lực của cùng hành động lấy thời điểm hết hạn muộn nhất.
+
+Internal eligibility trả `restrictedUntil` và từ chối khi hạn chế còn hiệu lực dù điểm đủ ngưỡng. Auction mặc định bật enforcement; lỗi `AUCTION_REPUTATION_RESTRICTED` (403) trả lý do, hành động và thời điểm được phép thử lại. Cấu hình machine token cho auction phải hoàn tất trước khi chạy luồng bid hoặc tạo auction.
+
+Người nhận đánh giá có `REPUTATION.RATE` tạo khiếu nại bằng `POST /api/v1/ratings/{id}/disputes` với `reason`. Mỗi rating có một khiếu nại; người viết rating và người ngoài không được khiếu nại thay. Admin đọc `GET /api/v1/ratings/disputes` bằng `USER.REPUTATION.VIEW`, hỗ trợ `status`, `page`, `size`; quyết định bằng `PATCH /api/v1/ratings/disputes/{id}` với `status` (`APPROVED`/`REJECTED`) và `reason`, cần `USER.REPUTATION.ADJUST`.
+
+Chấp nhận khiếu nại ẩn rating khỏi danh sách thông thường và loại đúng đóng góp đã áp dụng khỏi `ratingCount`/`ratingScoreSum`, tính lại điểm và trust level trong cùng transaction. Aggregate lock đồng bộ việc duyệt với consumer: `UserRated` đến muộn, lặp hoặc backfill không khôi phục rating đã ẩn. Từ chối giữ nguyên rating. Response rating có `disputeStatus` để client tránh hiện lại nút gửi khiếu nại. Quyết định cuối cùng không sửa lại; lặp đúng actor, trạng thái và lý do trả kết quả đã lưu. Bảng `reputation_moderation_audit` giữ mọi thao tác tạo/gỡ hạn chế và gửi/duyệt khiếu nại; duyệt được chấp nhận còn có `RATING_DISPUTE_APPROVED` trong lịch sử reputation.
+
 ## Policy v1
 
 Đây là các mặc định triển khai **có cấu hình**, không phải công thức số học được SRS cung cấp. Config Server khai báo tại `config/rating-service.yml`, prefix `nexus.reputation`.
@@ -130,7 +140,7 @@ Machine authentication và cách provision client được mô tả tại [ratin
 
 ## Auction enforcement
 
-`FEATURE_REPUTATION_ENFORCEMENT` mặc định `false`. OFF không gọi rating-service hoặc Keycloak; các rule auction khác vẫn áp dụng. ON kiểm tra SELL cho seller tạo auction, BID cho bidder tạo bid mới. Giữ điểm/threshold logic trong rating-service.
+`FEATURE_REPUTATION_ENFORCEMENT` mặc định `true`. ON kiểm tra ngưỡng điểm và hạn chế theo thời hạn trong rating-service: SELL cho seller tạo auction, BID cho bidder tạo bid mới. Cần chạy rating-service và cấu hình machine client trước khi ghi auction/bid. OFF là cấu hình bỏ qua enforcement cho môi trường phát triển có chủ đích; không gọi rating-service hoặc Keycloak. Giữ điểm/threshold và restriction logic trong rating-service.
 
 Bid đã accepted có cùng key/auction/bidder/amount được replay 200 trước khi gọi eligibility. Bước đọc key trước đó có read transaction ngắn để giải phóng connection; auction tắt Open-in-View trong cấu hình service. Kiểm tra qua mạng nằm ngoài transaction ghi; khi vào transaction, key được đọc lại trước conditional UPDATE để giữ concurrency/idempotency. Nếu một request khác đã commit cùng key trong lúc eligibility của request này thất bại, đọc lại và replay kết quả đúng hoặc báo conflict cho payload khác. Transaction ghi bắt đầu sau network check để không dùng thời điểm PostgreSQL cũ chấp nhận bid quá hạn.
 

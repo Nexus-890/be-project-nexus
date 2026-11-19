@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Nexus rating-service delivered API
-  version: 1.1.0
+  version: 1.2.0
   description: >-
     Ratings and reputation under merged issue 212, including the original issue 213.
     JSON success bodies use ApiResponse
@@ -465,6 +465,187 @@ paths:
           $ref: '#/components/responses/NotAcceptable'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/v1/reputations/{userId}/restrictions:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [Reputations]
+      operationId: listReputationRestrictions
+      summary: List current and historical restrictions
+      description: >-
+        ADMIN with USER.REPUTATION.VIEW may read any target. BUYER or SELLER
+        with REPUTATION.VIEW may read only their own subject. Results include
+        revoked and expired restrictions with a computed active flag.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Restriction history, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestrictionPageEnvelope'
+        '400':
+          $ref: '#/components/responses/InvalidQuery'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Reputations]
+      operationId: createReputationRestriction
+      summary: Restrict bidding or selling until a future time
+      description: >-
+        Requires ADMIN and USER.REPUTATION.ADJUST. Expiry must be in the future.
+        Multiple restrictions may overlap; an action stays blocked until every
+        restriction for it has expired or been revoked. Actor, reason and time
+        are recorded in the immutable moderation audit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRestrictionRequest'
+      responses:
+        '201':
+          description: Restriction and audit committed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestrictionEnvelope'
+        '400':
+          $ref: '#/components/responses/InvalidQuery'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/reputations/{userId}/restrictions/{id}:
+    delete:
+      tags: [Reputations]
+      operationId: revokeReputationRestriction
+      summary: Revoke a restriction while preserving its audit history
+      description: >-
+        Requires ADMIN and USER.REPUTATION.ADJUST. Repeating the same revocation
+        by the same actor returns the stored result; a different reason or
+        actor after revocation returns 409. No record is physically deleted.
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+        - name: reason
+          in: query
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 1000, pattern: '\S'}
+      responses:
+        '200':
+          description: Revoked restriction.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestrictionEnvelope'
+        '400':
+          $ref: '#/components/responses/InvalidQuery'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404': {description: Restriction does not belong to the target or does not exist.}
+        '409': {description: Restriction was already revoked with another actor or reason.}
+  /api/v1/ratings/{id}/disputes:
+    post:
+      tags: [Ratings]
+      operationId: createRatingDispute
+      summary: Dispute a review received by the authenticated user
+      description: >-
+        Requires BUYER or SELLER with REPUTATION.RATE. Only the rated recipient
+        may dispute; the original author and other users receive 403. A rating
+        may have only one dispute, including after rejection; duplicates return
+        409. Pending disputes leave visibility and reputation unchanged.
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDisputeRequest'
+      responses:
+        '201':
+          description: Pending dispute recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DisputeEnvelope'
+        '400':
+          $ref: '#/components/responses/InvalidQuery'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404': {description: Visible rating does not exist.}
+        '409': {description: A dispute for the rating already exists.}
+  /api/v1/ratings/disputes:
+    get:
+      tags: [Ratings]
+      operationId: listRatingDisputes
+      summary: Read disputes for administrative review
+      description: Requires ADMIN and USER.REPUTATION.VIEW. Ordered newest first.
+      parameters:
+        - name: status
+          in: query
+          schema: {type: string, enum: [PENDING, APPROVED, REJECTED]}
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Disputes including the original rating score and comment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DisputePageEnvelope'
+        '400':
+          $ref: '#/components/responses/InvalidQuery'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/ratings/disputes/{id}:
+    patch:
+      tags: [Ratings]
+      operationId: resolveRatingDispute
+      summary: Approve or reject a pending dispute
+      description: >-
+        Requires ADMIN and USER.REPUTATION.ADJUST. Approval hides the rating
+        from ordinary lists and removes its applied score contribution in the
+        same transaction. Late events, retries and backfills cannot restore it.
+        Rejection preserves the original rating. Actor, reason and time remain
+        audited. Repeating an identical resolution by its actor is idempotent;
+        another resolution of a final dispute returns 409.
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveDisputeRequest'
+      responses:
+        '200':
+          description: Final dispute decision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DisputeEnvelope'
+        '400':
+          $ref: '#/components/responses/InvalidQuery'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404': {description: Dispute does not exist.}
+        '409': {description: Dispute was already resolved with different data.}
+        '503':
+          $ref: '#/components/responses/ReconciliationRequired'
   /internal/v1/eligibility/{userId}:
     get:
       tags: [Internal eligibility]
@@ -479,7 +660,10 @@ paths:
         its default client is nexus-auction-service. Normal user or ADMIN tokens
         are denied even if they carry the authority. action is required and
         selects MIN_REPUTATION_TO_BID (default 40) or MIN_REPUTATION_TO_SELL
-        (default 50). A score equal to the minimum is eligible. A policy denial
+        (default 50). A score equal to the minimum is eligible only when no active
+        restriction applies to that action. restrictedUntil is the latest active
+        restriction expiry, or null. Expired/revoked restrictions do not block.
+        A policy denial
         returns 200 with eligible=false and its reason, distinct from validation,
         authentication and availability failures. A user without activity has
         neutral score 50 and trust NEW. Decisions reflect committed state;
@@ -921,6 +1105,88 @@ components:
             instance: /api/v1/ratings
             code: RATING_INTERNAL_ERROR
   schemas:
+    CreateRestrictionRequest:
+      type: object
+      required: [action, reason, restrictedUntil]
+      properties:
+        action: {type: string, enum: [BID, SELL]}
+        reason: {type: string, minLength: 1, maxLength: 1000, pattern: '\S'}
+        restrictedUntil: {type: string, format: date-time, description: Must be in the future.}
+    ReputationRestriction:
+      type: object
+      required: [id, userId, action, reason, restrictedUntil, createdAt, createdBy, active]
+      properties:
+        id: {type: string, format: uuid}
+        userId: {type: string, format: uuid}
+        action: {type: string, enum: [BID, SELL]}
+        reason: {type: string, maxLength: 1000}
+        restrictedUntil: {type: string, format: date-time}
+        createdAt: {type: string, format: date-time}
+        createdBy: {type: string, format: uuid}
+        revokedAt: {type: string, format: date-time, nullable: true}
+        revokedBy: {type: string, format: uuid, nullable: true}
+        revocationReason: {type: string, nullable: true}
+        active: {type: boolean}
+    CreateDisputeRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: {type: string, minLength: 1, maxLength: 1000, pattern: '\S'}
+    ResolveDisputeRequest:
+      type: object
+      required: [status, reason]
+      properties:
+        status: {type: string, enum: [APPROVED, REJECTED]}
+        reason: {type: string, minLength: 1, maxLength: 1000, pattern: '\S'}
+    RatingDispute:
+      type: object
+      required: [id, ratingId, userId, reason, status, createdAt, ratingScore]
+      properties:
+        id: {type: string, format: uuid}
+        ratingId: {type: string, format: uuid}
+        userId: {type: string, format: uuid}
+        reason: {type: string, maxLength: 1000}
+        status: {type: string, enum: [PENDING, APPROVED, REJECTED]}
+        createdAt: {type: string, format: date-time}
+        resolvedAt: {type: string, format: date-time, nullable: true}
+        resolvedBy: {type: string, format: uuid, nullable: true}
+        resolutionReason: {type: string, nullable: true}
+        ratingScore: {type: integer, minimum: 1, maximum: 5}
+        ratingComment: {type: string, nullable: true}
+    RestrictionEnvelope:
+      type: object
+      required: [code, message, data]
+      properties:
+        code: {type: integer, default: 0}
+        message: {type: string}
+        data: {$ref: '#/components/schemas/ReputationRestriction'}
+    RestrictionPageEnvelope:
+      type: object
+      required: [code, message, data, page]
+      properties:
+        code: {type: integer, default: 0}
+        message: {type: string}
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/ReputationRestriction'}
+        page: {$ref: '#/components/schemas/PageInfo'}
+    DisputeEnvelope:
+      type: object
+      required: [code, message, data]
+      properties:
+        code: {type: integer, default: 0}
+        message: {type: string}
+        data: {$ref: '#/components/schemas/RatingDispute'}
+    DisputePageEnvelope:
+      type: object
+      required: [code, message, data, page]
+      properties:
+        code: {type: integer, default: 0}
+        message: {type: string}
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/RatingDispute'}
+        page: {$ref: '#/components/schemas/PageInfo'}
     TrustLevel:
       type: string
       enum: [NEW, BASIC, TRUSTED, TOP]
@@ -1005,7 +1271,7 @@ components:
           description: Business source revision, not the event schema version; initial ratings use 0.
         changeType:
           type: string
-          enum: [USER_RATED, ORDER_COMPLETED, AUCTION_PAYMENT_TIMEOUT, ADMIN_ADJUSTMENT]
+          enum: [USER_RATED, ORDER_COMPLETED, AUCTION_PAYMENT_TIMEOUT, ADMIN_ADJUSTMENT, RATING_DISPUTE_APPROVED]
         previousScore: {type: integer, minimum: 0, maximum: 100}
         newScore: {type: integer, minimum: 0, maximum: 100}
         delta:
@@ -1051,7 +1317,7 @@ components:
           $ref: '#/components/schemas/EligibilityAction'
         eligible:
           type: boolean
-          description: True when score meets or exceeds the selected minimum.
+          description: True when score meets the selected minimum and no active restriction applies.
         score: {type: integer, minimum: 0, maximum: 100}
         trustLevel:
           $ref: '#/components/schemas/TrustLevel'
@@ -1065,6 +1331,7 @@ components:
           minLength: 1
           description: Nonblank explanation for both eligible and ineligible results.
         policyVersion: {type: string, minLength: 1, maxLength: 60}
+        restrictedUntil: {type: string, format: date-time, nullable: true, description: Latest active restriction expiry for the selected action.}
     EligibilityEnvelope:
       type: object
       required: [code, message, data]
@@ -1141,6 +1408,11 @@ components:
         ratedByMe:
           type: boolean
           description: True only when the authenticated caller submitted this rating; never supplied by the request.
+        disputeStatus:
+          type: string
+          nullable: true
+          enum: [PENDING, APPROVED, REJECTED]
+          description: Existing dispute status; null when the rating has not been disputed.
     RatingEnvelope:
       type: object
       required:

@@ -41,7 +41,7 @@ public class ReputationBackfill {
         var ratings = jdbc.query("""
                 SELECT r.*, e.buyer_id, e.seller_id, e.auction_id AS eligible_auction_id, e.completed_at
                 FROM ratings r LEFT JOIN rating_eligibility e ON e.order_id=r.order_id
-                WHERE (?::uuid IS NULL OR r.id > ?::uuid) ORDER BY r.id LIMIT ?
+                WHERE NOT r.hidden AND (?::uuid IS NULL OR r.id > ?::uuid) ORDER BY r.id LIMIT ?
                 """, (row, index) -> new RatingCandidate(row.getObject("id", UUID.class),
                 row.getObject("order_id", UUID.class), row.getObject("auction_id", UUID.class),
                 row.getObject("from_user_id", UUID.class), row.getObject("to_user_id", UUID.class), row.getInt("score"),

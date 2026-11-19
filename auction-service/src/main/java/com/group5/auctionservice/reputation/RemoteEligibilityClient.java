@@ -12,6 +12,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import java.time.OffsetDateTime;
 
 @Component
 public class RemoteEligibilityClient implements EligibilityClient {
@@ -79,9 +80,16 @@ public class RemoteEligibilityClient implements EligibilityClient {
         Decision decision = new Decision(parsedUserId,
                 EligibilityAction.valueOf(text(data, "action")), eligible.booleanValue(),
                 integer(data, "score"), text(data, "trustLevel"), integer(data, "minimumScore"),
-                text(data, "reason"), text(data, "policyVersion"));
+                text(data, "reason"), text(data, "policyVersion"), restrictedUntil(data));
         ReputationGuard.validate(userId, action, decision);
         return decision;
+    }
+
+    private static OffsetDateTime restrictedUntil(JsonNode data) {
+        JsonNode value = data.get("restrictedUntil");
+        if (value == null || value.isNull()) return null;
+        if (!value.isString()) throw invalid();
+        return OffsetDateTime.parse(value.asString());
     }
 
     private static int integer(JsonNode node, String field) {

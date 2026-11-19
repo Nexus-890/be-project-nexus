@@ -20,6 +20,25 @@ class NotificationTemplateTest {
     private static final String FRONTEND = "https://nexus.example/";
 
     @Test
+    void outbidAndWinnerTemplatesTargetOnlyTheirSpecificUser() {
+        UUID auction = UUID.randomUUID(), loser = UUID.randomUUID(), winner = UUID.randomUUID();
+        var outbid = NotificationTemplate.BID_OUTBID.render(JsonMapper.shared().valueToTree(java.util.Map.of(
+                "auctionId", auction.toString(), "outbidUserId", loser.toString(), "bidderId", winner.toString(),
+                "amount", "200000.00", "currency", "VND")), FRONTEND);
+        assertThat(outbid).singleElement().satisfies(n -> {
+            assertThat(n.getUserId()).isEqualTo(loser);
+            assertThat(n.getContent()).contains(auction.toString(), "200000.00", "VND");
+        });
+        var won = NotificationTemplate.AUCTION_WON.render(JsonMapper.shared().valueToTree(java.util.Map.of(
+                "auctionId", auction.toString(), "winnerId", winner.toString(), "finalPrice", "200000.00",
+                "currency", "VND", "paymentDueAt", "2026-11-20T10:00:00Z")), FRONTEND);
+        assertThat(won).singleElement().satisfies(n -> {
+            assertThat(n.getUserId()).isEqualTo(winner);
+            assertThat(n.getContent()).contains("2026-11-20T10:00:00Z", "200000.00");
+        });
+    }
+
+    @Test
     void orderCreatedRendersTheBuyerAndTheOrderNumber() {
         Notification notification = NotificationTemplate.ORDER_CREATED.render(JsonMapper.shared().readTree("""
                 {"orderId":"00000000-0000-4000-8000-000000000001",

@@ -15,7 +15,7 @@ public final class EligibilityAuthorization {
     private final Set<String> allowedClients;
 
     public EligibilityAuthorization(
-            @Value("${nexus.rating.eligibility.allowed-clients:nexus-auction-service}") String allowedClients) {
+            @Value("${nexus.rating.eligibility.allowed-clients:nexus-auction-service,nexus-catalog-service}") String allowedClients) {
         this.allowedClients = Arrays.stream(allowedClients.split(","))
                 .map(String::strip).filter(value -> !value.isEmpty()).collect(Collectors.toUnmodifiableSet());
     }

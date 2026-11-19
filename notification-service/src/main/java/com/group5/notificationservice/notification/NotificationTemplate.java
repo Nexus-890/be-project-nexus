@@ -11,6 +11,11 @@ import java.util.UUID;
 
 public enum NotificationTemplate {
 
+    BID_OUTBID("BidOutbid", "Your bid was exceeded", "Your bid for auction %s was exceeded. Current price: %s %s.",
+            new String[]{"outbidUserId"}, "auctionId", "amount", "currency"),
+    AUCTION_WON("AuctionWon", "You won the auction", "You won auction %s for %s %s. Pay before %s.",
+            new String[]{"winnerId"}, "auctionId", "finalPrice", "currency", "paymentDueAt"),
+
     SECOND_CHANCE_OFFER("SecondChanceOfferReady", "Second chance offer",
             "You have a second chance offer for auction %s at %s %s. Respond before %s.",
             new String[]{"bidderId"}, "auctionId", "amount", "currency", "expiresAt"),
@@ -102,6 +107,8 @@ public enum NotificationTemplate {
         }
         Object[] values = contentFields.stream().map(field -> requiredText(payload, field)).toArray();
         String content = contentFormat.formatted(values);
+        if (this == BID_OUTBID || this == AUCTION_WON) content += " View auction: "
+                + frontendBaseUrl.replaceAll("/+$", "") + "/auctions/" + UUID.fromString(requiredText(payload, "auctionId"));
         if (this == SECOND_CHANCE_OFFER) content += " View your offers: " + frontendBaseUrl.replaceAll("/+$", "") + "/my-bids";
         if (this == SHIPMENT_DELIVERED) {
             UUID orderId = UUID.fromString(requiredText(payload, "orderId"));

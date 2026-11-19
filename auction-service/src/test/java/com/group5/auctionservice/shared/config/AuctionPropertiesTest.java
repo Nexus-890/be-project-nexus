@@ -41,7 +41,7 @@ class AuctionPropertiesTest {
             AuctionProperties properties = context.getBean(AuctionProperties.class);
             assertThat(AopUtils.isAopProxy(properties)).isTrue();
             assertThat(properties.isAntiSnipingEnabled()).isTrue();
-            assertThat(properties.isReputationEnforcementEnabled()).isFalse();
+            assertThat(properties.isReputationEnforcementEnabled()).isTrue();
             assertThat(properties.getAntiSnipingExtensionMinutes()).isEqualTo(5);
             assertThat(properties.getAntiSnipingMaxExtensionMinutes()).isEqualTo(30);
             assertThat(properties.getMinDurationMinutes()).isEqualTo(60);

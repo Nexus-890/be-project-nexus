@@ -22,6 +22,195 @@ security:
     bearerAuth: []
 
 paths:
+  /api/v1/notifications/preferences:
+    get:
+      tags:
+        - Notifications
+      x-required-privileges:
+        - NOTIFICATION.VIEW
+      operationId: getNotificationPreferences
+      summary: Get my notification preferences
+      description: >-
+        Full supported EMAIL and IN_APP matrix for JWT subject; true defaults for old and new users. Mandatory transaction
+        messages cannot be disabled. Preferences apply to future inbox entries; worker rereads optional EMAIL before
+        sending.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferencesResponse'
+        '400':
+          description: Invalid filter, unsupported preference, duplicate cell or mandatory notification disabled
+        '401':
+          description: Bearer token required
+        '403':
+          description: Missing privilege or ADMIN role
+    put:
+      tags:
+        - Notifications
+      x-required-privileges:
+        - NOTIFICATION.MANAGE_PREFERENCE
+      operationId: updateNotificationPreferences
+      summary: Update my preferences atomically
+      description: Sparse matrix update. Only BID_OUTBID optional; unknown type/channel and duplicate cells rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNotificationPreferences'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferencesResponse'
+        '400':
+          description: Invalid filter, unsupported preference, duplicate cell or mandatory notification disabled
+        '401':
+          description: Bearer token required
+        '403':
+          description: Missing privilege or ADMIN role
+  /api/v1/notifications/stream:
+    get:
+      tags:
+        - Notifications
+      x-required-privileges:
+        - NOTIFICATION.VIEW
+      operationId: streamNotifications
+      summary: Stream my committed inbox state
+      description: >-
+        Bearer fetch SSE. notifications event JSON is NotificationInboxSnapshot: unreadCount and revision (also event id).
+        Always sends current snapshot on connect/reconnect including Last-Event-ID; refetch inbox and count. Committed DB
+        cursors observe inserts/read changes across instances. heartbeat every 2s. Closes at JWT expiry or 30s. IN_APP is
+        an inbox channel, not browser WebPush: no push permission needed.
+      responses:
+        '200':
+          description: notifications snapshot and heartbeat SSE
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401':
+          description: Bearer required
+        '403':
+          description: NOTIFICATION.VIEW required
+        '503':
+          description: Capacity reached
+  /api/v1/notifications/deliveries:
+    get:
+      tags:
+        - Notifications
+      x-required-privileges:
+        - NOTIFICATION.VIEW
+      x-required-roles:
+        - ADMIN
+      operationId: listAdminNotificationDeliveries
+      summary: List delivery status across users
+      description: >-
+        ADMIN plus NOTIFICATION.VIEW. Newest createdAt and id first; from inclusive, to exclusive. errorCode matches any
+        attempt; lastErrorCode is latest attempt. No email address or raw provider error exposed.
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - PENDING
+              - SENT
+              - FAILED
+              - SKIPPED
+        - name: channel
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - EMAIL
+              - PUSH
+              - SMS
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: errorCode
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: ^[A-Z0-9_]{1,60}$
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminNotificationDeliveryListResponse'
+        '400':
+          description: Invalid filter, unsupported preference, duplicate cell or mandatory notification disabled
+        '401':
+          description: Bearer token required
+        '403':
+          description: Missing privilege or ADMIN role
+  /api/v1/notifications/deliveries/{id}:
+    get:
+      tags:
+        - Notifications
+      x-required-privileges:
+        - NOTIFICATION.VIEW
+      x-required-roles:
+        - ADMIN
+      operationId: getNotificationDelivery
+      summary: View delivery attempts as admin
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminNotificationDeliveryDetailResponse'
+        '400':
+          description: Invalid filter, unsupported preference, duplicate cell or mandatory notification disabled
+        '401':
+          description: Bearer token required
+        '403':
+          description: Missing privilege or ADMIN role
+        '404':
+          description: Not found
   /api/v1/notifications:
     get:
       tags:
@@ -2687,6 +2876,197 @@ components:
       scheme: "bearer"
       bearerFormat: "JWT"
   schemas:
+    NotificationPreference:
+      type: object
+      required:
+        - notificationType
+        - channel
+        - enabled
+        - mandatory
+      properties:
+        notificationType:
+          type: string
+        channel:
+          type: string
+          enum:
+            - EMAIL
+            - IN_APP
+        enabled:
+          type: boolean
+        mandatory:
+          type: boolean
+    NotificationPreferences:
+      type: object
+      required:
+        - preferences
+      properties:
+        preferences:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationPreference'
+    UpdateNotificationPreferences:
+      type: object
+      required:
+        - preferences
+      properties:
+        preferences:
+          type: array
+          items:
+            type: object
+            required:
+              - notificationType
+              - channel
+              - enabled
+            properties:
+              notificationType:
+                type: string
+              channel:
+                type: string
+                enum:
+                  - EMAIL
+                  - IN_APP
+              enabled:
+                type: boolean
+          minItems: 1
+          maxItems: 100
+    NotificationPreferencesResponse:
+      type: object
+      required:
+        - code
+        - message
+        - data
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/NotificationPreferences'
+    NotificationInboxSnapshot:
+      type: object
+      required:
+        - unreadCount
+        - revision
+      properties:
+        unreadCount:
+          type: integer
+          format: int64
+        revision:
+          type: string
+    NotificationDeliverySummary:
+      type: object
+      required:
+        - id
+        - notificationId
+        - userId
+        - type
+        - title
+        - channel
+        - status
+        - attemptCount
+        - nextAttemptAt
+        - createdAt
+        - updatedAt
+        - lastErrorCode
+      properties:
+        id:
+          type: string
+          format: uuid
+        notificationId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        type:
+          type: string
+        title:
+          type: string
+        channel:
+          type: string
+          enum:
+            - EMAIL
+            - PUSH
+            - SMS
+        status:
+          type: string
+          enum:
+            - PENDING
+            - SENT
+            - FAILED
+            - SKIPPED
+        attemptCount:
+          type: integer
+        nextAttemptAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        lastErrorCode:
+          type: string
+          nullable: true
+    NotificationDeliveryDetail:
+      allOf:
+        - $ref: '#/components/schemas/NotificationDeliverySummary'
+        - type: object
+          required:
+            - attempts
+          properties:
+            attempts:
+              type: array
+              items:
+                $ref: '#/components/schemas/NotificationDeliveryAttempt'
+    AdminNotificationDeliveryListResponse:
+      type: object
+      required:
+        - code
+        - message
+        - data
+        - page
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationDeliverySummary'
+        page:
+          type: object
+          required:
+            - number
+            - size
+            - totalElements
+            - totalPages
+          properties:
+            number:
+              type: integer
+            size:
+              type: integer
+            totalElements:
+              type: integer
+              format: int64
+            totalPages:
+              type: integer
+    AdminNotificationDeliveryDetailResponse:
+      type: object
+      required:
+        - code
+        - message
+        - data
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/NotificationDeliveryDetail'
     Problem:
       type: "object"
       required:

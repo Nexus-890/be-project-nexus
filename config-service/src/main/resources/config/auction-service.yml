@@ -74,7 +74,7 @@ nexus:
     max-active-per-seller: ${MAX_ACTIVE_AUCTIONS_PER_SELLER:5}
     payment-deadline-hours: ${AUCTION_PAYMENT_DEADLINE_HOURS:24}
     second-chance-offer-hours: ${AUCTION_SECOND_CHANCE_OFFER_HOURS:24}
-    reputation-enforcement-enabled: ${FEATURE_REPUTATION_ENFORCEMENT:false}
+    reputation-enforcement-enabled: ${FEATURE_REPUTATION_ENFORCEMENT:true}
     rating-base-url: ${AUCTION_RATING_BASE_URL:}
     reputation:
       token-uri: ${AUCTION_RATING_TOKEN_URI:${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}/protocol/openid-connect/token}

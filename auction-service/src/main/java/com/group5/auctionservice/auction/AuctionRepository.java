@@ -40,6 +40,10 @@ public interface AuctionRepository extends JpaRepository<Auction, UUID> {
     @Query(value = "SELECT clock_timestamp()", nativeQuery = true)
     Instant currentWallTime();
 
+    /** Snapshot the old leader under the same row lock as the accepted bid update. */
+    @Query(value = "SELECT leader_bidder_id FROM auctions WHERE id = :id AND deleted_at IS NULL FOR UPDATE", nativeQuery = true)
+    Optional<UUID> lockLeaderForOutbid(UUID id);
+
     /** Conditional UPDATE vẫn chống lost update khi hai consumer cùng nhận partition lúc rebalance. */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """

@@ -88,6 +88,22 @@ public class ReputationStore {
                 """, type, source, userId, operation, JSON.writeValueAsString(fingerprint)) == 1;
     }
 
+    public boolean hiddenRating(UUID ratingId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM ratings WHERE id=? AND hidden)",
+                Boolean.class, ratingId));
+    }
+
+    public Optional<Integer> appliedRatingScore(UUID ratingId, UUID userId) {
+        return jdbc.query("""
+                SELECT (fingerprint->>'score')::int FROM reputation_effects
+                WHERE change_type='USER_RATED' AND source_id=? AND user_id=?
+                """, (row, index) -> row.getInt(1), ratingId, userId).stream().findFirst();
+    }
+
+    public void hideRating(UUID ratingId, UUID actor) {
+        jdbc.update("UPDATE ratings SET hidden=true,updated_at=clock_timestamp(),updated_by=? WHERE id=?", actor, ratingId);
+    }
+
     public ReputationHistoryItem history(ReputationState state, ReputationSnapshot before, UUID operation, String type,
             UUID source, Long sourceVersion, UUID event, UUID actor, String reason, Map<String, ?> details) {
         return jdbc.queryForObject("""

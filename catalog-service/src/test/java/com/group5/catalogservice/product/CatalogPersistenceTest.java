@@ -319,7 +319,7 @@ class CatalogPersistenceTest {
         @Bean
         ProductService productService(ProductRepository products, CategoryRepository categories) {
             return new ProductService(products, categories, new ProductSlugGenerator(), id -> false,
-                    new CatalogProperties());
+                    new CatalogProperties(), org.mockito.Mockito.mock(com.group5.catalogservice.reputation.SellingEligibilityClient.class));
         }
     }
 }

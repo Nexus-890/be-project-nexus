@@ -312,6 +312,53 @@ class SecurityConfigTest {
     }
 
     @Test
+    void notificationSettingsStreamAndModerationRequireTheirExplicitPrivilege() {
+        var endpoints = Map.ofEntries(
+                Map.entry("GET /api/v1/notifications/preferences", "NOTIFICATION.VIEW"),
+                Map.entry("PUT /api/v1/notifications/preferences", "NOTIFICATION.MANAGE_PREFERENCE"),
+                Map.entry("GET /api/v1/notifications/stream", "NOTIFICATION.VIEW"),
+                Map.entry("GET /api/v1/reputations/" + ID + "/restrictions", "REPUTATION.VIEW"),
+                Map.entry("POST /api/v1/reputations/" + ID + "/restrictions", "USER.REPUTATION.ADJUST"),
+                Map.entry("DELETE /api/v1/reputations/" + ID + "/restrictions/" + ID, "USER.REPUTATION.ADJUST"),
+                Map.entry("POST /api/v1/ratings/" + ID + "/disputes", "REPUTATION.RATE"),
+                Map.entry("GET /api/v1/ratings/disputes", "USER.REPUTATION.VIEW"),
+                Map.entry("PATCH /api/v1/ratings/disputes/" + ID, "USER.REPUTATION.ADJUST"));
+        String withoutPrivilege = "Bearer " + token(SIGNING_KEY, claims -> { });
+        for (var endpoint : endpoints.entrySet()) {
+            String[] parts = endpoint.getKey().split(" ", 2);
+            HttpMethod method = HttpMethod.valueOf(parts[0]);
+            client.method(method).uri(parts[1]).exchange().expectStatus().isUnauthorized();
+            client.method(method).uri(parts[1]).header(HttpHeaders.AUTHORIZATION, withoutPrivilege)
+                    .exchange().expectStatus().isForbidden();
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+        for (var endpoint : endpoints.entrySet()) {
+            String[] parts = endpoint.getKey().split(" ", 2);
+            String bearer = "Bearer " + token(SIGNING_KEY, claims -> claims.claim("privileges", List.of(endpoint.getValue())));
+            client.method(HttpMethod.valueOf(parts[0])).uri(parts[1]).header(HttpHeaders.AUTHORIZATION, bearer)
+                    .exchange().expectStatus().isOk();
+        }
+        assertThat(SERVICE_LOG).containsExactlyInAnyOrderElementsOf(endpoints.keySet());
+    }
+
+    @Test
+    void administrativeDeliveryReadsRequireAdminRoleRatherThanRecipientPrivilege() {
+        String buyer = "Bearer " + token(SIGNING_KEY, claims -> claims.claim("privileges", List.of("NOTIFICATION.VIEW"))
+                .claim("roles", List.of("BUYER")));
+        String support = "Bearer " + token(SIGNING_KEY, claims -> claims.claim("roles", List.of("SUPPORT_STAFF")));
+        String admin = "Bearer " + token(SIGNING_KEY, claims -> claims.claim("roles", List.of("ADMIN")));
+        for (String path : List.of("/api/v1/notifications/deliveries", "/api/v1/notifications/deliveries/" + ID)) {
+            client.get().uri(path).exchange().expectStatus().isUnauthorized();
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, buyer).exchange().expectStatus().isForbidden();
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, support).exchange().expectStatus().isForbidden();
+        }
+        assertThat(SERVICE_LOG).isEmpty();
+        for (String path : List.of("/api/v1/notifications/deliveries", "/api/v1/notifications/deliveries/" + ID)) {
+            client.get().uri(path).header(HttpHeaders.AUTHORIZATION, admin).exchange().expectStatus().isOk();
+        }
+    }
+
+    @Test
     void validProfileTokenReturns200AndForwardsOriginalBearerToService() {
         String bearer = "Bearer " + token(SIGNING_KEY, c -> c.claim("privileges", List.of("PROFILE.VIEW")));
         client.get().uri(ME).header(HttpHeaders.AUTHORIZATION, bearer).exchange()

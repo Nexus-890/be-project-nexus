@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 /** Stable error identifiers owned by the notification service. */
 public enum NotificationErrorCode implements ErrorCode {
     DATA_INVALID(HttpStatus.BAD_REQUEST, "Invalid data"),
+    STREAM_BUSY(HttpStatus.SERVICE_UNAVAILABLE, "Notification stream capacity reached"),
     AUDIT_SIGNATURE_INVALID(HttpStatus.FORBIDDEN, "Invalid internal audit signature"),
     NOT_FOUND(HttpStatus.NOT_FOUND, "Notification not found"),
     EVENT_LOG_NOT_FOUND(HttpStatus.NOT_FOUND, "Event log not found"),
