@@ -12,6 +12,8 @@ public enum InventoryErrorCode implements ErrorCode {
     DEFAULT_WAREHOUSE_NOT_FOUND(HttpStatus.INTERNAL_SERVER_ERROR,
             "The configured default warehouse does not exist"),
     INSUFFICIENT_STOCK(HttpStatus.CONFLICT, "Not enough stock; nothing was reserved"),
+    SKUS_FROM_DIFFERENT_SELLERS(HttpStatus.CONFLICT,
+            "The SKUs of one order are stocked by different sellers; nothing was reserved"),
     DUPLICATE_RESERVATION_ITEM(HttpStatus.BAD_REQUEST, "Each order and SKU pair may appear only once"),
     RESERVATION_CONFLICT(HttpStatus.CONFLICT,
             "These orders already hold reservations that differ from this request"),

@@ -18,6 +18,7 @@ import com.group5.inventoryservice.reservation.dto.response.ReservationResponse;
 import com.group5.inventoryservice.reservation.entity.InventoryReservation;
 import com.group5.inventoryservice.reservation.repository.ReservationRepository;
 import com.group5.inventoryservice.shared.UuidOrder;
+import com.group5.inventoryservice.shared.catalog.CatalogSkuOwners;
 import com.group5.inventoryservice.shared.config.ReservationTimeout;
 import com.group5.inventoryservice.shared.exception.InventoryErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -31,12 +32,15 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -53,6 +57,7 @@ public class ReservationService {
     private final ReservationRepository reservations;
     private final SkuWarehouses warehouses;
     private final SellerStockMover stockMover;
+    private final CatalogSkuOwners skuOwners;
     private final ReservationTimeout reservationTimeout;
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
@@ -166,6 +171,7 @@ public class ReservationService {
         }
 
         UUID actor = currentUser.id();
+        gatherEachOrderInOneWarehouse(items, actor);
         SortedMap<UUID, Integer> quantities = quantitiesBySku(items);
         Map<UUID, UUID> homes = warehouses.warehousesFor(quantities.keySet());
         for (Map.Entry<UUID, Integer> sku : quantities.entrySet()) {
@@ -187,6 +193,37 @@ public class ReservationService {
         return response(items, created, expiresAt);
     }
 
+    private void gatherEachOrderInOneWarehouse(List<ReserveRequest.Item> items, UUID actor) {
+        Map<UUID, Set<UUID>> skusByOrder = new LinkedHashMap<>();
+        items.forEach(item -> skusByOrder.computeIfAbsent(item.orderId(),
+                ignored -> new TreeSet<>(UuidOrder.DATABASE)).add(item.skuId()));
+        Map<UUID, SkuWarehouses.Home> homes = warehouses.homes(items.stream().map(ReserveRequest.Item::skuId)
+                .collect(Collectors.toSet()));
+        for (Set<UUID> skus : skusByOrder.values()) {
+            List<SkuWarehouses.Home> orderHomes = skus.stream().map(homes::get).toList();
+            Set<UUID> sellerWarehouses = SkuWarehouses.sellerWarehouses(orderHomes);
+            if (sellerWarehouses.isEmpty()) {
+                continue;
+            }
+            if (sellerWarehouses.size() > 1) {
+                throw new DomainException(InventoryErrorCode.SKUS_FROM_DIFFERENT_SELLERS);
+            }
+            UUID target = sellerWarehouses.iterator().next();
+            UUID seller = orderHomes.stream().filter(home -> home != null && target.equals(home.warehouseId()))
+                    .findFirst().orElseThrow().sellerId();
+            for (UUID skuId : skus) {
+                SkuWarehouses.Home home = homes.get(skuId);
+                if (home == null || target.equals(home.warehouseId())) {
+                    continue;
+                }
+                if (skuOwners.sellerOf(skuId).filter(seller::equals).isEmpty()) {
+                    throw new DomainException(InventoryErrorCode.SKUS_FROM_DIFFERENT_SELLERS);
+                }
+                stockMover.moveInto(skuId, target, actor);
+            }
+        }
+    }
+
     @Transactional
     public void confirm(UUID reservationId, CurrentUser currentUser) {
         confirmAs(reservationId, currentUser.id());
@@ -198,13 +235,16 @@ public class ReservationService {
         if (locked.stream().anyMatch(reservation -> reservation.getStatus() == ReservationStatus.RELEASED)) {
             throw new DomainException(InventoryErrorCode.ILLEGAL_TRANSITION);
         }
-        List<InventoryStockUnavailable.Line> missing = missingStock(locked);
+        LatePayment latePayment = latePayment(locked);
+        List<InventoryStockUnavailable.Line> missing = latePayment.missing();
         if (!missing.isEmpty()) {
             outbox.write("Order", Topics.INVENTORY, envelopes.create("InventoryStockUnavailable", orderId.toString(),
                     new InventoryStockUnavailable(orderId, missing, Instant.now().toString())));
             return new OrderConfirmation(locked.size(), List.of(),
                     missing.stream().map(InventoryStockUnavailable.Line::reservationId).toList());
         }
+        latePayment.refills().forEach(refill -> stockMover.moveBack(refill.skuId(), refill.fromWarehouseId(),
+                refill.toWarehouseId(), refill.quantity(), SYSTEM_ACTOR));
         List<UUID> reclaimed = new ArrayList<>();
         for (InventoryReservation reservation : locked) {
             switch (reservation.getStatus()) {
@@ -220,24 +260,57 @@ public class ReservationService {
         return new OrderConfirmation(locked.size(), List.copyOf(reclaimed), List.of());
     }
 
-    private List<InventoryStockUnavailable.Line> missingStock(List<InventoryReservation> locked) {
+    private LatePayment latePayment(List<InventoryReservation> locked) {
         List<InventoryReservation> expired = locked.stream()
                 .filter(reservation -> reservation.getStatus() == ReservationStatus.EXPIRED)
                 .toList();
         if (expired.isEmpty()) {
-            return List.of();
+            return new LatePayment(List.of(), List.of());
         }
-        Map<BalanceKey, Integer> needed = expired.stream().collect(Collectors.toMap(BalanceKey::of,
-                InventoryReservation::getQuantity, Math::addExact));
+        SortedMap<BalanceKey, Integer> needed = expired.stream().collect(Collectors.toMap(BalanceKey::of,
+                InventoryReservation::getQuantity, Math::addExact, () -> new TreeMap<>(BalanceKey.LOCK_ORDER)));
+        Map<UUID, SkuWarehouses.Home> homes = warehouses.homes(expired.stream()
+                .map(InventoryReservation::getSkuId).collect(Collectors.toSet()));
+        Map<BalanceKey, BalanceKey> movedTo = new HashMap<>();
+        needed.keySet().forEach(key -> {
+            SkuWarehouses.Home home = homes.get(key.skuId());
+            if (home != null && home.sellerOwned() && !home.warehouseId().equals(key.warehouseId())) {
+                movedTo.put(key, new BalanceKey(key.skuId(), home.warehouseId()));
+            }
+        });
         SortedMap<BalanceKey, Integer> available = new TreeMap<>(BalanceKey.LOCK_ORDER);
         locked.forEach(reservation -> available.put(BalanceKey.of(reservation), 0));
+        movedTo.values().forEach(key -> available.put(key, 0));
         available.replaceAll((key, ignored) -> balances.lockAvailable(key.skuId(), key.warehouseId()).orElse(0));
-        return expired.stream()
-                .filter(reservation -> needed.get(BalanceKey.of(reservation)) > available.get(BalanceKey.of(reservation)))
+        List<Refill> refills = new ArrayList<>();
+        Set<BalanceKey> lacking = new HashSet<>();
+        needed.forEach((key, quantity) -> {
+            int shortfall = quantity - available.get(key);
+            if (shortfall <= 0) {
+                return;
+            }
+            BalanceKey from = movedTo.get(key);
+            if (from != null && available.get(from) >= shortfall) {
+                available.merge(from, -shortfall, Integer::sum);
+                available.merge(key, shortfall, Integer::sum);
+                refills.add(new Refill(key.skuId(), from.warehouseId(), key.warehouseId(), shortfall));
+            } else {
+                lacking.add(key);
+            }
+        });
+        List<InventoryStockUnavailable.Line> missing = expired.stream()
+                .filter(reservation -> lacking.contains(BalanceKey.of(reservation)))
                 .map(reservation -> new InventoryStockUnavailable.Line(reservation.getId(), reservation.getSkuId(),
                         reservation.getWarehouseId(), reservation.getQuantity(),
                         available.get(BalanceKey.of(reservation))))
                 .toList();
+        return new LatePayment(missing, missing.isEmpty() ? List.copyOf(refills) : List.of());
+    }
+
+    private record LatePayment(List<InventoryStockUnavailable.Line> missing, List<Refill> refills) {
+    }
+
+    private record Refill(UUID skuId, UUID fromWarehouseId, UUID toWarehouseId, int quantity) {
     }
 
     private void reclaim(InventoryReservation reservation) {

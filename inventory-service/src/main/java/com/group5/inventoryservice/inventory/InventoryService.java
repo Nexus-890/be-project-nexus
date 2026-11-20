@@ -91,6 +91,11 @@ public class InventoryService {
             if (home != null && !home.warehouseId().equals(chosen)) {
                 throw new DomainException(InventoryErrorCode.WAREHOUSE_NOT_SKU_HOME);
             }
+            UUID chosenSeller = warehouses.sellerOf(chosen);
+            if (chosenSeller != null && skuOwners.sellerOf(request.skuId()).filter(chosenSeller::equals).isEmpty()) {
+                throw new DomainException(InventoryErrorCode.WAREHOUSE_NOT_SKU_HOME,
+                        "This warehouse belongs to another seller");
+            }
             return chosen;
         }
         Optional<UUID> owner = skuOwners.sellerOf(request.skuId());

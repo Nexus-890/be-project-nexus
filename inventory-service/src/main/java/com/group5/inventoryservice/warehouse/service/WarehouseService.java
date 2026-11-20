@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -90,7 +91,8 @@ public class WarehouseService {
     public WarehousePickupResponse pickup(UUID sellerId, List<UUID> skuIds) {
         return warehouses.findBySellerId(sellerId)
                 .filter(warehouse -> skuIds == null || skuIds.isEmpty()
-                        || skuWarehouses.warehousesFor(skuIds).values().stream().allMatch(warehouse.getId()::equals))
+                        || SkuWarehouses.sellerWarehouses(skuWarehouses.homes(skuIds).values())
+                                .equals(Set.of(warehouse.getId())))
                 .filter(warehouse -> warehouse.getStatus() == WarehouseStatus.ACTIVE
                         && warehouse.getProvinceCode() != null && warehouse.getWardCode() != null
                         && warehouse.getAddress() != null && !warehouse.getAddress().isBlank()

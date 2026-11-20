@@ -384,7 +384,17 @@ class WarehouseManagementIntegrationTest {
                 """, ownSku, warehouseId, sharedSku, shared);
         request("buyer", get(pickup + "&skuIds=" + ownSku)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.warehouseId").value(warehouseId.toString()));
-        for (String skus : List.of("&skuIds=" + sharedSku, "&skuIds=" + ownSku + "&skuIds=" + sharedSku,
+        request("buyer", get(pickup + "&skuIds=" + ownSku + "&skuIds=" + sharedSku)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.warehouseId").value(warehouseId.toString()));
+        UUID otherSellerSku = UUID.randomUUID();
+        UUID otherSeller = jdbc.queryForObject("""
+                INSERT INTO warehouses (code, name, seller_id) VALUES (?, 'Other seller', ?) RETURNING id
+                """, UUID.class, "S-" + UUID.randomUUID().toString().substring(0, 8), UUID.randomUUID());
+        jdbc.update("""
+                INSERT INTO inventory_balances (sku_id, warehouse_id, total_quantity, available_quantity)
+                VALUES (?, ?, 2, 2)
+                """, otherSellerSku, otherSeller);
+        for (String skus : List.of("&skuIds=" + sharedSku, "&skuIds=" + ownSku + "&skuIds=" + otherSellerSku,
                 "&skuIds=" + UUID.randomUUID())) {
             request("buyer", get(pickup + skus)).andExpect(status().isOk()).andExpect(jsonPath("$.data").value(nullValue()));
         }

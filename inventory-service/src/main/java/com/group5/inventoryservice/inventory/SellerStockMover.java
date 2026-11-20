@@ -9,6 +9,7 @@ import java.util.UUID;
 public class SellerStockMover {
 
     static final String TRANSFER_REASON = "Moved to the seller warehouse";
+    static final String LATE_PAYMENT_REASON = "Moved back for a late payment";
 
     private final JdbcTemplate jdbc;
     private final InventoryBalanceRepository balances;
@@ -40,6 +41,29 @@ public class SellerStockMover {
         }
         balances.findBySkuIdAndWarehouseId(skuId, home.warehouseId())
                 .ifPresent(target -> moveShared(skuId, target, actor));
+    }
+
+    public void moveInto(UUID skuId, UUID warehouseId, UUID actor) {
+        balances.intake(skuId, warehouseId, 0, actor);
+        moveShared(skuId, balances.findBySkuIdAndWarehouseId(skuId, warehouseId).orElseThrow(), actor);
+    }
+
+    public void moveBack(UUID skuId, UUID fromWarehouseId, UUID toWarehouseId, int quantity, UUID actor) {
+        InventoryBalance from = balances.findBySkuIdAndWarehouseId(skuId, fromWarehouseId).orElseThrow();
+        InventoryBalance to = balances.findBySkuIdAndWarehouseId(skuId, toWarehouseId).orElseThrow();
+        if (jdbc.update("""
+                UPDATE inventory_balances
+                SET total_quantity = total_quantity - ?, available_quantity = available_quantity - ?,
+                    updated_by = ?, updated_at = now(), version = version + 1
+                WHERE id = ? AND available_quantity >= ?
+                """, quantity, quantity, actor, from.getId(), quantity) == 0) {
+            throw new IllegalStateException("Balance " + from.getId() + " no longer has " + quantity + " available");
+        }
+        movements.insert(skuId, fromWarehouseId, MovementType.TRANSFER.name(), -quantity, to.getId(),
+                LATE_PAYMENT_REASON, actor);
+        balances.intake(skuId, toWarehouseId, quantity, actor);
+        movements.insert(skuId, toWarehouseId, MovementType.TRANSFER.name(), quantity, from.getId(),
+                LATE_PAYMENT_REASON, actor);
     }
 
     public InventoryBalance moveShared(UUID skuId, InventoryBalance target, UUID actor) {

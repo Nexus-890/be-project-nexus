@@ -3529,6 +3529,7 @@ If Commerce crashes after Inventory reserves stock but before the checkout trans
 - Publisher: inventory-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157).
 - Consumer: commerce-service [#157](https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/157): cancel the PAID order and publish OrderCancelled for the refund.
 - Envelope aggregateId: `orderId`; Kafka key: `orderId`.
+- Not published when the expired stock was moved on to the seller warehouse and is still available there: inventory moves that quantity back to the reservation's warehouse with a pair of TRANSFER movements (reason `Moved back for a late payment`) and confirms the order.
 
 | Payload field | Meaning |
 | --- | --- |

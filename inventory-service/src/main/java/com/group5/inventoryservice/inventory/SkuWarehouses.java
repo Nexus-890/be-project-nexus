@@ -8,7 +8,10 @@ import java.sql.Array;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Component
 public class SkuWarehouses {
@@ -51,6 +54,11 @@ public class SkuWarehouses {
                     row.getObject("seller_id", UUID.class), row.getInt("available_quantity")));
         });
         return found;
+    }
+
+    public static Set<UUID> sellerWarehouses(Collection<Home> homes) {
+        return homes.stream().filter(Objects::nonNull).filter(Home::sellerOwned)
+                .map(Home::warehouseId).collect(Collectors.toSet());
     }
 
     public Home home(UUID skuId) {
