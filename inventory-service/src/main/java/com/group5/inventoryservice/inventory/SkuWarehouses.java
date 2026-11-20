@@ -71,7 +71,10 @@ public class SkuWarehouses {
     }
 
     public Map<UUID, UUID> warehousesFor(Collection<UUID> skuIds) {
-        Map<UUID, Home> homes = homes(skuIds);
+        return warehousesFor(skuIds, homes(skuIds));
+    }
+
+    public Map<UUID, UUID> warehousesFor(Collection<UUID> skuIds, Map<UUID, Home> homes) {
         Map<UUID, UUID> result = new HashMap<>();
         UUID fallback = null;
         for (UUID skuId : skuIds) {

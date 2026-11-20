@@ -467,6 +467,25 @@ class InventoryIntakeIntegrationTest {
     }
 
     @Test
+    void anOrderWhoseSkusSitInTwoPlatformWarehousesIsRefusedAndHoldsNothing() throws Exception {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        intake("admin", body(first, null, 3)).andExpect(status().isCreated());
+        intake("admin", body(second, warehouseId("WH_001"), 3)).andExpect(status().isCreated());
+        UUID order = UUID.randomUUID();
+
+        assertThatThrownBy(() -> reservations.reserve(new ReserveRequest(UUID.randomUUID(), List.of(
+                new ReserveRequest.Item(order, first, 1), new ReserveRequest.Item(order, second, 1))),
+                new CurrentUser(BUYER_ID, Set.of("BUYER"), Set.of())))
+                .isInstanceOfSatisfying(DomainException.class, error ->
+                        assertThat(error.getErrorCode()).isEqualTo(InventoryErrorCode.ORDER_SPANS_WAREHOUSES.code()));
+        assertThat(row(first, defaultWarehouse)).containsEntry("reserved_quantity", 0);
+        assertThat(row(second, warehouseId("WH_001"))).containsEntry("reserved_quantity", 0);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM inventory_reservations WHERE order_id = ?",
+                Integer.class, order)).isZero();
+    }
+
+    @Test
     void adminCannotPutASkuIntoAnotherSellersWarehouseEvenOnItsFirstIntake() throws Exception {
         UUID sku = UUID.randomUUID();
         UUID unowned = UUID.randomUUID();
@@ -485,6 +504,48 @@ class InventoryIntakeIntegrationTest {
                 "S-" + UUID.randomUUID().toString().substring(0, 8), SELLER_ID);
         intake("admin", body(sku, sellerWarehouse(SELLER_ID), 2)).andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.warehouseId").value(sellerWarehouse(SELLER_ID).toString()));
+    }
+
+    @Test
+    void checkoutsGatheringAnOrderAndSellerIntakesOfTheSameSkusRunTogetherWithoutDeadlock() throws Exception {
+        CurrentUser buyer = new CurrentUser(BUYER_ID, Set.of("BUYER"), Set.of());
+        ExecutorService pool = Executors.newFixedThreadPool(3);
+        try {
+            for (int round = 0; round < 25; round++) {
+                UUID own = UUID.randomUUID();
+                UUID shared = UUID.randomUUID();
+                when(skuOwners.sellerOf(own)).thenReturn(Optional.of(SELLER_ID));
+                intake("seller", body(own, null, 10)).andExpect(status().isCreated());
+                intake("admin", body(shared, null, 10)).andExpect(status().isCreated());
+                when(skuOwners.sellerOf(shared)).thenReturn(Optional.of(SELLER_ID));
+                CountDownLatch start = new CountDownLatch(1);
+                List<Callable<Object>> calls = new ArrayList<>();
+                for (int order = 0; order < 2; order++) {
+                    UUID orderId = UUID.randomUUID();
+                    calls.add(() -> {
+                        start.await();
+                        return reservations.reserve(new ReserveRequest(UUID.randomUUID(), List.of(
+                                new ReserveRequest.Item(orderId, own, 1), new ReserveRequest.Item(orderId, shared, 1))),
+                                buyer);
+                    });
+                }
+                calls.add(() -> {
+                    start.await();
+                    return intake("seller", body(shared, null, 1)).andReturn().getResponse().getStatus();
+                });
+                List<Future<Object>> results = calls.stream().map(pool::submit).toList();
+                start.countDown();
+                for (Future<Object> result : results) {
+                    assertThat(result.get()).isNotEqualTo(500);
+                }
+                UUID sellerWarehouse = sellerWarehouse(SELLER_ID);
+                assertThat(row(shared, sellerWarehouse)).containsEntry("total_quantity", 11)
+                        .containsEntry("reserved_quantity", 2);
+                assertThat(row(own, sellerWarehouse)).containsEntry("reserved_quantity", 2);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test

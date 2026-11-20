@@ -171,11 +171,15 @@ public class ReservationService {
         }
 
         UUID actor = currentUser.id();
-        gatherEachOrderInOneWarehouse(items, actor);
         SortedMap<UUID, Integer> quantities = quantitiesBySku(items);
-        Map<UUID, UUID> homes = warehouses.warehousesFor(quantities.keySet());
+        Map<UUID, SkuWarehouses.Home> stocked = warehouses.homes(quantities.keySet());
+        Map<UUID, UUID> homes = new HashMap<>(warehouses.warehousesFor(quantities.keySet(), stocked));
+        Set<UUID> gathered = gatherEachOrderInOneWarehouse(items, stocked, homes);
         for (Map.Entry<UUID, Integer> sku : quantities.entrySet()) {
             UUID warehouseId = homes.get(sku.getKey());
+            if (gathered.contains(sku.getKey())) {
+                stockMover.moveInto(sku.getKey(), warehouseId, actor);
+            }
             if (balances.reserve(sku.getKey(), warehouseId, sku.getValue(), actor) == 0) {
                 throw insufficientStock(sku.getKey(), warehouseId, sku.getValue());
             }
@@ -193,35 +197,41 @@ public class ReservationService {
         return response(items, created, expiresAt);
     }
 
-    private void gatherEachOrderInOneWarehouse(List<ReserveRequest.Item> items, UUID actor) {
+    private Set<UUID> gatherEachOrderInOneWarehouse(List<ReserveRequest.Item> items,
+                                                    Map<UUID, SkuWarehouses.Home> stocked, Map<UUID, UUID> homes) {
         Map<UUID, Set<UUID>> skusByOrder = new LinkedHashMap<>();
         items.forEach(item -> skusByOrder.computeIfAbsent(item.orderId(),
                 ignored -> new TreeSet<>(UuidOrder.DATABASE)).add(item.skuId()));
-        Map<UUID, SkuWarehouses.Home> homes = warehouses.homes(items.stream().map(ReserveRequest.Item::skuId)
-                .collect(Collectors.toSet()));
+        Set<UUID> gathered = new HashSet<>();
         for (Set<UUID> skus : skusByOrder.values()) {
-            List<SkuWarehouses.Home> orderHomes = skus.stream().map(homes::get).toList();
+            List<SkuWarehouses.Home> orderHomes = skus.stream().map(stocked::get).toList();
             Set<UUID> sellerWarehouses = SkuWarehouses.sellerWarehouses(orderHomes);
-            if (sellerWarehouses.isEmpty()) {
-                continue;
-            }
             if (sellerWarehouses.size() > 1) {
                 throw new DomainException(InventoryErrorCode.SKUS_FROM_DIFFERENT_SELLERS);
             }
-            UUID target = sellerWarehouses.iterator().next();
-            UUID seller = orderHomes.stream().filter(home -> home != null && target.equals(home.warehouseId()))
-                    .findFirst().orElseThrow().sellerId();
-            for (UUID skuId : skus) {
-                SkuWarehouses.Home home = homes.get(skuId);
-                if (home == null || target.equals(home.warehouseId())) {
-                    continue;
+            if (sellerWarehouses.size() == 1) {
+                UUID target = sellerWarehouses.iterator().next();
+                UUID seller = orderHomes.stream().filter(home -> home != null && target.equals(home.warehouseId()))
+                        .findFirst().orElseThrow().sellerId();
+                for (UUID skuId : skus) {
+                    SkuWarehouses.Home home = stocked.get(skuId);
+                    if (home == null || target.equals(home.warehouseId())) {
+                        continue;
+                    }
+                    if (skuOwners.sellerOf(skuId).filter(seller::equals).isEmpty()) {
+                        throw new DomainException(InventoryErrorCode.SKUS_FROM_DIFFERENT_SELLERS);
+                    }
+                    homes.put(skuId, target);
+                    gathered.add(skuId);
                 }
-                if (skuOwners.sellerOf(skuId).filter(seller::equals).isEmpty()) {
-                    throw new DomainException(InventoryErrorCode.SKUS_FROM_DIFFERENT_SELLERS);
-                }
-                stockMover.moveInto(skuId, target, actor);
             }
         }
+        for (Set<UUID> skus : skusByOrder.values()) {
+            if (skus.stream().map(homes::get).distinct().count() > 1) {
+                throw new DomainException(InventoryErrorCode.ORDER_SPANS_WAREHOUSES);
+            }
+        }
+        return gathered;
     }
 
     @Transactional
@@ -267,10 +277,11 @@ public class ReservationService {
         if (expired.isEmpty()) {
             return new LatePayment(List.of(), List.of());
         }
-        SortedMap<BalanceKey, Integer> needed = expired.stream().collect(Collectors.toMap(BalanceKey::of,
-                InventoryReservation::getQuantity, Math::addExact, () -> new TreeMap<>(BalanceKey.LOCK_ORDER)));
-        Map<UUID, SkuWarehouses.Home> homes = warehouses.homes(expired.stream()
+        Map<UUID, SkuWarehouses.Home> homes = warehouses.homes(locked.stream()
                 .map(InventoryReservation::getSkuId).collect(Collectors.toSet()));
+        Comparator<BalanceKey> lockOrder = BalanceKey.lockOrder(SkuWarehouses.sellerWarehouses(homes.values()));
+        SortedMap<BalanceKey, Integer> needed = expired.stream().collect(Collectors.toMap(BalanceKey::of,
+                InventoryReservation::getQuantity, Math::addExact, () -> new TreeMap<>(lockOrder)));
         Map<BalanceKey, BalanceKey> movedTo = new HashMap<>();
         needed.keySet().forEach(key -> {
             SkuWarehouses.Home home = homes.get(key.skuId());
@@ -278,7 +289,7 @@ public class ReservationService {
                 movedTo.put(key, new BalanceKey(key.skuId(), home.warehouseId()));
             }
         });
-        SortedMap<BalanceKey, Integer> available = new TreeMap<>(BalanceKey.LOCK_ORDER);
+        SortedMap<BalanceKey, Integer> available = new TreeMap<>(lockOrder);
         locked.forEach(reservation -> available.put(BalanceKey.of(reservation), 0));
         movedTo.values().forEach(key -> available.put(key, 0));
         available.replaceAll((key, ignored) -> balances.lockAvailable(key.skuId(), key.warehouseId()).orElse(0));
@@ -324,8 +335,11 @@ public class ReservationService {
     }
 
     private record BalanceKey(UUID skuId, UUID warehouseId) {
-        static final Comparator<BalanceKey> LOCK_ORDER = Comparator.comparing(BalanceKey::skuId, UuidOrder.DATABASE)
-                .thenComparing(BalanceKey::warehouseId, UuidOrder.DATABASE);
+        static Comparator<BalanceKey> lockOrder(Set<UUID> sellerWarehouses) {
+            return Comparator.comparing(BalanceKey::skuId, UuidOrder.DATABASE)
+                    .thenComparing(key -> sellerWarehouses.contains(key.warehouseId()))
+                    .thenComparing(BalanceKey::warehouseId, UuidOrder.DATABASE);
+        }
 
         static BalanceKey of(InventoryReservation reservation) {
             return new BalanceKey(reservation.getSkuId(), reservation.getWarehouseId());

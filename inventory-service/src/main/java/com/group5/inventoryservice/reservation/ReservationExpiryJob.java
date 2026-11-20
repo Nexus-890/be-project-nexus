@@ -4,6 +4,7 @@ import com.group5.common_events.EventEnvelopeFactory;
 import com.group5.common_events.Topics;
 import com.group5.common_outbox.OutboxWriter;
 import com.group5.inventoryservice.inventory.SellerStockMover;
+import com.group5.inventoryservice.shared.UuidOrder;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +19,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Duration;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
@@ -96,6 +98,8 @@ public class ReservationExpiryJob {
                         SYSTEM_ACTOR, (double) grace.toSeconds(), batchSize, SYSTEM_ACTOR, SYSTEM_ACTOR,
                         SYSTEM_ACTOR);
                 rows.stream().map(row -> List.of(row.skuId(), row.warehouseId())).distinct()
+                        .sorted(Comparator.<List<UUID>, UUID>comparing(key -> key.get(0), UuidOrder.DATABASE)
+                                .thenComparing(key -> key.get(1), UuidOrder.DATABASE))
                         .forEach(key -> stockMover.afterReturn(key.get(0), key.get(1), SYSTEM_ACTOR));
                 rows.forEach(row -> outbox.write("InventoryReservation", Topics.INVENTORY,
                         envelopes.create("InventoryReservationExpired", row.reservationId().toString(), row)));

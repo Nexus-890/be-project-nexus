@@ -29,7 +29,7 @@ public class SellerStockMover {
                 SELECT b.id FROM inventory_balances b
                 JOIN warehouses w ON w.id = b.warehouse_id
                 WHERE b.sku_id = ? AND w.seller_id IS NULL
-                ORDER BY b.id
+                ORDER BY b.warehouse_id
                 FOR UPDATE OF b
                 """, row -> { }, skuId);
     }
@@ -44,6 +44,7 @@ public class SellerStockMover {
     }
 
     public void moveInto(UUID skuId, UUID warehouseId, UUID actor) {
+        lockShared(skuId);
         balances.intake(skuId, warehouseId, 0, actor);
         moveShared(skuId, balances.findBySkuIdAndWarehouseId(skuId, warehouseId).orElseThrow(), actor);
     }
@@ -71,6 +72,7 @@ public class SellerStockMover {
                 "SELECT seller_id IS NOT NULL FROM warehouses WHERE id = ?", Boolean.class, target.getWarehouseId()))) {
             return target;
         }
+        lockShared(skuId);
         var moved = jdbc.query("""
                 WITH shared AS (
                     SELECT b.id, b.available_quantity AS quantity
