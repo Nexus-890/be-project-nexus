@@ -1,6 +1,7 @@
 package com.group5.configservice.systemconfig;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -44,6 +45,7 @@ public class SystemConfigRefresher {
         if (baseUrl == null) return;
         client.post().uri(baseUrl + "/actuator/refresh")
                 .headers(headers -> headers.setBearerAuth(token))
+                .contentType(MediaType.APPLICATION_JSON).body("{}")
                 .retrieve().toBodilessEntity();
     }
 }

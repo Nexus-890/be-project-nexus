@@ -880,15 +880,16 @@ class SecurityConfigTest {
     @Test
     void catalogSearchAndFlatCategoriesArePublicReads() {
         client.get().uri("/api/v1/products/search?q=ao%20thun").exchange().expectStatus().isOk();
+        client.get().uri("/api/v1/products/discovery?type=popular").exchange().expectStatus().isOk();
         client.get().uri("/api/v1/categories?level=2").exchange().expectStatus().isOk();
         client.post().uri("/api/v1/categories").exchange().expectStatus().isUnauthorized();
-        assertThat(SERVICE_LOG).hasSize(2);
+        assertThat(SERVICE_LOG).hasSize(3);
     }
 
     @Test
     void literalRoutesSwaggerActuatorAndUnknownPathsAreNotPublic() {
         for (String path : List.of("/api/v1/products/mine",
-                "/api/v1/products/discovery", "/api/v1/products/not-a-uuid",
+                "/api/v1/products/not-a-uuid",
                 "/api/v1/auctions/mine", "/api/v1/auctions/not-a-uuid", "/api/v1/auctions/not-a-uuid/bids",
                 "/api/v1/auctions/not-a-uuid/state",
                 "/swagger-ui.html", "/actuator/health", "/unrouted")) {

@@ -54,7 +54,7 @@ public class SettlementService {
                 auction.getId(), auction.getSellerId(), auction.getProductId(), auction.getSkuId(),
                 auction.getWinnerId(), auction.getFinalPrice().setScale(2).toPlainString(),
                 auction.getCurrency(), auction.getTitle(), auction.getImageUrl(), 1,
-                auction.getEndAt(), auction.getPaymentDueAt());
+                auction.getEndAt(), auction.getPaymentDueAt(), null, auction.getSkuCode());
         outbox.write("Auction", Topics.AUCTION, envelopes.create("AuctionWon", auction.getId().toString(), payload));
     }
 

@@ -69,7 +69,9 @@ There is no client secret. Do not test this client with `grant_type=password`.
 
 The seed command also creates the confidential `user-service` client (#238) when it
 is missing and sets its secret from `KEYCLOAK_USER_SERVICE_CLIENT_SECRET`. Only its
-service account is enabled; browser, implicit and password grants are off. The
+service account and the password grant are enabled; browser and implicit flows are off.
+user-service uses the password grant only to check the current password when a
+signed-in user changes it, and ends that session at once. The
 service account holds the `realm-management` roles `manage-users`, `view-users`,
 `query-users`, `view-realm`, `query-clients` and `view-clients`, which user-service
 needs to administer accounts, read fixed realm roles and read client-role privileges
@@ -152,10 +154,15 @@ session idle timeout are both 3600 seconds; the session maximum is 36000 seconds
 
 ## Password reset, email verification and mail (#210)
 
-Changing and resetting a password use Keycloak's own pages; user-service has no
-password endpoint. The realm turns on "Forgot password" (`resetPasswordAllowed`)
-and "Verify email" (`verifyEmail`), so a new account cannot sign in until the
-link in the verification email is opened. The reset link is valid for 15 minutes
+Users change their password on /profile (`POST /api/v1/users/me/password`) and
+reset a forgotten one through /forgot-password, which emails a one-time link to
+/reset-password valid for 30 minutes (`POST /api/v1/auth/password-reset` and
+`/confirm`). The in-app reset and change sign out the other sessions.
+
+The realm also turns on "Forgot password" (`resetPasswordAllowed`), so Keycloak's
+own reset page stays available from its sign-in form, and "Verify email"
+(`verifyEmail`), so a new account cannot sign in until the link in the
+verification email is opened. Keycloak's reset link is valid for 15 minutes
 (`actionTokenGeneratedByUserLifespan: 900`); the verification email that
 user-service asks for after registration is valid for 12 hours
 (`actionTokenGeneratedByAdminLifespan: 43200`). Each link works once. After a

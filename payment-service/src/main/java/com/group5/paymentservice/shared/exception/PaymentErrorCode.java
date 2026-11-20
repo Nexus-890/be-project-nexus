@@ -28,6 +28,12 @@ public enum PaymentErrorCode implements ErrorCode {
             HttpStatus.CONFLICT, "Idempotency-Key was already used for another refund request"),
     REFUND_NOT_FOUND(HttpStatus.NOT_FOUND, "Refund is not available"),
     REFUND_CONFLICT(HttpStatus.CONFLICT, "Refund was changed by another request, try again"),
+    REFUND_EVIDENCE_REQUIRED(
+            HttpStatus.CONFLICT, "Upload the bank transfer evidence before completing the refund"),
+    REFUND_EVIDENCE_INVALID(
+            HttpStatus.BAD_REQUEST, "A bank transaction reference of at most 100 characters is required"),
+    REFUND_EVIDENCE_LIMIT(HttpStatus.CONFLICT, "A refund keeps at most 3 evidence files"),
+    REFUND_COMPLETED(HttpStatus.CONFLICT, "Refund is already completed; evidence can no longer change"),
     SELLER_BANK_ACCOUNT_NOT_FOUND(HttpStatus.NOT_FOUND, "Seller bank account is not available"),
     SELLER_BANK_ACCOUNT_INVALID(HttpStatus.BAD_REQUEST, "Seller bank account details are invalid"),
     SELLER_BANK_ACCOUNT_CONFLICT(

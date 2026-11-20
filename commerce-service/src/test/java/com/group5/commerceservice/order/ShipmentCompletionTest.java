@@ -126,6 +126,10 @@ class ShipmentCompletionTest {
         assertThat(payload.get("orderAmount").asString()).isEqualTo("325000.00");
         assertThat(payload.get("shippingFee").isString()).isTrue();
         assertThat(payload.get("shippingFee").asString()).isEqualTo("25000.00");
+        assertThat(payload.get("items")).hasSize(1);
+        assertThat(payload.get("items").get(0).get("productId").asString()).isEqualTo(jdbc().queryForObject(
+                "SELECT product_id::text FROM order_items WHERE order_id = ?", String.class, order.id()));
+        assertThat(payload.get("items").get(0).get("quantity").asInt()).isEqualTo(2);
         assertThat(payload.get("orderVersion").asLong()).isEqualTo(3)
                 .isEqualTo(jdbc().queryForObject("SELECT version FROM orders WHERE id = ?", Long.class, order.id()));
         Instant storedCompletion = jdbc().queryForObject("""

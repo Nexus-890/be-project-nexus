@@ -4316,6 +4316,36 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /api/v1/products/discovery:
+    get:
+      tags: [Products]
+      operationId: discoverProducts
+      summary: List best-selling or newest public products
+      description: >-
+        Home page discovery. type=popular orders ACTIVE, nondeleted products that have at least one ACTIVE SKU by
+        units sold in completed orders (counted from OrderCompleted), then newest and ID; products never sold are
+        left out. type=new orders the same products by newest and ID. Not paginated; size caps the list.
+      security: []
+      parameters:
+        - name: type
+          in: query
+          schema: {type: string, enum: [popular, new], default: popular}
+        - name: size
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 24, default: 8}
+      responses:
+        '200':
+          description: Discovery list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscoverProductsResponse'
+        '400':
+          description: Unknown type or size outside 1..24
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/products/mine:
     get:
       tags:
@@ -8562,6 +8592,20 @@ components:
             $ref: "#/components/schemas/Product"
         page:
           $ref: "#/components/schemas/PageInfo"
+      additionalProperties: false
+    DiscoverProductsResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+        data:
+          type: array
+          maxItems: 24
+          items:
+            $ref: '#/components/schemas/Product'
       additionalProperties: false
     FlatCategoryPage:
       type: object

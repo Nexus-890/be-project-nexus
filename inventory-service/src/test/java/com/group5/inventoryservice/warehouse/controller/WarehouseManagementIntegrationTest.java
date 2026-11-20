@@ -74,6 +74,7 @@ class WarehouseManagementIntegrationTest {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PlatformTransactionManager transactionManager;
     @MockitoBean private JwtDecoder decoder;
+    @MockitoBean private com.group5.inventoryservice.shared.catalog.CatalogSkuOwners skuOwners;
     private MockMvc mvc;
     private UUID defaultWarehouse;
 
@@ -311,6 +312,117 @@ class WarehouseManagementIntegrationTest {
             }
         }
         assertThat(warehouseRow(defaultWarehouse)).isEqualTo(before);
+    }
+
+    @Test
+    void aSellerReadsAndSavesTheirOwnWarehouseAndOthersCannotUseTheseRoutes() throws Exception {
+        request("seller", get(PATH + "/me"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("INVENTORY_WAREHOUSE_NOT_FOUND"));
+
+        String created = request("seller", put(PATH + "/me").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"  Kho Quận 7  \",\"address\":\"12 Nguyễn Thị Thập\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("Kho Quận 7"))
+                .andExpect(jsonPath("$.data.address").value("12 Nguyễn Thị Thập"))
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.data.code").value(org.hamcrest.Matchers.startsWith("SELLER-")))
+                .andExpect(jsonPath("$.data.sellerId").isNotEmpty())
+                .andReturn().getResponse().getContentAsString();
+        String id = com.jayway.jsonpath.JsonPath.read(created, "$.data.id");
+
+        request("seller", put(PATH + "/me").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Kho mới\",\"address\":\" \"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(id));
+        assertThat(jdbc.queryForObject("SELECT address FROM warehouses WHERE id = ?::uuid", String.class, id)).isNull();
+        request("seller", get(PATH + "/me"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("Kho mới"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM warehouses WHERE seller_id IS NOT NULL", Integer.class))
+                .isEqualTo(1);
+
+        request("seller", put(PATH + "/me").contentType(MediaType.APPLICATION_JSON).content("{\"name\":\" \"}"))
+                .andExpect(status().isBadRequest());
+        for (String actor : List.of("admin", "buyer", "support")) {
+            request(actor, get(PATH + "/me")).andExpect(status().isForbidden());
+            request(actor, put(PATH + "/me").contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"X\"}"))
+                    .andExpect(status().isForbidden());
+        }
+        request("admin", get(PATH))
+                .andExpect(jsonPath("$.data[?(@.id == '" + id + "')].sellerId").isNotEmpty());
+    }
+
+    @Test
+    void aSellerSetsThePickupAreaAndCheckoutReadsItOnlyWhenComplete() throws Exception {
+        UUID sellerId = UUID.randomUUID();
+        when(decoder.decode("pickup-seller")).thenReturn(token("pickup-seller", sellerId, "SELLER"));
+        String pickup = "/internal/v1/inventory/warehouses/pickup?sellerId=" + sellerId;
+        request("buyer", get(pickup)).andExpect(status().isOk()).andExpect(jsonPath("$.data").value(nullValue()));
+
+        request("pickup-seller", put(PATH + "/me").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Kho Ba Đình\",\"address\":\" 12 Kim Mã \",\"provinceCode\":\"201\",\"wardCode\":\"20309\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.provinceCode").value("201"))
+                .andExpect(jsonPath("$.data.wardCode").value("20309"))
+                .andExpect(jsonPath("$.data.address").value("12 Kim Mã"));
+        UUID warehouseId = jdbc.queryForObject("SELECT id FROM warehouses WHERE seller_id = ?", UUID.class, sellerId);
+        request("buyer", get(pickup)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.warehouseId").value(warehouseId.toString()))
+                .andExpect(jsonPath("$.data.sellerId").value(sellerId.toString()))
+                .andExpect(jsonPath("$.data.provinceCode").value("201"))
+                .andExpect(jsonPath("$.data.wardCode").value("20309"))
+                .andExpect(jsonPath("$.data.line1").value("12 Kim Mã"));
+        request("pickup-seller", get(PATH + "/me")).andExpect(jsonPath("$.data.wardCode").value("20309"));
+
+        UUID ownSku = UUID.randomUUID();
+        UUID sharedSku = UUID.randomUUID();
+        UUID shared = jdbc.queryForObject("SELECT id FROM warehouses WHERE seller_id IS NULL ORDER BY code LIMIT 1", UUID.class);
+        jdbc.update("""
+                INSERT INTO inventory_balances (sku_id, warehouse_id, total_quantity, available_quantity)
+                VALUES (?, ?, 6, 6), (?, ?, 4, 4)
+                """, ownSku, warehouseId, sharedSku, shared);
+        request("buyer", get(pickup + "&skuIds=" + ownSku)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.warehouseId").value(warehouseId.toString()));
+        request("buyer", get(pickup + "&skuIds=" + ownSku + "&skuIds=" + sharedSku)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.warehouseId").value(warehouseId.toString()));
+        UUID otherSellerSku = UUID.randomUUID();
+        UUID otherSeller = jdbc.queryForObject("""
+                INSERT INTO warehouses (code, name, seller_id) VALUES (?, 'Other seller', ?) RETURNING id
+                """, UUID.class, "S-" + UUID.randomUUID().toString().substring(0, 8), UUID.randomUUID());
+        jdbc.update("""
+                INSERT INTO inventory_balances (sku_id, warehouse_id, total_quantity, available_quantity)
+                VALUES (?, ?, 2, 2)
+                """, otherSellerSku, otherSeller);
+        for (String skus : List.of("&skuIds=" + sharedSku, "&skuIds=" + ownSku + "&skuIds=" + otherSellerSku,
+                "&skuIds=" + UUID.randomUUID())) {
+            request("buyer", get(pickup + skus)).andExpect(status().isOk()).andExpect(jsonPath("$.data").value(nullValue()));
+        }
+
+        for (String body : List.of(
+                "{\"name\":\"Kho\",\"address\":\"12 Kim Mã\",\"provinceCode\":\"201\"}",
+                "{\"name\":\"Kho\",\"address\":\"12 Kim Mã\",\"wardCode\":\"20309\"}",
+                "{\"name\":\"Kho\",\"address\":\" \",\"provinceCode\":\"201\",\"wardCode\":\"20309\"}",
+                "{\"name\":\"Kho\",\"address\":\"" + "x".repeat(256) + "\",\"provinceCode\":\"201\",\"wardCode\":\"20309\"}",
+                "{\"name\":\"Kho\",\"address\":\"12 Kim Mã\",\"provinceCode\":\"0\",\"wardCode\":\"20309\"}",
+                "{\"name\":\"Kho\",\"address\":\"12 Kim Mã\",\"provinceCode\":\"201\",\"wardCode\":\"20A\"}")) {
+            request("pickup-seller", put(PATH + "/me").contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        }
+        request("buyer", get(pickup)).andExpect(jsonPath("$.data.line1").value("12 Kim Mã"));
+
+        jdbc.update("UPDATE warehouses SET status = 'MAINTENANCE' WHERE id = ?", warehouseId);
+        request("buyer", get(pickup)).andExpect(status().isOk()).andExpect(jsonPath("$.data").value(nullValue()));
+        jdbc.update("UPDATE warehouses SET status = 'ACTIVE' WHERE id = ?", warehouseId);
+
+        request("pickup-seller", put(PATH + "/me").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Kho Ba Đình\",\"address\":\"12 Kim Mã\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.provinceCode").value(nullValue()));
+        request("buyer", get(pickup)).andExpect(jsonPath("$.data").value(nullValue()));
+
+        request("admin", get(pickup)).andExpect(status().isForbidden());
+        mvc.perform(get(pickup)).andExpect(status().isUnauthorized());
+        request("buyer", get("/internal/v1/inventory/warehouses/pickup?sellerId=nope")).andExpect(status().isBadRequest());
     }
 
     @Test

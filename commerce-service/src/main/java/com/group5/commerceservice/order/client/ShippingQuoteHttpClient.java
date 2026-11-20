@@ -20,12 +20,24 @@ public interface ShippingQuoteHttpClient {
 
     record Request(Address toAddress, List<Item> items, Parcel parcel, UUID warehouseId,
                    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
-                   Boolean applyFreeShipping) {
+                   Boolean applyFreeShipping,
+                   @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                   PickupAddress pickupAddress) {
         public Request(Address toAddress, List<Item> items, Parcel parcel, UUID warehouseId) {
-            this(toAddress, items, parcel, warehouseId, null);
+            this(toAddress, items, parcel, warehouseId, null, null);
+        }
+
+        public Request(Address toAddress, List<Item> items, Parcel parcel, UUID warehouseId, Boolean applyFreeShipping) {
+            this(toAddress, items, parcel, warehouseId, applyFreeShipping, null);
         }
     }
+    record PickupAddress(String provinceCode, String wardCode, String line1) { }
     record Address(String provinceCode, String wardCode, String line1, String recipientName, String recipientPhone) { }
     record Item(UUID skuId, int quantity) { }
-    record Response(String carrier, String serviceType, BigDecimal fee, OffsetDateTime estimatedDeliveryAt) { }
+    record Response(String carrier, String serviceType, BigDecimal fee, OffsetDateTime estimatedDeliveryAt,
+                    String carrierName, Boolean recommended) {
+        public Response(String carrier, String serviceType, BigDecimal fee, OffsetDateTime estimatedDeliveryAt) {
+            this(carrier, serviceType, fee, estimatedDeliveryAt, null, null);
+        }
+    }
 }

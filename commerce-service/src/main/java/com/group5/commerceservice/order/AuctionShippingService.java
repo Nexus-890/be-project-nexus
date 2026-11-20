@@ -82,7 +82,8 @@ public class AuctionShippingService {
             } catch (FeignException error) { throw new DomainException(CommerceErrorCode.INVENTORY_UNAVAILABLE); }
         });
         var item = order.getItems().getFirst();
-        var quote = pricing.auctionShippingQuote(address, item.getSkuId(), item.getProductId(), warehouse, order.getSubtotal());
+        var quote = pricing.auctionShippingQuote(address, item.getSkuId(), item.getProductId(), warehouse,
+                order.getSubtotal(), order.getSellerId());
         BigDecimal fee = quote.fee().setScale(2, RoundingMode.UNNECESSARY);
         BigDecimal total = order.getSubtotal().add(fee);
         if (total.precision() > 19) throw new DomainException(CommerceErrorCode.INVALID_ORDER_AMOUNT);
@@ -91,6 +92,9 @@ public class AuctionShippingService {
         shipping.put("parcel", Map.of("weightGrams", quote.parcel().weightGrams(), "lengthCm", quote.parcel().lengthCm(),
                 "widthCm", quote.parcel().widthCm(), "heightCm", quote.parcel().heightCm()));
         shipping.put("carrier", quote.carrier()); shipping.put("serviceType", quote.serviceType());
+        if (quote.pickup() != null && quote.pickup().warehouseId().equals(warehouse)) {
+            shipping.put("pickupAddress", quote.pickup().snapshot());
+        }
         order.setShippingInfo(shipping); order.setShippingFee(fee); order.setTotalAmount(total);
         var now = OffsetDateTime.now(ZoneOffset.UTC);
         order.setUpdatedAt(now); group.setTotalAmount(total); group.setUpdatedAt(now); group.setUpdatedBy(user.id());

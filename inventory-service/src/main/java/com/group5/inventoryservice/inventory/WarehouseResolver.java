@@ -21,6 +21,10 @@ public class WarehouseResolver {
         this.properties = properties;
     }
 
+    public UUID sellerOf(UUID warehouseId) {
+        return warehouses.findById(warehouseId).map(Warehouse::getSellerId).orElse(null);
+    }
+
     public UUID resolveForIntake(UUID warehouseId) {
         Warehouse warehouse;
         if (warehouseId != null) {

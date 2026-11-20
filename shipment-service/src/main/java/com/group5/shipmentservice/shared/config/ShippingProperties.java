@@ -10,6 +10,8 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.validation.annotation.Validated;
 
 import java.math.BigDecimal;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -28,10 +30,24 @@ public record ShippingProperties(
         @DefaultValue PickupAddress defaultPickup,
         Map<UUID, PickupAddress> pickups,
         CarrierMode quoteCarrier,
-        CarrierMode bookingCarrier) {
+        CarrierMode bookingCarrier,
+        List<CarrierMode> checkoutCarriers,
+        @DefaultValue("CHEAPEST") CarrierStrategy carrierStrategy) {
     @ConstructorBinding
     public ShippingProperties {
         pickups = pickups == null ? Map.of() : Map.copyOf(pickups);
+        checkoutCarriers = checkoutCarriers == null ? List.of()
+                : checkoutCarriers.stream().filter(mode -> mode != null && mode != CarrierMode.NONE).distinct().toList();
+        carrierStrategy = carrierStrategy == null ? CarrierStrategy.CHEAPEST : carrierStrategy;
+    }
+
+    public ShippingProperties(CarrierMode carrier, int apiTimeoutMs, int retryLimit, int retryBackoffMs,
+                              BigDecimal freeShippingThreshold, int breakerFailureThreshold, int breakerOpenMs,
+                              String catalogBaseUrl, UUID defaultWarehouseId, PickupAddress defaultPickup,
+                              Map<UUID, PickupAddress> pickups, CarrierMode quoteCarrier, CarrierMode bookingCarrier) {
+        this(carrier, apiTimeoutMs, retryLimit, retryBackoffMs, freeShippingThreshold, breakerFailureThreshold,
+                breakerOpenMs, catalogBaseUrl, defaultWarehouseId, defaultPickup, pickups, quoteCarrier, bookingCarrier,
+                null, null);
     }
 
     public ShippingProperties(CarrierMode carrier, int apiTimeoutMs, int retryLimit, int retryBackoffMs,
@@ -39,12 +55,31 @@ public record ShippingProperties(
                               String catalogBaseUrl, UUID defaultWarehouseId, PickupAddress defaultPickup,
                               Map<UUID, PickupAddress> pickups) {
         this(carrier, apiTimeoutMs, retryLimit, retryBackoffMs, freeShippingThreshold, breakerFailureThreshold,
-                breakerOpenMs, catalogBaseUrl, defaultWarehouseId, defaultPickup, pickups, null, null);
+                breakerOpenMs, catalogBaseUrl, defaultWarehouseId, defaultPickup, pickups, null, null, null, null);
+    }
+
+    public List<String> offeredCarriers() {
+        LinkedHashSet<String> codes = new LinkedHashSet<>();
+        if (effectiveQuoteCarrier() != CarrierMode.NONE) codes.add(effectiveQuoteCarrier().name());
+        checkoutCarriers.forEach(mode -> codes.add(mode.name()));
+        return List.copyOf(codes);
+    }
+
+    public boolean buyerChoosesCarrier() { return !checkoutCarriers.isEmpty(); }
+
+    public PickupAddress platformPickup() {
+        PickupAddress configured = defaultWarehouseId == null ? null : pickups.get(defaultWarehouseId);
+        return configured != null ? configured : defaultPickup;
     }
 
     public CarrierMode effectiveQuoteCarrier() { return quoteCarrier == null ? carrier : quoteCarrier; }
 
     public CarrierMode effectiveBookingCarrier() { return bookingCarrier == null ? carrier : bookingCarrier; }
+
+    public enum CarrierStrategy {
+        CHEAPEST,
+        FASTEST
+    }
 
     public enum CarrierMode {
         NONE,

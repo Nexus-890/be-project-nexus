@@ -39,6 +39,7 @@ class KeycloakAdminClientHttpTest {
     private static final UUID USER = UUID.fromString("35754f22-99b9-4a70-b8ea-612b876ba5ba");
     private static final UUID ROLE = UUID.fromString("45754f22-99b9-4a70-b8ea-612b876ba5ba");
     private static final String USER_PATH = "/admin/realms/nexus/users/" + USER;
+    private static final String TOKEN_PATH = "/realms/nexus/protocol/openid-connect/token";
     private static final String LOCK_PATH = "/admin/realms/nexus/attack-detection/brute-force/users/" + USER;
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -224,6 +225,67 @@ class KeycloakAdminClientHttpTest {
         assertError(() -> client.resetPassword(USER, "same-password"), UserErrorCode.USER_IDENTITY_REJECTED);
     }
 
+    @Test
+    void ownPasswordChangeSeparatesHistoryFromOtherPolicyFailures() {
+        expect("PUT", USER_PATH + "/reset-password", 204, null);
+        expect("PUT", USER_PATH + "/reset-password", 400, Map.of("error", "invalidPasswordHistoryMessage"));
+        expect("PUT", USER_PATH + "/reset-password", 400, Map.of("error", "invalidPasswordMinLengthMessage"));
+        expect("PUT", USER_PATH + "/reset-password", 404, Map.of("error", "User not found"));
+
+        client.setOwnPassword(USER, "a-new-password");
+        assertThat(body(0).get("value").asString()).isEqualTo("a-new-password");
+        assertThat(body(0).get("temporary").asBoolean()).isFalse();
+        assertError(() -> client.setOwnPassword(USER, "same-password"), UserErrorCode.USER_PASSWORD_REUSED);
+        assertError(() -> client.setOwnPassword(USER, "short"), UserErrorCode.USER_PASSWORD_REJECTED);
+        assertError(() -> client.setOwnPassword(USER, "a-new-password"), UserErrorCode.USER_IDENTITY_NOT_FOUND);
+    }
+
+    @Test
+    void currentPasswordCheckUsesThePasswordGrantAndEndsThatSession() {
+        expect("POST", TOKEN_PATH, 200, Map.of("access_token", "user-token", "refresh_token", "user-refresh"));
+        expect("POST", "/realms/nexus/protocol/openid-connect/logout", 204, null);
+        expect("POST", TOKEN_PATH, 400, Map.of("error", "invalid_grant", "error_description", "Invalid user credentials"));
+
+        assertThat(client.passwordMatches("buyer@nexus.test", "right-password")).isTrue();
+        assertThat(client.passwordMatches("buyer@nexus.test", "wrong-password")).isFalse();
+
+        assertThat(requests.get(0).body()).contains("grant_type=password", "client_id=user-service",
+                "client_secret=test-service-secret", "username=buyer%40nexus.test", "password=right-password");
+        assertThat(requests.get(1).body()).contains("refresh_token=user-refresh", "client_id=user-service");
+        assertThat(tokens).isZero();
+    }
+
+    @Test
+    void aClientWithoutPasswordGrantIsAProviderFaultNotAWrongPassword() {
+        expect("POST", TOKEN_PATH, 400, Map.of("error", "unauthorized_client"));
+        expect("POST", TOKEN_PATH, 401, Map.of("error", "invalid_client"));
+
+        assertError(() -> client.passwordMatches("buyer@nexus.test", "any"), UserErrorCode.USER_IDENTITY_PROVIDER_UNAVAILABLE);
+        assertError(() -> client.passwordMatches("buyer@nexus.test", "any"), UserErrorCode.USER_IDENTITY_PROVIDER_UNAVAILABLE);
+    }
+
+    @Test
+    void signingOutOtherSessionsKeepsTheCallersSession() {
+        expect("GET", USER_PATH + "/sessions", 200, List.of(Map.of("id", "kept"), Map.of("id", "other")));
+        expect("DELETE", "/admin/realms/nexus/sessions/other", 204, null);
+
+        client.signOutOtherSessions(USER, "kept");
+
+        assertThat(requests).extracting(Request::path).containsExactly(USER_PATH + "/sessions", "/admin/realms/nexus/sessions/other");
+    }
+
+    @Test
+    void signingOutEverywhereNeverFailsTheCaller() {
+        expect("POST", USER_PATH + "/logout", 204, null);
+        expect("POST", USER_PATH + "/logout", 503, Map.of("error", "down"));
+
+        client.signOutEverywhere(USER);
+        client.signOutEverywhere(USER);
+
+        assertThat(requests).hasSize(2);
+        assertThat(requests.getFirst().authorization()).isEqualTo("Bearer token-1");
+    }
+
     /** Đọc khóa và xóa counter sử dụng brute-force API, không sửa cờ enabled của tài khoản. */
     @Test
     void unlockUsesBruteForceEndpointAndClearsLock() {
@@ -387,7 +449,7 @@ class KeycloakAdminClientHttpTest {
     private void respond(HttpExchange exchange) throws IOException {
         String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
         String path = exchange.getRequestURI().toString();
-        if (path.equals("/realms/nexus/protocol/openid-connect/token")) {
+        if (path.equals("/realms/nexus/protocol/openid-connect/token") && !body.contains("grant_type=password")) {
             if (!exchange.getRequestMethod().equals("POST") || !body.contains("grant_type=client_credentials")
                     || !body.contains("client_id=user-service") || !body.contains("client_secret=test-service-secret")) {
                 failures.add("Invalid service token request");

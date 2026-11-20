@@ -22,7 +22,8 @@ public class OfferReservationService {
     private final ReservationRepository reservations;
     private final InventoryBalanceRepository balances;
     private final InventoryMovementRepository movements;
-    private final WarehouseResolver warehouses;
+    private final SkuWarehouses warehouses;
+    private final SellerStockMover stockMover;
     private final OutboxWriter outbox;
     private final EventEnvelopeFactory envelopes;
     private final ReservationService orderOutcomes;
@@ -45,7 +46,7 @@ public class OfferReservationService {
                     """,offer,auction,bidder,sku,java.sql.Timestamp.from(expires));
             return;
         }
-        UUID warehouse=warehouses.defaultWarehouseId();
+        UUID warehouse=warehouses.warehouseFor(sku);
         if (!Instant.now().isBefore(expires) || balances.reserve(sku,warehouse,1,SYSTEM)==0) {
             jdbc.update("INSERT INTO inventory_offer_outcomes(offer_id,auction_id,outcome) VALUES (?,?,'REJECTED') ON CONFLICT DO NOTHING",offer,auction);
             emit("SecondChanceStockRejected",auction,offer,Map.of("reason","STOCK_UNAVAILABLE"));
@@ -71,6 +72,7 @@ public class OfferReservationService {
         if(balances.releaseReserved(hold.getSkuId(),hold.getWarehouseId(),hold.getQuantity(),SYSTEM)!=1)
             throw new IllegalStateException("Offer balance missing");
         movements.record(hold.getSkuId(),hold.getWarehouseId(),MovementType.RELEASE,hold.getQuantity(),hold.getId(),SYSTEM);
+        stockMover.afterReturn(hold.getSkuId(),hold.getWarehouseId(),SYSTEM);
     }
     public List<UUID> pending() { return jdbc.queryForList("SELECT offer_id FROM inventory_pending_offer_holds ORDER BY expires_at LIMIT 100",UUID.class); }
     @Transactional

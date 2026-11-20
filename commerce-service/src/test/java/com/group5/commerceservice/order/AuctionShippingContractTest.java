@@ -73,7 +73,7 @@ class AuctionShippingContractTest {
     @ParameterizedTest @CsvSource({"999999.00,1500000.00,30000.00","1000000.00,1.00,0.00","1500000.00,1.00,0.00"})
     void auctionFinalPriceControlsFreeShipping(String finalPrice,String catalogPrice,String expectedFee) {
         var catalog=mock(CatalogClient.class);var shipping=mock(OrderShippingService.class);
-        var pricing=new PricingService(catalog,shipping);
+        var pricing=new PricingService(catalog,shipping,org.mockito.Mockito.mock(com.group5.commerceservice.order.service.InventoryClient.class));
         UUID skuId=UUID.randomUUID(),product=UUID.randomUUID(),warehouse=UUID.randomUUID();
         var sku=new CatalogSkuResponse();sku.setId(skuId);sku.setProductId(product);sku.setPrice(new BigDecimal(catalogPrice));
         when(catalog.getSkuById(skuId)).thenReturn(ApiResponse.of(sku));

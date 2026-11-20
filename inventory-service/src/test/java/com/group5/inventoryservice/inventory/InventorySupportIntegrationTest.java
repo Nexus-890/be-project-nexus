@@ -427,6 +427,100 @@ class InventorySupportIntegrationTest {
                 .andExpect(jsonPath("$.data[0].referenceId").value(row(sku, warehouse).get("id").toString()));
     }
 
+    @Test
+    void aSellerPicksThenPacksTheirPaidReservationAndEachStepWritesOneLedgerRowWithoutMovingStock()
+            throws Exception {
+        UUID order = UUID.randomUUID();
+        UUID sku = balance(warehouse, 10, 10, 0);
+        UUID held = reservation(order, sku, 3, "CONFIRMED", T0);
+        when(skuOwners.sellerOf(sku)).thenReturn(Optional.of(SELLER_ID));
+
+        step("seller", held, "ship").andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVENTORY_NOT_PICKED"));
+        step("seller", held, "pick").andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(held.toString()))
+                .andExpect(jsonPath("$.data.status").value("CONFIRMED"))
+                .andExpect(jsonPath("$.data.pickedAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.shippedAt").isEmpty());
+        step("seller", held, "pick").andExpect(status().isOk());
+        step("seller", held, "ship").andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.shippedAt").isNotEmpty());
+        step("seller", held, "ship").andExpect(status().isOk());
+
+        assertThat(jdbc.queryForList("""
+                SELECT movement_type::text AS type, quantity, created_by FROM inventory_movements
+                WHERE reference_id = ? ORDER BY created_at, id
+                """, held)).containsExactly(
+                Map.of("type", "PICK", "quantity", 3, "created_by", SELLER_ID),
+                Map.of("type", "SHIP", "quantity", 3, "created_by", SELLER_ID));
+        assertThat(row(sku, warehouse)).containsEntry("total_quantity", 10).containsEntry("available_quantity", 10)
+                .containsEntry("reserved_quantity", 0);
+        assertThat(jdbc.queryForMap("SELECT picked_by, shipped_by FROM inventory_reservations WHERE id = ?", held))
+                .containsEntry("picked_by", SELLER_ID).containsEntry("shipped_by", SELLER_ID);
+    }
+
+    @Test
+    void onlyAPaidReservationCanBePickedAndOnlyItsSellerOrAnAdminMayDoIt() throws Exception {
+        UUID order = UUID.randomUUID();
+        UUID heldSku = balance(warehouse, 10, 8, 2);
+        UUID paidSku = balance(warehouse, 10, 10, 0);
+        UUID releasedSku = balance(warehouse, 10, 10, 0);
+        UUID held = reservation(order, heldSku, 2, "HELD", T0);
+        UUID paid = reservation(order, paidSku, 1, "CONFIRMED", T0.plusMinutes(1));
+        UUID released = reservation(order, releasedSku, 1, "RELEASED", T0.plusMinutes(2));
+        when(skuOwners.sellerOf(any())).thenReturn(Optional.of(SELLER_ID));
+        when(decoder.decode("other")).thenReturn(token("other", OTHER_SELLER_ID, "SELLER"));
+
+        step("seller", held, "pick").andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVENTORY_NOT_PICKABLE"));
+        step("seller", released, "pick").andExpect(status().isConflict());
+        step("seller", released, "ship").andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVENTORY_NOT_PICKABLE"));
+        step("seller", UUID.randomUUID(), "pick").andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("INVENTORY_RESERVATION_NOT_FOUND"));
+        step("other", paid, "pick").andExpect(status().isForbidden());
+        step("buyer", paid, "pick").andExpect(status().isForbidden());
+        step("support", paid, "ship").andExpect(status().isForbidden());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM inventory_movements", Long.class)).isZero();
+
+        step("admin", paid, "pick").andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT picked_by FROM inventory_reservations WHERE id = ?", UUID.class,
+                paid)).isEqualTo(ADMIN_ID);
+    }
+
+    @Test
+    void aSellerReadsTheFulfilmentStepsOfAnOrderOnlyWhenEverySkuIsTheirs() throws Exception {
+        UUID order = UUID.randomUUID();
+        UUID mine = balance(warehouse, 10, 10, 0);
+        UUID theirs = balance(warehouse, 10, 10, 0);
+        UUID first = reservation(order, mine, 1, "CONFIRMED", T0);
+        when(skuOwners.sellerOf(mine)).thenReturn(Optional.of(SELLER_ID));
+        when(skuOwners.sellerOf(theirs)).thenReturn(Optional.of(OTHER_SELLER_ID));
+
+        fetch("seller", "/api/v1/inventory/reservations/fulfillment?orderId=" + order)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(first.toString()))
+                .andExpect(jsonPath("$.data[0].pickedAt").isEmpty());
+        fetch("seller", "/api/v1/inventory/reservations/fulfillment?orderId=" + UUID.randomUUID())
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(0));
+
+        reservation(order, theirs, 1, "CONFIRMED", T0.plusMinutes(1));
+        fetch("seller", "/api/v1/inventory/reservations/fulfillment?orderId=" + order)
+                .andExpect(status().isForbidden());
+        fetch("admin", "/api/v1/inventory/reservations/fulfillment?orderId=" + order)
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(2));
+        fetch("buyer", "/api/v1/inventory/reservations/fulfillment?orderId=" + order)
+                .andExpect(status().isForbidden());
+        fetch("seller", "/api/v1/inventory/reservations/fulfillment")
+                .andExpect(status().isBadRequest());
+    }
+
+    private ResultActions step(String caller, UUID reservationId, String action) throws Exception {
+        return mvc.perform(post("/api/v1/inventory/reservations/" + reservationId + "/" + action)
+                .header("Authorization", "Bearer " + caller));
+    }
+
     private ResultActions adjust(String caller, String body) throws Exception {
         return mvc.perform(post("/api/v1/inventory/adjustments").header("Authorization", "Bearer " + caller)
                 .contentType(MediaType.APPLICATION_JSON).content(body));

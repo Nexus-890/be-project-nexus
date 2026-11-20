@@ -1,6 +1,8 @@
 package com.group5.ratingservice.reputation.service;
 
 import com.group5.ratingservice.reputation.dto.AdjustmentResult;
+import com.group5.ratingservice.reputation.dto.MyReputation;
+import com.group5.ratingservice.reputation.dto.PenaltyItem;
 import com.group5.ratingservice.reputation.dto.ReputationHistoryItem;
 import com.group5.ratingservice.reputation.dto.ReputationSnapshot;
 import com.group5.ratingservice.reputation.enums.TrustLevel;
@@ -22,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,6 +54,24 @@ public class ReputationService {
             requireReconciled(state);
             return state.snapshot(policy.version());
         }).orElseGet(() -> new ReputationSnapshot(userId, 50, TrustLevel.NEW, 0, 0, 0, 0, policy.version()));
+    }
+
+    @Transactional(readOnly = true)
+    public MyReputation mine(UUID userId) {
+        long penalties = store.penaltyCount(Objects.requireNonNull(userId));
+        return store.find(userId).map(state -> new MyReputation(state.getScore(), state.getTrustLevel(),
+                        state.getTotalTransaction(), state.getSuccessfulTransaction(), state.getFailedTransaction(),
+                        state.getRatingCount(), state.getRatingCount() == 0 ? null
+                                : BigDecimal.valueOf(state.getRatingScoreSum())
+                                        .divide(BigDecimal.valueOf(state.getRatingCount()), 1, RoundingMode.HALF_UP),
+                        state.getSuccessfulAuctionCount(), state.getFailedAuctionCount(), penalties,
+                        state.getPolicyVersion() == null ? policy.version() : state.getPolicyVersion()))
+                .orElseGet(() -> new MyReputation(50, TrustLevel.NEW, 0, 0, 0, 0, null, 0, 0, penalties, policy.version()));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<PenaltyItem> penalties(UUID userId, int page, int size) {
+        return new PageImpl<>(store.penalties(userId, page, size), PageRequest.of(page, size), store.penaltyCount(userId));
     }
 
     @Transactional(readOnly = true)

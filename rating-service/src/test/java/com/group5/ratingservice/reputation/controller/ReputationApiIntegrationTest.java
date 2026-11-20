@@ -307,6 +307,60 @@ class ReputationApiIntegrationTest extends RatingPostgresIntegrationTest {
         assertThat(count("user_reputations")).isZero();
     }
 
+    @Test
+    void ownersReadTheirReputationAndOnlyTheScoreLossesAsPenalties() throws Exception {
+        UUID owner = UUID.randomUUID();
+        String admin = user("ADMIN", "USER.REPUTATION.ADJUST");
+        adjustment(owner, admin, -8, "Unpaid auction win", "penalty-1").andExpect(status().isCreated());
+        adjustment(owner, admin, 3, "Goodwill", "bonus-1").andExpect(status().isCreated());
+        adjustment(owner, admin, -2, "Late shipment", "penalty-2").andExpect(status().isCreated());
+        adjustment(UUID.randomUUID(), admin, -5, "Someone else", "other-1").andExpect(status().isCreated());
+        jdbc.update("UPDATE user_reputations SET rating_count = 3, rating_score_sum = 13, successful_auction_count = 2 WHERE user_id = ?", owner);
+        String token = user(owner, "BUYER", "REPUTATION.VIEW");
+
+        client.perform(auth(get("/api/v1/users/me/reputation"), token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.score").value(43))
+                .andExpect(jsonPath("$.data.averageRating").value(4.3))
+                .andExpect(jsonPath("$.data.successfulAuctions").value(2))
+                .andExpect(jsonPath("$.data.penaltyCount").value(2))
+                .andExpect(jsonPath("$.data.userId").doesNotExist());
+        client.perform(auth(get("/api/v1/users/me/penalties").param("size", "1"), token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].reason").value("Late shipment"))
+                .andExpect(jsonPath("$.data[0].delta").value(-2))
+                .andExpect(jsonPath("$.data[0].actorId").doesNotExist())
+                .andExpect(jsonPath("$.page.totalElements").value(2));
+        client.perform(auth(get("/api/v1/users/me/penalties").param("page", "1").param("size", "1"), token))
+                .andExpect(jsonPath("$.data[0].reason").value("Unpaid auction win"))
+                .andExpect(jsonPath("$.data[0].previousScore").value(50))
+                .andExpect(jsonPath("$.data[0].newScore").value(42));
+    }
+
+    @Test
+    void aNewUserSeesNeutralReputationAndNoPenaltiesWithoutCreatingAnAggregate() throws Exception {
+        String token = user(UUID.randomUUID(), "SELLER", "REPUTATION.VIEW");
+        client.perform(auth(get("/api/v1/users/me/reputation"), token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.score").value(50))
+                .andExpect(jsonPath("$.data.trustLevel").value("NEW"))
+                .andExpect(jsonPath("$.data.averageRating").isEmpty())
+                .andExpect(jsonPath("$.data.penaltyCount").value(0));
+        client.perform(auth(get("/api/v1/users/me/penalties"), token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(0));
+        assertThat(count("user_reputations")).isZero();
+    }
+
+    @Test
+    void ownReputationNeedsTheViewPrivilegeAValidTokenAndSanePages() throws Exception {
+        client.perform(auth(get("/api/v1/users/me/reputation"), user("BUYER", "PROFILE.VIEW")))
+                .andExpect(status().isForbidden());
+        client.perform(get("/api/v1/users/me/penalties")).andExpect(status().isUnauthorized());
+        client.perform(auth(get("/api/v1/users/me/penalties").param("size", "51"), user("BUYER", "REPUTATION.VIEW")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("RATING_VALIDATION_FAILED"));
+    }
+
     @ParameterizedTest
     @CsvSource({"page,-1", "size,0", "size,101"})
     void historyRejectsInvalidPagination(String parameter, String value) throws Exception {

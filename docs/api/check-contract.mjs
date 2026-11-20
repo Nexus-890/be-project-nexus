@@ -21,6 +21,9 @@ const services = {
     'src/main/java/com/group5/userservice/address/AddressController.java',
     'src/main/java/com/group5/userservice/seller/SellerController.java',
     'src/main/java/com/group5/userservice/seller/SellerApplicationController.java',
+    'src/main/java/com/group5/userservice/avatar/AvatarController.java',
+    'src/main/java/com/group5/userservice/password/PasswordChangeController.java',
+    'src/main/java/com/group5/userservice/password/PasswordResetController.java',
   ],
   'catalog-service': [
     'src/main/java/com/group5/catalogservice/category/CategoryController.java',
@@ -61,6 +64,7 @@ const services = {
     'src/main/java/com/group5/inventoryservice/warehouse/controller/WarehouseController.java',
     'src/main/java/com/group5/inventoryservice/reservation/controller/ReservationController.java',
     'src/main/java/com/group5/inventoryservice/reservation/controller/InternalReservationController.java',
+    'src/main/java/com/group5/inventoryservice/warehouse/controller/InternalWarehouseController.java',
   ],
   'auction-service': [
     'src/main/java/com/group5/auctionservice/offer/SecondChanceOfferController.java',
@@ -75,12 +79,14 @@ const services = {
     'src/main/java/com/group5/shipmentservice/shipping/controller/ShipmentController.java',
     'src/main/java/com/group5/shipmentservice/shipping/controller/ShipmentStatusController.java',
     'src/main/java/com/group5/shipmentservice/shipping/controller/CarrierWebhookController.java',
+    'src/main/java/com/group5/shipmentservice/shipping/controller/CarrierPerformanceController.java',
   ],
   'rating-service': [
     'src/main/java/com/group5/ratingservice/rating/controller/RatingController.java',
     'src/main/java/com/group5/ratingservice/reputation/controller/ReputationController.java',
     'src/main/java/com/group5/ratingservice/reputation/controller/ReputationHistoryController.java',
     'src/main/java/com/group5/ratingservice/eligibility/controller/EligibilityController.java',
+    'src/main/java/com/group5/ratingservice/reputation/controller/MyReputationController.java',
   ],
 };
 const normalize = (route) => route.replace(/\{[^}]+\}/g, '{}');

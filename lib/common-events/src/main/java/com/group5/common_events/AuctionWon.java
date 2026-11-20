@@ -12,12 +12,20 @@ public record AuctionWon(UUID auctionId, UUID sellerId, UUID productId, UUID sku
                          String finalPrice, String currency, String title, String imageUrl,
                          int quantity, Instant endAt, Instant paymentDueAt,
                          @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
-                         UUID offerId) {
+                         UUID offerId,
+                         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                         String skuCode) {
     public AuctionWon(UUID auctionId, UUID sellerId, UUID productId, UUID skuId, UUID winnerId,
                       String finalPrice, String currency, String title, String imageUrl,
                       int quantity, Instant endAt, Instant paymentDueAt) {
         this(auctionId, sellerId, productId, skuId, winnerId, finalPrice, currency, title, imageUrl,
-                quantity, endAt, paymentDueAt, null);
+                quantity, endAt, paymentDueAt, null, null);
+    }
+    public AuctionWon(UUID auctionId, UUID sellerId, UUID productId, UUID skuId, UUID winnerId,
+                      String finalPrice, String currency, String title, String imageUrl,
+                      int quantity, Instant endAt, Instant paymentDueAt, UUID offerId) {
+        this(auctionId, sellerId, productId, skuId, winnerId, finalPrice, currency, title, imageUrl,
+                quantity, endAt, paymentDueAt, offerId, null);
     }
     public AuctionWon {
         Objects.requireNonNull(auctionId); Objects.requireNonNull(sellerId);
@@ -28,7 +36,8 @@ public record AuctionWon(UUID auctionId, UUID sellerId, UUID productId, UUID sku
                 || !"VND".equals(currency) || quantity != 1 || sellerId.equals(winnerId)
                 || title == null || title.isBlank() || title.length() > 255
                 || imageUrl == null || imageUrl.isBlank() || imageUrl.length() > 500
-                || !URI.create(imageUrl).isAbsolute() || !paymentDueAt.isAfter(endAt)) {
+                || !URI.create(imageUrl).isAbsolute() || !paymentDueAt.isAfter(endAt)
+                || skuCode != null && (skuCode.isBlank() || skuCode.length() > 60)) {
             throw new IllegalArgumentException("Invalid AuctionWon snapshot");
         }
     }

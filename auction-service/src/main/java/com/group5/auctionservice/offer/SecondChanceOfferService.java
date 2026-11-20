@@ -127,7 +127,7 @@ public class SecondChanceOfferService {
             emit("AuctionWon", auction.getId(), new AuctionWon(auction.getId(), auction.getSellerId(),
                     auction.getProductId(), auction.getSkuId(), buyer.id(), offer.amount().setScale(2).toPlainString(),
                     auction.getCurrency(), auction.getTitle(), auction.getImageUrl(), 1,
-                    auction.getEndAt(), deadline, id));
+                    auction.getEndAt(), deadline, id, auction.getSkuCode()));
             emit("SecondChanceAccepted", auction.getId(), payload(auction, id, buyer.id()));
         } else emit("SecondChanceDeclined", auction.getId(), payload(auction, id, buyer.id()));
         return get(id);

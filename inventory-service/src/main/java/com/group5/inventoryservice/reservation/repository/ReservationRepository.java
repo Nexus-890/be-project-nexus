@@ -28,7 +28,7 @@ public interface ReservationRepository extends JpaRepository<InventoryReservatio
 
     List<InventoryReservation> findByOrderIdAndAuctionWinnerIdOrderById(UUID orderId, UUID buyerId);
 
-    List<InventoryReservation> findByOrderIdInAndWarehouseId(Collection<UUID> orderIds, UUID warehouseId);
+    List<InventoryReservation> findByOrderIdIn(Collection<UUID> orderIds);
 
     List<InventoryReservation> findByOrderIdOrderBySkuIdAscIdAsc(UUID orderId);
 
@@ -74,6 +74,26 @@ public interface ReservationRepository extends JpaRepository<InventoryReservatio
             WHERE id = :id AND status = 'EXPIRED'
             """)
     int confirmExpired(@Param("id") UUID id, @Param("actor") UUID actor);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(nativeQuery = true, value = """
+            UPDATE inventory_reservations
+            SET picked_at  = now(),
+                picked_by  = :actor,
+                updated_by = :actor
+            WHERE id = :id AND status = 'CONFIRMED' AND picked_at IS NULL
+            """)
+    int pickConfirmed(@Param("id") UUID id, @Param("actor") UUID actor);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(nativeQuery = true, value = """
+            UPDATE inventory_reservations
+            SET shipped_at = now(),
+                shipped_by = :actor,
+                updated_by = :actor
+            WHERE id = :id AND status = 'CONFIRMED' AND picked_at IS NOT NULL AND shipped_at IS NULL
+            """)
+    int shipPicked(@Param("id") UUID id, @Param("actor") UUID actor);
 
     @Query("""
             SELECT r FROM InventoryReservation r

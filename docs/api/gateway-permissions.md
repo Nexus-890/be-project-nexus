@@ -79,11 +79,14 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/vouchers/{id}/claim` | POST | VOUCHER.CLAIM | #256 — Promotions and vouchers |
 | `/api/v1/auth/register` | POST | Public | #74 — User registration with a default role             |
 | `/api/v1/auth/verification-email` | POST | Public | #210 / #262 — Resend the email verification link (one per address per minute, same answer for unknown addresses) |
+| `/api/v1/auth/password-reset` | POST | Public | Forgot password: email a one-time reset link (one per account per minute, same answer for unknown addresses) |
+| `/api/v1/auth/password-reset/confirm` | POST | Public | Forgot password: set a new password with the emailed link, then sign out every session |
 | `/api/v1/auth/session` | POST | Public | #252 — HttpOnly refresh cookie: sign-in exchange |
 | `/api/v1/auth/refresh` | POST | Public | #252 — HttpOnly refresh cookie: renew the access token |
 | `/api/v1/auth/logout` | POST | Public | #252 — HttpOnly refresh cookie: sign out |
 | `/api/v1/products` | GET | Public | #99 / #220 — Database search, listing type, price ceiling and stable sorting before pagination |
 | `/api/v1/products/search` | GET | Public | #215 — Full-text product search |
+| `/api/v1/products/discovery` | GET | Public | Home page best sellers and new arrivals |
 | `/api/v1/categories` | GET | Public | #215 — Flat category list |
 | `/api/v1/products/{id}` | GET | Public | #83 — Product create, update and read                   |
 | `/api/v1/categories/{id}` | GET | Public | #80 — Category create, update and read                  |
@@ -94,6 +97,11 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/users/me` | PUT | PROFILE.UPDATE | #75 — Own profile: read and update                      |
 | `/api/v1/users/me/phone/verification` | POST | PROFILE.UPDATE | #210 / #263 — Send a phone verification code |
 | `/api/v1/users/me/phone/verification/confirm` | POST | PROFILE.UPDATE | #210 / #263 — Confirm the phone verification code |
+| `/api/v1/users/me/avatar` | POST | PROFILE.UPDATE | Own avatar: multipart `file`, JPEG/PNG/WebP up to 2 MB, stored in Supabase |
+| `/api/v1/users/me/avatar` | DELETE | PROFILE.UPDATE | Own avatar: clear the photo and remove the stored object |
+| `/api/v1/users/me/password` | POST | PROFILE.UPDATE | Own password: check the current one, set a new one, sign out the other sessions |
+| `/api/v1/users/me/reputation` | GET | REPUTATION.VIEW | rating-service — own reputation with rating average and penalty count |
+| `/api/v1/users/me/penalties` | GET | REPUTATION.VIEW | rating-service — own reputation changes that lowered the score |
 | `/api/v1/users/me/addresses` | GET | PROFILE.VIEW | #210 / #265 — Own address book |
 | `/api/v1/users/me/addresses` | POST | PROFILE.UPDATE | #210 / #265 — Own address book |
 | `/api/v1/users/me/addresses/{id}` | PUT | PROFILE.UPDATE | #210 / #265 — Own address book |
@@ -201,8 +209,11 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/refunds` | POST | ORDER.REFUND | #247 — payment-service; funded amount and idempotency enforced downstream |
 | `/api/v1/refunds` | GET | ORDER.REFUND | #247 — payment-service; order visibility enforced downstream |
 | `/api/v1/refunds/{id}/complete` | POST | ORDER.REFUND | #247 — payment-service; manual transfer confirmation enforced downstream |
+| `/api/v1/refunds/{id}/evidence` | POST | ORDER.REFUND | Refund evidence — private transfer proof with bank reference; at most 3 files while REQUESTED |
+| `/api/v1/refunds/{id}/evidence/{evidenceId}` | GET | ORDER.REFUND | Refund evidence — private bytes of one stored proof |
 | `/api/v1/shipping/quotes` | POST | SHIPPING.QUOTE | #201 — shipment-service |
 | `/api/v1/carriers` | GET | SHIPPING.QUOTE | #201 — shipment-service; SHP-11 |
+| `/api/v1/carriers/performance` | GET | SHIPPING.VIEW_SHIPMENT | Carrier performance — shipment-service; ADMIN or SUPPORT_STAFF downstream; success rate and average delivery time per carrier for shipments created in [from, to) |
 | `/api/v1/shipments` | POST | SHIPPING.CREATE_SHIPMENT | #202 — shipment-service; manual creation additionally requires ADMIN or SUPPORT_STAFF downstream |
 | `/api/v1/shipments` | GET | SHIPPING.VIEW_SHIPMENT | #202 — shipment-service; own-order visibility enforced downstream |
 | `/api/v1/shipments/{id}` | GET | SHIPPING.VIEW_SHIPMENT | #202 — shipment-service; own-order visibility enforced downstream |
@@ -273,6 +284,9 @@ above: any valid token passes the gateway and the owning service checks the role
 | POST | `/api/v1/inventory/reservations/{id}/confirm` | not routed | Service requires ADMIN; the OrderPaid consumer calls the service method in-process | #136 — Confirm and release a reservation |
 | POST | `/api/v1/inventory/reservations/{id}/release` | not routed | Service requires ADMIN; the OrderCancelled consumer calls the service method in-process | #136 — Confirm and release a reservation |
 | GET | `/api/v1/inventory/reservations` | token only | Service requires ADMIN or SUPPORT_STAFF | #200 — Inventory support reads and stock adjustment |
+| GET | `/api/v1/inventory/reservations/fulfillment` | token only | Service requires ADMIN, or SELLER owning every SKU of the order | Pick and pack — fulfilment steps of one seller order |
+| POST | `/api/v1/inventory/reservations/{id}/pick` | token only | Service requires ADMIN, or SELLER owning the SKU; CONFIRMED only; writes one PICK ledger row | Pick and pack |
+| POST | `/api/v1/inventory/reservations/{id}/ship` | token only | Service requires ADMIN, or SELLER owning the SKU; after pick; writes one SHIP ledger row | Pick and pack |
 | GET | `/api/v1/inventory/balances` | token only | Service requires ADMIN, or SELLER with `skuId` of a SKU whose product catalog-service shows with the caller as `sellerId` | #200 — Inventory support reads and stock adjustment |
 | POST | `/api/v1/inventory/adjustments` | token only | Service requires ADMIN; writes one ADJUSTMENT ledger row with the reason | #200 — Inventory support reads and stock adjustment |
 | GET | `/api/v1/inventory/movements` | token only | Service requires ADMIN or SUPPORT_STAFF | #200 — Inventory support reads and stock adjustment |
@@ -380,8 +394,8 @@ require their owning implementations.
 - Exactly thirteen method/path pairs are public. No public `/**`, method-less rule,
   or implicit public HEAD/OPTIONS, Swagger or Actuator exception. TRACE is rejected
   earlier by Spring Security's HTTP firewall with 400, never forwarded.
-- `{id}` is a UUID. UUID-constrained matchers keep `/products/mine`,
-  `/products/search`, `/products/discovery`, and future literal paths from
+- `{id}` is a UUID. UUID-constrained matchers keep `/products/mine`
+  and future literal paths from
   inheriting public product-detail access. Category `tree` has its own public row.
 - Category updates use PATCH in the current controller; the external endpoint
   catalogue says PUT. A later contract change must update both files.
@@ -530,7 +544,9 @@ These older drafts add no public method/path pairs to the active table above.
 | POST | `/api/v1/payments` | BUYER | CHECKOUT.START | CHECKOUT.START | Own PENDING group/session before dueAt; repeated call returns the same instructions | #120, #121 |
 | POST | `/api/v1/refunds` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Cancelled, paid order; one refund per order; same Idempotency-Key and body returns the stored refund | #247 |
 | GET | `/api/v1/refunds` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Refund of one order by orderId | #247 |
-| POST | `/api/v1/refunds/{id}/complete` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Records one manual REFUND transaction; repeating returns the completed refund | #247 |
+| POST | `/api/v1/refunds/{id}/complete` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Needs at least one evidence file; records one manual REFUND transaction; repeating returns the completed refund | #247 |
+| POST | `/api/v1/refunds/{id}/evidence` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | JPEG, PNG or PDF up to 10 MiB with a bank reference; same file again returns the stored refund; at most 3 files; closed after completion | Refund evidence |
+| GET | `/api/v1/refunds/{id}/evidence/{evidenceId}` | ADMIN, SUPPORT_STAFF | ORDER.REFUND | ORDER.REFUND | Private evidence bytes, no-store | Refund evidence |
 | GET | `/api/v1/notifications` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notifications only, including for ADMIN | #108 |
 | GET | `/api/v1/notifications/unread-count` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Count own unread notifications only | #108 |
 | PATCH | `/api/v1/notifications/{id}/read` | ADMIN, SELLER, BUYER, SUPPORT_STAFF | NOTIFICATION.VIEW | NOTIFICATION.VIEW | Own notification only; other caller returns 403 | #109 |
@@ -750,11 +766,16 @@ A path with several roles in `x-required-roles` accepts any one of them.
 | POST | `/api/v1/inventory/reservations/{id}/confirm` | system | not routed | none (service-to-service) | Called by the event consumers of #160 and #161; conditional on status HELD | #136 |
 | POST | `/api/v1/inventory/reservations/{id}/release` | system | not routed | none (service-to-service) | Called by the event consumers of #160 and #161; conditional on status HELD | #136 |
 | GET | `/api/v1/inventory/reservations` | ADMIN, SUPPORT_STAFF | token only | none (role-only) | Service requires ADMIN or SUPPORT_STAFF | #200 |
+| GET | `/api/v1/inventory/reservations/fulfillment` | ADMIN, SELLER | token only | none (role-only) | Seller sees only orders whose SKUs they own | Pick and pack |
+| POST | `/api/v1/inventory/reservations/{id}/pick` | ADMIN, SELLER | token only | none (role-only) | Conditional on CONFIRMED and not picked; repeating returns the reservation | Pick and pack |
+| POST | `/api/v1/inventory/reservations/{id}/ship` | ADMIN, SELLER | token only | none (role-only) | Conditional on picked and not shipped; repeating returns the reservation | Pick and pack |
 | GET | `/api/v1/inventory/balances` | ADMIN, SELLER | token only | none (role-only) | Service requires ADMIN, or SELLER for their own SKUs | #200 |
 | POST | `/api/v1/inventory/adjustments` | ADMIN | token only | none (role-only) | Service requires ADMIN; writes one ledger row | #200 |
 | GET | `/api/v1/inventory/movements` | ADMIN, SUPPORT_STAFF | token only | none (role-only) | Service requires ADMIN or SUPPORT_STAFF | #200 |
 | POST | `/api/v1/warehouses` | ADMIN | token only | none (role-only) | Service requires ADMIN | #199 |
 | GET | `/api/v1/warehouses` | ADMIN, SUPPORT_STAFF | token only | none (role-only) | Service requires ADMIN or SUPPORT_STAFF | #199 |
+| GET | `/api/v1/warehouses/me` | SELLER | token only | none (role-only) | Service requires SELLER; 404 until the seller's warehouse exists | one warehouse per seller |
+| PUT | `/api/v1/warehouses/me` | SELLER | token only | none (role-only) | Service requires SELLER; creates the warehouse on first save | one warehouse per seller |
 | GET | `/api/v1/warehouses/{id}` | ADMIN, SUPPORT_STAFF | token only | none (role-only) | Service requires ADMIN or SUPPORT_STAFF | #199 |
 | PUT | `/api/v1/warehouses/{id}` | ADMIN | token only | none (role-only) | Service requires ADMIN | #199 |
 
@@ -809,7 +830,10 @@ A path with several roles in `x-required-roles` accepts any one of them.
   and #198 are in Sprint 2. AUC-09, AUC-11 and AUC-12 have no issue and are left out.
   `GET /internal/v1/inventory/reservations` (#209, Sprint 3) is not in this draft.
 - **Movement types:** `movementType` and the `type` filter use the eight
-  `inventory_movement_type` values plus `INTAKE` and `COMMIT`, which V6 adds (#131).
+  `inventory_movement_type` values plus `INTAKE` and `COMMIT`, which V6 adds (#131),
+  and `PICK` and `SHIP`, which V13 adds for pick and pack, and `TRANSFER`, which V14
+  adds: when a seller warehouse receives stock, available stock of the SKU left in
+  platform warehouses moves there as a -q / +q pair.
   #200 writes `ADJUSTMENT`. The schema document still names an `ADJUST` value that no
   issue writes.
   As delivered, the `type` filter and `movementType` use only the six values the

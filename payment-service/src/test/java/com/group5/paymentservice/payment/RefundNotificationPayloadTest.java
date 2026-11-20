@@ -172,6 +172,7 @@ class RefundNotificationPayloadTest {
         when(refunds.findOrderIdById(refund.getId()))
                 .thenReturn(Optional.of(instruction.getOrderId()));
         when(refunds.findLockedById(refund.getId())).thenReturn(Optional.of(refund));
+        when(refunds.countEvidence(refund.getId())).thenReturn(1L);
         UUID transferId = UUID.randomUUID();
         when(transactions.saveAndFlush(any()))
                 .thenAnswer(

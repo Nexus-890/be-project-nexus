@@ -31,7 +31,17 @@ public enum UserErrorCode implements ErrorCode {
     ADDRESS_NOT_FOUND(HttpStatus.NOT_FOUND, "Address not found"),
     SELLER_APPLICATION_EXISTS(HttpStatus.CONFLICT, "An open or approved seller application already exists"),
     SELLER_APPLICATION_NOT_PENDING(HttpStatus.CONFLICT, "Only a pending seller application can be decided"),
-    SELLER_APPLICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "Seller application not found");
+    SELLER_APPLICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "Seller application not found"),
+    USER_AVATAR_REQUIRED(HttpStatus.BAD_REQUEST, "Choose an image file for the avatar"),
+    USER_AVATAR_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "The avatar image is larger than the allowed size"),
+    USER_AVATAR_INVALID_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "The avatar must be a JPEG, PNG or WebP image"),
+    USER_AVATAR_STORAGE_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE, "Avatar storage is not configured"),
+    USER_AVATAR_STORAGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "Avatar storage is unavailable; try again later"),
+    USER_PASSWORD_RESET_LINK_INVALID(HttpStatus.BAD_REQUEST,
+            "The password reset link is invalid, used or expired; ask for a new one"),
+    USER_PASSWORD_REJECTED(HttpStatus.BAD_REQUEST, "The new password does not meet the password policy"),
+    USER_PASSWORD_REUSED(HttpStatus.BAD_REQUEST, "The new password must be different from the current password"),
+    USER_CURRENT_PASSWORD_INCORRECT(HttpStatus.BAD_REQUEST, "The current password is incorrect");
 
     private final HttpStatus status;
     private final String message;

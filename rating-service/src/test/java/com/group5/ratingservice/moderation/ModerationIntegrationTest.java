@@ -140,6 +140,38 @@ class ModerationIntegrationTest extends RatingPostgresIntegrationTest {
     }
 
     @Test
+    void removingAFavorableRatingAppearsOnceInOwnPenaltiesAndUpdatesOwnReputation() throws Exception {
+        var favorable = rating(UUID.randomUUID(), 5, true);
+        String owner = user(favorable.toUserId(), "SELLER", "REPUTATION.VIEW");
+        client.perform(auth(get("/api/v1/users/me/reputation"), owner))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.score").value(100))
+                .andExpect(jsonPath("$.data.averageRating").value(5.0))
+                .andExpect(jsonPath("$.data.ratingCount").value(1))
+                .andExpect(jsonPath("$.data.penaltyCount").value(0));
+
+        String id = createDispute(favorable, "Favorable review belongs to another transaction");
+        String admin = user(UUID.randomUUID(), "ADMIN", "USER.REPUTATION.ADJUST");
+        resolve(id, admin, "APPROVED", "Unrelated rating removed").andExpect(status().isOk());
+        resolve(id, admin, "APPROVED", "Unrelated rating removed").andExpect(status().isOk());
+
+        client.perform(auth(get("/api/v1/users/me/penalties"), owner))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$.data[0].changeType").value("RATING_DISPUTE_APPROVED"))
+                .andExpect(jsonPath("$.data[0].sourceId").value(favorable.ratingId().toString()))
+                .andExpect(jsonPath("$.data[0].delta").value(-30))
+                .andExpect(jsonPath("$.data[0].previousScore").value(100))
+                .andExpect(jsonPath("$.data[0].newScore").value(70))
+                .andExpect(jsonPath("$.data[0].reason").value("Unrelated rating removed"));
+        client.perform(auth(get("/api/v1/users/me/reputation"), owner))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.score").value(70))
+                .andExpect(jsonPath("$.data.averageRating").isEmpty())
+                .andExpect(jsonPath("$.data.ratingCount").value(0))
+                .andExpect(jsonPath("$.data.successfulTransaction").value(1))
+                .andExpect(jsonPath("$.data.penaltyCount").value(1));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM reputation_moderation_audit WHERE action='DISPUTE_APPROVED'", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
     void approvalBeforeUserRatedPreventsLateEventAndBackfillFromRestoringTheRating() throws Exception {
         var rating = rating(UUID.randomUUID(), 1, false);
         String id = createDispute(rating, "Misleading review");

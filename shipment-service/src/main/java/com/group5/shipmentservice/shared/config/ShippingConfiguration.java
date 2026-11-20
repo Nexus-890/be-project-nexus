@@ -3,6 +3,8 @@ package com.group5.shipmentservice.shared.config;
 import com.group5.shipmentservice.shipping.adapter.FakeCarrierAdapter;
 import com.group5.shipmentservice.shipping.adapter.ghn.GhnAdapter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -38,7 +40,8 @@ public class ShippingConfiguration {
             String configured = environment.getProperty("nexus.shipping." + key);
             if (carrier.equalsIgnoreCase(configured == null || configured.isBlank() ? legacy : configured)) return true;
         }
-        return false;
+        return Binder.get(environment).bind("nexus.shipping.checkout-carriers", Bindable.listOf(String.class))
+                .orElse(java.util.List.of()).stream().anyMatch(code -> carrier.equalsIgnoreCase(code.trim()));
     }
 
     static class FakeEnabled implements Condition {

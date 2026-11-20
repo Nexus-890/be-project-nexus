@@ -84,6 +84,13 @@ public class ProductController {
         return pageResponse(productService.search(q, categoryId, minPrice, maxPrice, sort, listingType, page, size));
     }
 
+    @GetMapping("/discovery")
+    public ApiResponse<List<ProductResponse>> discover(
+            @RequestParam(defaultValue = "popular") String type,
+            @RequestParam(defaultValue = "8") int size) {
+        return ApiResponse.of(productService.discover(type, size));
+    }
+
     @GetMapping("/mine")
     @PreAuthorize("hasRole('SELLER') and hasAuthority('PRODUCT.LIST')")
     public ApiResponse<List<ProductResponse>> getMyProducts(

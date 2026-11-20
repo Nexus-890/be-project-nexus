@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Nexus vận chuyển
-  version: 2.6.0
+  version: 2.8.0
   description: >-
     Issue #201: danh sách nhà vận chuyển, địa giới GHN v3 hai cấp sau sáp nhập và báo giá bằng preview. Bản
     2.6 bổ sung applyFreeShipping tùy chọn cho #172; mặc định true, false trả phí carrier gốc để Commerce
@@ -598,6 +598,69 @@ paths:
           $ref: '#/components/responses/RoutingUnavailable'
         '504':
           $ref: '#/components/responses/GatewayTimeout'
+  /api/v1/carriers/performance:
+    get:
+      tags:
+        - Carriers
+      operationId: getCarrierPerformance
+      summary: Đo hiệu suất từng nhà vận chuyển
+      description: >-
+        Yêu cầu quyền SHIPPING.VIEW_SHIPMENT và vai trò ADMIN hoặc SUPPORT_STAFF. Gom các vận đơn tạo trong
+        [from, to), tối đa 366 ngày, theo carrier. delivered là vận đơn đang DELIVERED; failed là DELIVERY_FAILED,
+        RETURNING hoặc RETURNED; cancelled là CANCELLED; inProgress là phần còn lại. successRate = delivered /
+        (delivered + failed), null khi chưa có vận đơn kết thúc. averageDeliveryHours tính từ lúc bàn giao
+        (handed_over_at, hoặc created_at khi chưa ghi nhận bàn giao) tới dòng lịch sử DELIVERED đầu tiên.
+        onTimeRate là tỷ lệ vận đơn DELIVERED giao không muộn hơn estimated_delivery_at trong số vận đơn có ước
+        tính. Carrier đang cấu hình nhưng chưa có vận đơn vẫn xuất hiện với số 0. Sắp xếp theo số vận đơn giảm
+        dần rồi mã carrier. Trả toàn bộ danh sách trong một trang logic.
+      security:
+        - bearerAuth: []
+      x-required-privileges:
+        - SHIPPING.VIEW_SHIPMENT
+      x-required-roles:
+        - ADMIN
+        - SUPPORT_STAFF
+      x-ownership: Không giới hạn theo chủ sở hữu.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          description: Mốc bắt đầu, ISO-8601 có offset, tính cả mốc này
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: true
+          description: Mốc kết thúc, ISO-8601 có offset, không tính mốc này
+          schema:
+            type: string
+            format: date-time
+      x-error-codes:
+        '400':
+          - SHIPMENT_INVALID_PERIOD
+          - SHIPMENT_INVALID_PARAMETER
+        '401':
+          - SHIPMENT_UNAUTHENTICATED
+        '403':
+          - SHIPMENT_FORBIDDEN
+      responses:
+        '200':
+          description: Một dòng cho mỗi carrier.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CarrierPerformanceListResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/v1/shipping/provinces:
     get:
       tags:
@@ -840,6 +903,10 @@ paths:
         gửi bằng 0 vì luồng hiện tại không thu hộ. Tên và số điện thoại người gửi không gửi riêng sẽ theo hồ
         sơ ShopId được GHN công bố. Items cung cấp số lượng đơn vị và số SKU để tóm tắt nội dung; parcel là
         một kiện đã đóng gói. Khi GHN cần items theo kiện, quantity=1 là số kiện, không phải số đơn vị SKU.
+        Khi SHIPPING_CHECKOUT_CARRIERS có giá trị (ví dụ FAKE), mỗi hãng đang bật (quote carrier trước, rồi
+        các hãng trong danh sách) được báo giá riêng; hãng lỗi bị bỏ qua, chỉ khi mọi hãng lỗi mới trả lỗi.
+        Danh sách được sắp theo SHIPPING_CARRIER_STRATEGY (CHEAPEST: phí rồi ngày giao; FASTEST: ngày giao
+        rồi phí) và phần tử đầu có recommended=true. Không đặt biến này thì chỉ quote carrier trả lời.
         InsuranceValue là giá trị khai bảo hiểm tùy chọn: VND nguyên từ 0 đến 5.000.000, bỏ trống hoặc null
         gửi 0; không tự lấy subtotal, không cắt ngưỡng hoặc làm tròn. WarehouseId ánh xạ tới pickup được cấu
         hình; bỏ trống dùng defaultWarehouseId cho WH_001. Subtotal miễn phí lấy toàn bộ giá SKU hiện tại nhân
@@ -1931,6 +1998,7 @@ components:
                       - SHIPMENT_INVALID_REQUEST_BODY
                       - SHIPMENT_INVALID_PARAMETER
                       - SHIPMENT_INVALID_ADDRESS
+                      - SHIPMENT_INVALID_PERIOD
           examples:
             SHIPMENT_INVALID_REQUEST:
               summary: Dữ liệu báo giá không hợp lệ
@@ -3004,6 +3072,79 @@ components:
             $ref: '#/components/schemas/CarrierResponse'
         page:
           $ref: '#/components/schemas/PageInfo'
+    CarrierPerformance:
+      type: object
+      additionalProperties: false
+      required: [carrier, name, shipments, delivered, failed, inProgress, cancelled, successRate, averageDeliveryHours, onTimeRate]
+      properties:
+        carrier:
+          type: string
+          example: GHN
+        name:
+          type: string
+          example: Giao Hàng Nhanh
+        shipments:
+          type: integer
+          format: int64
+          minimum: 0
+        delivered:
+          type: integer
+          format: int64
+          minimum: 0
+        failed:
+          type: integer
+          format: int64
+          minimum: 0
+        inProgress:
+          type: integer
+          format: int64
+          minimum: 0
+        cancelled:
+          type: integer
+          format: int64
+          minimum: 0
+        successRate:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 1
+          description: Phân số 0..1, 4 chữ số thập phân
+          example: 0.9231
+        averageDeliveryHours:
+          type: number
+          nullable: true
+          minimum: 0
+          description: Số giờ trung bình, 1 chữ số thập phân
+          example: 52.4
+        onTimeRate:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 1
+          example: 0.875
+    CarrierPerformanceListResponse:
+      type: object
+      required:
+        - code
+        - message
+        - data
+        - page
+      additionalProperties: false
+      properties:
+        code:
+          type: integer
+          enum:
+            - 0
+          default: 0
+        message:
+          type: string
+          default: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CarrierPerformance'
+        page:
+          $ref: '#/components/schemas/PageInfo'
     LocalityListResponse:
       type: object
       required:
@@ -3129,6 +3270,13 @@ components:
           format: date-time
           description: Thời điểm dự kiến giao hàng có múi giờ, từ expected_delivery_time của preview hợp lệ.
           example: '2026-11-13T16:59:59Z'
+        carrierName:
+          type: string
+          description: Tên hiển thị của hãng vận chuyển.
+          example: Giao Hàng Nhanh
+        recommended:
+          type: boolean
+          description: true cho lựa chọn đứng đầu theo SHIPPING_CARRIER_STRATEGY.
     ShippingQuoteRequest:
       type: object
       required:
@@ -3151,6 +3299,24 @@ components:
           format: uuid
           nullable: true
           description: UUID kho có mapping lấy hàng đã cấu hình; bỏ trống hoặc null dùng kho mặc định.
+        pickupAddress:
+          type: object
+          nullable: true
+          description: >-
+            Địa chỉ lấy hàng của kho riêng seller do Commerce đọc từ Inventory. Có giá trị thì thay cho mapping
+            theo warehouseId và địa chỉ lấy hàng của nền tảng; bỏ trống giữ cách chọn cũ.
+          required: [provinceCode, wardCode, line1]
+          properties:
+            provinceCode:
+              type: string
+              pattern: '^[1-9][0-9]{0,8}$'
+            wardCode:
+              type: string
+              pattern: '^[1-9][0-9]{0,8}$'
+            line1:
+              type: string
+              minLength: 1
+              maxLength: 255
         insuranceValue:
           type: number
           nullable: true

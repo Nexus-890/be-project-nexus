@@ -23,12 +23,18 @@ import java.util.UUID;
 public class PricingService {
     private final CatalogClient catalogClient;
     private final OrderShippingService shipping;
+    private final InventoryClient inventory;
 
     @Value("${nexus.checkout.free-shipping-threshold:1000000}")
     private BigDecimal freeShippingThreshold = new BigDecimal("1000000");
 
     public OrderShippingService.Quote auctionShippingQuote(ShippingAddress address, UUID skuId,
                                                            UUID productId, UUID warehouseId, BigDecimal finalPrice) {
+        return auctionShippingQuote(address, skuId, productId, warehouseId, finalPrice, null);
+    }
+
+    public OrderShippingService.Quote auctionShippingQuote(ShippingAddress address, UUID skuId, UUID productId,
+                                                           UUID warehouseId, BigDecimal finalPrice, UUID sellerId) {
         CatalogSkuResponse sku;
         try {
             var response = catalogClient.getSkuById(skuId);
@@ -39,14 +45,46 @@ public class PricingService {
         if (sku == null || !skuId.equals(sku.getId()) || !productId.equals(sku.getProductId())) {
             throw new DomainException(CommerceErrorCode.INVALID_CATALOG_RESPONSE);
         }
-        var quote = shipping.quoteAuction(address, List.of(new OrderShippingService.Line(skuId, 1, sku)), warehouseId);
+        var lines = List.of(new OrderShippingService.Line(skuId, 1, sku));
+        var pickup = pickup(sellerId, lines);
+        var quote = pickup != null && pickup.warehouseId().equals(warehouseId)
+                ? shipping.quoteAuction(address, lines, warehouseId, pickup)
+                : shipping.quoteAuction(address, lines, warehouseId);
         BigDecimal fee = finalPrice.compareTo(freeShippingThreshold) >= 0 ? new BigDecimal("0.00") : quote.fee();
-        return new OrderShippingService.Quote(fee, quote.parcel(), quote.carrier(), quote.serviceType(), quote.estimatedDeliveryAt());
+        return new OrderShippingService.Quote(fee, quote.parcel(), quote.carrier(), quote.serviceType(),
+                quote.estimatedDeliveryAt(), quote.pickup());
     }
 
     /** Preview và tạo đơn dùng chung một nguồn phí, không nhận giá vận chuyển do client gửi lên. */
     public OrderShippingService.Quote shippingQuote(ShippingAddress address, List<OrderShippingService.Line> lines) {
         return shipping.quote(address, lines);
+    }
+
+    public OrderShippingService.Quote shippingQuote(ShippingAddress address, List<OrderShippingService.Line> lines,
+                                                    String carrier) {
+        return carrier == null ? shipping.quote(address, lines) : shipping.offer(address, lines).select(carrier);
+    }
+
+    public OrderShippingService.Offer shippingOffer(ShippingAddress address, List<OrderShippingService.Line> lines) {
+        return shipping.offer(address, lines);
+    }
+
+    /** Kho riêng của seller có đủ tỉnh/phường thì hãng vận chuyển lấy hàng tại đó, không dùng địa chỉ nền tảng. */
+    public OrderShippingService.Offer shippingOffer(ShippingAddress address, List<OrderShippingService.Line> lines,
+                                                    UUID sellerId) {
+        var pickup = pickup(sellerId, lines);
+        return pickup == null ? shipping.offer(address, lines) : shipping.offer(address, lines, pickup);
+    }
+
+    public OrderShippingService.Quote shippingQuote(ShippingAddress address, List<OrderShippingService.Line> lines,
+                                                    String carrier, UUID sellerId) {
+        var pickup = pickup(sellerId, lines);
+        return pickup == null ? shippingQuote(address, lines, carrier) : shipping.offer(address, lines, pickup).select(carrier);
+    }
+
+    private OrderShippingService.Pickup pickup(UUID sellerId, List<OrderShippingService.Line> lines) {
+        return sellerId == null ? null
+                : inventory.pickup(sellerId, lines.stream().map(OrderShippingService.Line::skuId).toList()).orElse(null);
     }
 
     @Value("${nexus.checkout.price-revalidation:true}")

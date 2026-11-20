@@ -239,7 +239,7 @@ class UserLookupControllerSecurityTest {
     private static UserResponse user(UUID id) {
         return new UserResponse(id, id + "@nexus.local", "0900000001", "User " + id, Gender.MALE,
                 "HCM", LocalDate.of(2000, 1, 2), List.of("BUYER"), UserStatus.ACTIVE,
-                OffsetDateTime.parse("2026-10-14T08:00:00Z"), null, null);
+                OffsetDateTime.parse("2026-10-14T08:00:00Z"), null, null, null);
     }
 
     private static String bearer(String role, String... privileges) {

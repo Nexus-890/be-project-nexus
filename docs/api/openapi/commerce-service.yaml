@@ -3428,7 +3428,7 @@ paths:
       tags: ["Cart"]
       operationId: "validateCart"
       summary: "Validate the current cart (CRT-06)"
-      description: "Read-only: never creates a cart, touches activity/audit timestamps, updates cart prices, reserves inventory, creates orders or publishes events. Reads only the JWT subject's active cart, even for ADMIN. Uses current SKU prices and compares them numerically with saved prices. Catalog 404 means PRODUCT_INACTIVE; unavailable SKU lines remain visible at their last saved price and cannot be treated as a valid checkout. Catalog transport failures return a named error, never a valid result. Tax-inclusive prices give taxAmount=0; applied vouchers reduce only the merchandise total and rejected vouchers include a reason. Shipping is null without a delivery address and total excludes unknown shipping; FREE_SHIPPING_THRESHOLD cannot manufacture a carrier quote. INV-03 stock check is skipped until that endpoint exists. CHECKOUT_PRICE_REVALIDATION must remain true (BR-103), enforced at configuration binding. Empty or missing active cart returns zero amounts or valid=true with issues=[] without inserting a cart."
+      description: "Read-only: never creates a cart, touches activity/audit timestamps, updates cart prices, reserves inventory, creates orders or publishes events. Reads only the JWT subject's active cart, even for ADMIN. Uses current SKU prices and compares them numerically with saved prices. Catalog 404 means PRODUCT_INACTIVE; a line whose product belongs to the caller is SELF_PURCHASE; unavailable SKU lines remain visible at their last saved price and cannot be treated as a valid checkout. Catalog transport failures return a named error, never a valid result. Tax-inclusive prices give taxAmount=0; applied vouchers reduce only the merchandise total and rejected vouchers include a reason. Shipping is null without a delivery address and total excludes unknown shipping; FREE_SHIPPING_THRESHOLD cannot manufacture a carrier quote. INV-03 stock check is skipped until that endpoint exists. CHECKOUT_PRICE_REVALIDATION must remain true (BR-103), enforced at configuration binding. Empty or missing active cart returns zero amounts or valid=true with issues=[] without inserting a cart."
       security: [{"bearerAuth":[]}]
       x-required-privileges: ["CART.VIEW"]
       x-gateway-privilege: "CART.VIEW"
@@ -4896,12 +4896,12 @@ paths:
                     instance: "/api/v1/orders"
                     code: "UNSUPPORTED_MEDIA_TYPE"
         "422":
-          description: "Codes: `COMMERCE_SHIPPING_NOT_AVAILABLE`."
+          description: "Codes: `COMMERCE_SHIPPING_NOT_AVAILABLE`, `COMMERCE_SHIPPING_CARRIER_UNAVAILABLE`."
           content:
             application/problem+json:
               schema:
-                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[422]},"code":{"type":"string","enum":["COMMERCE_SHIPPING_NOT_AVAILABLE"]}}}]
-              examples: {"COMMERCE_SHIPPING_NOT_AVAILABLE":{"summary":"COMMERCE_SHIPPING_NOT_AVAILABLE","value":{"type":"urn:problem:domain-error","title":"Unprocessable Entity","status":422,"detail":"No carrier quote is available for this seller order","instance":"/api/v1/orders","code":"COMMERCE_SHIPPING_NOT_AVAILABLE"}}}
+                allOf: [{"$ref":"#/components/schemas/Problem"},{"type":"object","properties":{"status":{"type":"integer","enum":[422]},"code":{"type":"string","enum":["COMMERCE_SHIPPING_NOT_AVAILABLE","COMMERCE_SHIPPING_CARRIER_UNAVAILABLE"]}}}]
+              examples: {"COMMERCE_SHIPPING_NOT_AVAILABLE":{"summary":"COMMERCE_SHIPPING_NOT_AVAILABLE","value":{"type":"urn:problem:domain-error","title":"Unprocessable Entity","status":422,"detail":"No carrier quote is available for this seller order","instance":"/api/v1/orders","code":"COMMERCE_SHIPPING_NOT_AVAILABLE"}},"COMMERCE_SHIPPING_CARRIER_UNAVAILABLE":{"summary":"COMMERCE_SHIPPING_CARRIER_UNAVAILABLE","value":{"type":"urn:problem:domain-error","title":"Unprocessable Entity","status":422,"detail":"The selected carrier does not deliver this order; choose another carrier","instance":"/api/v1/orders","code":"COMMERCE_SHIPPING_CARRIER_UNAVAILABLE"}}}
         "429":
           description: "Too Many Requests. Codes: `RATE_LIMITED`."
           content:
@@ -10001,6 +10001,33 @@ components:
           type: "array"
           items:
             $ref: "#/components/schemas/CartIssue"
+        shippingOptions:
+          type: "array"
+          description: "Carriers every seller order can ship with. fee is the sum over seller orders, estimatedDeliveryAt the latest arrival. Empty while shipping is not quoted."
+          items:
+            $ref: "#/components/schemas/CheckoutShippingOption"
+        selectedCarrier:
+          type: "string"
+          nullable: true
+          description: "Carrier priced into shippingFee: the requested carrier when offered, else the recommended one; null without options."
+    CheckoutShippingOption:
+      type: "object"
+      required: ["carrier","carrierName","fee","estimatedDeliveryAt","recommended"]
+      properties:
+        carrier:
+          type: "string"
+          example: "GHN"
+        carrierName:
+          type: "string"
+          example: "Giao Hàng Nhanh"
+        fee:
+          type: "number"
+          minimum: 0
+        estimatedDeliveryAt:
+          type: "string"
+          format: "date-time"
+        recommended:
+          type: "boolean"
     CheckoutPreviewRequest:
       type: "object"
       required: ["shippingAddress","paymentMethod"]
@@ -10016,6 +10043,11 @@ components:
           description: Legacy alias for a single voucher code.
         voucherCodes:
           $ref: "#/components/schemas/VoucherCodes"
+        carrier:
+          type: string
+          pattern: "^[A-Z][A-Z0-9_]{0,29}$"
+          nullable: true
+          description: "Carrier code chosen by the buyer from shippingOptions. Omitted or null uses the recommended option. A carrier not offered to every seller falls back to the recommended one in the preview."
     CartPricingEnvelope:
       type: "object"
       required: ["code","message","data"]
@@ -10355,6 +10387,11 @@ components:
           description: Legacy alias for a single voucher code.
         voucherCodes:
           $ref: "#/components/schemas/VoucherCodes"
+        carrier:
+          type: string
+          pattern: "^[A-Z][A-Z0-9_]{0,29}$"
+          nullable: true
+          description: "Carrier code chosen by the buyer from shippingOptions. Omitted or null uses the recommended option. Every seller order is quoted and booked with this carrier; a carrier one seller cannot use returns 422 COMMERCE_SHIPPING_CARRIER_UNAVAILABLE. It is part of the idempotent payload."
     ChangeOrderStatus:
       type: "object"
       required:
@@ -10404,6 +10441,8 @@ components:
           type: "string"
         skuCode:
           type: "string"
+          nullable: true
+          description: "Null only on auction orders created before the auction kept a SKU code snapshot."
         imageUrl:
           type: "string"
           nullable: true

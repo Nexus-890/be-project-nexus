@@ -48,6 +48,7 @@ class OrderReservationHttpTest {
     private final AtomicInteger calls = new AtomicInteger();
     private final List<String> bodies = new CopyOnWriteArrayList<>();
     private volatile String bearer;
+    private volatile String query;
     private volatile String reply;
     private volatile int status = 201;
     private volatile long delay;
@@ -64,6 +65,7 @@ class OrderReservationHttpTest {
             calls.incrementAndGet();
             bodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             bearer = exchange.getRequestHeaders().getFirst("Authorization");
+            query = exchange.getRequestURI().getRawQuery();
             try {
                 if (delay > 0) Thread.sleep(delay);
                 byte[] bytes = reply.getBytes(StandardCharsets.UTF_8);
@@ -183,6 +185,25 @@ class OrderReservationHttpTest {
     }
 
     @Test
+    void eachOrderKeepsTheSellerWarehouseInventoryReturned() {
+        var other = UUID.randomUUID();
+        var otherWarehouse = UUID.randomUUID();
+        String orders = ",\"orders\":[{\"orderId\":\"" + order + "\",\"warehouseId\":\"" + warehouse
+                + "\"},{\"orderId\":\"" + other + "\",\"warehouseId\":\"" + otherWarehouse + "\"}]}}";
+        reply = success().replace("[\"", "[\"" + UUID.randomUUID() + "\",\"").replaceFirst("}}$", orders);
+        var items = List.of(new InventoryClient.Item(order, sku, 2), new InventoryClient.Item(other, UUID.randomUUID(), 1));
+        var reservation = client(5).reserve(group, items);
+        assertThat(reservation.warehouseFor(order)).isEqualTo(warehouse);
+        assertThat(reservation.warehouseFor(other)).isEqualTo(otherWarehouse);
+
+        reply = success().replaceFirst("}}$", ",\"orders\":[{\"orderId\":\"" + other + "\",\"warehouseId\":\""
+                + otherWarehouse + "\"}]}}");
+        assertUnavailable(client(5));
+        reply = success().replaceFirst("}}$", ",\"orders\":[{\"orderId\":\"" + order + "\",\"warehouseId\":7}]}}");
+        assertUnavailable(client(5));
+    }
+
+    @Test
     void invalidEnvelopeAndInvalidReservationNeverBecomeSuccess() {
         for (String body : List.of("{\"data\":{}}", success().replace("\"warehouseId\":\"" + warehouse + "\"", "\"warehouseId\":null"),
                 success().replace(OffsetDateTime.now().plusMinutes(30).getYear() + "-", "2000-"),
@@ -204,6 +225,36 @@ class OrderReservationHttpTest {
                 .isInstanceOfSatisfying(DomainException.class,
                         error -> assertThat(error.getErrorCode()).isEqualTo("COMMERCE_SHIPPING_UNAVAILABLE"));
         assertThat(calls).hasValue(1);
+    }
+
+    @Test
+    void sellerPickupIsReadWithTheBuyerTokenAndOnlyACompleteMatchingPickupIsAccepted() {
+        UUID seller = UUID.randomUUID();
+        List<UUID> skus = List.of(UUID.fromString("00000000-0000-0000-0000-0000000000b2"),
+                UUID.fromString("00000000-0000-0000-0000-0000000000a1"));
+        status = 200;
+        UUID sellerWarehouse = UUID.randomUUID();
+        String valid = "{\"code\":0,\"message\":\"response success\",\"data\":{\"warehouseId\":\"" + sellerWarehouse
+                + "\",\"sellerId\":\"" + seller + "\",\"provinceCode\":\"201\",\"wardCode\":\"20309\",\"line1\":\"12 Kim Mã\"}}";
+        reply = valid;
+        assertThat(client(5).pickup(seller, skus)).contains(new OrderShippingService.Pickup(sellerWarehouse, "201", "20309", "12 Kim Mã"));
+        assertThat(bearer).isEqualTo("Bearer test-token");
+        assertThat(query).isEqualTo("sellerId=" + seller + "&skuIds=" + skus.get(1) + "&skuIds=" + skus.get(0));
+        reply = "{\"code\":0,\"message\":\"response success\",\"data\":null}";
+        assertThat(client(5).pickup(seller, skus)).isEmpty();
+        assertThat(client(5).pickup(null, skus)).isEmpty();
+        assertThat(client(5).pickup(seller, List.of())).isEmpty();
+        for (String body : List.of(valid.replace(seller.toString(), UUID.randomUUID().toString()),
+                valid.replace("\"20309\"", "\"20A\""), valid.replace("\"12 Kim Mã\"", "\" \""),
+                valid.replace("\"warehouseId\":\"" + sellerWarehouse + "\",", ""), valid.replace("\"code\":0", "\"code\":3"))) {
+            reply = body;
+            assertThatThrownBy(() -> client(5).pickup(seller, skus)).isInstanceOfSatisfying(DomainException.class,
+                    error -> assertThat(error.getErrorCode()).isEqualTo("COMMERCE_INVENTORY_UNAVAILABLE"));
+        }
+        status = 403;
+        reply = "{\"code\":\"FORBIDDEN\"}";
+        assertThatThrownBy(() -> client(5).pickup(seller, skus)).isInstanceOfSatisfying(DomainException.class,
+                error -> assertThat(error.getErrorCode()).isEqualTo("COMMERCE_FORBIDDEN"));
     }
 
     private FeignInventoryClient client(int threshold) {

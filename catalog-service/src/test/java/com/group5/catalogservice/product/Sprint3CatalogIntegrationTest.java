@@ -389,6 +389,51 @@ class Sprint3CatalogIntegrationTest {
         assertThat(flag(first, "in_auction")).isFalse();
     }
 
+    @Test
+    void completedOrdersRankBestSellersAndDiscoveryListsNewestSellableProductsPublicly() throws Exception {
+        UUID category = category("Discovery", null, 1);
+        UUID top = product(category, "Discovery top", null, "ACTIVE");
+        sku(top, 100, "ACTIVE");
+        UUID runner = product(category, "Discovery runner", null, "ACTIVE");
+        sku(runner, 200, "ACTIVE");
+        UUID unpriced = product(category, "Discovery unpriced", null, "ACTIVE");
+        UUID draft = product(category, "Discovery draft", null, "DRAFT");
+        sku(draft, 100, "ACTIVE");
+        jdbc.update("UPDATE products SET created_at = '2099-01-01T00:00:00Z' WHERE id IN (?, ?, ?)", top, unpriced, draft);
+        jdbc.update("UPDATE products SET created_at = '2099-01-02T00:00:00Z' WHERE id = ?", runner);
+        var completed = envelope("OrderCompleted", UUID.randomUUID(), Map.of("items", List.of(
+                Map.of("productId", top, "skuId", UUID.randomUUID(), "quantity", 600000),
+                Map.of("productId", top, "skuId", UUID.randomUUID(), "quantity", 400000),
+                Map.of("productId", runner, "skuId", UUID.randomUUID(), "quantity", 900000),
+                Map.of("productId", draft, "skuId", UUID.randomUUID(), "quantity", 5000000),
+                Map.of("productId", UUID.randomUUID(), "skuId", UUID.randomUUID(), "quantity", 1))));
+        flags.receive(completed);
+        flags.receive(completed);
+        flags.receive(envelope("OrderCompleted", UUID.randomUUID(), Map.of("orderId", UUID.randomUUID())));
+        assertThat(orderCount(top)).isEqualTo(1000000);
+        assertThat(orderCount(runner)).isEqualTo(900000);
+
+        mvc.perform(get(PRODUCTS + "/discovery").param("type", "popular").param("size", "2"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].id").value(top.toString()))
+                .andExpect(jsonPath("$.data[0].minPrice").value(100))
+                .andExpect(jsonPath("$.data[1].id").value(runner.toString()))
+                .andExpect(jsonPath("$.page").doesNotExist());
+        mvc.perform(get(PRODUCTS + "/discovery").param("type", "new").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].id").value(runner.toString()))
+                .andExpect(jsonPath("$.data[1].id").value(top.toString()));
+        for (String[] invalid : List.of(new String[]{"type", "hot"}, new String[]{"size", "0"},
+                new String[]{"size", "25"})) {
+            mvc.perform(get(PRODUCTS + "/discovery").param(invalid[0], invalid[1]))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("CATALOG_DATA_INVALID"));
+        }
+    }
+
+    private int orderCount(UUID product) {
+        return jdbc.queryForObject("SELECT order_count FROM product_stats WHERE product_id = ?", Integer.class, product);
+    }
+
     private UUID category(String name, UUID parent, int level) {
         return jdbc.queryForObject("""
                 INSERT INTO categories (parent_id, name, slug, level) VALUES (?, ?, ?, ?) RETURNING id

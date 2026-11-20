@@ -14,7 +14,7 @@ import java.util.Set;
 @Component
 public class CarrierRegistry {
     private final List<CarrierAdapter> adapters;
-    private final String quoteCarrier;
+    private final List<String> quoteCarriers;
 
     //lấy ra list các adapter đã được đăng kí
     public CarrierRegistry(List<CarrierAdapter> adapters) {
@@ -23,7 +23,7 @@ public class CarrierRegistry {
 
     @Autowired
     public CarrierRegistry(List<CarrierAdapter> adapters, ShippingProperties properties) {
-        this.quoteCarrier = properties == null ? null : properties.effectiveQuoteCarrier().name();
+        this.quoteCarriers = properties == null ? null : properties.offeredCarriers();
         Set<String> codes = new HashSet<>();
         for (CarrierAdapter adapter : adapters) {
             if (adapter.code() == null || adapter.code().isBlank()
@@ -47,6 +47,7 @@ public class CarrierRegistry {
     }
 
     public List<CarrierAdapter> getQuoteAdapters() {
-        return adapters.stream().filter(adapter -> quoteCarrier == null || adapter.code().equals(quoteCarrier)).toList();
+        if (quoteCarriers == null) return adapters;
+        return quoteCarriers.stream().flatMap(code -> adapters.stream().filter(adapter -> adapter.code().equals(code))).toList();
     }
 }

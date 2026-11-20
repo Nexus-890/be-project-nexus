@@ -178,6 +178,41 @@ class ReservationIntegrationTest {
     }
 
     @Test
+    void eachOrderIsHeldInTheWarehouseItsSellerStocksAndTheResponseNamesIt() throws Exception {
+        UUID sellerA = UUID.randomUUID();
+        UUID sellerB = UUID.randomUUID();
+        UUID warehouseA = sellerWarehouse(sellerA);
+        UUID warehouseB = sellerWarehouse(sellerB);
+        UUID skuA = stockIn(warehouseA, 5);
+        UUID skuB = stockIn(warehouseB, 5);
+        UUID orderA = UUID.randomUUID();
+        UUID orderB = UUID.randomUUID();
+
+        String response = reserve("buyer", body(item(orderA, skuA, 2), item(orderB, skuB, 1)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.orders.length()").value(2))
+                .andExpect(jsonPath("$.data.orders[0].orderId").value(orderA.toString()))
+                .andExpect(jsonPath("$.data.orders[0].warehouseId").value(warehouseA.toString()))
+                .andExpect(jsonPath("$.data.orders[1].orderId").value(orderB.toString()))
+                .andExpect(jsonPath("$.data.orders[1].warehouseId").value(warehouseB.toString()))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(jdbc.queryForMap("SELECT available_quantity, reserved_quantity FROM inventory_balances WHERE sku_id = ?",
+                skuA)).containsEntry("available_quantity", 3).containsEntry("reserved_quantity", 2);
+        assertThat(jdbc.queryForList("""
+                SELECT warehouse_id FROM inventory_movements WHERE movement_type = 'RESERVE' ORDER BY quantity DESC
+                """, UUID.class)).containsExactly(warehouseA, warehouseB);
+
+        String again = reserve("buyer", body(item(orderA, skuA, 2), item(orderB, skuB, 1)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.orders[1].warehouseId").value(warehouseB.toString()))
+                .andReturn().getResponse().getContentAsString();
+        assertThat((Object) JsonPath.read(again, "$.data.reservationIds"))
+                .isEqualTo(JsonPath.read(response, "$.data.reservationIds"));
+        assertThat(movementCount("RESERVE")).isEqualTo(2);
+    }
+
+    @Test
     void twoOrdersWhereTheSecondOrdersItemLacksStockReserveNothingForEither() throws Exception {
         UUID firstSku = stock(10);
         UUID secondSku = stock(1);
@@ -386,6 +421,20 @@ class ReservationIntegrationTest {
                 INSERT INTO inventory_balances (sku_id, warehouse_id, total_quantity, available_quantity)
                 VALUES (?, ?, ?, ?)
                 """, sku, warehouse, available, available);
+        return sku;
+    }
+
+    private UUID sellerWarehouse(UUID seller) {
+        return jdbc.queryForObject("INSERT INTO warehouses (code, name, seller_id) VALUES (?, 'Seller', ?) RETURNING id",
+                UUID.class, "SELLER-" + seller.toString().replace("-", ""), seller);
+    }
+
+    private UUID stockIn(UUID target, int available) {
+        UUID sku = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO inventory_balances (sku_id, warehouse_id, total_quantity, available_quantity)
+                VALUES (?, ?, ?, ?)
+                """, sku, target, available, available);
         return sku;
     }
 

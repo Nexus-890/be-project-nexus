@@ -66,6 +66,8 @@ nexus:
       - method: GET
         path: /api/v1/products/search
       - method: GET
+        path: /api/v1/products/discovery
+      - method: GET
         path: /api/v1/categories
       - method: GET
         path: /api/v1/products/{id}
@@ -87,6 +89,10 @@ nexus:
         path: /api/v1/auth/logout
       - method: POST
         path: /api/v1/auth/verification-email
+      - method: POST
+        path: /api/v1/auth/password-reset
+      - method: POST
+        path: /api/v1/auth/password-reset/confirm
       - method: POST
         path: /api/v1/webhooks/sepay
       - method: POST
@@ -131,6 +137,21 @@ nexus:
       - method: POST
         path: /api/v1/users/me/phone/verification/confirm
         privilege: PROFILE.UPDATE
+      - method: POST
+        path: /api/v1/users/me/avatar
+        privilege: PROFILE.UPDATE
+      - method: DELETE
+        path: /api/v1/users/me/avatar
+        privilege: PROFILE.UPDATE
+      - method: POST
+        path: /api/v1/users/me/password
+        privilege: PROFILE.UPDATE
+      - method: GET
+        path: /api/v1/users/me/reputation
+        privilege: REPUTATION.VIEW
+      - method: GET
+        path: /api/v1/users/me/penalties
+        privilege: REPUTATION.VIEW
       - method: GET
         path: /api/v1/users/me/addresses
         privilege: PROFILE.VIEW
@@ -313,11 +334,20 @@ nexus:
         path: /api/v1/refunds/{id}/complete
         privilege: ORDER.REFUND
       - method: POST
+        path: /api/v1/refunds/{id}/evidence
+        privilege: ORDER.REFUND
+      - method: GET
+        path: /api/v1/refunds/{id}/evidence/{evidenceId}
+        privilege: ORDER.REFUND
+      - method: POST
         path: /api/v1/shipping/quotes
         privilege: SHIPPING.QUOTE
       - method: GET
         path: /api/v1/carriers
         privilege: SHIPPING.QUOTE
+      - method: GET
+        path: /api/v1/carriers/performance
+        privilege: SHIPPING.VIEW_SHIPMENT
       - method: POST
         path: /api/v1/shipments
         privilege: SHIPPING.CREATE_SHIPMENT

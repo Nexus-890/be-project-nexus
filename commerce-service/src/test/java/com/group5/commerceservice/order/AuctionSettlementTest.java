@@ -61,7 +61,7 @@ class AuctionSettlementTest {
         reset(events, inventory, pricing);
         warehouse = UUID.randomUUID();
         when(inventory.linked(any())).thenReturn(ApiResponse.of(List.of(new InventoryReservationHttpClient.LinkedReservation(UUID.randomUUID(), warehouse, "HELD"))));
-        when(pricing.auctionShippingQuote(any(), any(), any(), any(), any())).thenReturn(new OrderShippingService.Quote(
+        when(pricing.auctionShippingQuote(any(), any(), any(), any(), any(), any())).thenReturn(new OrderShippingService.Quote(
                 new BigDecimal("30000.00"), new OrderShippingService.Parcel(1200,30,20,15), "GHN", "STANDARD", OffsetDateTime.now().plusDays(1)));
     }
 
@@ -148,7 +148,7 @@ class AuctionSettlementTest {
                 .isInstanceOfSatisfying(com.group5.common_core.exception.DomainException.class,
                         error -> assertThat(error.getErrorCode()).isEqualTo("COMMERCE_INVENTORY_UNAVAILABLE"));
         when(inventory.linked(order)).thenReturn(ApiResponse.of(List.of(new InventoryReservationHttpClient.LinkedReservation(UUID.randomUUID(),warehouse,"HELD"))));
-        when(pricing.auctionShippingQuote(any(),any(),any(),any(),any())).thenThrow(new com.group5.common_core.exception.DomainException(com.group5.commerceservice.shared.exception.CommerceErrorCode.SHIPPING_UNAVAILABLE));
+        when(pricing.auctionShippingQuote(any(),any(),any(),any(),any(),any())).thenThrow(new com.group5.common_core.exception.DomainException(com.group5.commerceservice.shared.exception.CommerceErrorCode.SHIPPING_UNAVAILABLE));
         assertThatThrownBy(() -> shipping.confirm(buyer(won),order,ADDRESS))
                 .isInstanceOfSatisfying(com.group5.common_core.exception.DomainException.class,
                         error -> assertThat(error.getErrorCode()).isEqualTo("COMMERCE_SHIPPING_UNAVAILABLE"));

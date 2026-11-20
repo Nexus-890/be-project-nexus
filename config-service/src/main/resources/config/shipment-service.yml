@@ -31,6 +31,8 @@ nexus:
     carrier: ${SHIPPING_CARRIER:NONE}
     quote-carrier: ${SHIPPING_QUOTE_CARRIER:${SHIPPING_CARRIER:NONE}}
     booking-carrier: ${SHIPPING_BOOKING_CARRIER:${SHIPPING_CARRIER:NONE}}
+    checkout-carriers: ${SHIPPING_CHECKOUT_CARRIERS:}
+    carrier-strategy: ${SHIPPING_CARRIER_STRATEGY:CHEAPEST}
     api-timeout-ms: ${SHIPPING_API_TIMEOUT_MS:3000}
     retry-limit: ${SHIPPING_RETRY_LIMIT:3}
     retry-backoff-ms: ${SHIPPING_RETRY_BACKOFF_MS:100}

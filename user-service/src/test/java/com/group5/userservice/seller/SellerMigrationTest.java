@@ -32,10 +32,10 @@ class SellerMigrationTest {
     void freshSchemaIncludesSellerAndIdentityJournalWithoutDuplicateVersions() {
         var source = PostgresTestDatabase.dataSource("seller_journal_fresh");
         var flyway = flyway(source, "seller_journal_fresh");
-        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(11);
+        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(13);
         flyway.validate();
         var jdbc = new JdbcTemplate(source);
-        assertThat(versions(jdbc)).containsExactly("1", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12");
+        assertThat(versions(jdbc)).containsExactly("1", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14");
         verifySellerAndJournal(jdbc);
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         flyway.validate();

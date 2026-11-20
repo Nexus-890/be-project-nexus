@@ -26,6 +26,14 @@ public class RouteConfig {
         // throwOnLimit chuyển 429 sang GatewayErrorHandler để trả JSON và Retry-After.
         return builder.routes()
 
+                .route("rating-service-own-reputation", route -> route
+                        .path("/api/v1/users/me/reputation", "/api/v1/users/me/penalties")
+                        .filters(filters -> filters.requestRateLimiter(config ->
+                                config.setRateLimiter(limiter)
+                                        .setKeyResolver(resolver)
+                                        .setThrowOnLimit(true)))
+                        .uri("lb://rating-service"))
+
                 .route("user-service", route -> route
                         .path(
                                 "/api/v1/auth/**",

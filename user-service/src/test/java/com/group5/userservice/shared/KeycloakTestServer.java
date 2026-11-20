@@ -59,7 +59,7 @@ public final class KeycloakTestServer {
     private static final GenericContainer<?> MAILPIT = new GenericContainer<>("axllent/mailpit:v1.31")
             .withNetwork(NETWORK)
             .withNetworkAliases("mailpit")
-            .withExposedPorts(8025)
+            .withExposedPorts(8025, 1025)
             .waitingFor(Wait.forHttp("/livez").forPort(8025));
     private static final GenericContainer<?> KEYCLOAK = new GenericContainer<>("quay.io/keycloak/keycloak:26.7.5")
             .withNetwork(NETWORK)
@@ -96,6 +96,18 @@ public final class KeycloakTestServer {
 
     public static String jwkSetUri() {
         return issuer() + "/protocol/openid-connect/certs";
+    }
+
+    public static String smtpHost() {
+        return MAILPIT.getHost();
+    }
+
+    public static int smtpPort() {
+        return MAILPIT.getMappedPort(1025);
+    }
+
+    public static int sessionCount(UUID userId) {
+        return admin("GET", "/users/" + userId + "/sessions", null).size();
     }
 
     public static void deleteAllMail() {

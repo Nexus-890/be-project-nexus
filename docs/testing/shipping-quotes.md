@@ -51,6 +51,8 @@ Tạo dữ liệu `.env` trên máy chạy backend; không commit file thật v�
 | `SHIPPING_QUOTE_CARRIER=GHN` | Chọn GHN cho báo phí và danh mục địa chỉ |
 | `SHIPPING_BOOKING_CARRIER=FAKE` hoặc `GHN` | Chọn FAKE để dùng phí GHN với mã giả; chọn GHN để dùng phí GHN với vận đơn sandbox; NONE tắt booking |
 | `SHIPPING_CARRIER=GHN` | Cấu hình cũ, dùng cho cả hai khi không đặt override |
+| `SHIPPING_CHECKOUT_CARRIERS=` | Danh sách hãng thêm cho người mua chọn ở checkout, ví dụ `FAKE`; để trống thì chỉ có quote carrier và booking theo `SHIPPING_BOOKING_CARRIER` |
+| `SHIPPING_CARRIER_STRATEGY=CHEAPEST` | Rule chọn hãng đề xuất: `CHEAPEST` (phí rồi ngày giao) hoặc `FASTEST` (ngày giao rồi phí) |
 | `GHN_BASE_URL=https://dev-online-gateway.ghn.vn` | Base URL sandbox |
 | `GHN_TOKEN` | Token server của GHN |
 | `GHN_SHOP_ID` | ShopId của tài khoản sandbox |
@@ -71,6 +73,8 @@ Tạo dữ liệu `.env` trên máy chạy backend; không commit file thật v�
 | `SHIPPING_PICKUP_ADDRESS_LINE` | Địa chỉ cụ thể của điểm lấy hàng |
 
 Cấu hình `nexus.shipping.default-warehouse-id` cùng `nexus.shipping.default-pickup` cho kho mặc định bằng các biến môi trường lấy hàng trên. Thêm `nexus.shipping.pickups[UUID]` để ánh xạ các kho khác sang `provinceCode`, `wardCode`, `addressLine`. Kho mặc định phải là UUID thực tế của kho `WH_001` trong môi trường đó; `WH_001` là mã kho, không phải UUID. Không đọc `inventory_db` từ shipment-service. `warehouseId` bỏ trống hoặc null dùng kho mặc định; UUID được chỉ định nhưng không có mapping trả 404; thiếu mapping/kho mặc định cần thiết trả lỗi cấu hình 503.
+
+Từ contract `2.8.0`, request quote có thể kèm `pickupAddress` (`provinceCode`, `wardCode`, `line1` tối đa 255 ký tự). Khi có, shipment quote từ địa chỉ này thay cho mapping kho và kho mặc định. Commerce chỉ gửi `pickupAddress` khi seller đã đặt đủ tỉnh, phường và địa chỉ cụ thể cho kho riêng đang ACTIVE (`GET /internal/v1/inventory/warehouses/pickup`); đơn chỉ lưu `shipping_info.pickupAddress` khi hàng được giữ trong chính kho đó, nên tạo vận đơn dùng đúng điểm lấy hàng đã báo giá.
 
 Cấu hình dưới đây chỉ dành cho bộ fake. UUID là fixture; mã Hà Nội `1000002` và phường `1000003` ở nhánh fake cũng là fixture, không phải xác nhận mã GHN thật. Không dùng fixture làm dữ liệu mặc định cho GHN sandbox hoặc production. Catalog local vẫn phải có SKU và giá trong bộ dữ liệu kiểm thử:
 
@@ -161,3 +165,9 @@ Test MVC cache quan sát master requests2sauwarmup và vẫn2sauquote hợp lệ
 Lượt JAR smoke trước đó dùng catalog/JWKS stubs, adapter FAKE và JWT ký trong bộ kiểm thử; DB/Flyway, Config Server và discovery được tắt để kiểm tra JAR độc lập. Master data GHN thật đã được probe và nhận HTTP200, nhưng **chưa xác minh TC05 quote sandbox thật thành công**. Người dùng đã báo TC05/TC18 timeout ở lượt trước sửa; không đổi chúng thành PASS chỉ vì tests mới đạt. Giữ response/status/thời gian mới sau khi nạp lại code/config; smoke FAKE hoặc tests fixture không thay thế evidence fee/ETA thật hay toàn luồng gateway triển khai.
 
 Nguồn chính thức: [tỉnh/thành mới](https://developer.ghn.vn/vi/docs/master-data/get-province-new.md), [phường/xã mới](https://developer.ghn.vn/vi/docs/master-data/get-ward-new.md), [preview không tạo đơn](https://developer.ghn.vn/vi/docs/order/preview.md), [cờ địa chỉ mới và dữ liệu người nhận](https://developer.ghn.vn/vi/docs/order/create.md).
+
+## Nhiều hãng vận chuyển ở checkout
+
+Đặt `SHIPPING_CHECKOUT_CARRIERS=FAKE` (cùng `SHIPPING_QUOTE_CARRIER=GHN`) để `POST /api/v1/shipping/quotes` trả một lựa chọn cho mỗi hãng: GHN trước vì vẫn là nguồn danh mục địa chỉ, rồi FAKE. Mỗi phần tử có `carrierName` và `recommended`; phần tử đầu theo `SHIPPING_CARRIER_STRATEGY` là lựa chọn đề xuất. Hãng lỗi bị bỏ khỏi danh sách; chỉ khi mọi hãng lỗi mới trả lỗi của hãng đầu tiên.
+
+Commerce `POST /api/v1/checkout/preview` trả `shippingOptions` là các hãng mọi seller đều giao được, phí cộng theo seller, ngày giao lấy ngày muộn nhất, cùng `selectedCarrier` là hãng đã tính vào `shippingFee`. Người mua gửi `carrier` trong preview và trong `POST /api/v1/orders`; carrier được lưu trong `shippingInfo` của đơn. Shipment đặt vận đơn bằng hãng người mua chọn nếu hãng đó đang bật, nếu không thì dùng `SHIPPING_BOOKING_CARRIER`. Khi `SHIPPING_CHECKOUT_CARRIERS` trống, hành vi cũ giữ nguyên: một hãng báo giá và hãng đặt vận đơn theo cấu hình, kể cả cách dùng phí GHN với vận đơn FAKE.

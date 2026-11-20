@@ -94,9 +94,8 @@ public class AuctionService {
         if (!seller.id().equals(product.sellerId())) {
             throw new DomainException(AuctionErrorCode.AUCTION_FORBIDDEN, "The product belongs to another seller");
         }
-        if (product.skus().stream().noneMatch(sku -> request.skuId().equals(sku.id()))) {
-            throw new DomainException(AuctionErrorCode.AUCTION_SKU_NOT_FOUND);
-        }
+        CatalogClient.Sku sku = product.skus().stream().filter(candidate -> request.skuId().equals(candidate.id()))
+                .findFirst().orElseThrow(() -> new DomainException(AuctionErrorCode.AUCTION_SKU_NOT_FOUND));
         String imageUrl = requireImage(product.firstImageUrl());
         requireStock(request.skuId());
         reputation.requireEligible(seller.id(), EligibilityAction.SELL);
@@ -104,7 +103,7 @@ public class AuctionService {
         BigDecimal increment = request.bidIncrement() == null
                 ? properties.getDefaultBidIncrement()
                 : request.bidIncrement();
-        Auction auction = new Auction(request.productId(), request.skuId(), seller.id(), product.name(),
+        Auction auction = new Auction(request.productId(), request.skuId(), sku.skuCode(), seller.id(), product.name(),
                 imageUrl, request.startingPrice(), increment, request.startAt(), request.endAt());
         return AuctionResponse.from(auctionCreation.save(auction));
     }

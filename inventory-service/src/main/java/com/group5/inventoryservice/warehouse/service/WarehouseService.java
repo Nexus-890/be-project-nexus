@@ -1,12 +1,15 @@
 package com.group5.inventoryservice.warehouse.service;
 
 import com.group5.common_core.exception.DomainException;
+import com.group5.inventoryservice.inventory.SkuWarehouses;
 import com.group5.inventoryservice.warehouse.entity.Warehouse;
 import com.group5.inventoryservice.warehouse.enums.WarehouseStatus;
 import com.group5.inventoryservice.warehouse.repository.WarehouseRepository;
 import com.group5.inventoryservice.shared.exception.InventoryErrorCode;
 import com.group5.inventoryservice.warehouse.dto.request.CreateWarehouseRequest;
+import com.group5.inventoryservice.warehouse.dto.request.UpdateOwnWarehouseRequest;
 import com.group5.inventoryservice.warehouse.dto.request.UpdateWarehouseRequest;
+import com.group5.inventoryservice.warehouse.dto.response.WarehousePickupResponse;
 import com.group5.inventoryservice.warehouse.dto.response.WarehouseResponse;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -15,15 +18,21 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class WarehouseService {
 
     private final WarehouseRepository warehouses;
+    private final SellerWarehouses sellerWarehouses;
+    private final SkuWarehouses skuWarehouses;
 
-    public WarehouseService(WarehouseRepository warehouses) {
+    public WarehouseService(WarehouseRepository warehouses, SellerWarehouses sellerWarehouses,
+                            SkuWarehouses skuWarehouses) {
         this.warehouses = warehouses;
+        this.sellerWarehouses = sellerWarehouses;
+        this.skuWarehouses = skuWarehouses;
     }
 
     @Transactional
@@ -48,7 +57,7 @@ public class WarehouseService {
         List<Warehouse> result = status == null
                 ? warehouses.findAll(sort)
                 : warehouses.findAllByStatus(status, sort);
-        return result.stream().map(this::toResponse).toList();
+        return result.stream().map(WarehouseService::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
@@ -56,6 +65,41 @@ public class WarehouseService {
         Warehouse warehouse = warehouses.findById(id)
                 .orElseThrow(() -> new DomainException(InventoryErrorCode.WAREHOUSE_NOT_FOUND));
         return toResponse(warehouse);
+    }
+
+    @Transactional(readOnly = true)
+    public WarehouseResponse mine(UUID sellerId) {
+        return warehouses.findBySellerId(sellerId).map(WarehouseService::toResponse)
+                .orElseThrow(() -> new DomainException(InventoryErrorCode.WAREHOUSE_NOT_FOUND,
+                        "Your warehouse is created with your first stock intake or when you save its details"));
+    }
+
+    @Transactional
+    public WarehouseResponse updateMine(UUID sellerId, UpdateOwnWarehouseRequest request) {
+        String address = request.address() == null || request.address().isBlank() ? null : request.address().strip();
+        sellerWarehouses.ensure(sellerId, request.name().strip(), address);
+        Warehouse warehouse = warehouses.findBySellerIdForUpdate(sellerId)
+                .orElseThrow(() -> new DomainException(InventoryErrorCode.DUPLICATE_WAREHOUSE_CODE));
+        warehouse.setName(request.name().strip());
+        warehouse.setAddress(address);
+        warehouse.setProvinceCode(request.provinceCode());
+        warehouse.setWardCode(request.wardCode());
+        return toResponse(warehouses.saveAndFlush(warehouse));
+    }
+
+    @Transactional(readOnly = true)
+    public WarehousePickupResponse pickup(UUID sellerId, List<UUID> skuIds) {
+        return warehouses.findBySellerId(sellerId)
+                .filter(warehouse -> skuIds == null || skuIds.isEmpty()
+                        || SkuWarehouses.sellerWarehouses(skuWarehouses.homes(skuIds).values())
+                                .equals(Set.of(warehouse.getId())))
+                .filter(warehouse -> warehouse.getStatus() == WarehouseStatus.ACTIVE
+                        && warehouse.getProvinceCode() != null && warehouse.getWardCode() != null
+                        && warehouse.getAddress() != null && !warehouse.getAddress().isBlank()
+                        && warehouse.getAddress().length() <= 255)
+                .map(warehouse -> new WarehousePickupResponse(warehouse.getId(), sellerId,
+                        warehouse.getProvinceCode(), warehouse.getWardCode(), warehouse.getAddress()))
+                .orElse(null);
     }
 
     @Transactional
@@ -93,8 +137,9 @@ public class WarehouseService {
         return false;
     }
 
-    private WarehouseResponse toResponse(Warehouse warehouse) {
+    public static WarehouseResponse toResponse(Warehouse warehouse) {
         return new WarehouseResponse(warehouse.getId(), warehouse.getCode(), warehouse.getName(),
-                warehouse.getAddress(), warehouse.getStatus());
+                warehouse.getAddress(), warehouse.getStatus(), warehouse.getSellerId(), warehouse.getProvinceCode(),
+                warehouse.getWardCode());
     }
 }

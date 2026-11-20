@@ -15,12 +15,15 @@ public record ReservationView(
         int quantity,
         ReservationStatus status,
         OffsetDateTime expiresAt,
-        OffsetDateTime releasedAt) {
+        OffsetDateTime releasedAt,
+        OffsetDateTime pickedAt,
+        OffsetDateTime shippedAt) {
 
     public static ReservationView from(InventoryReservation reservation) {
         return new ReservationView(reservation.getId(), reservation.getSkuId(), reservation.getWarehouseId(),
                 reservation.getOrderId(), reservation.getQuantity(), reservation.getStatus(),
-                utc(reservation.getExpiresAt()), utc(reservation.getReleasedAt()));
+                utc(reservation.getExpiresAt()), utc(reservation.getReleasedAt()), utc(reservation.getPickedAt()),
+                utc(reservation.getShippedAt()));
     }
 
     private static OffsetDateTime utc(OffsetDateTime value) {

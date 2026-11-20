@@ -14,6 +14,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.context.WebApplicationContext;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -29,7 +30,11 @@ import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -68,6 +73,7 @@ class StockReadIntegrationTest {
     @Autowired private WebApplicationContext context;
     @Autowired private JdbcTemplate jdbc;
     @MockitoBean private JwtDecoder decoder;
+    @MockitoSpyBean private SkuWarehouses skuWarehouses;
     private MockMvc mvc;
     private UUID defaultWarehouse;
     private UUID otherWarehouse;
@@ -152,6 +158,7 @@ class StockReadIntegrationTest {
         balance(a, defaultWarehouse, 5, 5, 0);
         balance(c, defaultWarehouse, 9, 7, 2);
         SqlCapture.STATEMENTS.clear();
+        clearInvocations(skuWarehouses);
 
         mvc.perform(get("/api/v1/inventory").param("skuIds", c + "," + a + "," + b))
                 .andExpect(status().isOk())
@@ -168,8 +175,8 @@ class StockReadIntegrationTest {
                 .map(sql -> sql.toLowerCase(Locale.ROOT))
                 .filter(sql -> sql.contains("inventory_balances"))
                 .toList();
-        assertThat(balanceReads).hasSize(1);
-        assertThat(balanceReads.getFirst()).startsWith("select").contains(" in ");
+        assertThat(balanceReads).isEmpty();
+        verify(skuWarehouses, times(1)).homes(anyCollection());
     }
 
     @Test
@@ -184,13 +191,24 @@ class StockReadIntegrationTest {
     }
 
     @Test
-    void onlyTheDefaultWarehouseIsRead() throws Exception {
+    void theSellerWarehouseWinsThenTheDefaultThenAnotherPlatformWarehouse() throws Exception {
         UUID sku = UUID.randomUUID();
         balance(sku, otherWarehouse, 50, 50, 0);
-
         mvc.perform(get("/api/v1/inventory/" + sku))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.available").value(0));
+                .andExpect(jsonPath("$.data.available").value(50));
+
+        balance(sku, defaultWarehouse, 3, 3, 0);
+        mvc.perform(get("/api/v1/inventory/" + sku))
+                .andExpect(jsonPath("$.data.available").value(3));
+
+        UUID seller = UUID.randomUUID();
+        UUID sellerWarehouse = jdbc.queryForObject("""
+                INSERT INTO warehouses (code, name, seller_id) VALUES (?, 'Seller', ?) RETURNING id
+                """, UUID.class, "SELLER-" + seller.toString().replace("-", ""), seller);
+        balance(sku, sellerWarehouse, 9, 9, 0);
+        mvc.perform(get("/api/v1/inventory/" + sku))
+                .andExpect(jsonPath("$.data.available").value(9));
     }
 
     @Test

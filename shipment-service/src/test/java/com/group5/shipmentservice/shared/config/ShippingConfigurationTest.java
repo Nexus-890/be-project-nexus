@@ -61,6 +61,26 @@ class ShippingConfigurationTest {
     }
 
     @Test
+    void checkoutCarriersAreOfferedAfterTheQuoteCarrierWhichStaysTheAddressSource() {
+        runner.withPropertyValues("nexus.shipping.quote-carrier=GHN", "nexus.shipping.booking-carrier=GHN",
+                        "nexus.shipping.checkout-carriers=FAKE,GHN,NONE", "nexus.shipping.carrier-strategy=FASTEST",
+                        "GHN_TOKEN=config-test-token", "nexus.shipping.ghn.shop-id=123")
+                .run(context -> {
+                    assertThat(context).hasNotFailed().hasSingleBean(GhnAdapter.class).hasSingleBean(FakeCarrierAdapter.class);
+                    ShippingProperties properties = context.getBean(ShippingProperties.class);
+                    assertThat(properties.offeredCarriers()).containsExactly("GHN", "FAKE");
+                    assertThat(properties.buyerChoosesCarrier()).isTrue();
+                    assertThat(properties.carrierStrategy()).isEqualTo(ShippingProperties.CarrierStrategy.FASTEST);
+                    CarrierRegistry registry = context.getBean(CarrierRegistry.class);
+                    assertThat(registry.getQuoteAdapters()).extracting(adapter -> adapter.code()).containsExactly("GHN", "FAKE");
+                    assertThat(registry.getDefaultAdapter()).isSameAs(context.getBean(GhnAdapter.class));
+                    assertThat(context.getBean(CarrierService.class).getCarriers()).containsExactly(
+                            new CarrierResponse("GHN", "Giao Hàng Nhanh", true, true),
+                            new CarrierResponse("FAKE", "Nhà vận chuyển giả lập", false, true));
+                });
+    }
+
+    @Test
     void bookingOnlyCarrierDoesNotBecomeTheQuoteDefault() {
         runner.withPropertyValues("nexus.shipping.quote-carrier=NONE", "nexus.shipping.booking-carrier=FAKE")
                 .run(context -> {
@@ -100,10 +120,12 @@ class ShippingConfigurationTest {
     @Test
     void blankOverridesRetainLegacySelection() {
         runner.withPropertyValues("nexus.shipping.carrier=FAKE", "nexus.shipping.quote-carrier=",
-                        "nexus.shipping.booking-carrier=")
+                        "nexus.shipping.booking-carrier=", "nexus.shipping.checkout-carriers=")
                 .run(context -> {
                     assertThat(context).hasNotFailed().hasSingleBean(FakeCarrierAdapter.class);
                     ShippingProperties properties = context.getBean(ShippingProperties.class);
+                    assertThat(properties.buyerChoosesCarrier()).isFalse();
+                    assertThat(properties.carrierStrategy()).isEqualTo(ShippingProperties.CarrierStrategy.CHEAPEST);
                     assertThat(properties.effectiveQuoteCarrier()).isEqualTo(ShippingProperties.CarrierMode.FAKE);
                     assertThat(properties.effectiveBookingCarrier()).isEqualTo(ShippingProperties.CarrierMode.FAKE);
                 });

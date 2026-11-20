@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Nexus inventory
-  version: 1.0.0
+  version: 1.1.0
   description: >-
     Issue #130 stock intake, #134 stock reservation, #136 confirming and releasing a
     reservation, #199 warehouse management (WH-01 to WH-04) and #200 support reads
@@ -56,6 +56,69 @@ paths:
                 $ref: '#/components/schemas/LinkedAuctionReservationApiResponse'
         '400':
           description: orderId is missing or invalid
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Caller lacks the BUYER role
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /internal/v1/inventory/warehouses/pickup:
+    get:
+      tags: [Warehouses]
+      operationId: getSellerPickup
+      summary: Read where carriers collect a seller's parcels
+      description: >-
+        Internal service endpoint for Commerce shipping quotes and order creation.
+        Commerce relays the buyer's bearer token. data is null when the seller has no
+        warehouse, the warehouse is not ACTIVE, or it has no complete pickup (province,
+        ward and a street address of at most 255 characters), or when skuIds is sent and
+        none of those SKUs is stocked in the seller warehouse, or some are stocked in another
+        seller's warehouse (the order is then held in a platform warehouse or refused, so the
+        parcel does not leave from this pickup); Commerce then quotes from the platform pickup.
+        When at least one SKU is stocked in the seller warehouse, the reservation gathers the
+        other SKUs there, so this pickup is returned.
+      servers:
+        - url: http://localhost:8085
+          description: Inventory service directly
+      security:
+        - bearerAuth: []
+      x-roles: [BUYER]
+      parameters:
+        - name: sellerId
+          in: query
+          required: true
+          description: Seller UUID
+          schema:
+            type: string
+            format: uuid
+        - name: skuIds
+          in: query
+          required: false
+          description: SKUs of the parcel; repeat the parameter for each SKU. Commerce always sends them.
+          schema:
+            type: array
+            items:
+              type: string
+              format: uuid
+      responses:
+        '200':
+          description: The seller warehouse pickup, or null data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerPickupApiResponse'
+        '400':
+          description: sellerId is missing or invalid
           content:
             application/problem+json:
               schema:
@@ -221,17 +284,27 @@ paths:
       summary: Receive stock into a warehouse
       description: >-
         Raises total and available by the quantity in one statement and creates the
-        balance row on the first intake of a SKU in that warehouse. When warehouseId is
-        left out, the warehouse is the one whose code is nexus.inventory.default-warehouse-code.
+        balance row on the first intake of a SKU in that warehouse. Each seller has one
+        warehouse (code SELLER- plus the seller id), created on the seller's first intake.
+        A seller's intake always goes to that warehouse and cannot name another one. An
+        admin intake without warehouseId goes to the warehouse of the SKU's seller; when
+        catalog knows no seller, it goes to the warehouse already holding the SKU, else to
+        the one whose code is nexus.inventory.default-warehouse-code. An explicit
+        warehouseId that is not the SKU's warehouse, or a seller warehouse of a seller who
+        does not own the SKU (also on the SKU's first intake), returns 409
+        INVENTORY_WAREHOUSE_NOT_SKU_HOME.
+        When stock lands in a seller warehouse, available stock of the SKU still held in
+        platform warehouses moves there with a pair of TRANSFER movements.
         Only ACTIVE warehouses accept intake: INACTIVE or MAINTENANCE returns 409 for
         both an explicit warehouseId and the configured default, without changing
         balances or writing a movement. The status check and writes share a transaction
         and coordinate with warehouse updates.
-        The gateway only requires a valid token; the service requires the ADMIN role.
+        The gateway only requires a valid token; the service requires ADMIN or a SELLER
+        who owns the SKU.
       security:
         - bearerAuth: []
-      x-actor-roles: [ADMIN]
-      x-required-roles: [ADMIN]
+      x-actor-roles: [ADMIN, SELLER]
+      x-required-roles: [ADMIN, SELLER]
       requestBody:
         required: true
         content:
@@ -308,18 +381,31 @@ paths:
                 instance: /api/v1/inventory/intake
                 code: INVENTORY_WAREHOUSE_NOT_FOUND
         '409':
-          description: The selected or configured default warehouse is INACTIVE or MAINTENANCE. Code INVENTORY_WAREHOUSE_UNAVAILABLE.
+          description: >-
+            INVENTORY_WAREHOUSE_UNAVAILABLE when the target warehouse is INACTIVE or
+            MAINTENANCE; INVENTORY_WAREHOUSE_NOT_SKU_HOME when an admin names a warehouse
+            other than the one holding the SKU, or another seller's warehouse.
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
-              example:
-                type: urn:problem:domain-error
-                title: Conflict
-                status: 409
-                detail: Warehouse is not active for stock intake
-                instance: /api/v1/inventory/intake
-                code: INVENTORY_WAREHOUSE_UNAVAILABLE
+              examples:
+                INVENTORY_WAREHOUSE_UNAVAILABLE:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: Warehouse is not active for stock intake
+                    instance: /api/v1/inventory/intake
+                    code: INVENTORY_WAREHOUSE_UNAVAILABLE
+                INVENTORY_WAREHOUSE_NOT_SKU_HOME:
+                  value:
+                    type: urn:problem:domain-error
+                    title: Conflict
+                    status: 409
+                    detail: This SKU is stocked in another warehouse
+                    instance: /api/v1/inventory/intake
+                    code: INVENTORY_WAREHOUSE_NOT_SKU_HOME
         '500':
           description: The configured default warehouse code matches no warehouse
           content:
@@ -343,9 +429,13 @@ paths:
         frontend does not call it. Each SKU is reserved by one UPDATE whose WHERE clause
         requires available_quantity to cover the quantity, in SKU order, all in one
         transaction: one shortage reserves nothing. Items of the same SKU are checked
-        against their sum. Every reservation is HELD in the warehouse whose code is
-        nexus.inventory.default-warehouse-code, keeps its item's orderId and writes one
-        RESERVE ledger row. orderGroupId is not stored. Sending the same items again
+        against their sum. All SKUs of one order are held in one warehouse: when one of them
+        is stocked in its seller's warehouse, available stock of the order's other SKUs of
+        that seller still in platform warehouses moves there first with TRANSFER movements;
+        otherwise each SKU is held where it is stocked, else in the warehouse whose code is
+        nexus.inventory.default-warehouse-code. An order whose SKUs would still be held in
+        two warehouses is refused. Each reservation keeps its item's orderId and
+        writes one RESERVE ledger row. orderGroupId is not stored. Sending the same items again
         returns the reservations already held. The gateway only requires a valid token;
         the service requires the BUYER role.
       security:
@@ -431,8 +521,11 @@ paths:
         '409':
           description: >-
             Not enough stock for a SKU (INVENTORY_INSUFFICIENT_STOCK, with skuId, available
-            and requested), or these orders already hold reservations that differ from the
-            request (INVENTORY_RESERVATION_CONFLICT). Nothing is reserved.
+            and requested), these orders already hold reservations that differ from the
+            request (INVENTORY_RESERVATION_CONFLICT), one order mixes SKUs stocked by
+            different sellers (INVENTORY_SKUS_FROM_DIFFERENT_SELLERS), or one order's SKUs are
+            stocked in different platform warehouses (INVENTORY_ORDER_SPANS_WAREHOUSES).
+            Nothing is reserved.
           content:
             application/problem+json:
               schema:
@@ -584,6 +677,157 @@ paths:
                 detail: You do not have permission to access this resource
                 instance: /api/v1/inventory/reservations
                 code: FORBIDDEN
+  /api/v1/inventory/reservations/fulfillment:
+    get:
+      tags: [Reservations]
+      operationId: getOrderFulfillment
+      summary: Read the pick and pack steps of one seller order
+      description: >-
+        Every reservation of the order, by SKU, with pickedAt and shippedAt. A seller sees
+        the order only when they own every SKU in it. The gateway only requires a valid token;
+        the service requires ADMIN or SELLER.
+      security:
+        - bearerAuth: []
+      x-actor-roles: [SELLER, ADMIN]
+      x-required-roles: [SELLER, ADMIN]
+      parameters:
+        - name: orderId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The reservations of the order; empty when nothing was reserved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationViewListApiResponse'
+        '400':
+          description: Missing or malformed orderId (INVALID_PARAMETER)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Not ADMIN or SELLER, or a SKU of the order belongs to another seller (FORBIDDEN)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/inventory/reservations/{id}/pick:
+    post:
+      tags: [Reservations]
+      operationId: pickReservation
+      summary: Mark paid stock as picked from the shelf
+      description: >-
+        Sets pickedAt on a CONFIRMED reservation and writes one PICK ledger row with the reservation quantity and the reservation id as referenceId. Balances do not change: the stock already left on-hand at COMMIT. Repeating returns the reservation without a second row. The gateway only requires a valid token; the service requires ADMIN, or SELLER
+        owning the SKU (checked with catalog-service).
+      security:
+        - bearerAuth: []
+      x-actor-roles: [SELLER, ADMIN]
+      x-required-roles: [SELLER, ADMIN]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The reservation with its fulfilment steps
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationViewApiResponse'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Not ADMIN and not the seller of the SKU (FORBIDDEN)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Unknown reservation (INVENTORY_RESERVATION_NOT_FOUND)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Not CONFIRMED (INVENTORY_NOT_PICKABLE)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: catalog-service could not confirm the SKU owner (INVENTORY_CATALOG_UNAVAILABLE)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/inventory/reservations/{id}/ship:
+    post:
+      tags: [Reservations]
+      operationId: shipReservation
+      summary: Mark picked stock as packed for the carrier
+      description: >-
+        Sets shippedAt on a picked CONFIRMED reservation and writes one SHIP ledger row with the reservation quantity. Balances do not change. Repeating returns the reservation without a second row. The gateway only requires a valid token; the service requires ADMIN, or SELLER
+        owning the SKU (checked with catalog-service).
+      security:
+        - bearerAuth: []
+      x-actor-roles: [SELLER, ADMIN]
+      x-required-roles: [SELLER, ADMIN]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The reservation with its fulfilment steps
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationViewApiResponse'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Not ADMIN and not the seller of the SKU (FORBIDDEN)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Unknown reservation (INVENTORY_RESERVATION_NOT_FOUND)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Not CONFIRMED (INVENTORY_NOT_PICKABLE) or not picked yet (INVENTORY_NOT_PICKED)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: catalog-service could not confirm the SKU owner (INVENTORY_CATALOG_UNAVAILABLE)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/inventory/adjustments:
     post:
       tags: [Stock]
@@ -1446,6 +1690,73 @@ paths:
           $ref: '#/components/responses/NotAcceptable'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/v1/warehouses/me:
+    get:
+      tags: [Warehouses]
+      operationId: getOwnWarehouse
+      summary: Read the seller's own warehouse
+      description: >-
+        Returns the caller's warehouse. It exists after the seller's first stock intake
+        or first save; before that the answer is 404. The gateway requires a valid
+        token; the service requires the SELLER role.
+      x-service: inventory-service
+      x-actor-roles: [SELLER]
+      x-gateway-privilege: token only
+      x-required-roles: [SELLER]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/WarehouseRead'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/WarehouseNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [Warehouses]
+      operationId: updateOwnWarehouse
+      summary: Create or rename the seller's own warehouse
+      description: >-
+        Creates the caller's warehouse when it does not exist yet, then stores the name,
+        address and pickup area. Code, status and owner are not request fields. A blank
+        address is stored as null. With provinceCode and wardCode the address is the
+        house number and street carriers collect from; without them orders ship from
+        the platform pickup. The gateway requires a valid token; the service requires the
+        SELLER role.
+      x-service: inventory-service
+      x-actor-roles: [SELLER]
+      x-gateway-privilege: token only
+      x-required-roles: [SELLER]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOwnWarehouseRequest'
+            example:
+              name: District 7 warehouse
+              address: 12 Nguyen Thi Thap, District 7, Ho Chi Minh City
+      responses:
+        '200':
+          $ref: '#/components/responses/WarehouseRead'
+        '400':
+          description: VALIDATION_FAILED (missing, blank or overlong name, overlong address, only one of provinceCode and wardCode, a malformed code, or a pickup area without a street address of at most 255 characters) or INVALID_REQUEST_BODY.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/v1/warehouses/{id}:
     parameters:
       - $ref: '#/components/parameters/WarehouseId'
@@ -1852,6 +2163,23 @@ components:
         warehouseId:
           type: string
           format: uuid
+          description: Warehouse of the first order; each order's own warehouse is in orders
+        orders:
+          type: array
+          description: >-
+            One entry per order, in request order. Each SKU is held in the warehouse that
+            stocks it (its seller's warehouse), so orders of different sellers name
+            different warehouses.
+          items:
+            type: object
+            required: [orderId, warehouseId]
+            properties:
+              orderId:
+                type: string
+                format: uuid
+              warehouseId:
+                type: string
+                format: uuid
         expiresAt:
           type: string
           format: date-time
@@ -2014,7 +2342,7 @@ components:
           $ref: '#/components/schemas/PageInfo'
     ReservationView:
       type: object
-      required: [id, skuId, warehouseId, orderId, quantity, status, expiresAt, releasedAt]
+      required: [id, skuId, warehouseId, orderId, quantity, status, expiresAt, releasedAt, pickedAt, shippedAt]
       properties:
         id:
           type: string
@@ -2044,6 +2372,44 @@ components:
           format: date-time
           nullable: true
           description: In UTC; null while HELD
+        pickedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: In UTC; set when the seller marks the items picked
+        shippedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: In UTC; set when the seller marks the picked items packed for the carrier
+    ReservationViewApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          example: response success
+        data:
+          $ref: '#/components/schemas/ReservationView'
+    ReservationViewListApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          default: 0
+          example: 0
+        message:
+          type: string
+          example: response success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReservationView'
     ReservationPageApiResponse:
       type: object
       required: [code, message, data, page]
@@ -2064,7 +2430,7 @@ components:
           $ref: '#/components/schemas/PageInfo'
     MovementType:
       type: string
-      enum: [INTAKE, RESERVE, RELEASE, COMMIT, ADJUSTMENT, RETURN]
+      enum: [INTAKE, RESERVE, RELEASE, COMMIT, ADJUSTMENT, RETURN, PICK, SHIP, TRANSFER]
     Movement:
       type: object
       required: [id, skuId, warehouseId, movementType, quantity, referenceId, reason, createdAt]
@@ -2151,6 +2517,31 @@ components:
           example: response success
         data:
           $ref: '#/components/schemas/Warehouse'
+    UpdateOwnWarehouseRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+          pattern: '\S'
+          description: Nonblank name; surrounding whitespace is trimmed before storage
+        address:
+          type: string
+          nullable: true
+          maxLength: 500
+          description: Omit, null or blank clears the address. With a pickup area it is the house number and street, at most 255 characters.
+        provinceCode:
+          type: string
+          nullable: true
+          pattern: '^[1-9][0-9]{0,8}$'
+          description: Province code from the public shipping localities; send together with wardCode, or omit both to clear the pickup area
+        wardCode:
+          type: string
+          nullable: true
+          pattern: '^[1-9][0-9]{0,8}$'
+          description: Ward code inside provinceCode
     UpdateWarehouseRequest:
       type: object
       required: [name, status]
@@ -2208,6 +2599,46 @@ components:
           type: string
           enum: [ACTIVE, INACTIVE, MAINTENANCE]
           description: Newly created warehouses are always ACTIVE
+        sellerId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Owner of a seller warehouse; null for a platform warehouse
+        provinceCode:
+          type: string
+          nullable: true
+          description: Pickup province code; null when no pickup area is set
+        wardCode:
+          type: string
+          nullable: true
+          description: Pickup ward code; null when no pickup area is set
+    SellerPickupApiResponse:
+      type: object
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          enum: [0]
+        message:
+          type: string
+        data:
+          type: object
+          nullable: true
+          required: [warehouseId, sellerId, provinceCode, wardCode, line1]
+          properties:
+            warehouseId:
+              type: string
+              format: uuid
+            sellerId:
+              type: string
+              format: uuid
+            provinceCode:
+              type: string
+            wardCode:
+              type: string
+            line1:
+              type: string
+              maxLength: 255
     WarehousePageInfo:
       type: object
       required: [number, size, totalElements, totalPages]

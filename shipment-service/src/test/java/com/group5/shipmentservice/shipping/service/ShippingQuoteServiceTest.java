@@ -3,19 +3,25 @@ package com.group5.shipmentservice.shipping.service;
 import com.group5.common_core.exception.DomainException;
 import com.group5.shipmentservice.shared.config.ShippingProperties;
 import com.group5.shipmentservice.shared.exception.ShipmentErrorCode;
+import com.group5.shipmentservice.shipping.adapter.CarrierAdapter;
 import com.group5.shipmentservice.shipping.adapter.CarrierRegistry;
+import com.group5.shipmentservice.shipping.adapter.model.CarrierAddress;
+import com.group5.shipmentservice.shipping.dto.response.ShippingQuoteResponse;
+import com.group5.shipmentservice.shipping.enums.ShippingServiceType;
 import com.group5.shipmentservice.shipping.adapter.FakeCarrierAdapter;
 import com.group5.shipmentservice.shipping.adapter.model.CarrierQuoteRequest;
 import com.group5.shipmentservice.shipping.adapter.model.PickupAddress;
 import com.group5.shipmentservice.shipping.dto.request.ParcelRequest;
 import com.group5.shipmentservice.shipping.dto.request.ShippingAddressRequest;
 import com.group5.shipmentservice.shipping.dto.request.ShippingItemRequest;
+import com.group5.shipmentservice.shipping.dto.request.PickupAddressRequest;
 import com.group5.shipmentservice.shipping.dto.request.ShippingQuoteRequest;
 import com.group5.shipmentservice.shipping.resilience.CarrierExecutor;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -122,6 +128,30 @@ class ShippingQuoteServiceTest {
     }
 
     @Test
+    void aSellerWarehousePickupInTheRequestReplacesThePlatformPickup() {
+        ShippingProperties properties = new ShippingProperties(ShippingProperties.CarrierMode.FAKE,
+                3000, 3, 100, new BigDecimal("1000000"), 5, 30000,
+                "http://catalog-service", WAREHOUSE,
+                new PickupAddress("1000001", "1003646", "Địa chỉ lấy hàng kiểm thử"), Map.of());
+        CarrierExecutor realExecutor = new CarrierExecutor(properties);
+        FakeCarrierAdapter adapter = spy(new FakeCarrierAdapter());
+        CarrierRegistry registry = new CarrierRegistry(List.of(adapter));
+        when(catalog.getSubtotal(anyList(), any())).thenReturn(new BigDecimal("500000"));
+        ShippingQuoteService service = new ShippingQuoteService(properties, registry,
+                new ShippingAddressService(registry, realExecutor), catalog, realExecutor);
+        ShippingQuoteRequest baseline = request();
+
+        service.quote(new ShippingQuoteRequest(baseline.toAddress(), baseline.items(), baseline.parcel(),
+                UUID.randomUUID(), null, true, new PickupAddressRequest("1000002", "1000003", " 12 Kho người bán ")));
+
+        ArgumentCaptor<CarrierQuoteRequest> captured = ArgumentCaptor.forClass(CarrierQuoteRequest.class);
+        verify(adapter).quote(captured.capture(), any());
+        assertThat(captured.getValue().pickup().provinceName()).isEqualTo("Hà Nội");
+        assertThat(captured.getValue().pickup().wardName()).isEqualTo("Phường Ba Đình");
+        assertThat(captured.getValue().pickup().addressLine()).isEqualTo("12 Kho người bán");
+    }
+
+    @Test
     void auctionCanRequestRawCarrierFeeEvenWhenCurrentCatalogPriceQualifiesForFreeShipping() {
         ShippingProperties properties = new ShippingProperties(ShippingProperties.CarrierMode.FAKE,
                 3000, 3, 100, new BigDecimal("1000000"), 5, 30000,
@@ -225,6 +255,68 @@ class ShippingQuoteServiceTest {
                         .isEqualTo("SHIPMENT_CIRCUIT_OPEN"));
         verifyNoInteractions(catalog);
         verify(adapter, never()).quote(any(), any());
+    }
+
+    @Test
+    void everyOfferedCarrierIsQuotedAndTheCheapestIsRecommendedByDefault() {
+        var setup = multiCarrier(ShippingProperties.CarrierStrategy.CHEAPEST);
+
+        List<ShippingQuoteResponse> quotes = setup.service().quote(request());
+
+        assertThat(quotes).extracting(ShippingQuoteResponse::carrier).containsExactly("FAKE", "GHN");
+        assertThat(quotes).extracting(ShippingQuoteResponse::recommended).containsExactly(true, false);
+        assertThat(quotes).extracting(ShippingQuoteResponse::carrierName)
+                .containsExactly("Nhà vận chuyển giả lập", "Giao Hàng Nhanh");
+        assertThat(quotes.get(1).fee()).isEqualByComparingTo("45000");
+        verify(catalog).getSubtotal(anyList(), any());
+    }
+
+    @Test
+    void fastestStrategyRecommendsTheEarliestArrival() {
+        var setup = multiCarrier(ShippingProperties.CarrierStrategy.FASTEST);
+
+        List<ShippingQuoteResponse> quotes = setup.service().quote(request());
+
+        assertThat(quotes).extracting(ShippingQuoteResponse::carrier).containsExactly("GHN", "FAKE");
+        assertThat(quotes.getFirst().recommended()).isTrue();
+    }
+
+    @Test
+    void aFailingCarrierIsLeftOutAndOnlyAllFailingFailsTheQuote() {
+        var setup = multiCarrier(ShippingProperties.CarrierStrategy.FASTEST);
+        when(setup.ghn().quote(any(), any())).thenThrow(new DomainException(ShipmentErrorCode.CARRIER_UNAVAILABLE));
+
+        assertThat(setup.service().quote(request())).singleElement().satisfies(quote -> {
+            assertThat(quote.carrier()).isEqualTo("FAKE");
+            assertThat(quote.recommended()).isTrue();
+        });
+
+        doThrow(new DomainException(ShipmentErrorCode.NO_SERVICE)).when(setup.fake()).quote(any(), any());
+        assertThatThrownBy(() -> setup.service().quote(request()))
+                .isInstanceOfSatisfying(DomainException.class, error -> assertThat(error.getErrorCode())
+                        .isEqualTo("SHIPMENT_CARRIER_UNAVAILABLE"));
+    }
+
+    private record MultiCarrier(ShippingQuoteService service, CarrierAdapter ghn, FakeCarrierAdapter fake) { }
+
+    private MultiCarrier multiCarrier(ShippingProperties.CarrierStrategy strategy) {
+        ShippingProperties properties = new ShippingProperties(ShippingProperties.CarrierMode.NONE,
+                3000, 0, 0, new BigDecimal("1000000"), 5, 30000, "http://catalog-service", WAREHOUSE,
+                new PickupAddress("1000001", "1003646", "Địa chỉ lấy hàng kiểm thử"), Map.of(),
+                ShippingProperties.CarrierMode.GHN, ShippingProperties.CarrierMode.GHN,
+                List.of(ShippingProperties.CarrierMode.FAKE), strategy);
+        CarrierAdapter ghn = mock(CarrierAdapter.class);
+        when(ghn.code()).thenReturn("GHN");
+        when(ghn.name()).thenReturn("Giao Hàng Nhanh");
+        when(ghn.quote(any(), any())).thenReturn(List.of(new ShippingQuoteResponse("GHN", ShippingServiceType.STANDARD,
+                new BigDecimal("45000"), OffsetDateTime.now().plusDays(1))));
+        FakeCarrierAdapter fake = spy(new FakeCarrierAdapter());
+        CarrierRegistry registry = new CarrierRegistry(List.of(ghn, fake), properties);
+        when(addresses.resolveAddress(any(), any(), any(), any(), any()))
+                .thenReturn(new CarrierAddress("Hồ Chí Minh", "Phường Vũng Tàu", "Địa chỉ kiểm thử"));
+        when(catalog.getSubtotal(anyList(), any())).thenReturn(new BigDecimal("500000"));
+        return new MultiCarrier(new ShippingQuoteService(properties, registry, addresses, catalog,
+                new CarrierExecutor(properties)), ghn, fake);
     }
 
     private ShippingQuoteService service(UUID defaultWarehouse, Map<UUID, PickupAddress> pickups) {
