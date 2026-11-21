@@ -60,5 +60,3 @@ local crash recovery; it does not establish STAGING deployment or payment accept
 Child JVMs are launched independently from the Maven coverage agent, so their work
 does not inflate the module's unit/integration coverage percentage. These scenarios
 verify observable cross-process behavior in addition to the in-process suite.
-
-

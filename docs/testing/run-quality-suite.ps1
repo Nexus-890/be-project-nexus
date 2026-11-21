@@ -105,6 +105,3 @@ foreach ($module in $Modules) {
 @{ state = 'complete'; finishedUtc = [DateTimeOffset]::UtcNow } |
     ConvertTo-Json | Set-Content (Join-Path $EvidenceDirectory 'progress.json') -Encoding UTF8
 if (@($results | Where-Object { $_.verifyExit -ne 0 }).Count -gt 0) { exit 1 }
-
-
-

@@ -28,8 +28,8 @@
     },
     {
       "file": "be-project-nexus/docs/testing/run-quality-suite.ps1",
-      "sha256": "8f589039fede7196801c4eccad4d0d80412203f53f33a799ad5f4e90df68922e",
-      "gitBlob": "81e0d6d3d3416c477425a2a8f626f6416e68f928"
+      "sha256": "d0910ce948cdd6d3b2db4765648a846a4d0568abed7610e29dbc43bc436579e4",
+      "gitBlob": "909ceaa407d7ead2cc415b7025f1111b25e3b8e2"
     },
     {
       "file": "be-project-nexus/docs/testing/run-concurrency-reruns.ps1",
@@ -37,5 +37,5 @@
       "gitBlob": "c4cbee44e6c2db016cb2c7e5a6f06b0a5ad423bd"
     }
   ],
-  "hashDefinition": "SHA-256 of Windows working tree bytes used in execution; gitBlob identifies normalized repository content."
+  "hashDefinition": "SHA-256 of final Windows working tree bytes; gitBlob identifies normalized repository content. Runner received whitespace-only EOF cleanup after execution."
 }
