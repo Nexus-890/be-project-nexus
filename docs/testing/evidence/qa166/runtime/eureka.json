@@ -1,0 +1,468 @@
+{
+  "applications": {
+    "versions__delta": "1",
+    "apps__hashcode": "UP_10_",
+    "application": [
+      {
+        "name": "COMMERCE-SERVICE",
+        "instance": [
+          {
+            "instanceId": "DUYKHANG.mshome.net:commerce-service:8083",
+            "hostName": "172.18.128.1",
+            "app": "COMMERCE-SERVICE",
+            "ipAddr": "172.18.128.1",
+            "status": "UP",
+            "overriddenStatus": "UNKNOWN",
+            "port": {
+              "$": 8083,
+              "@enabled": "true"
+            },
+            "securePort": {
+              "$": 443,
+              "@enabled": "false"
+            },
+            "countryId": 1,
+            "dataCenterInfo": {
+              "@class": "com.netflix.appinfo.InstanceInfo$DefaultDataCenterInfo",
+              "name": "MyOwn"
+            },
+            "leaseInfo": {
+              "renewalIntervalInSecs": 30,
+              "durationInSecs": 90,
+              "registrationTimestamp": 1795281184278,
+              "lastRenewalTimestamp": 1795281283342,
+              "evictionTimestamp": 0,
+              "serviceUpTimestamp": 1795281183930
+            },
+            "metadata": {
+              "management.port": "8083"
+            },
+            "homePageUrl": "http://172.18.128.1:8083/",
+            "statusPageUrl": "http://172.18.128.1:8083/actuator/info",
+            "healthCheckUrl": "http://172.18.128.1:8083/actuator/health",
+            "vipAddress": "commerce-service",
+            "secureVipAddress": "commerce-service",
+            "isCoordinatingDiscoveryServer": "false",
+            "lastUpdatedTimestamp": "1795281184278",
+            "lastDirtyTimestamp": "1795281183768",
+            "actionType": "ADDED"
+          }
+        ]
+      },
+      {
+        "name": "API-GATEWAY",
+        "instance": [
+          {
+            "instanceId": "DUYKHANG.mshome.net:api-gateway:8080",
+            "hostName": "172.18.128.1",
+            "app": "API-GATEWAY",
+            "ipAddr": "172.18.128.1",
+            "status": "UP",
+            "overriddenStatus": "UNKNOWN",
+            "port": {
+              "$": 8080,
+              "@enabled": "true"
+            },
+            "securePort": {
+              "$": 443,
+              "@enabled": "false"
+            },
+            "countryId": 1,
+            "dataCenterInfo": {
+              "@class": "com.netflix.appinfo.InstanceInfo$DefaultDataCenterInfo",
+              "name": "MyOwn"
+            },
+            "leaseInfo": {
+              "renewalIntervalInSecs": 30,
+              "durationInSecs": 90,
+              "registrationTimestamp": 1795280903590,
+              "lastRenewalTimestamp": 1795281279978,
+              "evictionTimestamp": 0,
+              "serviceUpTimestamp": 1795280902326
+            },
+            "metadata": {
+              "management.port": "8080"
+            },
+            "homePageUrl": "http://172.18.128.1:8080/",
+            "statusPageUrl": "http://172.18.128.1:8080/actuator/info",
+            "healthCheckUrl": "http://172.18.128.1:8080/actuator/health",
+            "vipAddress": "api-gateway",
+            "secureVipAddress": "api-gateway",
+            "isCoordinatingDiscoveryServer": "false",
+            "lastUpdatedTimestamp": "1795280903590",
+            "lastDirtyTimestamp": "1795280901951",
+            "actionType": "ADDED"
+          }
+        ]
+      },
+      {
+        "name": "PAYMENT-SERVICE",
+        "instance": [
+          {
+            "instanceId": "DUYKHANG.mshome.net:payment-service:8087",
+            "hostName": "172.18.128.1",
+            "app": "PAYMENT-SERVICE",
+            "ipAddr": "172.18.128.1",
+            "status": "UP",
+            "overriddenStatus": "UNKNOWN",
+            "port": {
+              "$": 8087,
+              "@enabled": "true"
+            },
+            "securePort": {
+              "$": 443,
+              "@enabled": "false"
+            },
+            "countryId": 1,
+            "dataCenterInfo": {
+              "@class": "com.netflix.appinfo.InstanceInfo$DefaultDataCenterInfo",
+              "name": "MyOwn"
+            },
+            "leaseInfo": {
+              "renewalIntervalInSecs": 30,
+              "durationInSecs": 90,
+              "registrationTimestamp": 1795281175361,
+              "lastRenewalTimestamp": 1795281292240,
+              "evictionTimestamp": 0,
+              "serviceUpTimestamp": 1795281174830
+            },
+            "metadata": {
+              "management.port": "8087"
+            },
+            "homePageUrl": "http://172.18.128.1:8087/",
+            "statusPageUrl": "http://172.18.128.1:8087/actuator/info",
+            "healthCheckUrl": "http://172.18.128.1:8087/actuator/health",
+            "vipAddress": "payment-service",
+            "secureVipAddress": "payment-service",
+            "isCoordinatingDiscoveryServer": "false",
+            "lastUpdatedTimestamp": "1795281175361",
+            "lastDirtyTimestamp": "1795281174485",
+            "actionType": "ADDED"
+          }
+        ]
+      },
+      {
+        "name": "CATALOG-SERVICE",
+        "instance": [
+          {
+            "instanceId": "DUYKHANG.mshome.net:catalog-service:8082",
+            "hostName": "172.18.128.1",
+            "app": "CATALOG-SERVICE",
+            "ipAddr": "172.18.128.1",
+            "status": "UP",
+            "overriddenStatus": "UNKNOWN",
+            "port": {
+              "$": 8082,
+              "@enabled": "true"
+            },
+            "securePort": {
+              "$": 443,
+              "@enabled": "false"
+            },
+            "countryId": 1,
+            "dataCenterInfo": {
+              "@class": "com.netflix.appinfo.InstanceInfo$DefaultDataCenterInfo",
+              "name": "MyOwn"
+            },
+            "leaseInfo": {
+              "renewalIntervalInSecs": 30,
+              "durationInSecs": 90,
+              "registrationTimestamp": 1795281180921,
+              "lastRenewalTimestamp": 1795281297439,
+              "evictionTimestamp": 0,
+              "serviceUpTimestamp": 1795281180403
+            },
+            "metadata": {
+              "management.port": "8082"
+            },
+            "homePageUrl": "http://172.18.128.1:8082/",
+            "statusPageUrl": "http://172.18.128.1:8082/actuator/info",
+            "healthCheckUrl": "http://172.18.128.1:8082/actuator/health",
+            "vipAddress": "catalog-service",
+            "secureVipAddress": "catalog-service",
+            "isCoordinatingDiscoveryServer": "false",
+            "lastUpdatedTimestamp": "1795281180921",
+            "lastDirtyTimestamp": "1795281180276",
+            "actionType": "ADDED"
+          }
+        ]
+      },
+      {
+        "name": "AUCTION-SERVICE",
+        "instance": [
+          {
+            "instanceId": "DUYKHANG.mshome.net:auction-service:8084",
+            "hostName": "172.18.128.1",
+            "app": "AUCTION-SERVICE",
+            "ipAddr": "172.18.128.1",
+            "status": "UP",
+            "overriddenStatus": "UNKNOWN",
+            "port": {
+              "$": 8084,
+              "@enabled": "true"
+            },
+            "securePort": {
+              "$": 443,
+              "@enabled": "false"
+            },
+            "countryId": 1,
+            "dataCenterInfo": {
+              "@class": "com.netflix.appinfo.InstanceInfo$DefaultDataCenterInfo",
+              "name": "MyOwn"
+            },
+            "leaseInfo": {
+              "renewalIntervalInSecs": 30,
+              "durationInSecs": 90,
+              "registrationTimestamp": 1795281184279,
+              "lastRenewalTimestamp": 1795281280944,
+              "evictionTimestamp": 0,
+              "serviceUpTimestamp": 1795281184052
+            },
+            "metadata": {
+              "management.port": "8084"
+            },
+            "homePageUrl": "http://172.18.128.1:8084/",
+            "statusPageUrl": "http://172.18.128.1:8084/actuator/info",
+            "healthCheckUrl": "http://172.18.128.1:8084/actuator/health",
+            "vipAddress": "auction-service",
+            "secureVipAddress": "auction-service",
+            "isCoordinatingDiscoveryServer": "false",
+            "lastUpdatedTimestamp": "1795281184280",
+            "lastDirtyTimestamp": "1795281183908",
+            "actionType": "ADDED"
+          }
+        ]
+      },
+      {
+        "name": "INVENTORY-SERVICE",
+        "instance": [
+          {
+            "instanceId": "DUYKHANG.mshome.net:inventory-service:8085",
+            "hostName": "172.18.128.1",
+            "app": "INVENTORY-SERVICE",
+            "ipAddr": "172.18.128.1",
+            "status": "UP",
+            "overriddenStatus": "UNKNOWN",
+            "port": {
+              "$": 8085,
+              "@enabled": "true"
+            },
+            "securePort": {
+              "$": 443,
+              "@enabled": "false"
+            },
+            "countryId": 1,
+            "dataCenterInfo": {
+              "@class": "com.netflix.appinfo.InstanceInfo$DefaultDataCenterInfo",
+              "name": "MyOwn"
+            },
+            "leaseInfo": {
+              "renewalIntervalInSecs": 30,
+              "durationInSecs": 90,
+              "registrationTimestamp": 1795281184276,
+              "lastRenewalTimestamp": 1795281184276,
+              "evictionTimestamp": 0,
+              "serviceUpTimestamp": 1795281183749
+            },
+            "metadata": {
+              "management.port": "8085"
+            },
+            "homePageUrl": "http://172.18.128.1:8085/",
+            "statusPageUrl": "http://172.18.128.1:8085/actuator/info",
+            "healthCheckUrl": "http://172.18.128.1:8085/actuator/health",
+            "vipAddress": "inventory-service",
+            "secureVipAddress": "inventory-service",
+            "isCoordinatingDiscoveryServer": "false",
+            "lastUpdatedTimestamp": "1795281184276",
+            "lastDirtyTimestamp": "1795281183541",
+            "actionType": "ADDED"
+          }
+        ]
+      },
+      {
+        "name": "RATING-SERVICE",
+        "instance": [
+          {
+            "instanceId": "DUYKHANG.mshome.net:rating-service:8089",
+            "hostName": "172.18.128.1",
+            "app": "RATING-SERVICE",
+            "ipAddr": "172.18.128.1",
+            "status": "UP",
+            "overriddenStatus": "UNKNOWN",
+            "port": {
+              "$": 8089,
+              "@enabled": "true"
+            },
+            "securePort": {
+              "$": 443,
+              "@enabled": "false"
+            },
+            "countryId": 1,
+            "dataCenterInfo": {
+              "@class": "com.netflix.appinfo.InstanceInfo$DefaultDataCenterInfo",
+              "name": "MyOwn"
+            },
+            "leaseInfo": {
+              "renewalIntervalInSecs": 30,
+              "durationInSecs": 90,
+              "registrationTimestamp": 1795281180243,
+              "lastRenewalTimestamp": 1795281297440,
+              "evictionTimestamp": 0,
+              "serviceUpTimestamp": 1795281179713
+            },
+            "metadata": {
+              "management.port": "8089"
+            },
+            "homePageUrl": "http://172.18.128.1:8089/",
+            "statusPageUrl": "http://172.18.128.1:8089/actuator/info",
+            "healthCheckUrl": "http://172.18.128.1:8089/actuator/health",
+            "vipAddress": "rating-service",
+            "secureVipAddress": "rating-service",
+            "isCoordinatingDiscoveryServer": "false",
+            "lastUpdatedTimestamp": "1795281180243",
+            "lastDirtyTimestamp": "1795281179536",
+            "actionType": "ADDED"
+          }
+        ]
+      },
+      {
+        "name": "NOTIFICATION-SERVICE",
+        "instance": [
+          {
+            "instanceId": "DUYKHANG.mshome.net:notification-service:8086",
+            "hostName": "172.18.128.1",
+            "app": "NOTIFICATION-SERVICE",
+            "ipAddr": "172.18.128.1",
+            "status": "UP",
+            "overriddenStatus": "UNKNOWN",
+            "port": {
+              "$": 8086,
+              "@enabled": "true"
+            },
+            "securePort": {
+              "$": 443,
+              "@enabled": "false"
+            },
+            "countryId": 1,
+            "dataCenterInfo": {
+              "@class": "com.netflix.appinfo.InstanceInfo$DefaultDataCenterInfo",
+              "name": "MyOwn"
+            },
+            "leaseInfo": {
+              "renewalIntervalInSecs": 30,
+              "durationInSecs": 90,
+              "registrationTimestamp": 1795281189977,
+              "lastRenewalTimestamp": 1795281299775,
+              "evictionTimestamp": 0,
+              "serviceUpTimestamp": 1795281189470
+            },
+            "metadata": {
+              "management.port": "8086"
+            },
+            "homePageUrl": "http://172.18.128.1:8086/",
+            "statusPageUrl": "http://172.18.128.1:8086/actuator/info",
+            "healthCheckUrl": "http://172.18.128.1:8086/actuator/health",
+            "vipAddress": "notification-service",
+            "secureVipAddress": "notification-service",
+            "isCoordinatingDiscoveryServer": "false",
+            "lastUpdatedTimestamp": "1795281189977",
+            "lastDirtyTimestamp": "1795281189393",
+            "actionType": "ADDED"
+          }
+        ]
+      },
+      {
+        "name": "USER-SERVICE",
+        "instance": [
+          {
+            "instanceId": "DUYKHANG.mshome.net:user-service:8081",
+            "hostName": "172.18.128.1",
+            "app": "USER-SERVICE",
+            "ipAddr": "172.18.128.1",
+            "status": "UP",
+            "overriddenStatus": "UNKNOWN",
+            "port": {
+              "$": 8081,
+              "@enabled": "true"
+            },
+            "securePort": {
+              "$": 443,
+              "@enabled": "false"
+            },
+            "countryId": 1,
+            "dataCenterInfo": {
+              "@class": "com.netflix.appinfo.InstanceInfo$DefaultDataCenterInfo",
+              "name": "MyOwn"
+            },
+            "leaseInfo": {
+              "renewalIntervalInSecs": 30,
+              "durationInSecs": 90,
+              "registrationTimestamp": 1795281178048,
+              "lastRenewalTimestamp": 1795281292973,
+              "evictionTimestamp": 0,
+              "serviceUpTimestamp": 1795280930517
+            },
+            "metadata": {
+              "management.port": "8081"
+            },
+            "homePageUrl": "http://172.18.128.1:8081/",
+            "statusPageUrl": "http://172.18.128.1:8081/actuator/info",
+            "healthCheckUrl": "http://172.18.128.1:8081/actuator/health",
+            "vipAddress": "user-service",
+            "secureVipAddress": "user-service",
+            "isCoordinatingDiscoveryServer": "false",
+            "lastUpdatedTimestamp": "1795281178048",
+            "lastDirtyTimestamp": "1795281177203",
+            "actionType": "ADDED"
+          }
+        ]
+      },
+      {
+        "name": "SHIPMENT-SERVICE",
+        "instance": [
+          {
+            "instanceId": "DUYKHANG.mshome.net:shipment-service:8088",
+            "hostName": "172.18.128.1",
+            "app": "SHIPMENT-SERVICE",
+            "ipAddr": "172.18.128.1",
+            "status": "UP",
+            "overriddenStatus": "UNKNOWN",
+            "port": {
+              "$": 8088,
+              "@enabled": "true"
+            },
+            "securePort": {
+              "$": 443,
+              "@enabled": "false"
+            },
+            "countryId": 1,
+            "dataCenterInfo": {
+              "@class": "com.netflix.appinfo.InstanceInfo$DefaultDataCenterInfo",
+              "name": "MyOwn"
+            },
+            "leaseInfo": {
+              "renewalIntervalInSecs": 30,
+              "durationInSecs": 90,
+              "registrationTimestamp": 1795281189287,
+              "lastRenewalTimestamp": 1795281299285,
+              "evictionTimestamp": 0,
+              "serviceUpTimestamp": 1795281188756
+            },
+            "metadata": {
+              "management.port": "8088"
+            },
+            "homePageUrl": "http://172.18.128.1:8088/",
+            "statusPageUrl": "http://172.18.128.1:8088/actuator/info",
+            "healthCheckUrl": "http://172.18.128.1:8088/actuator/health",
+            "vipAddress": "shipment-service",
+            "secureVipAddress": "shipment-service",
+            "isCoordinatingDiscoveryServer": "false",
+            "lastUpdatedTimestamp": "1795281189287",
+            "lastDirtyTimestamp": "1795281188662",
+            "actionType": "ADDED"
+          }
+        ]
+      }
+    ]
+  }
+}

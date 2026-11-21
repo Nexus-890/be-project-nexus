@@ -1,0 +1,178 @@
+{
+  "source": "origin/develop 1ea5801e isolated QA databases",
+  "rows": [
+    {
+      "method": "GET",
+      "path": "/api/v1/products",
+      "status": 200,
+      "data": [
+        {
+          "categoryId": "69000000-0000-4000-8000-000000000102",
+          "id": "69000000-0000-4000-8000-000000000201",
+          "images": [
+            {
+              "id": "69000000-0000-4000-8000-000000000301",
+              "imageUrl": "https://nzjvjvyqxcisjgvglwvj.supabase.co/storage/v1/object/public/product-images/products/69000000-0000-4000-8000-000000000201/69000000-0000-4000-8000-000000000301.jpg",
+              "sortOrder": 0
+            }
+          ],
+          "maxPrice": 180000,
+          "minPrice": 150000,
+          "name": "iPhone 15 128GB",
+          "sellerId": "68000000-0000-4000-8000-000000000002",
+          "slug": "iphone-15-128gb-69000000-0000-4000-8000-000000000201",
+          "status": "ACTIVE"
+        },
+        {
+          "categoryId": "69000000-0000-4000-8000-000000000102",
+          "id": "69000000-0000-4000-8000-000000000202",
+          "images": [
+            {
+              "id": "69000000-0000-4000-8000-000000000302",
+              "imageUrl": "https://nzjvjvyqxcisjgvglwvj.supabase.co/storage/v1/object/public/product-images/products/69000000-0000-4000-8000-000000000202/69000000-0000-4000-8000-000000000302.jpg",
+              "sortOrder": 0
+            }
+          ],
+          "maxPrice": 180000,
+          "minPrice": 150000,
+          "name": "Samsung Galaxy S24",
+          "sellerId": "68000000-0000-4000-8000-000000000002",
+          "slug": "samsung-galaxy-s24-69000000-0000-4000-8000-000000000202",
+          "status": "ACTIVE"
+        },
+        {
+          "categoryId": "69000000-0000-4000-8000-000000000102",
+          "id": "69000000-0000-4000-8000-000000000203",
+          "images": [
+            {
+              "id": "69000000-0000-4000-8000-000000000303",
+              "imageUrl": "https://nzjvjvyqxcisjgvglwvj.supabase.co/storage/v1/object/public/product-images/products/69000000-0000-4000-8000-000000000203/69000000-0000-4000-8000-000000000303.jpg",
+              "sortOrder": 0
+            }
+          ],
+          "maxPrice": 180000,
+          "minPrice": 150000,
+          "name": "Xiaomi Redmi Note 13",
+          "sellerId": "68000000-0000-4000-8000-000000000002",
+          "slug": "xiaomi-redmi-note-13-69000000-0000-4000-8000-000000000203",
+          "status": "ACTIVE"
+        },
+        {
+          "categoryId": "69000000-0000-4000-8000-000000000103",
+          "id": "69000000-0000-4000-8000-000000000204",
+          "images": [
+            {
+              "id": "69000000-0000-4000-8000-000000000304",
+              "imageUrl": "https://nzjvjvyqxcisjgvglwvj.supabase.co/storage/v1/object/public/product-images/products/69000000-0000-4000-8000-000000000204/69000000-0000-4000-8000-000000000304.jpg",
+              "sortOrder": 0
+            }
+          ],
+          "maxPrice": 180000,
+          "minPrice": 150000,
+          "name": "Áo thun cotton basic",
+          "sellerId": "68000000-0000-4000-8000-000000000002",
+          "slug": "ao-thun-cotton-basic-69000000-0000-4000-8000-000000000204",
+          "status": "ACTIVE"
+        },
+        {
+          "categoryId": "69000000-0000-4000-8000-000000000103",
+          "id": "69000000-0000-4000-8000-000000000205",
+          "images": [
+            {
+              "id": "69000000-0000-4000-8000-000000000305",
+              "imageUrl": "https://nzjvjvyqxcisjgvglwvj.supabase.co/storage/v1/object/public/product-images/products/69000000-0000-4000-8000-000000000205/69000000-0000-4000-8000-000000000305.jpg",
+              "sortOrder": 0
+            }
+          ],
+          "maxPrice": 180000,
+          "minPrice": 150000,
+          "name": "Giày sneaker trắng",
+          "sellerId": "68000000-0000-4000-8000-000000000002",
+          "slug": "giay-sneaker-trang-69000000-0000-4000-8000-000000000205",
+          "status": "ACTIVE"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/products/69000000-0000-4000-8000-000000000201/skus",
+      "status": 200,
+      "data": [
+        {
+          "color": "Red",
+          "id": "01a1fef1-ef0d-710d-b169-7c94cbfa9f5e",
+          "price": 150000,
+          "productId": "69000000-0000-4000-8000-000000000201",
+          "shippingParcel": null,
+          "size": "M",
+          "skuCode": "SKU-69000000000040008000000000000201-01",
+          "status": "ACTIVE"
+        },
+        {
+          "color": "Blue",
+          "id": "01a1fef1-ef0f-77d5-9d3a-14d4f6753e3b",
+          "price": 180000,
+          "productId": "69000000-0000-4000-8000-000000000201",
+          "shippingParcel": null,
+          "size": "L",
+          "skuCode": "SKU-69000000000040008000000000000201-02",
+          "status": "ACTIVE"
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/skus/01a1fef1-ef0d-710d-b169-7c94cbfa9f5e",
+      "status": 200,
+      "data": {
+        "color": "Red",
+        "id": "01a1fef1-ef0d-710d-b169-7c94cbfa9f5e",
+        "price": 150000,
+        "productId": "69000000-0000-4000-8000-000000000201",
+        "shippingParcel": {
+          "weightGrams": 500,
+          "lengthCm": 20,
+          "widthCm": 15,
+          "heightCm": 10
+        },
+        "size": "M",
+        "skuCode": "SKU-69000000000040008000000000000201-01",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/inventory/intake",
+      "status": 201,
+      "data": {
+        "skuId": "01a1fef1-ef0d-710d-b169-7c94cbfa9f5e",
+        "warehouseId": "01a1fefd-087f-7e03-aef2-6ba73c2d41d6",
+        "total": 10,
+        "available": 10,
+        "reserved": 0,
+        "unavailable": 0
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/checkout/preview",
+      "status": 503,
+      "code": "COMMERCE_SHIPPING_UNAVAILABLE",
+      "detail": "Shipping quotes are unavailable; retry checkout later"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/orders",
+      "status": 503,
+      "code": "COMMERCE_SHIPPING_UNAVAILABLE",
+      "detail": "Shipping quotes are unavailable; retry checkout later"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auctions",
+      "status": 503,
+      "code": "AUCTION_REPUTATION_UNAVAILABLE",
+      "detail": "Reputation eligibility is temporarily unavailable"
+    }
+  ]
+}

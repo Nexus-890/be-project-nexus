@@ -1,0 +1,589 @@
+[
+  {
+    "module": "lib/common-core",
+    "startedUtc": "2026-11-21T16:26:09.1412881+00:00",
+    "finishedUtc": "2026-11-21T16:26:17.8386282+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\lib\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 1,
+    "tests": 0,
+    "passed": 0,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "coveredLines": null,
+    "missedLines": null,
+    "linePercent": 0,
+    "below70": true,
+    "failureDetails": [],
+    "jarFiles": [
+      "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\lib\\common-core\\target\\common-core-1.0.0.jar"
+    ],
+    "evidenceLog": "coverage/lib-common-core/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "lib/common-web",
+    "startedUtc": "2026-11-21T16:26:17.8459653+00:00",
+    "finishedUtc": "2026-11-21T16:26:36.3096336+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\lib\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 1,
+    "tests": 12,
+    "passed": 12,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "coveredLines": 49,
+    "missedLines": 36,
+    "linePercent": 57.64705882352941,
+    "below70": true,
+    "failureDetails": [],
+    "jarFiles": [
+      "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\lib\\common-web\\target\\common-web-1.0.0-tests.jar",
+      "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\lib\\common-web\\target\\common-web-1.0.0.jar"
+    ],
+    "evidenceLog": "coverage/lib-common-web/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "lib/common-security",
+    "startedUtc": "2026-11-21T16:26:36.3160274+00:00",
+    "finishedUtc": "2026-11-21T16:27:00.2302425+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\lib\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 0,
+    "tests": 23,
+    "passed": 23,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "coveredLines": 130,
+    "missedLines": 8,
+    "linePercent": 94.20289855072464,
+    "below70": false,
+    "failureDetails": [],
+    "jarFiles": [
+      "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\lib\\common-security\\target\\common-security-1.0.0.jar"
+    ],
+    "evidenceLog": "coverage/lib-common-security/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "lib/common-events",
+    "startedUtc": "2026-11-21T16:27:00.236747+00:00",
+    "finishedUtc": "2026-11-21T16:27:16.780538+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\lib\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 0,
+    "tests": 22,
+    "passed": 22,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "coveredLines": 62,
+    "missedLines": 0,
+    "linePercent": 100,
+    "below70": false,
+    "failureDetails": [],
+    "jarFiles": [
+      "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\lib\\common-events\\target\\common-events-1.0.0.jar"
+    ],
+    "evidenceLog": "coverage/lib-common-events/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "lib/common-outbox",
+    "startedUtc": "2026-11-21T17:04:38.3954491+00:00",
+    "finishedUtc": "2026-11-21T17:05:43.9874387+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\lib\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 0,
+    "tests": 48,
+    "passed": 48,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "coveredLines": 96,
+    "missedLines": 20,
+    "linePercent": 82.75862068965517,
+    "below70": false,
+    "failureDetails": [],
+    "jarFiles": [
+      "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\lib\\common-outbox\\target\\common-outbox-1.0.0.jar"
+    ],
+    "evidenceLog": "coverage-outbox-dedicated/lib-common-outbox/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "lib/common-test",
+    "startedUtc": "2026-11-21T16:27:55.4225165+00:00",
+    "finishedUtc": "2026-11-21T16:28:03.216887+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\lib\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 1,
+    "tests": 0,
+    "passed": 0,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "coveredLines": null,
+    "missedLines": null,
+    "linePercent": 0,
+    "below70": true,
+    "failureDetails": [],
+    "jarFiles": [
+      "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\lib\\common-test\\target\\common-test-1.0.0.jar"
+    ],
+    "evidenceLog": "coverage/lib-common-test/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "config-service",
+    "startedUtc": "2026-11-21T16:07:34.4293638+00:00",
+    "finishedUtc": "2026-11-21T16:08:47.4243857+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\config-service\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 0,
+    "tests": 52,
+    "passed": 52,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "coveredLines": 355,
+    "missedLines": 24,
+    "linePercent": 93.66754617414249,
+    "below70": false,
+    "failureDetails": [],
+    "jarFiles": [
+      "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\config-service\\target\\config-service-0.0.1-SNAPSHOT.jar"
+    ],
+    "evidenceLog": "coverage/config-service/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "discovery-service",
+    "startedUtc": "2026-11-21T16:08:47.5132679+00:00",
+    "finishedUtc": "2026-11-21T16:09:44.4551299+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\discovery-service\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 1,
+    "tests": 1,
+    "passed": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "coveredLines": 1,
+    "missedLines": 2,
+    "linePercent": 33.333333333333336,
+    "below70": true,
+    "failureDetails": [],
+    "jarFiles": [
+      "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\discovery-service\\target\\discovery-service-0.0.1-SNAPSHOT.jar"
+    ],
+    "evidenceLog": "coverage/discovery-service/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "api-gateway",
+    "startedUtc": "2026-11-21T16:31:16.6684241+00:00",
+    "finishedUtc": "2026-11-21T16:32:41.244322+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\api-gateway\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 0,
+    "tests": 89,
+    "passed": 89,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "coveredLines": 456,
+    "missedLines": 160,
+    "linePercent": 74.02597402597402,
+    "below70": false,
+    "failureDetails": [],
+    "jarFiles": [
+      "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\api-gateway\\target\\api-gateway-0.0.1-SNAPSHOT.jar"
+    ],
+    "evidenceLog": "coverage-final/api-gateway/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "user-service",
+    "startedUtc": "2026-11-21T16:10:08.9309972+00:00",
+    "finishedUtc": "2026-11-21T16:13:23.0268265+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\user-service\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 1,
+    "tests": 247,
+    "passed": 241,
+    "failures": 6,
+    "errors": 0,
+    "skipped": 0,
+    "coveredLines": 745,
+    "missedLines": 58,
+    "linePercent": 92.77708592777086,
+    "below70": false,
+    "failureDetails": [
+      {
+        "message": "\nExpecting actual:\n  [\"users.gender:gender\",\n    \"users.status:user_status\",\n    \"seller.status:seller_status\"]\nto contain exactly in any order:\n  [\"users.status:user_status\", \"users.gender:gender\"]\nbut the following elements were unexpected:\n  [\"seller.status:seller_status\"]\n",
+        "test": "com.group5.userservice.iam.EnumMigrationTest.freshSchemaHasNamedEnumsRejectsInvalidValuesAndKeepsDatabaseDefaults"
+      },
+      {
+        "message": "\nexpected: 200\n but was: 400",
+        "test": "com.group5.userservice.iam.RegistrationIntegrationTest.emailChangeKeepsATemporaryKeycloakLockout"
+      },
+      {
+        "message": "\nexpected: 200\n but was: 400",
+        "test": "com.group5.userservice.iam.RegistrationIntegrationTest.adminEndpointsCoordinateRealProfilesCredentialsRolesAndDeletion"
+      },
+      {
+        "message": "[{\"detail\":\"The identity provider rejected the account details\",\"instance\":\"/api/v1/users/9d155dd5-7c35-44a1-bffa-729399d9684b\",\"status\":400,\"title\":\"Bad Request\",\"type\":\"urn:problem:domain-error\",\"code\":\"USER_IDENTITY_REJECTED\",\"traceId\":\"6b01c310c6ff92f39a1a66007979db92\"}] \nexpected: 200\n but was: 400",
+        "test": "com.group5.userservice.iam.RegistrationIntegrationTest.adminEmailChangeAllowsAnotherAccountToUseTheOriginalEmail"
+      },
+      {
+        "message": "\nexpected: 200\n but was: 400",
+        "test": "com.group5.userservice.iam.RegistrationIntegrationTest.profileEmailChangeMovesTheKeycloakSignIn"
+      },
+      {
+        "message": "\nexpected: 503\n but was: 400",
+        "test": "com.group5.userservice.iam.RegistrationIntegrationTest.lostKeycloakResponseAfterTheEmailChangeRestoresTheOldEmail"
+      }
+    ],
+    "jarFiles": [],
+    "evidenceLog": "coverage/user-service/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "catalog-service",
+    "startedUtc": "2026-11-21T16:13:23.0336047+00:00",
+    "finishedUtc": "2026-11-21T16:15:52.4150944+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\catalog-service\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 0,
+    "tests": 131,
+    "passed": 131,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "coveredLines": 644,
+    "missedLines": 213,
+    "linePercent": 75.14585764294048,
+    "below70": false,
+    "failureDetails": [],
+    "jarFiles": [
+      "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\catalog-service\\target\\catalog-service-1.0.0.jar"
+    ],
+    "evidenceLog": "coverage/catalog-service/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "commerce-service",
+    "startedUtc": "2026-11-21T16:55:24.971334+00:00",
+    "finishedUtc": "2026-11-21T17:02:22.0158524+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\commerce-service\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 0,
+    "tests": 471,
+    "passed": 466,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 5,
+    "coveredLines": 1438,
+    "missedLines": 131,
+    "linePercent": 91.65073295092415,
+    "below70": false,
+    "failureDetails": [],
+    "jarFiles": [
+      "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\commerce-service\\target\\commerce-service-0.0.1-SNAPSHOT.jar"
+    ],
+    "evidenceLog": "coverage-commerce-bounded/commerce-service/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "auction-service",
+    "startedUtc": "2026-11-21T16:32:41.2702739+00:00",
+    "finishedUtc": "2026-11-21T16:38:01.5934202+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\auction-service\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 0,
+    "tests": 387,
+    "passed": 387,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "coveredLines": 858,
+    "missedLines": 133,
+    "linePercent": 86.57921291624622,
+    "below70": false,
+    "failureDetails": [],
+    "jarFiles": [
+      "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\auction-service\\target\\auction-service-0.0.1-SNAPSHOT.jar"
+    ],
+    "evidenceLog": "coverage-final/auction-service/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "inventory-service",
+    "startedUtc": "2026-11-21T16:15:52.4218157+00:00",
+    "finishedUtc": "2026-11-21T16:19:48.9210637+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\inventory-service\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 1,
+    "tests": 128,
+    "passed": 125,
+    "failures": 3,
+    "errors": 0,
+    "skipped": 0,
+    "coveredLines": 387,
+    "missedLines": 13,
+    "linePercent": 96.75,
+    "below70": false,
+    "failureDetails": [
+      {
+        "message": "Status expected:<200> but was:<403>",
+        "test": "com.group5.inventoryservice.reservation.ReservationTimeoutRefreshIntegrationTest.aThreeItemRequestStoresOneUtcExpiresAt30MinutesAheadOnAllThreeRows"
+      },
+      {
+        "message": "Status expected:<200> but was:<403>",
+        "test": "com.group5.inventoryservice.reservation.ReservationTimeoutRefreshIntegrationTest.aTimeoutOfZeroIsRefusedByTheRefreshAndTheLastGoodValueStays"
+      },
+      {
+        "message": "Status expected:<200> but was:<403>",
+        "test": "com.group5.inventoryservice.reservation.ReservationTimeoutRefreshIntegrationTest.changingTheTimeoutFrom30To5AndRefreshingAppliesToNewReservationsOnly"
+      }
+    ],
+    "jarFiles": [],
+    "evidenceLog": "coverage/inventory-service/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "notification-service",
+    "startedUtc": "2026-11-21T16:23:42.6452596+00:00",
+    "finishedUtc": "2026-11-21T16:26:09.1345063+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\notification-service\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 0,
+    "tests": 183,
+    "passed": 183,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "coveredLines": 959,
+    "missedLines": 118,
+    "linePercent": 89.04363974001858,
+    "below70": false,
+    "failureDetails": [],
+    "jarFiles": [
+      "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\notification-service\\target\\notification-service-0.0.1-SNAPSHOT.jar"
+    ],
+    "evidenceLog": "coverage/notification-service/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "payment-service",
+    "startedUtc": "2026-11-21T16:22:20.7140369+00:00",
+    "finishedUtc": "2026-11-21T16:23:42.6383637+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\payment-service\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 1,
+    "tests": 280,
+    "passed": 258,
+    "failures": 19,
+    "errors": 0,
+    "skipped": 3,
+    "coveredLines": 785,
+    "missedLines": 29,
+    "linePercent": 96.43734643734643,
+    "below70": false,
+    "failureDetails": [
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.assertUnreconciledWithoutFunding(PaymentConfirmationServiceTest.java:402)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.amountMismatchStoresEvidenceWithoutFundingOrConfirmation(String)[1]"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.assertUnreconciledWithoutFunding(PaymentConfirmationServiceTest.java:402)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.amountMismatchStoresEvidenceWithoutFundingOrConfirmation(String)[2]"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.assertUnreconciledWithoutFunding(PaymentConfirmationServiceTest.java:402)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.amountMismatchStoresEvidenceWithoutFundingOrConfirmation(String)[4]"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.assertUnreconciledWithoutFunding(PaymentConfirmationServiceTest.java:402)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.terminalSessionNeverFundsAgain(PaymentSessionStatus)[1]"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.assertUnreconciledWithoutFunding(PaymentConfirmationServiceTest.java:402)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.terminalSessionNeverFundsAgain(PaymentSessionStatus)[2]"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.assertUnreconciledWithoutFunding(PaymentConfirmationServiceTest.java:402)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.terminalSessionNeverFundsAgain(PaymentSessionStatus)[3]"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(PaymentConfirmationServiceTest.java:255)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(InvalidPlan)[2]"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(PaymentConfirmationServiceTest.java:255)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(InvalidPlan)[3]"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(PaymentConfirmationServiceTest.java:255)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(InvalidPlan)[4]"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(PaymentConfirmationServiceTest.java:255)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(InvalidPlan)[5]"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(PaymentConfirmationServiceTest.java:255)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(InvalidPlan)[6]"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(PaymentConfirmationServiceTest.java:255)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(InvalidPlan)[7]"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(PaymentConfirmationServiceTest.java:255)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(InvalidPlan)[8]"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(PaymentConfirmationServiceTest.java:255)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(InvalidPlan)[9]"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(PaymentConfirmationServiceTest.java:255)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(InvalidPlan)[10]"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(PaymentConfirmationServiceTest.java:255)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(InvalidPlan)[11]"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(PaymentConfirmationServiceTest.java:255)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.invalidStoredInstructionPlanCannotBePaidPartially(InvalidPlan)[12]"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.assertUnreconciledWithoutFunding(PaymentConfirmationServiceTest.java:402)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.matchingForeignCurrencyPlanCannotProduceAVndCheckoutConfirmation"
+      },
+      {
+        "message": "\nNo interactions wanted here:\n-> at com.group5.paymentservice.payment.PaymentConfirmationServiceTest.assertUnreconciledWithoutFunding(PaymentConfirmationServiceTest.java:402)\nBut found these interactions on mock 'eventEnvelopeFactory':\n-> at com.group5.paymentservice.payment.service.PaymentConfirmationService.confirm(PaymentConfirmationService.java:108)\nActually, above is the only interaction with this mock.",
+        "test": "com.group5.paymentservice.payment.PaymentConfirmationServiceTest.receiptAfterTheSessionDeadlineNeverFundsThePlan"
+      }
+    ],
+    "jarFiles": [],
+    "evidenceLog": "coverage/payment-service/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "shipment-service",
+    "startedUtc": "2026-11-21T16:19:48.9296969+00:00",
+    "finishedUtc": "2026-11-21T16:21:11.461611+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\shipment-service\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 0,
+    "tests": 201,
+    "passed": 201,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "coveredLines": 569,
+    "missedLines": 91,
+    "linePercent": 86.21212121212122,
+    "below70": false,
+    "failureDetails": [],
+    "jarFiles": [
+      "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\shipment-service\\target\\shipment-service-0.0.1-SNAPSHOT.jar"
+    ],
+    "evidenceLog": "coverage/shipment-service/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "rating-service",
+    "startedUtc": "2026-11-21T16:21:11.470006+00:00",
+    "finishedUtc": "2026-11-21T16:22:20.7045099+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\rating-service\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 0,
+    "tests": 3,
+    "passed": 3,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "coveredLines": 66,
+    "missedLines": 19,
+    "linePercent": 77.6470588235294,
+    "below70": false,
+    "failureDetails": [],
+    "jarFiles": [
+      "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\rating-service\\target\\rating-service-0.0.1-SNAPSHOT.jar"
+    ],
+    "evidenceLog": "coverage/rating-service/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "infra/db-verification",
+    "startedUtc": "2026-11-21T16:28:03.2243237+00:00",
+    "finishedUtc": "2026-11-21T16:28:43.7927647+00:00",
+    "command": "D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\lib\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 1,
+    "tests": 16,
+    "passed": 9,
+    "failures": 5,
+    "errors": 2,
+    "skipped": 0,
+    "coveredLines": null,
+    "missedLines": null,
+    "linePercent": null,
+    "below70": null,
+    "failureDetails": [
+      {
+        "message": "\nexpected: 1\n but was: 2",
+        "test": "com.group5.database.AuctionSettlementMigrationTest.upgradeFromDevelopPreservesRowsAndAppliedHistory(Service)[1]"
+      },
+      {
+        "message": "\nexpected: \"8\"\n but was: \"9\"",
+        "test": "com.group5.database.AuctionSettlementMigrationTest.freshChainHasNoDuplicateVersions(Service)[1]"
+      },
+      {
+        "message": "\nexpected: \n  {\"categories\"=[\"{\"id\": \"69000000-0000-4000-8000-000000000101\", \"name\": \"Điện tử\", \"path\": \"/dien-tu/\", \"slug\": \"dien-tu\", \"level\": 1, \"parent_id\": null, \"created_at\": \"2026-11-21T16:28:34.869493+00:00\", \"deleted_at\": null, \"updated_at\": \"2026-11-21T16:28:34.869493+00:00\", \"description\": \"Thiết bị điện tử\", \"product_count\": 0}\",\n      \"{\"id\": \"69000000-0000-4000-8000-000000000102\", \"name\": \"Điện thoại\", \"path\": \"/dien-tu/dien-thoai/\", \"slug\": \"dien-thoai\", \"level\": 2, \"parent_id\": \"69000000-0000-4000-8000-000000000101\", \"created_at\": \"2026-11-21T16:28:34.869493+00:00\", \"deleted_at\": null, \"updated_at\": \"2026-11-21T16:28:34.869493+00:00\", \"description\": \"Điện thoại di động\", \"product_count\": 0}\",\n      \"{\"id\": \"69000000-0000-4000-8000-000000000103\", \"name\": \"Thời trang\", \"path\": \"/thoi-trang/\", \"slug\": \"thoi-trang\", \"level\": 1, \"parent_id\": null, \"created_at\": \"2026-11-21T16:28:34.869493+00:00\", \"deleted_at\": null, \"updated_at\": \"2026-11-21T16:28:34.869493+00:00\", \"description\": \"Quần áo và giày dép\", \"product_count\": 0}\"], \"product_images\"=[], \"product_stats\"=[], \"products\"=[\"{\"id\": \"69000000-0000-4000-8000-000000000201\", \"name\": \"iPhone 15 128GB\", \"slug\": \"iphone-15-128gb-69000000-0000-4000-8000-000000000201\", \"status\": \"ACTIVE\", \"has_order\": false, \"seller_id\": \"68000000-0000-4000-8000-000000000002\", \"created_at\": \"2026-11-21T16:28:34.869493+00:00\", \"deleted_at\": null, \"in_auction\": false, \"updated_at\": \"2026-11-21T16:28:34.869493+00:00\", \"category_id\": \"69000000-0000-4000-8000-000000000102\", \"description\": \"Điện thoại Apple iPhone 15, bộ nhớ 128GB\", \"auction_enable\": false}\",\n      \"{\"id\": \"69000000-0000-4000-8000-000000000202\", \"name\": \"Samsung Galaxy S24\", \"slug\": \"samsung-galaxy-s24-69000000-0000-4000-8000-000000000202\", \"status\": \"ACTIVE\", \"has_order\": false, \"seller_id\": \"68000000-0000-4000-8000-000000000002\", \"created_at\": \"2026-11-21T16:28:34.869493+00:00\", \"deleted_at\": null, \"in_auction\": false, \"updated_at\": \"2026-11-21T16:28:34.869493+00:00\", \"category_id\": \"69000000-0000-4000-8000-000000000102\", \"description\": \"Điện thoại Samsung Galaxy S24, màn hình 6.2 inch\", \"auction_enable\": false}\",\n      \"{\"id\": \"69000000-0000-4000-8000-000000000203\", \"name\": \"Xiaomi Redmi Note 13\", \"slug\": \"xiaomi-redmi-note-13-69000000-0000-4000-8000-000000000203\", \"status\": \"ACTIVE\", \"has_order\": false, \"seller_id\": \"68000000-0000-4000-8000-000000000002\", \"created_at\": \"2026-11-21T16:28:34.869493+00:00\", \"deleted_at\": null, \"in_auction\": false, \"updated_at\": \"2026-11-21T16:28:34.869493+00:00\", \"category_id\": \"69000000-0000-4000-8000-000000000102\", \"description\": \"Điện thoại Xiaomi Redmi Note 13, pin 5000mAh\", \"auction_enable\": false}\",\n      \"{\"id\": \"69000000-0000-4000-8000-000000000204\", \"name\": \"Áo thun cotton basic\", \"slug\": \"ao-thun-cotton-basic-69000000-0000-4000-8000-000000000204\", \"status\": \"ACTIVE\", \"has_order\": false, \"seller_id\": \"68000000-0000-4000-8000-000000000002\", \"created_at\": \"2026-11-21T16:28:34.869493+00:00\", \"deleted_at\": null, \"in_auction\": false, \"updated_at\": \"2026-11-21T16:28:34.869493+00:00\", \"category_id\": \"69000000-0000-4000-8000-000000000103\", \"description\": \"Áo thun unisex 100% cotton\", \"auction_enable\": false}\",\n      \"{\"id\": \"69000000-0000-4000-8000-000000000205\", \"name\": \"Giày sneaker trắng\", \"slug\": \"giay-sneaker-trang-69000000-0000-4000-8000-000000000205\", \"status\": \"ACTIVE\", \"has_order\": false, \"seller_id\": \"68000000-0000-4000-8000-000000000002\", \"created_at\": \"2026-11-21T16:28:34.869493+00:00\", \"deleted_at\": null, \"in_auction\": false, \"updated_at\": \"2026-11-21T16:28:34.869493+00:00\", \"category_id\": \"69000000-0000-4000-8000-000000000103\", \"description\": \"Giày sneaker màu trắng, đế cao su\", \"auction_enable\": false}\"], \"skus\"=[\"{\"id\": \"01a1fef0-2ae8-7f48-b729-5774193f4d5f\", \"size\": \"M\", \"color\": \"Red\", \"price\": 150000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000201-01\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000201\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\"}\",\n      \"{\"id\": \"01a1fef0-2ae9-7cbe-86c0-0d381b2e14fb\", \"size\": \"M\", \"color\": \"Red\", \"price\": 150000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000202-01\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000202\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\"}\",\n      \"{\"id\": \"01a1fef0-2ae9-7d0f-945d-2c70d4af53a0\", \"size\": \"M\", \"color\": \"Red\", \"price\": 150000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000203-01\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000203\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\"}\",\n      \"{\"id\": \"01a1fef0-2ae9-7d29-a885-e1a13c2d5865\", \"size\": \"M\", \"color\": \"Red\", \"price\": 150000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000204-01\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000204\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\"}\",\n      \"{\"id\": \"01a1fef0-2ae9-7d40-b597-983b6aad8b1e\", \"size\": \"M\", \"color\": \"Red\", \"price\": 150000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000205-01\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000205\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\"}\",\n      \"{\"id\": \"01a1fef0-2ae9-7d68-a63c-b8ebf9cea270\", \"size\": \"L\", \"color\": \"Blue\", \"price\": 180000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000201-02\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000201\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\"}\",\n      \"{\"id\": \"01a1fef0-2ae9-7d81-8d33-91a883f3bc81\", \"size\": \"L\", \"color\": \"Blue\", \"price\": 180000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000202-02\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000202\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\"}\",\n      \"{\"id\": \"01a1fef0-2ae9-7da0-b11a-abc66f2be246\", \"size\": \"L\", \"color\": \"Blue\", \"price\": 180000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000203-02\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000203\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\"}\",\n      \"{\"id\": \"01a1fef0-2ae9-7dbb-8d74-0006f60257e3\", \"size\": \"L\", \"color\": \"Blue\", \"price\": 180000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000204-02\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000204\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\"}\",\n      \"{\"id\": \"01a1fef0-2ae9-7dd8-8565-a474c4eb3d9c\", \"size\": \"L\", \"color\": \"Blue\", \"price\": 180000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000205-02\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000205\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\"}\"]}\n but was: \n  {\"categories\"=[\"{\"id\": \"69000000-0000-4000-8000-000000000101\", \"name\": \"Điện tử\", \"path\": \"/dien-tu/\", \"slug\": \"dien-tu\", \"level\": 1, \"parent_id\": null, \"created_at\": \"2026-11-21T16:28:34.869493+00:00\", \"deleted_at\": null, \"updated_at\": \"2026-11-21T16:28:34.869493+00:00\", \"description\": \"Thiết bị điện tử\", \"product_count\": 0}\",\n      \"{\"id\": \"69000000-0000-4000-8000-000000000102\", \"name\": \"Điện thoại\", \"path\": \"/dien-tu/dien-thoai/\", \"slug\": \"dien-thoai\", \"level\": 2, \"parent_id\": \"69000000-0000-4000-8000-000000000101\", \"created_at\": \"2026-11-21T16:28:34.869493+00:00\", \"deleted_at\": null, \"updated_at\": \"2026-11-21T16:28:34.869493+00:00\", \"description\": \"Điện thoại di động\", \"product_count\": 0}\",\n      \"{\"id\": \"69000000-0000-4000-8000-000000000103\", \"name\": \"Thời trang\", \"path\": \"/thoi-trang/\", \"slug\": \"thoi-trang\", \"level\": 1, \"parent_id\": null, \"created_at\": \"2026-11-21T16:28:34.869493+00:00\", \"deleted_at\": null, \"updated_at\": \"2026-11-21T16:28:34.869493+00:00\", \"description\": \"Quần áo và giày dép\", \"product_count\": 0}\"], \"product_images\"=[\"{\"id\": \"69000000-0000-4000-8000-000000000301\", \"image_url\": \"https://nzjvjvyqxcisjgvglwvj.supabase.co/storage/v1/object/public/product-images/products/69000000-0000-4000-8000-000000000201/69000000-0000-4000-8000-000000000301.jpg\", \"created_at\": \"2026-11-21T16:28:35.336872+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000201\", \"sort_order\": 0}\",\n      \"{\"id\": \"69000000-0000-4000-8000-000000000302\", \"image_url\": \"https://nzjvjvyqxcisjgvglwvj.supabase.co/storage/v1/object/public/product-images/products/69000000-0000-4000-8000-000000000202/69000000-0000-4000-8000-000000000302.jpg\", \"created_at\": \"2026-11-21T16:28:35.336872+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000202\", \"sort_order\": 0}\",\n      \"{\"id\": \"69000000-0000-4000-8000-000000000303\", \"image_url\": \"https://nzjvjvyqxcisjgvglwvj.supabase.co/storage/v1/object/public/product-images/products/69000000-0000-4000-8000-000000000203/69000000-0000-4000-8000-000000000303.jpg\", \"created_at\": \"2026-11-21T16:28:35.336872+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000203\", \"sort_order\": 0}\",\n      \"{\"id\": \"69000000-0000-4000-8000-000000000304\", \"image_url\": \"https://nzjvjvyqxcisjgvglwvj.supabase.co/storage/v1/object/public/product-images/products/69000000-0000-4000-8000-000000000204/69000000-0000-4000-8000-000000000304.jpg\", \"created_at\": \"2026-11-21T16:28:35.336872+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000204\", \"sort_order\": 0}\",\n      \"{\"id\": \"69000000-0000-4000-8000-000000000305\", \"image_url\": \"https://nzjvjvyqxcisjgvglwvj.supabase.co/storage/v1/object/public/product-images/products/69000000-0000-4000-8000-000000000205/69000000-0000-4000-8000-000000000305.jpg\", \"created_at\": \"2026-11-21T16:28:35.336872+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000205\", \"sort_order\": 0}\"], \"product_stats\"=[], \"products\"=[\"{\"id\": \"69000000-0000-4000-8000-000000000201\", \"name\": \"iPhone 15 128GB\", \"slug\": \"iphone-15-128gb-69000000-0000-4000-8000-000000000201\", \"status\": \"ACTIVE\", \"has_order\": false, \"seller_id\": \"68000000-0000-4000-8000-000000000002\", \"created_at\": \"2026-11-21T16:28:34.869493+00:00\", \"deleted_at\": null, \"in_auction\": false, \"updated_at\": \"2026-11-21T16:28:34.869493+00:00\", \"category_id\": \"69000000-0000-4000-8000-000000000102\", \"description\": \"Điện thoại Apple iPhone 15, bộ nhớ 128GB\", \"auction_enable\": false}\",\n      \"{\"id\": \"69000000-0000-4000-8000-000000000202\", \"name\": \"Samsung Galaxy S24\", \"slug\": \"samsung-galaxy-s24-69000000-0000-4000-8000-000000000202\", \"status\": \"ACTIVE\", \"has_order\": false, \"seller_id\": \"68000000-0000-4000-8000-000000000002\", \"created_at\": \"2026-11-21T16:28:34.869493+00:00\", \"deleted_at\": null, \"in_auction\": false, \"updated_at\": \"2026-11-21T16:28:34.869493+00:00\", \"category_id\": \"69000000-0000-4000-8000-000000000102\", \"description\": \"Điện thoại Samsung Galaxy S24, màn hình 6.2 inch\", \"auction_enable\": false}\",\n      \"{\"id\": \"69000000-0000-4000-8000-000000000203\", \"name\": \"Xiaomi Redmi Note 13\", \"slug\": \"xiaomi-redmi-note-13-69000000-0000-4000-8000-000000000203\", \"status\": \"ACTIVE\", \"has_order\": false, \"seller_id\": \"68000000-0000-4000-8000-000000000002\", \"created_at\": \"2026-11-21T16:28:34.869493+00:00\", \"deleted_at\": null, \"in_auction\": false, \"updated_at\": \"2026-11-21T16:28:34.869493+00:00\", \"category_id\": \"69000000-0000-4000-8000-000000000102\", \"description\": \"Điện thoại Xiaomi Redmi Note 13, pin 5000mAh\", \"auction_enable\": false}\",\n      \"{\"id\": \"69000000-0000-4000-8000-000000000204\", \"name\": \"Áo thun cotton basic\", \"slug\": \"ao-thun-cotton-basic-69000000-0000-4000-8000-000000000204\", \"status\": \"ACTIVE\", \"has_order\": false, \"seller_id\": \"68000000-0000-4000-8000-000000000002\", \"created_at\": \"2026-11-21T16:28:34.869493+00:00\", \"deleted_at\": null, \"in_auction\": false, \"updated_at\": \"2026-11-21T16:28:34.869493+00:00\", \"category_id\": \"69000000-0000-4000-8000-000000000103\", \"description\": \"Áo thun unisex 100% cotton\", \"auction_enable\": false}\",\n      \"{\"id\": \"69000000-0000-4000-8000-000000000205\", \"name\": \"Giày sneaker trắng\", \"slug\": \"giay-sneaker-trang-69000000-0000-4000-8000-000000000205\", \"status\": \"ACTIVE\", \"has_order\": false, \"seller_id\": \"68000000-0000-4000-8000-000000000002\", \"created_at\": \"2026-11-21T16:28:34.869493+00:00\", \"deleted_at\": null, \"in_auction\": false, \"updated_at\": \"2026-11-21T16:28:34.869493+00:00\", \"category_id\": \"69000000-0000-4000-8000-000000000103\", \"description\": \"Giày sneaker màu trắng, đế cao su\", \"auction_enable\": false}\"], \"skus\"=[\"{\"id\": \"01a1fef0-2ae8-7f48-b729-5774193f4d5f\", \"size\": \"M\", \"color\": \"Red\", \"price\": 150000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000201-01\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000201\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\", \"shipping_width_cm\": null, \"shipping_height_cm\": null, \"shipping_length_cm\": null, \"shipping_weight_grams\": null}\",\n      \"{\"id\": \"01a1fef0-2ae9-7cbe-86c0-0d381b2e14fb\", \"size\": \"M\", \"color\": \"Red\", \"price\": 150000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000202-01\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000202\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\", \"shipping_width_cm\": null, \"shipping_height_cm\": null, \"shipping_length_cm\": null, \"shipping_weight_grams\": null}\",\n      \"{\"id\": \"01a1fef0-2ae9-7d0f-945d-2c70d4af53a0\", \"size\": \"M\", \"color\": \"Red\", \"price\": 150000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000203-01\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000203\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\", \"shipping_width_cm\": null, \"shipping_height_cm\": null, \"shipping_length_cm\": null, \"shipping_weight_grams\": null}\",\n      \"{\"id\": \"01a1fef0-2ae9-7d29-a885-e1a13c2d5865\", \"size\": \"M\", \"color\": \"Red\", \"price\": 150000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000204-01\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000204\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\", \"shipping_width_cm\": null, \"shipping_height_cm\": null, \"shipping_length_cm\": null, \"shipping_weight_grams\": null}\",\n      \"{\"id\": \"01a1fef0-2ae9-7d40-b597-983b6aad8b1e\", \"size\": \"M\", \"color\": \"Red\", \"price\": 150000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000205-01\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000205\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\", \"shipping_width_cm\": null, \"shipping_height_cm\": null, \"shipping_length_cm\": null, \"shipping_weight_grams\": null}\",\n      \"{\"id\": \"01a1fef0-2ae9-7d68-a63c-b8ebf9cea270\", \"size\": \"L\", \"color\": \"Blue\", \"price\": 180000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000201-02\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000201\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\", \"shipping_width_cm\": null, \"shipping_height_cm\": null, \"shipping_length_cm\": null, \"shipping_weight_grams\": null}\",\n      \"{\"id\": \"01a1fef0-2ae9-7d81-8d33-91a883f3bc81\", \"size\": \"L\", \"color\": \"Blue\", \"price\": 180000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000202-02\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000202\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\", \"shipping_width_cm\": null, \"shipping_height_cm\": null, \"shipping_length_cm\": null, \"shipping_weight_grams\": null}\",\n      \"{\"id\": \"01a1fef0-2ae9-7da0-b11a-abc66f2be246\", \"size\": \"L\", \"color\": \"Blue\", \"price\": 180000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000203-02\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000203\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\", \"shipping_width_cm\": null, \"shipping_height_cm\": null, \"shipping_length_cm\": null, \"shipping_weight_grams\": null}\",\n      \"{\"id\": \"01a1fef0-2ae9-7dbb-8d74-0006f60257e3\", \"size\": \"L\", \"color\": \"Blue\", \"price\": 180000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000204-02\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000204\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\", \"shipping_width_cm\": null, \"shipping_height_cm\": null, \"shipping_length_cm\": null, \"shipping_weight_grams\": null}\",\n      \"{\"id\": \"01a1fef0-2ae9-7dd8-8565-a474c4eb3d9c\", \"size\": \"L\", \"color\": \"Blue\", \"price\": 180000.00, \"status\": \"ACTIVE\", \"currency\": \"VND\", \"sku_code\": \"SKU-69000000000040008000000000000205-02\", \"created_at\": \"2026-11-21T16:28:34.913538+00:00\", \"product_id\": \"69000000-0000-4000-8000-000000000205\", \"updated_at\": \"2026-11-21T16:28:34.913538+00:00\", \"shipping_width_cm\": null, \"shipping_height_cm\": null, \"shipping_length_cm\": null, \"shipping_weight_grams\": null}\"]}",
+        "test": "com.group5.database.SchemaMigrationTest.upgradePreservesEveryExistingBusinessRow(Service)[2]"
+      },
+      {
+        "message": "ERROR: null value in column \"order_group_id\" of relation \"orders\" violates not-null constraint\n  Detail: Failing row contains (01a1fef0-2fc7-78c1-8bb0-e7e824536ff4, 01a1fef0-2fc7-761e-befe-d5e8271fb60f, 01a1fef0-2fc7-761e-befe-d5e8271fb60f, legacy-order, AUCTION, null, REFUNDED, 100.00, 0.00, null, 0.00, 0.00, 100.00, null, legacy-order, null, 2026-11-21 16:28:36.165608+00, 2026-11-21 16:28:36.165608+00, 0, null, null, null).\n  Where: SQL statement \"INSERT INTO orders (id, user_id, seller_id, order_number, order_type, status,\n        subtotal, total_amount, idempotency_key)\n    VALUES (purchase, actor, actor, 'legacy-order', 'AUCTION', 'REFUNDED', 100, 100, 'legacy-order')\"\nPL/pgSQL function inline_code_block line 17 at SQL statement",
+        "test": "com.group5.database.SchemaMigrationTest.upgradePreservesEveryExistingBusinessRow(Service)[3]"
+      },
+      {
+        "message": "\nexpected: {\"auction_watchers\"=[\"{\"user_id\": \"01a1fef0-3169-7c0d-93a1-05afdd2a7d24\", \"auction_id\": \"10000000-0000-0000-0000-000000000001\", \"created_at\": \"2026-11-21T16:28:36.577752+00:00\"}\"], \"auctions\"=[\"{\"id\": \"10000000-0000-0000-0000-000000000001\", \"title\": \"Legacy auction\", \"end_at\": \"2026-11-22T16:28:36.577752+00:00\", \"sku_id\": \"01a1fef0-3164-784e-9e61-3a7f995296ac\", \"status\": \"ACTIVE\", \"version\": 0, \"currency\": \"VND\", \"order_id\": null, \"start_at\": \"2026-11-21T16:28:36.577752+00:00\", \"bid_count\": 0, \"image_url\": null, \"seller_id\": \"01a1fef0-3164-7853-86d6-005723e92da7\", \"winner_id\": null, \"created_at\": \"2026-11-21T16:28:36.577752+00:00\", \"deleted_at\": null, \"product_id\": \"01a1fef0-3164-77f9-94d2-194d6a7a8690\", \"updated_at\": \"2026-11-21T16:28:36.577752+00:00\", \"visibility\": \"RESTRICTED\", \"final_price\": null, \"cancelled_by\": null, \"bid_increment\": 10.00, \"current_price\": 120.00, \"payment_due_at\": null, \"starting_price\": 100.00, \"extension_count\": 0, \"original_end_at\": \"2026-11-22T16:28:36.577752+00:00\", \"cancelled_reason\": null, \"leader_bidder_id\": null}\"], \"bids\"=[\"{\"id\": \"01a1fef0-3166-7c79-a39e-368f45bd8c45\", \"amount\": 120.00, \"status\": \"OUTBID\", \"bidder_id\": \"01a1fef0-3166-7ce1-baef-4765b79f134b\", \"placed_at\": \"2026-11-21T16:28:36.577752+00:00\", \"auction_id\": \"10000000-0000-0000-0000-000000000001\", \"idempotency_key\": \"legacy\"}\"]}\n but was: {\"auction_watchers\"=[\"{\"user_id\": \"01a1fef0-3169-7c0d-93a1-05afdd2a7d24\", \"auction_id\": \"10000000-0000-0000-0000-000000000001\", \"created_at\": \"2026-11-21T16:28:36.577752+00:00\"}\"], \"auctions\"=[\"{\"id\": \"10000000-0000-0000-0000-000000000001\", \"title\": \"Legacy auction\", \"end_at\": \"2026-11-22T16:28:36.577752+00:00\", \"sku_id\": \"01a1fef0-3164-784e-9e61-3a7f995296ac\", \"status\": \"ACTIVE\", \"version\": 0, \"currency\": \"VND\", \"order_id\": null, \"start_at\": \"2026-11-21T16:28:36.577752+00:00\", \"bid_count\": 0, \"image_url\": null, \"seller_id\": \"01a1fef0-3164-7853-86d6-005723e92da7\", \"winner_id\": null, \"created_at\": \"2026-11-21T16:28:36.577752+00:00\", \"deleted_at\": null, \"product_id\": \"01a1fef0-3164-77f9-94d2-194d6a7a8690\", \"settled_at\": null, \"updated_at\": \"2026-11-21T16:28:36.577752+00:00\", \"visibility\": \"RESTRICTED\", \"final_price\": null, \"cancelled_at\": null, \"cancelled_by\": null, \"bid_increment\": 10.00, \"current_price\": 120.00, \"payment_due_at\": null, \"starting_price\": 100.00, \"extension_count\": 0, \"original_end_at\": \"2026-11-22T16:28:36.577752+00:00\", \"cancelled_reason\": null, \"leader_bidder_id\": null, \"cancelled_actor_id\": null, \"leader_bidder_name\": null}\"], \"bids\"=[\"{\"id\": \"01a1fef0-3166-7c79-a39e-368f45bd8c45\", \"amount\": 120.00, \"status\": \"OUTBID\", \"bidder_id\": \"01a1fef0-3166-7ce1-baef-4765b79f134b\", \"placed_at\": \"2026-11-21T16:28:36.577752+00:00\", \"auction_id\": \"10000000-0000-0000-0000-000000000001\", \"bidder_name\": \"***\", \"processed_at\": \"2026-11-21T16:28:36.577752+00:00\", \"requested_at\": \"2026-11-21T16:28:36.577752+00:00\", \"reject_reason\": null, \"reject_minimum\": null, \"idempotency_key\": \"legacy\", \"result_current_price\": 120.00, \"result_leader_bidder_id\": \"01a1fef0-3166-7ce1-baef-4765b79f134b\"}\"]}",
+        "test": "com.group5.database.SchemaMigrationTest.upgradePreservesEveryExistingBusinessRow(Service)[4]"
+      },
+      {
+        "message": "\nexpected: {\"event_logs\"=[\"{\"id\": \"01a1fef0-34ae-7da2-acad-0a325939e73f\", \"message\": null, \"payload\": null, \"event_id\": \"01a1fef0-34ae-7ddd-82d1-23045f17c307\", \"producer\": null, \"trace_id\": null, \"deleted_at\": null, \"event_type\": \"legacy\", \"occurred_at\": \"2026-11-21T16:28:37.413681+00:00\", \"operator_id\": null, \"received_at\": \"2026-11-21T16:28:37.413681+00:00\", \"aggregate_id\": null, \"operator_name\": null, \"aggregate_type\": null}\"], \"notification_deliveries\"=[\"{\"id\": \"20000000-0000-0000-0000-000000000002\", \"status\": \"FAILED\", \"channel\": \"PUSH\", \"created_at\": \"2026-11-21T16:28:37.413681+00:00\", \"updated_at\": \"2026-11-21T16:28:37.413681+00:00\", \"attempt_count\": 0, \"notification_id\": \"20000000-0000-0000-0000-000000000001\"}\"], \"notification_delivery_attempts\"=[\"{\"id\": \"01a1fef0-34ac-7351-bf01-64296f5fb7a1\", \"status\": \"FAILED\", \"retryable\": true, \"error_code\": null, \"delivery_id\": \"20000000-0000-0000-0000-000000000002\", \"attempted_at\": \"2026-11-21T16:28:37.413681+00:00\", \"completed_at\": null, \"error_message\": null, \"attempt_number\": 1, \"provider_message_id\": null}\"], \"notification_preferences\"=[\"{\"id\": \"01a1fef0-34ad-7d5c-8783-21d5aa74c90c\", \"channel\": \"SMS\", \"enabled\": true, \"user_id\": \"01a1fef0-34ad-7db9-b053-4a636ca090d4\", \"created_at\": \"2026-11-21T16:28:37.413681+00:00\", \"updated_at\": \"2026-11-21T16:28:37.413681+00:00\", \"notification_type\": \"ORDER\"}\"], \"notification_templates\"=[\"{\"id\": \"01a1fef0-34a7-7549-bf32-10f1e28a4429\", \"body\": \"Legacy\", \"code\": \"legacy\", \"locale\": \"vi\", \"channel\": \"EMAIL\", \"subject\": null, \"version\": 1, \"is_active\": true, \"created_at\": \"2026-11-21T16:28:37.413681+00:00\", \"updated_at\": \"2026-11-21T16:28:37.413681+00:00\"}\"], \"notifications\"=[\"{\"id\": \"20000000-0000-0000-0000-000000000001\", \"type\": \"ORDER\", \"title\": \"Legacy\", \"content\": \"Legacy\", \"read_at\": null, \"user_id\": \"01a1fef0-34a8-790b-b3ec-04711b636c2f\", \"event_id\": null, \"created_at\": \"2026-11-21T16:28:37.413681+00:00\"}\"]}\n but was: {\"event_logs\"=[\"{\"id\": \"01a1fef0-34ae-7da2-acad-0a325939e73f\", \"message\": null, \"payload\": null, \"event_id\": \"01a1fef0-34ae-7ddd-82d1-23045f17c307\", \"producer\": null, \"trace_id\": null, \"deleted_at\": null, \"event_type\": \"legacy\", \"occurred_at\": \"2026-11-21T16:28:37.413681+00:00\", \"operator_id\": null, \"received_at\": \"2026-11-21T16:28:37.413681+00:00\", \"aggregate_id\": null, \"raw_envelope\": null, \"source_topic\": null, \"operator_name\": null, \"aggregate_type\": null}\"], \"notification_deliveries\"=[\"{\"id\": \"20000000-0000-0000-0000-000000000002\", \"status\": \"FAILED\", \"channel\": \"PUSH\", \"created_at\": \"2026-11-21T16:28:37.413681+00:00\", \"updated_at\": \"2026-11-21T16:28:37.413681+00:00\", \"attempt_count\": 0, \"next_attempt_at\": null, \"notification_id\": \"20000000-0000-0000-0000-000000000001\"}\"], \"notification_delivery_attempts\"=[\"{\"id\": \"01a1fef0-34ac-7351-bf01-64296f5fb7a1\", \"status\": \"FAILED\", \"retryable\": true, \"error_code\": null, \"delivery_id\": \"20000000-0000-0000-0000-000000000002\", \"attempted_at\": \"2026-11-21T16:28:37.413681+00:00\", \"completed_at\": null, \"error_message\": null, \"attempt_number\": 1, \"provider_message_id\": null}\"], \"notification_preferences\"=[\"{\"id\": \"01a1fef0-34ad-7d5c-8783-21d5aa74c90c\", \"channel\": \"SMS\", \"enabled\": true, \"user_id\": \"01a1fef0-34ad-7db9-b053-4a636ca090d4\", \"created_at\": \"2026-11-21T16:28:37.413681+00:00\", \"updated_at\": \"2026-11-21T16:28:37.413681+00:00\", \"notification_type\": \"ORDER\"}\"], \"notification_templates\"=[\"{\"id\": \"01a1fef0-34a7-7549-bf32-10f1e28a4429\", \"body\": \"Legacy\", \"code\": \"legacy\", \"locale\": \"vi\", \"channel\": \"EMAIL\", \"subject\": null, \"version\": 1, \"is_active\": true, \"created_at\": \"2026-11-21T16:28:37.413681+00:00\", \"updated_at\": \"2026-11-21T16:28:37.413681+00:00\"}\"], \"notifications\"=[\"{\"id\": \"20000000-0000-0000-0000-000000000001\", \"type\": \"ORDER\", \"title\": \"Legacy\", \"content\": \"Legacy\", \"read_at\": null, \"user_id\": \"01a1fef0-34a8-790b-b3ec-04711b636c2f\", \"event_id\": null, \"created_at\": \"2026-11-21T16:28:37.413681+00:00\", \"email_html\": null}\"]}",
+        "test": "com.group5.database.SchemaMigrationTest.upgradePreservesEveryExistingBusinessRow(Service)[5]"
+      },
+      {
+        "message": "Failed to execute script V9__movement_reason.sql\n------------------------------------------------\nSQL State  : 23514\nError Code : 0\nMessage    : ERROR: check constraint \"inventory_movements_adjustment_check\" of relation \"inventory_movements\" is violated by some row\nLocation   : D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\inventory-service\\src\\main\\resources\\db\\migration\\V9__movement_reason.sql (D:\\GitLab\\hcm26_cpl_java_11_group_5\\be-project-nexus\\inventory-service\\src\\main\\resources\\db\\migration\\V9__movement_reason.sql)\nLine       : 2\nStatement  : Run Flyway with -X option to see the actual statement causing the problem\n",
+        "test": "com.group5.database.SchemaMigrationTest.upgradePreservesEveryExistingBusinessRow(Service)[6]"
+      }
+    ],
+    "jarFiles": [],
+    "evidenceLog": "coverage/infra-db-verification/verify.log",
+    "provenance": "historical local integration"
+  },
+  {
+    "module": "infra/receipt-completion-acceptance",
+    "startedUtc": "2026-11-21T17:40:53.3657418+00:00",
+    "finishedUtc": "2026-11-21T17:42:03.8794045+00:00",
+    "command": "C:\\Users\\trinh\\.codex\\worktrees\\qa166-publish\\hcm26_cpl_java_11_group_5\\be-project-nexus\\lib\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+    "verifyExit": 1,
+    "tests": 11,
+    "passed": 7,
+    "failures": 0,
+    "errors": 3,
+    "skipped": 1,
+    "coveredLines": null,
+    "missedLines": null,
+    "linePercent": null,
+    "below70": null,
+    "failureDetails": [
+      {
+        "test": "com.group5.acceptance.ReceiptEmailAcceptanceTest.automaticCompletionSendsOneReceiptOnlyAfterThePersistedDeadline",
+        "message": "Error creating bean with name 'com.group5.notificationservice.notification.DomainEventConsumer': Unsatisfied dependency expressed through method 'preferences' parameter 0: No qualifying bean of type 'com.group5.notificationservice.preference.NotificationPreferenceService' available: expected at least 1 bean which qualifies as autowire candidate. Dependency annotations: {}"
+      },
+      {
+        "test": "com.group5.acceptance.ReceiptEmailAcceptanceTest.deliveredAndHeldOrdersNeverQueueOrSendReceiptEmail",
+        "message": "Error creating bean with name 'com.group5.notificationservice.notification.DomainEventConsumer': Unsatisfied dependency expressed through method 'preferences' parameter 0: No qualifying bean of type 'com.group5.notificationservice.preference.NotificationPreferenceService' available: expected at least 1 bean which qualifies as autowire candidate. Dependency annotations: {}"
+      },
+      {
+        "test": "com.group5.acceptance.ReceiptEmailAcceptanceTest.buyerConfirmationSendsExactlyOneHtmlReceiptDespiteEventReplayAndSmtpRetry",
+        "message": "Error creating bean with name 'com.group5.notificationservice.notification.DomainEventConsumer': Unsatisfied dependency expressed through method 'preferences' parameter 0: No qualifying bean of type 'com.group5.notificationservice.preference.NotificationPreferenceService' available: expected at least 1 bean which qualifies as autowire candidate. Dependency annotations: {}"
+      }
+    ],
+    "jarFiles": [],
+    "provenance": "publication branch based on origin/develop1ea5801e"
+  }
+]

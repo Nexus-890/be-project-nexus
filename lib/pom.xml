@@ -56,6 +56,9 @@
         <!-- Spring Cloud version dùng chung toàn bộ project -->
         <spring-cloud.version>2025.1.3</spring-cloud.version>
 
+        <jacoco.version>0.8.11</jacoco.version>
+        <jacoco.skip>false</jacoco.skip>
+
     </properties>
 
     <dependencies>
@@ -108,6 +111,84 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <!-- Run *IT as well as Surefire's unit/integration *Test classes. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <executions>
+                    <execution>
+                        <id>coverage-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-rule</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.70</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- JaCoCo itself skips a module with no execution data. A module
+                 containing production classes must not pass that way. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.2.0</version>
+                <executions>
+                    <execution>
+                        <id>coverage-data-required</id>
+                        <phase>verify</phase>
+                        <goals><goal>run</goal></goals>
+                        <configuration>
+                            <skip>${jacoco.skip}</skip>
+                            <target>
+                                <resourcecount property="coverage.class.count">
+                                    <fileset dir="${project.build.outputDirectory}" includes="**/*.class" erroronmissingdir="false"/>
+                                </resourcecount>
+                                <fail message="Coverage data missing for ${project.artifactId}; production classes require tests and 70% line coverage.">
+                                    <condition>
+                                        <and>
+                                            <not><equals arg1="${coverage.class.count}" arg2="0"/></not>
+                                            <not><available file="${project.build.directory}/jacoco.exec"/></not>
+                                        </and>
+                                    </condition>
+                                </fail>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

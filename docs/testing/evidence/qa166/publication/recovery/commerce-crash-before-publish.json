@@ -1,0 +1,66 @@
+{
+  "steps" : [ {
+    "step" : "started",
+    "pid" : 15624,
+    "service" : "auction-service",
+    "relayInitiallyGated" : false,
+    "log" : "recovery_6a6bc8238c8d41cebf56c28c68cbaf64-auction-service-0.log"
+  }, {
+    "auctionId" : "c8a2cc7b-97d5-4974-983c-a6a762fc7581",
+    "schema" : "recovery_6a6bc8238c8d41cebf56c28c68cbaf64",
+    "step" : "fixture"
+  }, {
+    "step" : "started",
+    "pid" : 4052,
+    "service" : "commerce-service",
+    "relayInitiallyGated" : true,
+    "log" : "recovery_6a6bc8238c8d41cebf56c28c68cbaf64-commerce-service-1.log"
+  }, {
+    "step" : "committed-before-kill",
+    "auctionId" : "c8a2cc7b-97d5-4974-983c-a6a762fc7581",
+    "orderCount" : 1,
+    "pendingOrderCreated" : 1,
+    "publishedOrderCreated" : 0,
+    "auction" : {
+      "id" : "c8a2cc7b-97d5-4974-983c-a6a762fc7581",
+      "status" : "WON",
+      "order_id" : null,
+      "settled_at" : null
+    }
+  }, {
+    "pid" : 4052,
+    "step" : "forcefully-killed",
+    "exitCode" : 1
+  }, {
+    "step" : "commerce-forcefully-terminated",
+    "auctionId" : "c8a2cc7b-97d5-4974-983c-a6a762fc7581",
+    "orderCount" : 1,
+    "pendingOrderCreated" : 1,
+    "publishedOrderCreated" : 0,
+    "auction" : {
+      "id" : "c8a2cc7b-97d5-4974-983c-a6a762fc7581",
+      "status" : "WON",
+      "order_id" : null,
+      "settled_at" : null
+    }
+  }, {
+    "step" : "started",
+    "pid" : 22748,
+    "service" : "commerce-service",
+    "relayInitiallyGated" : false,
+    "log" : "recovery_6a6bc8238c8d41cebf56c28c68cbaf64-commerce-service-2.log"
+  }, {
+    "step" : "recovered",
+    "auctionId" : "c8a2cc7b-97d5-4974-983c-a6a762fc7581",
+    "orderCount" : 1,
+    "pendingOrderCreated" : 0,
+    "publishedOrderCreated" : 1,
+    "auction" : {
+      "id" : "c8a2cc7b-97d5-4974-983c-a6a762fc7581",
+      "status" : "SETTLED",
+      "order_id" : "ad5274cd-9cea-48cb-82a1-45afa257c435",
+      "settled_at" : "2026-11-21 17:33:41.602315+00"
+    }
+  } ],
+  "scenario" : "commerce-crash-before-publish"
+}

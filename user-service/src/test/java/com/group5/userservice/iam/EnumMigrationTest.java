@@ -58,6 +58,15 @@ class EnumMigrationTest {
                 .rootCause().hasMessageContaining("invalid input value for enum user_status");
         assertThatThrownBy(() -> jdbc.update("update users set gender = 'INVALID'"))
                 .rootCause().hasMessageContaining("invalid input value for enum gender");
+        // V8 adds a seller application enum; keep fresh-schema checks exhaustive.
+        jdbc.update("""
+                insert into seller (user_id, company_name, contact_phone)
+                select id, 'Enum migration QA', '0901234567' from users
+                where email = 'buyer@nexus.local'
+                """);
+        assertThat(jdbc.queryForList("select status::text from seller", String.class)).containsExactly("PENDING");
+        assertThatThrownBy(() -> jdbc.update("update seller set status = 'INVALID'"))
+                .rootCause().hasMessageContaining("invalid input value for enum seller_status");
         assertThat(jdbc.queryForObject("select to_regclass('enum_fresh.user_reputations')", String.class)).isNull();
         assertThat(jdbc.queryForObject("select to_regclass('enum_fresh.ratings')", String.class)).isNull();
         assertThat(jdbc.queryForList("select distinct status::text from users", String.class)).containsExactly("ACTIVE");

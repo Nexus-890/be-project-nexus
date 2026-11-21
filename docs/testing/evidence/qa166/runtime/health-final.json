@@ -1,0 +1,147 @@
+[
+  {
+    "service": "config",
+    "port": 8888,
+    "http": 200,
+    "body": {
+      "groups": [
+        "liveness",
+        "readiness"
+      ],
+      "status": "UP"
+    }
+  },
+  {
+    "service": "discovery",
+    "port": 8761,
+    "http": 200,
+    "body": {
+      "groups": [
+        "liveness",
+        "readiness"
+      ],
+      "status": "UP"
+    }
+  },
+  {
+    "service": "gateway",
+    "port": 8080,
+    "http": 401,
+    "body": {
+      "detail": "A valid bearer token is required",
+      "instance": "/actuator/health",
+      "status": 401,
+      "title": "Unauthorized",
+      "type": "https://nexus/errors/unauthorized",
+      "code": "UNAUTHENTICATED"
+    }
+  },
+  {
+    "service": "user",
+    "port": 8081,
+    "http": 200,
+    "body": {
+      "groups": [
+        "liveness",
+        "readiness"
+      ],
+      "status": "UP"
+    }
+  },
+  {
+    "service": "catalog",
+    "port": 8082,
+    "http": 200,
+    "body": {
+      "groups": [
+        "liveness",
+        "readiness"
+      ],
+      "status": "UP"
+    }
+  },
+  {
+    "service": "commerce",
+    "port": 8083,
+    "http": 200,
+    "body": {
+      "groups": [
+        "liveness",
+        "readiness"
+      ],
+      "status": "UP"
+    }
+  },
+  {
+    "service": "auction",
+    "port": 8084,
+    "http": 200,
+    "body": {
+      "groups": [
+        "liveness",
+        "readiness"
+      ],
+      "status": "UP"
+    }
+  },
+  {
+    "service": "inventory",
+    "port": 8085,
+    "http": 200,
+    "body": {
+      "groups": [
+        "liveness",
+        "readiness"
+      ],
+      "status": "UP"
+    }
+  },
+  {
+    "service": "notification",
+    "port": 8086,
+    "http": 200,
+    "body": {
+      "groups": [
+        "liveness",
+        "readiness"
+      ],
+      "status": "UP"
+    }
+  },
+  {
+    "service": "payment",
+    "port": 8087,
+    "http": 200,
+    "body": {
+      "groups": [
+        "liveness",
+        "readiness"
+      ],
+      "status": "UP"
+    }
+  },
+  {
+    "service": "shipment",
+    "port": 8088,
+    "http": 200,
+    "body": {
+      "groups": [
+        "liveness",
+        "readiness"
+      ],
+      "status": "UP"
+    }
+  },
+  {
+    "service": "rating",
+    "port": 8089,
+    "http": 200,
+    "body": {
+      "groups": [
+        "liveness",
+        "readiness"
+      ],
+      "status": "UP"
+    }
+  }
+]

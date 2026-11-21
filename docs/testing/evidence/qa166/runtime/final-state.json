@@ -1,0 +1,15 @@
+{
+  "issueRange": "273-281",
+  "capturedAt": "2026-11-22T00:15:36.4529927+07:00",
+  "frontend": "http://localhost:3000",
+  "stage": "local only; STAGING blocked",
+  "testTotals": {
+    "existingSkipped": 8,
+    "errors": 2,
+    "passed": 2251,
+    "failures": 33
+  },
+  "title": "QA #166 final local state",
+  "backendHealth": "9 domain services UP; Config/Discovery UP; Gateway public endpoints200, anonymous health401",
+  "runtimeSource": "origin/develop 1ea5801e"
+}

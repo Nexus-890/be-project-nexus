@@ -1,6 +1,8 @@
 package com.group5.auctionservice.bidding;
 
 import com.group5.auctionservice.AuctionPostgresIntegrationTest;
+import com.group5.auctionservice.reputation.EligibilityAction;
+import com.group5.auctionservice.reputation.EligibilityClient;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.RSASSASigner;
@@ -19,6 +21,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
@@ -47,6 +50,11 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /** HTTP, security, Flyway, real repositories/transactions/outbox and PostgreSQL 18. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
@@ -58,7 +66,8 @@ import static org.junit.jupiter.api.Assertions.assertAll;
         "spring.datasource.hikari.connection-init-sql=SET statement_timeout = '30s'",
         "server.tomcat.threads.max=60",
         "spring.kafka.listener.auto-startup=false", "spring.kafka.admin.auto-create=false",
-        "nexus.outbox.relay.enabled=false", "management.tracing.export.enabled=false"
+        "nexus.outbox.relay.enabled=false", "management.tracing.export.enabled=false",
+        "nexus.auction.reputation-enforcement-enabled=true"
 })
 @Import(BidConcurrencyIT.TokenConfig.class)
 class BidConcurrencyIT extends AuctionPostgresIntegrationTest {
@@ -71,6 +80,7 @@ class BidConcurrencyIT extends AuctionPostgresIntegrationTest {
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(10)).build();
 
+    @MockitoBean private EligibilityClient eligibility;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private BidCommandConsumer consumer;
     @Autowired private JsonMapper json;
@@ -79,6 +89,10 @@ class BidConcurrencyIT extends AuctionPostgresIntegrationTest {
     /** Trigger chỉ dùng test để quan sát thứ tự giá tăng trong DB, không can thiệp xử lý bid. */
     @BeforeEach
     void recordActualDatabaseUpdateOrder() {
+        // Reputation transport is outside this HTTP/DB race; the real guard stays enabled.
+        when(eligibility.check(any(), any())).thenAnswer(call -> new EligibilityClient.Decision(
+                call.getArgument(0), call.getArgument(1), true, 100, "TOP", 0,
+                "eligible", "bid-concurrency-fixture"));
         // Test-only observer, never a production migration. It does not lock or reject bids.
         jdbc.execute("""
                 CREATE TABLE IF NOT EXISTS bid_test_updates (
@@ -122,6 +136,7 @@ class BidConcurrencyIT extends AuctionPostgresIntegrationTest {
             JsonNode body=json.readTree(result.body());assertThat(body.path("data").path("status").asString()).isEqualTo("QUEUED");
             assertThat(body.path("data").path("requestedAt").asString()).isNotBlank();
         });
+        verify(eligibility, atLeast(REQUESTS)).check(any(), eq(EligibilityAction.BID));
         assertThat(jdbc.queryForObject("SELECT current_price FROM auctions WHERE id=?",BigDecimal.class,auction)).isEqualByComparingTo(START);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM bids WHERE auction_id=? AND status='QUEUED'",Integer.class,auction)).isEqualTo(50);
         // Cố tình đảo delivery để chứng minh consumer khôi phục thứ tự requestedAt đã lưu trong DB.
@@ -219,6 +234,10 @@ class BidConcurrencyIT extends AuctionPostgresIntegrationTest {
         }
     }
 
-    private record Attempt(UUID bidder, String token, UUID key, BigDecimal amount) { }
+    private record Attempt(UUID bidder, String token, UUID key, BigDecimal amount) {
+        @Override public String toString() {
+            return "Attempt[bidder=" + bidder + ", key=" + key + ", amount=" + amount + "]";
+        }
+    }
     private record Result(Attempt attempt, int status, String body, String contentType) { }
 }

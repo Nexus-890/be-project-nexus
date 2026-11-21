@@ -1,0 +1,32 @@
+[
+  {
+    "finishedUtc": "2026-11-21T17:29:39.5253706+00:00",
+    "step": "shared-bootstrap",
+    "exit": 0
+  },
+  {
+    "finishedUtc": "2026-11-21T17:30:02.7585672+00:00",
+    "step": "auction-package",
+    "exit": 0
+  },
+  {
+    "finishedUtc": "2026-11-21T17:30:27.9594217+00:00",
+    "step": "commerce-package",
+    "exit": 0
+  },
+  {
+    "finishedUtc": "2026-11-21T17:34:46.6718662+00:00",
+    "step": "recovery",
+    "exit": 0
+  },
+  {
+    "finishedUtc": "2026-11-21T17:35:24.0273432+00:00",
+    "step": "seller-enum",
+    "exit": 0
+  },
+  {
+    "finishedUtc": "2026-11-21T17:35:30.9573083+00:00",
+    "step": "below70-verify",
+    "exit": 1
+  }
+]

@@ -1,0 +1,32 @@
+{
+  "module": "infra/receipt-completion-acceptance",
+  "startedUtc": "2026-11-21T17:40:53.3657418+00:00",
+  "finishedUtc": "2026-11-21T17:42:03.8794045+00:00",
+  "command": "C:\\Users\\trinh\\.codex\\worktrees\\qa166-publish\\hcm26_cpl_java_11_group_5\\be-project-nexus\\lib\\mvnw.cmd -B -Dstyle.color=never -Duser.timezone=UTC clean verify",
+  "verifyExit": 1,
+  "tests": 11,
+  "passed": 7,
+  "failures": 0,
+  "errors": 3,
+  "skipped": 1,
+  "coveredLines": null,
+  "missedLines": null,
+  "linePercent": null,
+  "below70": null,
+  "failureDetails": [
+    {
+      "test": "com.group5.acceptance.ReceiptEmailAcceptanceTest.automaticCompletionSendsOneReceiptOnlyAfterThePersistedDeadline",
+      "message": "Error creating bean with name 'com.group5.notificationservice.notification.DomainEventConsumer': Unsatisfied dependency expressed through method 'preferences' parameter 0: No qualifying bean of type 'com.group5.notificationservice.preference.NotificationPreferenceService' available: expected at least 1 bean which qualifies as autowire candidate. Dependency annotations: {}"
+    },
+    {
+      "test": "com.group5.acceptance.ReceiptEmailAcceptanceTest.deliveredAndHeldOrdersNeverQueueOrSendReceiptEmail",
+      "message": "Error creating bean with name 'com.group5.notificationservice.notification.DomainEventConsumer': Unsatisfied dependency expressed through method 'preferences' parameter 0: No qualifying bean of type 'com.group5.notificationservice.preference.NotificationPreferenceService' available: expected at least 1 bean which qualifies as autowire candidate. Dependency annotations: {}"
+    },
+    {
+      "test": "com.group5.acceptance.ReceiptEmailAcceptanceTest.buyerConfirmationSendsExactlyOneHtmlReceiptDespiteEventReplayAndSmtpRetry",
+      "message": "Error creating bean with name 'com.group5.notificationservice.notification.DomainEventConsumer': Unsatisfied dependency expressed through method 'preferences' parameter 0: No qualifying bean of type 'com.group5.notificationservice.preference.NotificationPreferenceService' available: expected at least 1 bean which qualifies as autowire candidate. Dependency annotations: {}"
+    }
+  ],
+  "jarFiles": [],
+  "provenance": "publication branch based on origin/develop1ea5801e"
+}

@@ -1,0 +1,41 @@
+{
+  "base": "1ea5801e07de79eb4d007f85a7799a79bcc3029e",
+  "files": [
+    {
+      "file": "be-project-nexus/lib/pom.xml",
+      "sha256": "6ff85ad1a30a00fc4ef480088094510eb9e1150a161279e1ca0bb030d5be97de",
+      "gitBlob": "e910f7b9f1f75e311dd18f5fdc37879275bb5468"
+    },
+    {
+      "file": "be-project-nexus/commerce-service/pom.xml",
+      "sha256": "9c75f00d5f316a2c2d92c9dc071bf267a3a84a001ae06a3d961e5c2ad03cd1f1",
+      "gitBlob": "b2b0dca52e05de3954ed1d5bdec583f3b4d6223c"
+    },
+    {
+      "file": "be-project-nexus/commerce-service/src/test/java/com/group5/commerceservice/order/AuctionSettlementRecoveryIT.java",
+      "sha256": "3592151f70949ad99835589ad653626015eba41761b4713379a160e12f784921",
+      "gitBlob": "c6cdc71acc1066e6b1e2b65a241f9ab73029b7d3"
+    },
+    {
+      "file": "be-project-nexus/auction-service/src/test/java/com/group5/auctionservice/bidding/BidConcurrencyIT.java",
+      "sha256": "f039f05d93b909dc269539797165d06d3a6c266293c3d4bb62c6de83442ac6df",
+      "gitBlob": "2d8d17bf8898086f2fb70767bc74b9dd853c4a39"
+    },
+    {
+      "file": "be-project-nexus/user-service/src/test/java/com/group5/userservice/iam/EnumMigrationTest.java",
+      "sha256": "5299f9f1a51785c249c6cb2b82a95b5a176d7c842b317bfe97c6bda9c498f83f",
+      "gitBlob": "cae2af29696dc6a69e7a2d2d43ce7474326c99e2"
+    },
+    {
+      "file": "be-project-nexus/docs/testing/run-quality-suite.ps1",
+      "sha256": "8f589039fede7196801c4eccad4d0d80412203f53f33a799ad5f4e90df68922e",
+      "gitBlob": "81e0d6d3d3416c477425a2a8f626f6416e68f928"
+    },
+    {
+      "file": "be-project-nexus/docs/testing/run-concurrency-reruns.ps1",
+      "sha256": "4a8e357fca5fca859209b638defa1410a35343ee8681016dfd092a9c0c6f208c",
+      "gitBlob": "c4cbee44e6c2db016cb2c7e5a6f06b0a5ad423bd"
+    }
+  ],
+  "hashDefinition": "SHA-256 of Windows working tree bytes used in execution; gitBlob identifies normalized repository content."
+}

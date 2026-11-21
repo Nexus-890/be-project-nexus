@@ -1,0 +1,36 @@
+{
+  "steps" : [ {
+    "step" : "started",
+    "pid" : 11788,
+    "service" : "auction-service",
+    "relayInitiallyGated" : false,
+    "log" : "recovery_adbd2165ac91475a8fee05d7f15f00a9-auction-service-0.log"
+  }, {
+    "auctionId" : "eaeaf33b-9a1f-4c1b-a3ca-bad41dc59e4e",
+    "schema" : "recovery_adbd2165ac91475a8fee05d7f15f00a9",
+    "step" : "fixture"
+  }, {
+    "step" : "started",
+    "pid" : 19536,
+    "service" : "commerce-service",
+    "relayInitiallyGated" : false,
+    "log" : "recovery_adbd2165ac91475a8fee05d7f15f00a9-commerce-service-1.log"
+  }, {
+    "step" : "recovered",
+    "auctionId" : "eaeaf33b-9a1f-4c1b-a3ca-bad41dc59e4e",
+    "orderCount" : 1,
+    "pendingOrderCreated" : 0,
+    "publishedOrderCreated" : 1,
+    "auction" : {
+      "id" : "eaeaf33b-9a1f-4c1b-a3ca-bad41dc59e4e",
+      "status" : "SETTLED",
+      "order_id" : "7cfe2b0b-33d8-401a-997f-ee49f7b3432a",
+      "settled_at" : "2026-11-21 17:34:42.752777+00"
+    }
+  }, {
+    "lastKafkaOffset" : 6,
+    "step" : "three-broker-deliveries-consumed",
+    "eventId" : "4dca9f2f-3951-48b7-9802-0cd0a84862ce"
+  } ],
+  "scenario" : "auction-won-delivered-three-times"
+}

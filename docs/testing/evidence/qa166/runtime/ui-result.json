@@ -1,0 +1,249 @@
+{
+  "source": "origin/develop1ea5801e FE and BE",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/v1/categories/tree",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/products/discovery",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/products/search",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/vouchers",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auctions",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/refresh",
+      "status": 204
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/products/discovery",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/refresh",
+      "status": 204
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/session",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/users/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/carts/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/categories/tree",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auctions",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/products/search",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/vouchers",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/products/discovery",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/products/discovery",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications/stream",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications/unread-count",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/categories/tree",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/refresh",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/users/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications/stream",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/carts/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications/unread-count",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/vouchers/me",
+      "status": 403
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/products/69000000-0000-4000-8000-000000000201",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/inventory",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/carts/me/pricing",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/carts/me/pricing",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/categories/tree",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/refresh",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/users/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications/stream",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/carts/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications/unread-count",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/vouchers/me",
+      "status": 403
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/inventory",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/products/69000000-0000-4000-8000-000000000201",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/carts/me/pricing",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/shipping/provinces",
+      "status": 503
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/users/me/addresses",
+      "status": 200
+    }
+  ],
+  "errors": [],
+  "stages": [
+    {
+      "stage": "home",
+      "result": "real catalog products rendered"
+    },
+    {
+      "stage": "browser sign-in",
+      "result": "Keycloak PKCE callback and profile completed"
+    },
+    {
+      "stage": "cart",
+      "result": "real persisted cart item rendered"
+    },
+    {
+      "stage": "checkout",
+      "visibleText": "Hi Nexus Buyer\nNB\nDaily Deals\nVouchers\nLive Auctions\nHelp & Contact\nShip to HCMC\nSell\nWatchlist\nMy Nexus\n7\n1\nShop by\ncategory\nAll Categories\nSearch\nAdvanced\nNexus Live\nSaved\nĐiện tử\nThời trang\nDeals\nRefurbished\nCheckout\n\nConfirm your delivery address and review your order.\n\n1\nShipping\n2\nDelivery\n3\nPayment\n4\nReview\nYour saved addresses\nManage addresses\nDeliver to\nEnter a new address\n\nSave your first address for a faster checkout next time.\n\n1. Shipping Address\n\nWhere should we deliver your order? All fields are required.\n\nRecipient name\nPhone number\nHouse number and street\n\nWard and province are chosen below.\n\nProvince / City\nChoose province / city\n\nCấu hình nhà vận chuyển chưa đầy đủ hoặc không hợp lệ\n\nRetry provinces\nWard\nChoose a province first\n\nShipping is recalculated when your delivery address changes.\n\nSave this address\nChoose vouchers\nMy vouchers\n\nOne platform/event voucher, plus one shop voucher per seller. Discounts are confirmed by the server.\n\nVoucher code\nAdd code\n\nThe required privilege is missing\n\nRetry\n2. Delivery\n\nGHN delivery\n\nThe delivery fee is calculated for your selected address.\n\n3. Payment\n\nBank transfer (VietQR)\n\nScan a QR code with your banking app · processed by SePay\n\nPlace order\n\nPlace one purchase for all shops, then continue to a single payment for your order group.\n\nBack to Cart\n1 item\niPhone 15 128GB\n\nRed · M\n\nQty 1 · Unit price: 150.000,00 ₫\n\nLine total:\n150.000,00 ₫\n\nOrder Summary\nSubtotal\n150.000,00 ₫\nShipping\nEnter your address\nEstimated total\n150.000,00 ₫\n\nReview your address and final costs before placing your order.\n\n© 2026 Nexus\nHelp Center\nShipping & Returns\nSeller Terms\nPrivacy\nPrices in VND"
+    }
+  ]
+}

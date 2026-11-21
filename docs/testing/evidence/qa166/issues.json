@@ -1,0 +1,62 @@
+[
+  {
+    "url": "https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/273",
+    "iid": 273,
+    "key": "coverage-discovery-service",
+    "title": "[QA #166] discovery-service fails 70% line coverage"
+  },
+  {
+    "url": "https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/274",
+    "iid": 274,
+    "key": "coverage-lib-common-core",
+    "title": "[QA #166] lib/common-core fails 70% line coverage"
+  },
+  {
+    "url": "https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/275",
+    "iid": 275,
+    "key": "coverage-lib-common-web",
+    "title": "[QA #166] lib/common-web fails 70% line coverage"
+  },
+  {
+    "url": "https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/276",
+    "iid": 276,
+    "key": "coverage-lib-common-test",
+    "title": "[QA #166] lib/common-test fails 70% line coverage"
+  },
+  {
+    "url": "https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/277",
+    "iid": 277,
+    "key": "user-keycloak",
+    "title": "[QA #166] User email-change integration fails on read-only Keycloak username"
+  },
+  {
+    "url": "https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/278",
+    "iid": 278,
+    "key": "inventory-refresh",
+    "title": "[QA #166] Reservation timeout refresh tests return 403"
+  },
+  {
+    "url": "https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/279",
+    "iid": 279,
+    "key": "payment-confirmation",
+    "title": "[QA #166] Payment confirmation tests conflict with unreconciled event contract"
+  },
+  {
+    "url": "https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/280",
+    "iid": 280,
+    "key": "db-migrations",
+    "title": "[QA #166] Database upgrade verification fails with current migrations"
+  },
+  {
+    "url": "https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/281",
+    "iid": 281,
+    "key": "runtime-dependencies",
+    "title": "[QA #166] Fresh local walkthrough blocked by shipping and reputation setup"
+  },
+  {
+    "title": "[QA #166] Receipt acceptance fixture lacks NotificationPreferenceService",
+    "key": "receipt-acceptance",
+    "iid": 282,
+    "url": "https://git.fsoft-academy.edu.vn/hcm26_cpl_java_11/hcm26_cpl_java_11_group_5/-/work_items/282"
+  }
+]

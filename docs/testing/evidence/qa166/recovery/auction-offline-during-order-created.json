@@ -1,0 +1,62 @@
+{
+  "steps": [
+    {
+      "log": "recovery_de3dfe28e4c3450baec9ed5dd48e442b-auction-service-0.log",
+      "step": "started",
+      "pid": 31192,
+      "service": "auction-service",
+      "relayInitiallyGated": false
+    },
+    {
+      "auctionId": "654c4cfa-4707-4893-9269-35220e7aa07b",
+      "schema": "recovery_de3dfe28e4c3450baec9ed5dd48e442b",
+      "step": "fixture"
+    },
+    {
+      "exitCode": 1,
+      "pid": 31192,
+      "step": "forcefully-killed"
+    },
+    {
+      "log": "recovery_de3dfe28e4c3450baec9ed5dd48e442b-commerce-service-1.log",
+      "step": "started",
+      "pid": 30820,
+      "service": "commerce-service",
+      "relayInitiallyGated": false
+    },
+    {
+      "step": "order-created-on-broker-auction-offline",
+      "auctionId": "654c4cfa-4707-4893-9269-35220e7aa07b",
+      "orderCount": 1,
+      "pendingOrderCreated": 0,
+      "publishedOrderCreated": 1,
+      "auction": {
+        "id": "654c4cfa-4707-4893-9269-35220e7aa07b",
+        "status": "WON",
+        "order_id": null,
+        "settled_at": null
+      }
+    },
+    {
+      "log": "recovery_de3dfe28e4c3450baec9ed5dd48e442b-auction-service-2.log",
+      "step": "started",
+      "pid": 14488,
+      "service": "auction-service",
+      "relayInitiallyGated": false
+    },
+    {
+      "step": "recovered",
+      "auctionId": "654c4cfa-4707-4893-9269-35220e7aa07b",
+      "orderCount": 1,
+      "pendingOrderCreated": 0,
+      "publishedOrderCreated": 1,
+      "auction": {
+        "id": "654c4cfa-4707-4893-9269-35220e7aa07b",
+        "status": "SETTLED",
+        "order_id": "2a10c2f4-4a10-4e17-bac3-e8e196ea8112",
+        "settled_at": "2026-11-21 23:16:38.41081+07"
+      }
+    }
+  ],
+  "scenario": "auction-offline-during-order-created"
+}

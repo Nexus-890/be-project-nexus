@@ -49,6 +49,12 @@
 	</dependencyManagement>
 
 	<dependencies>
+		<!-- Real Kafka broker for the cross-service crash/restart integration test. -->
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-kafka</artifactId>
+			<scope>test</scope>
+		</dependency>
 		<dependency>
 			<groupId>com.group5</groupId>
 			<artifactId>common-web</artifactId>

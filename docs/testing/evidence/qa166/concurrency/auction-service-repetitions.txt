@@ -1,0 +1,10 @@
+BID_QUEUE run=1 requests=50 bidders=10 queued=50 placed=3 rejected=47 remaining=0 highest=3500000.00 drain_ms=2935 local_only=true
+BID_QUEUE run=2 requests=50 bidders=10 queued=50 placed=6 rejected=44 remaining=0 highest=3500000.00 drain_ms=2101 local_only=true
+BID_QUEUE run=3 requests=50 bidders=10 queued=50 placed=4 rejected=46 remaining=0 highest=3500000.00 drain_ms=1774 local_only=true
+BID_QUEUE run=4 requests=50 bidders=10 queued=50 placed=4 rejected=46 remaining=0 highest=3500000.00 drain_ms=1746 local_only=true
+BID_QUEUE run=5 requests=50 bidders=10 queued=50 placed=3 rejected=47 remaining=0 highest=3500000.00 drain_ms=2460 local_only=true
+BID_QUEUE run=6 requests=50 bidders=10 queued=50 placed=4 rejected=46 remaining=0 highest=3500000.00 drain_ms=2222 local_only=true
+BID_QUEUE run=7 requests=50 bidders=10 queued=50 placed=2 rejected=48 remaining=0 highest=3500000.00 drain_ms=1907 local_only=true
+BID_QUEUE run=8 requests=50 bidders=10 queued=50 placed=5 rejected=45 remaining=0 highest=3500000.00 drain_ms=3305 local_only=true
+BID_QUEUE run=9 requests=50 bidders=10 queued=50 placed=5 rejected=45 remaining=0 highest=3500000.00 drain_ms=2814 local_only=true
+BID_QUEUE run=10 requests=50 bidders=10 queued=50 placed=4 rejected=46 remaining=0 highest=3500000.00 drain_ms=1980 local_only=true

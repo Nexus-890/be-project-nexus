@@ -1,0 +1,75 @@
+{
+  "steps": [
+    {
+      "log": "recovery_7faa25876ac14bbaa2e811fb8cb671ca-auction-service-0.log",
+      "step": "started",
+      "pid": 30428,
+      "service": "auction-service",
+      "relayInitiallyGated": false
+    },
+    {
+      "auctionId": "eb1d0254-a3a2-4c53-b495-a9e429c573cc",
+      "schema": "recovery_7faa25876ac14bbaa2e811fb8cb671ca",
+      "step": "fixture"
+    },
+    {
+      "log": "recovery_7faa25876ac14bbaa2e811fb8cb671ca-commerce-service-1.log",
+      "step": "started",
+      "pid": 10364,
+      "service": "commerce-service",
+      "relayInitiallyGated": true
+    },
+    {
+      "step": "committed-before-kill",
+      "auctionId": "eb1d0254-a3a2-4c53-b495-a9e429c573cc",
+      "orderCount": 1,
+      "pendingOrderCreated": 1,
+      "publishedOrderCreated": 0,
+      "auction": {
+        "id": "eb1d0254-a3a2-4c53-b495-a9e429c573cc",
+        "status": "WON",
+        "order_id": null,
+        "settled_at": null
+      }
+    },
+    {
+      "exitCode": 1,
+      "pid": 10364,
+      "step": "forcefully-killed"
+    },
+    {
+      "step": "commerce-forcefully-terminated",
+      "auctionId": "eb1d0254-a3a2-4c53-b495-a9e429c573cc",
+      "orderCount": 1,
+      "pendingOrderCreated": 1,
+      "publishedOrderCreated": 0,
+      "auction": {
+        "id": "eb1d0254-a3a2-4c53-b495-a9e429c573cc",
+        "status": "WON",
+        "order_id": null,
+        "settled_at": null
+      }
+    },
+    {
+      "log": "recovery_7faa25876ac14bbaa2e811fb8cb671ca-commerce-service-2.log",
+      "step": "started",
+      "pid": 3668,
+      "service": "commerce-service",
+      "relayInitiallyGated": false
+    },
+    {
+      "step": "recovered",
+      "auctionId": "eb1d0254-a3a2-4c53-b495-a9e429c573cc",
+      "orderCount": 1,
+      "pendingOrderCreated": 0,
+      "publishedOrderCreated": 1,
+      "auction": {
+        "id": "eb1d0254-a3a2-4c53-b495-a9e429c573cc",
+        "status": "SETTLED",
+        "order_id": "3aa99c3e-8507-4d3d-a776-9830793b6e02",
+        "settled_at": "2026-11-21 23:18:08.038977+07"
+      }
+    }
+  ],
+  "scenario": "commerce-crash-before-publish"
+}

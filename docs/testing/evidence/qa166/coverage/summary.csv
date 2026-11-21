@@ -1,0 +1,21 @@
+module,passed,failures,errors,skipped,linePercent,verifyExit,provenance
+lib/common-core,0,0,0,0,0,1,historical local integration
+lib/common-web,12,0,0,0,57.64705882352941,1,historical local integration
+lib/common-security,23,0,0,0,94.20289855072464,0,historical local integration
+lib/common-events,22,0,0,0,100,0,historical local integration
+lib/common-outbox,48,0,0,0,82.75862068965517,0,historical local integration
+lib/common-test,0,0,0,0,0,1,historical local integration
+config-service,52,0,0,0,93.66754617414249,0,historical local integration
+discovery-service,1,0,0,0,33.333333333333336,1,historical local integration
+api-gateway,89,0,0,0,74.02597402597402,0,historical local integration
+user-service,241,6,0,0,92.77708592777086,1,historical local integration
+catalog-service,131,0,0,0,75.14585764294048,0,historical local integration
+commerce-service,466,0,0,5,91.65073295092415,0,historical local integration
+auction-service,387,0,0,0,86.57921291624622,0,historical local integration
+inventory-service,125,3,0,0,96.75,1,historical local integration
+notification-service,183,0,0,0,89.04363974001858,0,historical local integration
+payment-service,258,19,0,3,96.43734643734643,1,historical local integration
+shipment-service,201,0,0,0,86.21212121212122,0,historical local integration
+rating-service,3,0,0,0,77.6470588235294,0,historical local integration
+infra/db-verification,9,5,2,0,,1,historical local integration
+infra/receipt-completion-acceptance,7,0,3,1,,1,publication branch based on origin/develop1ea5801e
