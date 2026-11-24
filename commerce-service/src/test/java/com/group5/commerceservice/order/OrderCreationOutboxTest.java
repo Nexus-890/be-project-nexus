@@ -32,6 +32,7 @@ import jakarta.persistence.EntityManagerFactory;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -75,6 +76,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SpringJUnitConfig(OrderCreationOutboxTest.JpaConfig.class)
@@ -151,7 +153,7 @@ class OrderCreationOutboxTest {
     }
 
     @Test
-    void aFailureAfterAllCreationEventsWereWrittenRollsBackOrdersCartAndOutbox() {
+    void aFailureAfterAllCreationEventsWereWrittenRollsBackTheCheckoutAndReleasesTheHeldStock() {
         Fixture fixture = cart();
         AtomicBoolean wroteManifest = new AtomicBoolean();
         doAnswer(invocation -> {
@@ -165,7 +167,10 @@ class OrderCreationOutboxTest {
                 .isInstanceOf(IllegalStateException.class).hasMessage("Fail after the manifest insert");
 
         assertThat(wroteManifest).isTrue();
-        assertNoCreation(fixture);
+        List<UUID> held = reservedOrders();
+        assertThat(held).hasSize(2);
+        assertThat(releaseRequests(held)).containsExactlyInAnyOrderElementsOf(held);
+        assertNoCreation(fixture, held.size());
         assertThat(count("SELECT count(*) FROM cart_items WHERE cart_id = ?", fixture.cartId())).isEqualTo(3);
     }
 
@@ -178,6 +183,7 @@ class OrderCreationOutboxTest {
                 .isInstanceOf(DomainException.class).extracting("errorCode").isEqualTo("COMMERCE_INSUFFICIENT_STOCK");
 
         assertNoCreation(fixture);
+        assertThat(releaseRequests(reservedOrders())).isEmpty();
     }
 
     @Test
@@ -504,10 +510,27 @@ class OrderCreationOutboxTest {
     }
 
     private void assertNoCreation(Fixture fixture) {
+        assertNoCreation(fixture, 0);
+    }
+
+    private void assertNoCreation(Fixture fixture, int releaseRequests) {
         assertThat(count("SELECT count(*) FROM order_groups WHERE buyer_id = ?", fixture.buyer().id())).isZero();
         assertThat(count("SELECT count(*) FROM orders WHERE user_id = ?", fixture.buyer().id())).isZero();
-        assertThat(count("SELECT count(*) FROM outbox")).isEqualTo(outboxBefore);
+        assertThat(count("SELECT count(*) FROM outbox")).isEqualTo(outboxBefore + releaseRequests);
         assertThat(cartStatus(fixture)).isEqualTo("ACTIVE");
+    }
+
+    private List<UUID> reservedOrders() {
+        ArgumentCaptor<List<InventoryClient.Item>> items = ArgumentCaptor.captor();
+        verify(inventoryClient).reserve(any(), items.capture());
+        return items.getValue().stream().map(InventoryClient.Item::orderId).distinct().toList();
+    }
+
+    private List<UUID> releaseRequests(List<UUID> orders) {
+        return jdbc().queryForList("""
+                SELECT aggregate_id::uuid FROM outbox
+                WHERE event_type = 'CheckoutStockReleaseRequested'
+                """, UUID.class).stream().filter(orders::contains).toList();
     }
 
     private List<EventRow> events(UUID buyerId) {

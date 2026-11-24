@@ -304,11 +304,11 @@ public class OrderService {
         InventoryClient.Reservation reservation = inventoryClient.reserve(savedGroup.getId(),
                 savedGroup.getOrders().stream().flatMap(order -> order.getItems().stream().map(item ->
                         new InventoryClient.Item(order.getId(), item.getSkuId(), item.getQuantity()))).toList());
+        provisionalStock.set(new StockToRelease(savedGroup.getId(),
+                savedGroup.getOrders().stream().map(Order::getId).toList()));
         OffsetDateTime reservedAt = OffsetDateTime.now(ZoneOffset.UTC);
         VoucherPricing.Result confirmedQuote = null;
         if (!codes.isEmpty()) {
-            provisionalStock.set(new StockToRelease(savedGroup.getId(),
-                    savedGroup.getOrders().stream().map(Order::getId).toList()));
             confirmedQuote = vouchers.reserveQuota(user.id(), voucherLines, codes, reservedAt);
             applyDiscounts(sellers, confirmedQuote);
             updateTotals(savedGroup);
