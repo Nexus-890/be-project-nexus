@@ -179,8 +179,8 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/notifications/preferences` | GET | NOTIFICATION.VIEW | Notification settings — current subject only; mandatory transactional channels cannot be disabled |
 | `/api/v1/notifications/preferences` | PUT | NOTIFICATION.MANAGE_PREFERENCE | Notification settings — update own optional channels |
 | `/api/v1/notifications/stream` | GET | NOTIFICATION.VIEW | Authenticated SSE inbox revision; current subject only |
-| `/api/v1/notifications/deliveries` | GET | role ADMIN | Delivery administration; downstream also requires NOTIFICATION.VIEW |
-| `/api/v1/notifications/deliveries/{id}` | GET | role ADMIN | Delivery attempts for administration; downstream also requires NOTIFICATION.VIEW |
+| `/api/v1/notifications/deliveries` | GET | Roles: ADMIN | Delivery administration; downstream also requires NOTIFICATION.VIEW |
+| `/api/v1/notifications/deliveries/{id}` | GET | Roles: ADMIN | Delivery attempts for administration; downstream also requires NOTIFICATION.VIEW |
 | `/api/v1/notifications/{id}/read` | PATCH | NOTIFICATION.VIEW | #109 — Mark own notification as read |
 | `/api/v1/notifications/read-all` | PATCH | NOTIFICATION.VIEW | #109 — Mark all own notifications as read |
 | `/api/v1/system/health` | GET | SYSTEM.HEALTH.VIEW | #193 — Service and broker health; ADMIN and SUPPORT_STAFF |

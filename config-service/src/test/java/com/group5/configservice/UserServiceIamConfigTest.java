@@ -32,7 +32,7 @@ class UserServiceIamConfigTest {
     }
 
     @Test
-    void nativeRepositoryServesRegistrationDefaultsAndKeepsOnlyRegistrationAndResendPublic() {
+    void nativeRepositoryServesRegistrationDefaultsAndKeepsOnlyRegistrationResendAndPasswordResetPublic() {
         Environment environment = environmentRepository.findOne("user-service", "default", null);
 
         assertThat(propertyValue(environment, "nexus.iam.default-user-role")).isEqualTo("BUYER");
@@ -43,7 +43,13 @@ class UserServiceIamConfigTest {
         assertThat(propertyValue(environment, "nexus.security.public-endpoints[1].method")).isEqualTo("POST");
         assertThat(propertyValue(environment, "nexus.security.public-endpoints[1].path"))
                 .isEqualTo("/api/v1/auth/verification-email");
-        assertThat(propertyValue(environment, "nexus.security.public-endpoints[2].path")).isNull();
+        assertThat(propertyValue(environment, "nexus.security.public-endpoints[2].method")).isEqualTo("POST");
+        assertThat(propertyValue(environment, "nexus.security.public-endpoints[2].path"))
+                .isEqualTo("/api/v1/auth/password-reset");
+        assertThat(propertyValue(environment, "nexus.security.public-endpoints[3].method")).isEqualTo("POST");
+        assertThat(propertyValue(environment, "nexus.security.public-endpoints[3].path"))
+                .isEqualTo("/api/v1/auth/password-reset/confirm");
+        assertThat(propertyValue(environment, "nexus.security.public-endpoints[4].path")).isNull();
         assertThat(environment.getPropertySources().stream()
                 .flatMap(source -> source.getSource().values().stream())
                 .map(Object::toString))

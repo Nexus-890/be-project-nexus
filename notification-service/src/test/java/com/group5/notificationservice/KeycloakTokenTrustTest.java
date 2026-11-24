@@ -32,6 +32,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -67,6 +68,7 @@ class KeycloakTokenTrustTest {
     private static final HttpServer JWKS = jwks();
     @Autowired private WebApplicationContext context;
     @MockitoBean private JdbcTemplate jdbcTemplate;
+    @MockitoBean private NamedParameterJdbcTemplate namedJdbcTemplate;
     @MockitoBean private IdempotentConsumer idempotentConsumer;
     @MockitoBean private NotificationRepository notifications;
     @MockitoBean private EventLogRepository eventLogs;

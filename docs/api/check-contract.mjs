@@ -48,6 +48,9 @@ const services = {
     'src/main/java/com/group5/notificationservice/delivery/DeliveryController.java',
     'src/main/java/com/group5/notificationservice/eventlog/EventLogController.java',
     'src/main/java/com/group5/notificationservice/eventlog/AuditLogController.java',
+    'src/main/java/com/group5/notificationservice/delivery/AdminDeliveryController.java',
+    'src/main/java/com/group5/notificationservice/preference/NotificationPreferenceController.java',
+    'src/main/java/com/group5/notificationservice/stream/NotificationStreamController.java',
   ],
   'payment-service': [
     'src/main/java/com/group5/paymentservice/payment/controller/PaymentController.java',
@@ -87,6 +90,8 @@ const services = {
     'src/main/java/com/group5/ratingservice/reputation/controller/ReputationHistoryController.java',
     'src/main/java/com/group5/ratingservice/eligibility/controller/EligibilityController.java',
     'src/main/java/com/group5/ratingservice/reputation/controller/MyReputationController.java',
+    'src/main/java/com/group5/ratingservice/moderation/controller/DisputeController.java',
+    'src/main/java/com/group5/ratingservice/moderation/controller/RestrictionController.java',
   ],
 };
 const normalize = (route) => route.replace(/\{[^}]+\}/g, '{}');

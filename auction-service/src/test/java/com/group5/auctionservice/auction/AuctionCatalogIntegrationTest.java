@@ -47,7 +47,8 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
         "spring.cloud.discovery.enabled=false", "eureka.client.enabled=false",
         "spring.kafka.listener.auto-startup=false", "spring.kafka.admin.auto-create=false",
         "spring.jpa.open-in-view=false", "management.tracing.enabled=false",
-        "nexus.auction.scheduler.enabled=false", "nexus.outbox.relay.enabled=false"
+        "nexus.auction.scheduler.enabled=false", "nexus.outbox.relay.enabled=false",
+        "nexus.auction.reputation-enforcement-enabled=false"
 })
 class AuctionCatalogIntegrationTest {
     private static final TestPostgres POSTGRES = new TestPostgres();

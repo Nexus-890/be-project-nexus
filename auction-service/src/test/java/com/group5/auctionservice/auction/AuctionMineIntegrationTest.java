@@ -36,6 +36,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppC
         "spring.kafka.listener.auto-startup=false", "spring.kafka.admin.auto-create=false",
         "spring.jpa.open-in-view=false", "management.tracing.export.zipkin.enabled=false",
         "nexus.auction.scheduler.enabled=false", "nexus.outbox.relay.enabled=false",
+        "nexus.auction.reputation-enforcement-enabled=false",
         "nexus.security.jwt.issuer=http://localhost:18080/realms/nexus",
         "nexus.security.jwt.jwk-set-uri=http://127.0.0.1:1/certs"
 })

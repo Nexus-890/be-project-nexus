@@ -715,7 +715,9 @@ VALUES(?,?,?,?, 'Queue integration','https://example.test/item.png',1000000,5000
 
         @Bean
         AuctionProperties auctionProperties() {
-            return new AuctionProperties();
+            AuctionProperties properties = new AuctionProperties();
+            properties.setReputationEnforcementEnabled(false);
+            return properties;
         }
 
         /** Fixture queue không gọi rating-service; các trường hợp chặn reputation có test HTTP riêng. */
