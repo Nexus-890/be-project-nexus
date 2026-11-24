@@ -193,6 +193,8 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/orders` | GET | ORDER.LIST | #117 — Order read endpoints; the caller's own orders only |
 | `/api/v1/orders/manage` | GET | ORDER.LIST | #190 — All orders; service additionally requires ADMIN or SUPPORT_STAFF |
 | `/api/v1/orders/sales` | GET | ORDER.LIST | #190 — Seller orders; service additionally requires SELLER and JWT seller ownership |
+| `/api/v1/orders/manage/summary` | GET | ORDER.LIST | Backoffice dashboard — order counts and daily revenue for every seller; service additionally requires ADMIN or SUPPORT_STAFF |
+| `/api/v1/orders/sales/summary` | GET | ORDER.LIST | Seller dashboard — the caller's own order counts and daily revenue; service additionally requires SELLER |
 | `/api/v1/orders/groups/{id}` | GET | ORDER.VIEW | #138 — The complete order group; service requires its buyer owner or ADMIN |
 | `/api/v1/orders/{id}` | GET | ORDER.VIEW | #117 — Order read endpoints; the owner or ADMIN |
 | `/api/v1/orders/{id}/invoice` | GET | ORDER.VIEW | #204 — Completed-order HTML receipt; the buyer owner only |
