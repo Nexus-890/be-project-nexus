@@ -108,10 +108,11 @@ paths:
         - NOTIFICATION.VIEW
       x-required-roles:
         - ADMIN
+        - SUPPORT_STAFF
       operationId: listAdminNotificationDeliveries
       summary: List delivery status across users
       description: >-
-        ADMIN plus NOTIFICATION.VIEW. Newest createdAt and id first; from inclusive, to exclusive. errorCode matches any
+        ADMIN or SUPPORT_STAFF plus NOTIFICATION.VIEW, read-only. Newest createdAt and id first; from inclusive, to exclusive. errorCode matches any
         attempt; lastErrorCode is latest attempt. No email address or raw provider error exposed.
       parameters:
         - name: page
@@ -187,8 +188,9 @@ paths:
         - NOTIFICATION.VIEW
       x-required-roles:
         - ADMIN
+        - SUPPORT_STAFF
       operationId: getNotificationDelivery
-      summary: View delivery attempts as admin
+      summary: View delivery attempts as staff
       parameters:
         - name: id
           in: path

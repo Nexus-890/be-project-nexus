@@ -179,8 +179,8 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/notifications/preferences` | GET | NOTIFICATION.VIEW | Notification settings — current subject only; mandatory transactional channels cannot be disabled |
 | `/api/v1/notifications/preferences` | PUT | NOTIFICATION.MANAGE_PREFERENCE | Notification settings — update own optional channels |
 | `/api/v1/notifications/stream` | GET | NOTIFICATION.VIEW | Authenticated SSE inbox revision; current subject only |
-| `/api/v1/notifications/deliveries` | GET | Roles: ADMIN | Delivery administration; downstream also requires NOTIFICATION.VIEW |
-| `/api/v1/notifications/deliveries/{id}` | GET | Roles: ADMIN | Delivery attempts for administration; downstream also requires NOTIFICATION.VIEW |
+| `/api/v1/notifications/deliveries` | GET | Roles: ADMIN, SUPPORT_STAFF | Delivery administration, read-only; downstream also requires NOTIFICATION.VIEW |
+| `/api/v1/notifications/deliveries/{id}` | GET | Roles: ADMIN, SUPPORT_STAFF | Delivery attempts for administration, read-only; downstream also requires NOTIFICATION.VIEW |
 | `/api/v1/notifications/{id}/read` | PATCH | NOTIFICATION.VIEW | #109 — Mark own notification as read |
 | `/api/v1/notifications/read-all` | PATCH | NOTIFICATION.VIEW | #109 — Mark all own notifications as read |
 | `/api/v1/system/health` | GET | SYSTEM.HEALTH.VIEW | #193 — Service and broker health; ADMIN and SUPPORT_STAFF |
@@ -230,11 +230,11 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/reputations/{userId}` | GET | REPUTATION.VIEW | #213 — rating-service |
 | `/api/v1/reputations/{userId}/adjustments` | POST | USER.REPUTATION.ADJUST | #213 — rating-service; reason and score bounds checked downstream |
 | `/api/v1/reputations/{userId}/history` | GET | USER.REPUTATION.VIEW | #213 — rating-service |
-| `/api/v1/reputations/{userId}/restrictions` | GET | REPUTATION.VIEW | Own restrictions, or ADMIN with USER.REPUTATION.VIEW downstream |
+| `/api/v1/reputations/{userId}/restrictions` | GET | REPUTATION.VIEW | Own restrictions, or ADMIN/SUPPORT_STAFF with USER.REPUTATION.VIEW downstream |
 | `/api/v1/reputations/{userId}/restrictions` | POST | USER.REPUTATION.ADJUST | ADMIN downstream; temporary BID/SELL restriction with required reason |
 | `/api/v1/reputations/{userId}/restrictions/{id}` | DELETE | USER.REPUTATION.ADJUST | ADMIN downstream; revocation retains audit and requires reason |
 | `/api/v1/ratings/{id}/disputes` | POST | REPUTATION.RATE | Rated subject only; caller cannot dispute another user's rating |
-| `/api/v1/ratings/disputes` | GET | USER.REPUTATION.VIEW | ADMIN downstream; paginated dispute queue |
+| `/api/v1/ratings/disputes` | GET | USER.REPUTATION.VIEW | ADMIN or SUPPORT_STAFF downstream; paginated dispute queue |
 | `/api/v1/ratings/disputes/{id}` | PATCH | USER.REPUTATION.ADJUST | ADMIN downstream; approve/hide/recalculate or reject, with audit reason |
 | `/api/v1/auctions` | POST | AUCTION.CREATE | #140 — Create as SELLER; `sellerId` comes from the JWT subject |
 | `/api/v1/auctions/{id}/bids` | POST | AUCTION.BID | #253 — Accept a QUEUED bid with 202 as BUYER; the bidder cannot be the auction seller. Required UUID `Idempotency-Key`; replay requires the original bidder, auction and numeric amount; a different amount returns 409 |

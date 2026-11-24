@@ -473,7 +473,7 @@ paths:
       operationId: listReputationRestrictions
       summary: List current and historical restrictions
       description: >-
-        ADMIN with USER.REPUTATION.VIEW may read any target. BUYER or SELLER
+        ADMIN or SUPPORT_STAFF with USER.REPUTATION.VIEW may read any target. BUYER or SELLER
         with REPUTATION.VIEW may read only their own subject. Results include
         revoked and expired restrictions with a computed active flag.
       parameters:
@@ -589,7 +589,7 @@ paths:
       tags: [Ratings]
       operationId: listRatingDisputes
       summary: Read disputes for administrative review
-      description: Requires ADMIN and USER.REPUTATION.VIEW. Ordered newest first.
+      description: Requires ADMIN or SUPPORT_STAFF and USER.REPUTATION.VIEW. Ordered newest first.
       parameters:
         - name: status
           in: query

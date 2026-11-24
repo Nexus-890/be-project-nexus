@@ -323,10 +323,10 @@ nexus:
         privilege: NOTIFICATION.VIEW
       - method: GET
         path: /api/v1/notifications/deliveries
-        roles: [ADMIN]
+        roles: [ADMIN, SUPPORT_STAFF]
       - method: GET
         path: /api/v1/notifications/deliveries/{id}
-        roles: [ADMIN]
+        roles: [ADMIN, SUPPORT_STAFF]
       - method: GET
         path: /api/v1/payments
         privilege: ORDER.REFUND

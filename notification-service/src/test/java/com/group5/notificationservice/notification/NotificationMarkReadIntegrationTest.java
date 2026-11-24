@@ -82,6 +82,9 @@ class NotificationMarkReadIntegrationTest {
         when(decoder.decode("admin")).thenReturn(Jwt.withTokenValue("admin").header("alg", "RS256").subject(USER_B.toString())
                 .issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(600))
                 .claim("roles", List.of("ADMIN")).claim("privileges", List.of("NOTIFICATION.VIEW")).build());
+        when(decoder.decode("support")).thenReturn(Jwt.withTokenValue("support").header("alg", "RS256").subject(USER_B.toString())
+                .issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(600))
+                .claim("roles", List.of("SUPPORT_STAFF")).claim("privileges", List.of("NOTIFICATION.VIEW")).build());
         mvc = webAppContextSetup(context).addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
     }
 
@@ -249,7 +252,7 @@ class NotificationMarkReadIntegrationTest {
     }
 
     @Test
-    void adminDeliveryFiltersAndDetailRequireAdminWhileOwnerEndpointStaysScoped() throws Exception {
+    void staffDeliveryFiltersAndDetailRequireAdminOrSupportWhileOwnerEndpointStaysScoped() throws Exception {
         UUID n = insert(USER_A, null);
         deliveries.insertEmail(n, Instant.now());
         UUID id = jdbc.queryForObject("SELECT id FROM notification_deliveries WHERE notification_id=?", UUID.class, n);
@@ -262,6 +265,10 @@ class NotificationMarkReadIntegrationTest {
                 .andExpect(jsonPath("$.data[0].userId").value(USER_A.toString()));
         mvc.perform(get("/api/v1/notifications/deliveries/{id}", id).header("Authorization", "Bearer admin"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.attempts[0].errorCode").value("SMTP_UNAVAILABLE"));
+        mvc.perform(get("/api/v1/notifications/deliveries").header("Authorization", "Bearer support"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(1));
+        mvc.perform(get("/api/v1/notifications/deliveries/{id}", id).header("Authorization", "Bearer support"))
+                .andExpect(status().isOk());
         mvc.perform(get("/api/v1/notifications/deliveries").header("Authorization", "Bearer admin").param("status", "BOGUS"))
                 .andExpect(status().isBadRequest());
         mvc.perform(get("/api/v1/notifications/{id}/deliveries", n).header("Authorization", "Bearer admin"))

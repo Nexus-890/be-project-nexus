@@ -29,7 +29,7 @@ public class DisputeController {
     }
 
     @GetMapping("/disputes")
-    @PreAuthorize("hasRole('ADMIN') and hasAuthority('USER.REPUTATION.VIEW')")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPPORT_STAFF') and hasAuthority('USER.REPUTATION.VIEW')")
     public ApiResponse<List<DisputeResponse>> list(@RequestParam(required = false) DisputeStatus status,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {

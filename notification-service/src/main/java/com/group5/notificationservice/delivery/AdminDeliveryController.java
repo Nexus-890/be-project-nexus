@@ -10,7 +10,7 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api/v1/notifications/deliveries")
-@PreAuthorize("hasRole('ADMIN') and hasAuthority('NOTIFICATION.VIEW')")
+@PreAuthorize("hasAnyRole('ADMIN','SUPPORT_STAFF') and hasAuthority('NOTIFICATION.VIEW')")
 public class AdminDeliveryController {
     private final AdminDeliveryQuery query;
     public AdminDeliveryController(AdminDeliveryQuery query) { this.query = query; }

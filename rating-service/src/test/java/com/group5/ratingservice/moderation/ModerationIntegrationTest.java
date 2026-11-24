@@ -105,6 +105,9 @@ class ModerationIntegrationTest extends RatingPostgresIntegrationTest {
             client.perform(auth(post(base), token).contentType(MediaType.APPLICATION_JSON).content(payload)).andExpect(status().isForbidden());
         }
         client.perform(auth(get(base), user(UUID.randomUUID(), "BUYER", "REPUTATION.VIEW"))).andExpect(status().isForbidden());
+        String support = user(UUID.randomUUID(), "SUPPORT_STAFF", "USER.REPUTATION.VIEW");
+        client.perform(auth(get(base), support)).andExpect(status().isOk());
+        client.perform(auth(post(base), support).contentType(MediaType.APPLICATION_JSON).content(payload)).andExpect(status().isForbidden());
         String admin = user(UUID.randomUUID(), "ADMIN", "USER.REPUTATION.ADJUST");
         for (String body : List.of("{\"action\":\"BID\",\"reason\":\"  \",\"restrictedUntil\":\"2099-01-01T00:00:00Z\"}",
                 "{\"action\":\"SELL\",\"reason\":\"abuse\",\"restrictedUntil\":\"2020-01-01T00:00:00Z\"}")) {
@@ -212,6 +215,9 @@ class ModerationIntegrationTest extends RatingPostgresIntegrationTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.page.totalElements").value(1))
                 .andExpect(jsonPath("$.data[0].ratingScore").value(2));
         resolve(id, view, "APPROVED", "Forbidden mutation").andExpect(status().isForbidden());
+        String support = user(UUID.randomUUID(), "SUPPORT_STAFF", "USER.REPUTATION.VIEW");
+        client.perform(auth(get("/api/v1/ratings/disputes"), support)).andExpect(status().isOk());
+        resolve(id, support, "APPROVED", "Forbidden mutation").andExpect(status().isForbidden());
         client.perform(auth(get("/api/v1/ratings/disputes"), user(rating.toUserId(), "SELLER", "USER.REPUTATION.VIEW"))).andExpect(status().isForbidden());
         String admin = user(UUID.randomUUID(), "ADMIN", "USER.REPUTATION.ADJUST");
         resolve(id, admin, "PENDING", "Not a resolution").andExpect(status().isBadRequest());

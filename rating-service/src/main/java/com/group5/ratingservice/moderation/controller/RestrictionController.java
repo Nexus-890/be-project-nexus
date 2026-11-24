@@ -23,7 +23,7 @@ public class RestrictionController {
     private final ModerationService moderation;
 
     @GetMapping
-    @PreAuthorize("(hasRole('ADMIN') and hasAuthority('USER.REPUTATION.VIEW')) or (hasAnyRole('BUYER','SELLER') and hasAuthority('REPUTATION.VIEW') and #userId.toString() == authentication.name)")
+    @PreAuthorize("(hasAnyRole('ADMIN','SUPPORT_STAFF') and hasAuthority('USER.REPUTATION.VIEW')) or (hasAnyRole('BUYER','SELLER') and hasAuthority('REPUTATION.VIEW') and #userId.toString() == authentication.name)")
     public ApiResponse<List<RestrictionResponse>> list(@PathVariable UUID userId,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {

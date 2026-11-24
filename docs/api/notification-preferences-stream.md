@@ -42,8 +42,8 @@ when `Last-Event-ID` is stale. A heartbeat arrives every two seconds. Connection
 and at most 30 seconds after opening; reconnect with the current token. This provides an in-app bell;
 it does not request browser WebPush permission or deliver OS alerts after the page is closed.
 
-`GET /api/v1/notifications/deliveries` and `/deliveries/{deliveryId}` require both `ADMIN` and
-`NOTIFICATION.VIEW`. The list has stable newest-first pagination, status/channel/time filters and an
+`GET /api/v1/notifications/deliveries` and `/deliveries/{deliveryId}` require `ADMIN` or `SUPPORT_STAFF` and
+`NOTIFICATION.VIEW`; both endpoints are read-only. The list has stable newest-first pagination, status/channel/time filters and an
 `errorCode` filter matching any historical attempt. `from` is inclusive and `to` exclusive. Detail
 includes attempt history and symbolic error codes; recipient email, provider IDs and raw error messages
 are excluded. Existing `/{notificationId}/deliveries` remains owner-only.
