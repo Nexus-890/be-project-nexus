@@ -11,7 +11,7 @@ public final class ShippingDeadline {
     //tính toán thời gian
     private ShippingDeadline(Duration timeout) {
         if (timeout.isNegative() || timeout.isZero()) {
-            throw new IllegalArgumentException("Thời gian chờ phải lớn hơn 0");
+            throw new IllegalArgumentException("Timeout must be greater than 0");
         }
         this.expiresAt = System.nanoTime() + timeout.toNanos();
     }

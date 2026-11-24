@@ -124,7 +124,7 @@ class ShippingQuoteServiceTest {
         assertThat(carrierRequest.recipientName()).isEqualTo("Người nhận kiểm thử");
         assertThat(carrierRequest.recipientPhone()).isEqualTo("0901234567");
         assertThat(carrierRequest.insuranceValue()).isEqualByComparingTo(BigDecimal.ZERO);
-        assertThat(carrierRequest.content()).isEqualTo("Đơn hàng gồm 1 sản phẩm thuộc 1 SKU, đóng trong 1 kiện");
+        assertThat(carrierRequest.content()).isEqualTo("Order of 1 item(s) across 1 SKU(s), packed in 1 parcel");
     }
 
     @Test
@@ -211,7 +211,7 @@ class ShippingQuoteServiceTest {
         verify(adapter).quote(captured.capture(), any());
         assertThat(captured.getValue().insuranceValue()).isEqualByComparingTo("123456");
         assertThat(captured.getValue().content())
-                .isEqualTo("Đơn hàng gồm 9 sản phẩm thuộc 2 SKU, đóng trong 1 kiện");
+                .isEqualTo("Order of 9 item(s) across 2 SKU(s), packed in 1 parcel");
     }
 
     @Test
@@ -266,7 +266,7 @@ class ShippingQuoteServiceTest {
         assertThat(quotes).extracting(ShippingQuoteResponse::carrier).containsExactly("FAKE", "GHN");
         assertThat(quotes).extracting(ShippingQuoteResponse::recommended).containsExactly(true, false);
         assertThat(quotes).extracting(ShippingQuoteResponse::carrierName)
-                .containsExactly("Nhà vận chuyển giả lập", "Giao Hàng Nhanh");
+                .containsExactly("Simulated carrier", "Giao Hàng Nhanh");
         assertThat(quotes.get(1).fee()).isEqualByComparingTo("45000");
         verify(catalog).getSubtotal(anyList(), any());
     }

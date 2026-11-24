@@ -41,7 +41,7 @@ public final class CatalogLoadBalancerClient extends FeignBlockingLoadBalancerCl
             received.set(response);
             if (abandoned.get() || Thread.currentThread().isInterrupted() || budget.deadline().timedOut()) {
                 closeResponse(received);
-                throw new IOException("Đã hết thời gian chờ catalog");
+                throw new IOException("Catalog request timed out");
             }
             return response;
         });
@@ -53,13 +53,13 @@ public final class CatalogLoadBalancerClient extends FeignBlockingLoadBalancerCl
             abandoned.set(true);
             closeResponse(received);
             pending.cancel(true);
-            throw new IOException("Đã hết thời gian chờ catalog", error);
+            throw new IOException("Catalog request timed out", error);
         } catch (InterruptedException error) {
             abandoned.set(true);
             closeResponse(received);
             pending.cancel(true);
             Thread.currentThread().interrupt();
-            throw new IOException("Yêu cầu catalog đã bị ngắt", error);
+            throw new IOException("Catalog request was interrupted", error);
         } catch (ExecutionException error) {
             closeResponse(received);
             if (error.getCause() instanceof IOException failure) {
@@ -68,7 +68,7 @@ public final class CatalogLoadBalancerClient extends FeignBlockingLoadBalancerCl
             if (error.getCause() instanceof RuntimeException failure) {
                 throw failure;
             }
-            throw new IOException("Không thể gọi catalog", error.getCause());
+            throw new IOException("Could not call catalog", error.getCause());
         } catch (RuntimeException error) {
             abandoned.set(true);
             closeResponse(received);

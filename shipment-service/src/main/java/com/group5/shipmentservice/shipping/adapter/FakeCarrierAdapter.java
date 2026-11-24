@@ -46,7 +46,7 @@ public class FakeCarrierAdapter implements CarrierAdapter {
 
     @Override
     public String name() {
-        return "Nhà vận chuyển giả lập";
+        return "Simulated carrier";
     }
 
     @Override

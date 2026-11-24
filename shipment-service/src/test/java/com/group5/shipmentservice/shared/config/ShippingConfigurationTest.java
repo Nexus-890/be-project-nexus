@@ -39,7 +39,7 @@ class ShippingConfigurationTest {
         runner.withPropertyValues("nexus.shipping.carrier=FAKE").run(context -> {
             assertThat(context).hasNotFailed().hasSingleBean(FakeCarrierAdapter.class);
             assertThat(context.getBean(CarrierService.class).getCarriers())
-                    .containsExactly(new CarrierResponse("FAKE", "Nhà vận chuyển giả lập", true, true));
+                    .containsExactly(new CarrierResponse("FAKE", "Simulated carrier", true, true));
             ShippingProperties properties = context.getBean(ShippingProperties.class);
             assertThat(properties.effectiveQuoteCarrier()).isEqualTo(ShippingProperties.CarrierMode.FAKE);
             assertThat(properties.effectiveBookingCarrier()).isEqualTo(ShippingProperties.CarrierMode.FAKE);
@@ -76,7 +76,7 @@ class ShippingConfigurationTest {
                     assertThat(registry.getDefaultAdapter()).isSameAs(context.getBean(GhnAdapter.class));
                     assertThat(context.getBean(CarrierService.class).getCarriers()).containsExactly(
                             new CarrierResponse("GHN", "Giao Hàng Nhanh", true, true),
-                            new CarrierResponse("FAKE", "Nhà vận chuyển giả lập", false, true));
+                            new CarrierResponse("FAKE", "Simulated carrier", false, true));
                 });
     }
 
@@ -113,7 +113,7 @@ class ShippingConfigurationTest {
                     assertThat(properties.effectiveQuoteCarrier()).isEqualTo(ShippingProperties.CarrierMode.FAKE);
                     assertThat(properties.effectiveBookingCarrier()).isEqualTo(ShippingProperties.CarrierMode.NONE);
                     assertThat(context.getBean(CarrierService.class).getCarriers())
-                            .containsExactly(new CarrierResponse("FAKE", "Nhà vận chuyển giả lập", true, true));
+                            .containsExactly(new CarrierResponse("FAKE", "Simulated carrier", true, true));
                 });
     }
 

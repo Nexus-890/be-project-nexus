@@ -28,10 +28,10 @@ public class CarrierRegistry {
         for (CarrierAdapter adapter : adapters) {
             if (adapter.code() == null || adapter.code().isBlank()
                     || adapter.name() == null || adapter.name().isBlank()) {
-                throw new IllegalStateException("Nhà vận chuyển phải có mã và tên");
+                throw new IllegalStateException("A carrier needs a code and a name");
             }
             if (!codes.add(adapter.code())) {
-                throw new IllegalStateException("Mã nhà vận chuyển bị trùng: " + adapter.code());
+                throw new IllegalStateException("Duplicate carrier code: " + adapter.code());
             }
         }
         this.adapters = adapters.stream().sorted(Comparator.comparing(CarrierAdapter::code)).toList();

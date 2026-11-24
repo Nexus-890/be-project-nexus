@@ -100,7 +100,7 @@ public class ShippingQuoteService {
     private String shipmentContent(ShippingQuoteRequest request) {
         int quantity = request.items().stream().mapToInt(item -> item.quantity()).sum();
         long skuCount = request.items().stream().map(item -> item.skuId()).distinct().count();
-        return "Đơn hàng gồm " + quantity + " sản phẩm thuộc " + skuCount + " SKU, đóng trong 1 kiện";
+        return "Order of " + quantity + " item(s) across " + skuCount + " SKU(s), packed in 1 parcel";
     }
 
     private List<ShippingQuoteResponse> applyShippingPolicy(CarrierAdapter adapter,

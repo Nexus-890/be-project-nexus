@@ -29,7 +29,7 @@ class CarrierServiceTest {
         CarrierService service = new CarrierService(new CarrierRegistry(List.of(adapter)), executor);
 
         assertThat(service.getCarriers()).containsExactly(
-                new CarrierResponse("FAKE", "Nhà vận chuyển giả lập", true, true));
+                new CarrierResponse("FAKE", "Simulated carrier", true, true));
 
         verifyNoProbe(adapter);
     }
@@ -44,9 +44,9 @@ class CarrierServiceTest {
         })).isInstanceOf(DomainException.class);
 
         assertThat(service.getCarriers()).containsExactly(
-                new CarrierResponse("FAKE", "Nhà vận chuyển giả lập", true, false));
+                new CarrierResponse("FAKE", "Simulated carrier", true, false));
         assertThat(service.getCarriers()).containsExactly(
-                new CarrierResponse("FAKE", "Nhà vận chuyển giả lập", true, false));
+                new CarrierResponse("FAKE", "Simulated carrier", true, false));
 
         verifyNoProbe(adapter);
     }
@@ -61,7 +61,7 @@ class CarrierServiceTest {
         })).isInstanceOf(DomainException.class);
 
         assertThat(service.getCarriers()).containsExactly(
-                new CarrierResponse("FAKE", "Nhà vận chuyển giả lập", true, true));
+                new CarrierResponse("FAKE", "Simulated carrier", true, true));
 
         verifyNoProbe(adapter);
     }
@@ -81,7 +81,7 @@ class CarrierServiceTest {
         }
 
         assertThat(service.getCarriers()).containsExactly(
-                new CarrierResponse("FAKE", "Nhà vận chuyển giả lập", true, true));
+                new CarrierResponse("FAKE", "Simulated carrier", true, true));
         verifyNoProbe(adapter);
         assertThat(executor.<String>execute("FAKE", deadline -> "phục hồi")).isEqualTo("phục hồi");
     }

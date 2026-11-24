@@ -60,7 +60,7 @@ public class GhnAdapter implements CarrierAdapter {
         if (token == null || token.isBlank() || properties.shopId() == null || properties.shopId() <= 0
                 || properties.baseUrl() == null || properties.baseUrl().getHost() == null
                 || !List.of("https", "http").contains(properties.baseUrl().getScheme())) {
-            throw new IllegalStateException("Cần cấu hình GHN_TOKEN, GHN_SHOP_ID và địa chỉ API GHN hợp lệ");
+            throw new IllegalStateException("GHN_TOKEN, GHN_SHOP_ID and a valid GHN API address are required");
         }
         this.properties = properties;
         this.shipping = shipping;

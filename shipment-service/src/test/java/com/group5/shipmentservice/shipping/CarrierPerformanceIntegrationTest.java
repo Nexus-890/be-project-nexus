@@ -89,7 +89,7 @@ class CarrierPerformanceIntegrationTest {
 
         assertThat(rows).extracting(CarrierPerformanceResponse::carrier).containsExactly("GHTK", "GHN", "FAKE");
         CarrierPerformanceResponse fake = row(rows, "FAKE");
-        assertThat(fake.name()).isEqualTo("Nhà vận chuyển giả lập");
+        assertThat(fake.name()).isEqualTo("Simulated carrier");
         assertThat(fake.shipments()).isZero();
         assertThat(fake.successRate()).isNull();
         assertThat(fake.averageDeliveryHours()).isNull();

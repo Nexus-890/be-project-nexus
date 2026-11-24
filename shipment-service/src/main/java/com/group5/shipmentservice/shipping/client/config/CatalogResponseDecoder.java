@@ -46,6 +46,6 @@ public final class CatalogResponseDecoder implements Decoder {
     }
 
     private DecodeException invalidResponse(Response response) {
-        return new DecodeException(response.status(), "Phản hồi catalog không hợp lệ", response.request());
+        return new DecodeException(response.status(), "Invalid catalog response", response.request());
     }
 }

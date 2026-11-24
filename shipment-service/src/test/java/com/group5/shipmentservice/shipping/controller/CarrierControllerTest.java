@@ -92,7 +92,7 @@ class CarrierControllerTest {
                 .andExpect(jsonPath("$.message").value("response success"))
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].code").value("FAKE"))
-                .andExpect(jsonPath("$.data[0].name").value("Nhà vận chuyển giả lập"))
+                .andExpect(jsonPath("$.data[0].name").value("Simulated carrier"))
                 .andExpect(jsonPath("$.data[0].isDefault").value(true))
                 .andExpect(jsonPath("$.data[0].available").value(true))
                 .andExpect(jsonPath("$.data[0].token").doesNotExist())

@@ -30,7 +30,7 @@ public class PayoutCallbackController {
     private final JsonMapper mapper;
 
     @PostMapping("/{provider}")
-    @ProtocolResponse("Provider payout yêu cầu phản hồi xác nhận không bọc ApiResponse")
+    @ProtocolResponse("The payout provider expects a plain acknowledgement, not an ApiResponse")
     public Map<String, String> receive(@PathVariable String provider, @RequestBody byte[] body,
             @RequestHeader(value = "X-Payout-Timestamp", required = false) String timestamp,
             @RequestHeader(value = "X-Payout-Signature", required = false) String signature) {
