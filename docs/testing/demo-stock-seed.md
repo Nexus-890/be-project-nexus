@@ -30,27 +30,36 @@ pwsh -File ./infra/local-dev/seed-demo-stock.ps1 -PsqlPath psql `
 
 Keep passwords in libpq password files/environment or the container's configured
 authentication. The script never reads account data or prints connection strings.
-On a fresh inventory, expect `demoSkus=10`, `newBalances=10`, `newMovements=10`.
-`demoSkus` reports the input UUID array length, including on reruns where no new
-balance is inserted. An identical rerun returns zero new balances/movements. The ten UUIDs must match
+On a fresh inventory, expect `demoSkus=10`, `newBalances=10`,
+`movedFromSharedWarehouses=0`, `newIntakes=10` and
+`sellerWarehouse=SELLER-68000000000040008000000000000002`. `demoSkus` counts the
+distinct input UUIDs, including on reruns where nothing changes. An identical rerun
+returns zero new balances, moves and intakes. The ten UUIDs must match
 catalog V4's two exact codes for each of the five V3 demo products; missing SKUs
 abort before any inventory write. Custom SKUs are outside this seed.
 
 ## Data and transaction boundary
 
-The catalog SELECT is read-only. In inventory, WH_001 must already exist and be
-ACTIVE. One SQL transaction inserts each missing `(sku_id, warehouse_id)` with
-`total=available=20`, `reserved=unavailable=0`, then one INTAKE of 20 whose
-reference_id is that new balance's ID. Every INSERT has ON CONFLICT DO NOTHING.
-The schema's quantity CHECKs remain enabled. Audit actors use the schema's
-existing system UUID defaults.
+The catalog SELECT is read-only. The five demo products belong to
+`seller@nexus.local` (`68000000-0000-4000-8000-000000000002`), so their stock lives
+in that seller's own warehouse, not in WH_001. One SQL transaction:
 
-Only the INSERT RETURNING rows create movements. A failed ledger write rolls
-back its balances too. Concurrent invocations rely on the balance unique key;
-only the transaction that inserted a balance can add its seed movement. A rerun
-does not refill purchased/reserved units, alter pre-existing balances, backfill
-unrelated ledger history, change catalog UUIDs, or append an intake to an existing
-balance. Existing data is left for its owning reconciliation workflow.
+1. creates `SELLER-68000000000040008000000000000002` when it is missing, with the
+   pickup `12 Lê Lợi`, ward Bến Thành `1003504`, Hồ Chí Minh `1000001`, and sets
+   that pickup on an existing seller warehouse only when it has none (a pickup the
+   seller saved is kept). The warehouse must be ACTIVE, otherwise nothing is written;
+2. inserts each missing `(sku_id, seller warehouse)` balance at zero;
+3. moves the available units these SKUs still hold in shared warehouses (WH_001,
+   WH_HN) into the seller warehouse with a TRANSFER pair, as the first seller intake
+   does. Reserved and unavailable units stay where they are and are settled there;
+4. gives `total=available=20` with one INTAKE of 20 (reference_id = the balance ID)
+   only to SKUs whose seller balance was just inserted and that had nothing to move.
+
+The schema's quantity CHECKs remain enabled. Audit actors use the schema's existing
+system UUID defaults. A failed ledger write rolls back the balances too. A rerun does
+not refill purchased or reserved units, alter a seller balance that already exists,
+change catalog UUIDs or append another intake. Each balance's ledger sum stays equal
+to its total.
 
 After restarting the app, stock remains persisted. Restarting or explicitly
 rerunning this script does not add another seed intake. Query `inventory_balances`
@@ -59,11 +68,11 @@ to verify quantities; the seed verifier does not exercise the HTTP stock API.
 ## One warehouse per seller (V14)
 
 Since inventory V14 each seller has one warehouse, created on the seller's first
-intake (or first save on the seller Warehouse page). The seed still writes to WH_001;
-those units stay readable and reservable there until the SKU first lands in a seller
-warehouse. That intake (by the seller, or by an admin without a warehouse) moves the
-SKU's available units out of WH_001 with a TRANSFER pair (-q in WH_001, +q in the
-seller warehouse). Units reserved at that moment stay in WH_001 and are settled there.
+intake (or first save on the seller Warehouse page). The seed writes into that
+warehouse directly. Other sellers' SKUs follow the same rule on their first intake:
+it moves the SKU's available units out of WH_001 with a TRANSFER pair (-q in WH_001,
++q in the seller warehouse). Units reserved at that moment stay in WH_001 and are
+settled there.
 
 Since inventory V15 a seller can set the pickup area of that warehouse (province,
 ward and house number and street) on the seller Warehouse page. Checkout and auction
@@ -71,6 +80,15 @@ quotes then send that pickup to shipment-service, and the order keeps it in
 `shipping_info.pickupAddress` when its stock is held in the seller warehouse. A
 warehouse without a complete pickup area, or one that is not ACTIVE, keeps quoting
 from the platform pickup (`SHIPPING_PICKUP_*`).
+
+Saving a new or changed pickup calls shipment-service
+`POST /internal/v1/shipping/pickup-address-checks` with the seller's token (SELLER
+with SHIPPING.QUOTE). Shipment resolves the province and ward from carrier master
+data, then quotes a 500 g parcel from the pickup to its own ward. GHN answers
+FROM_ADDRESS_CONFLICT when the street does not belong to the ward (for example
+`25 Hàng Bài` in Hoàn Kiếm); that becomes `SHIPMENT_PICKUP_ADDRESS_CONFLICT` and,
+in inventory, 422 `INVENTORY_INVALID_PICKUP_ADDRESS`. Nothing is saved on a
+rejection or when the check is unavailable (503 `INVENTORY_PICKUP_CHECK_UNAVAILABLE`).
 
 ## Verify in disposable PostgreSQL 18 databases
 
@@ -96,8 +114,8 @@ It applies the real catalog/inventory SQL migrations, separately
 committing each file so V6's new enum values are available afterward. It executes
 the production script, checks all four #133 data criteria, reruns with consumed
 stock and unrelated data, compares two independently seeded catalogs, and forces
-a ledger error to verify rollback. It also checks missing catalog variants and
-missing/inactive warehouse failures. This checks SQL setup and seeding, not
+a ledger error to verify rollback. It also checks missing catalog variants, an inactive
+seller warehouse, moving legacy WH_001 stock, and keeping a pickup the seller saved. This checks SQL setup and seeding, not
 Flyway's engine, HTTP authorization or checkout integration. Seed accepts
 `-CatalogDatabase` and `-InventoryDatabase` in Container mode so the verifier and
 its concurrent jobs target only the temporary databases.

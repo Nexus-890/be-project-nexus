@@ -478,6 +478,14 @@ class GhnAdapterTest {
     }
 
     @Test
+    void pickupAddressConflictIsItsOwnCodeAndNotRetried() {
+        response = request -> new StubResponse(400,
+                "{\"code\":400,\"code_message\":\"FROM_ADDRESS_CONFLICT\",\"data\":null}", 0, null);
+        assertCode(() -> adapter(3000, 3).quote(quoteRequest(), deadline()), "SHIPMENT_PICKUP_ADDRESS_CONFLICT");
+        assertThat(requests).hasSize(1);
+    }
+
+    @Test
     void routeFailureWithoutNamedProviderCodeIsStillNoService() {
         response = request -> new StubResponse(400,
                 "{\"code\":400,\"message\":\"calculate fee error: route not found service\",\"data\":null}", 0, null);

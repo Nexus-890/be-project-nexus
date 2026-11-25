@@ -72,10 +72,13 @@ function Seed([string]$Catalog, [string]$Inventory) {
 function StockSnapshot([string]$Database) {
     Sql $Database "SELECT jsonb_build_object('balances',(SELECT jsonb_agg(to_jsonb(b) ORDER BY id) FROM inventory_balances b),'movements',(SELECT jsonb_agg(to_jsonb(m) ORDER BY id) FROM inventory_movements m))::text"
 }
+$sellerWarehouse = "(SELECT id FROM warehouses WHERE code='SELLER-68000000000040008000000000000002')"
 function Check-Seed([string]$Catalog, [string]$Inventory) {
     $expected = Sql $Catalog 'SELECT jsonb_agg(id::text ORDER BY id)::text FROM skus'
-    $actual = Sql $Inventory "SELECT jsonb_agg(sku_id::text ORDER BY sku_id)::text FROM inventory_balances WHERE warehouse_id=(SELECT id FROM warehouses WHERE code='WH_001')"
-    Check ($actual -eq $expected) 'every real catalogue UUID has exactly one WH_001 balance'
+    $actual = Sql $Inventory "SELECT jsonb_agg(sku_id::text ORDER BY sku_id)::text FROM inventory_balances WHERE warehouse_id=$sellerWarehouse"
+    Check ($actual -eq $expected) 'every real catalogue UUID has exactly one balance in the demo seller warehouse'
+    Check ((Sql $Inventory "SELECT count(*) FROM warehouses WHERE seller_id='68000000-0000-4000-8000-000000000002' AND status='ACTIVE' AND address=U&'12 L\00EA L\1EE3i' AND province_code='1000001' AND ward_code='1003504'") -eq '1') 'the demo seller warehouse has the Ben Thanh pickup'
+    Check ((Sql $Inventory "SELECT count(*) FROM inventory_balances b JOIN warehouses w ON w.id=b.warehouse_id WHERE w.seller_id IS NULL") -eq '0') 'no demo stock is written to a shared warehouse'
     Check ((Sql $Inventory 'SELECT count(*) FROM inventory_balances WHERE total_quantity=20 AND available_quantity=20 AND reserved_quantity=0 AND unavailable_quantity=0') -eq '10') 'all ten balances start total=available=20 and reserved=unavailable=0'
     Check ((Sql $Inventory 'SELECT count(*) FROM inventory_balances WHERE total_quantity<>available_quantity+reserved_quantity+unavailable_quantity OR LEAST(total_quantity,available_quantity,reserved_quantity,unavailable_quantity)<0') -eq '0') 'all seeded rows satisfy the stock CHECK constraints'
     Check ((Sql $Inventory "SELECT count(*) FROM inventory_balances b WHERE (SELECT count(*) FROM inventory_movements m WHERE m.sku_id=b.sku_id AND m.warehouse_id=b.warehouse_id AND m.movement_type='INTAKE' AND m.quantity=20 AND m.reference_id=b.id)=1") -eq '10') 'each seeded balance has exactly one matching INTAKE of 20'
@@ -94,12 +97,12 @@ try {
     Check ($idsA -ne $idsB) 'independently migrated catalogues have different V4 UUIDs'
     $result = Seed $catalogA $inventoryA
     Check ($result.demoSkus -eq (ConvertFrom-Json -InputObject $idsA).Count) 'demoSkus reports the number of catalog UUIDs supplied'
-    Check ($result.newBalances -eq 10 -and $result.newMovements -eq 10) 'fresh seed creates ten balances and ten intakes'
+    Check ($result.newBalances -eq 10 -and $result.newIntakes -eq 10 -and $result.movedFromSharedWarehouses -eq 0) 'fresh seed creates ten balances and ten intakes'
     Check-Seed $catalogA $inventoryA
     $before = StockSnapshot $inventoryA
     $result = Seed $catalogA $inventoryA
     Check ($result.demoSkus -eq 10) 'rerun reports all ten input SKUs even when no balances are inserted'
-    Check ($result.newBalances -eq 0 -and $result.newMovements -eq 0) 'restarting the seed process adds zero rows'
+    Check ($result.newBalances -eq 0 -and $result.newIntakes -eq 0 -and $result.movedFromSharedWarehouses -eq 0) 'restarting the seed process adds zero rows'
     Check ((StockSnapshot $inventoryA) -eq $before) 'rerun preserves balance IDs, timestamps, versions, actors and ledger'
 
     # A constraint error must be raised, not just an invariant checked in a SELECT.
@@ -123,7 +126,7 @@ try {
     $null = $jobs | Wait-Job -Timeout 45
     foreach ($job in $jobs) { Check ($job.State -eq 'Completed') 'concurrent seed process completed' }
     $results = @($jobs | Receive-Job -ErrorAction Stop)
-    Check (($results | Measure-Object newBalances -Sum).Sum -eq 10 -and ($results | Measure-Object newMovements -Sum).Sum -eq 10) 'concurrent seeds create only ten balances/intakes in total'
+    Check (($results | Measure-Object newBalances -Sum).Sum -eq 10 -and ($results | Measure-Object newIntakes -Sum).Sum -eq 10) 'concurrent seeds create only ten balances/intakes in total'
     Check-Seed $catalogB $inventoryB
 
     Sql $guardInventory 'CREATE FUNCTION fail_seed_movement() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION ''forced ledger failure''; END $$; CREATE TRIGGER fail_seed_movement BEFORE INSERT ON inventory_movements FOR EACH ROW EXECUTE FUNCTION fail_seed_movement();' | Out-Null
@@ -137,10 +140,13 @@ try {
     $otherSku = [guid]::NewGuid().ToString()
     Sql $guardInventory "INSERT INTO inventory_balances (sku_id,warehouse_id,total_quantity,available_quantity) SELECT '$firstSku',id,7,7 FROM warehouses WHERE code='WH_001'; INSERT INTO inventory_movements (sku_id,warehouse_id,movement_type,quantity,reference_id) SELECT sku_id,warehouse_id,'INTAKE',7,id FROM inventory_balances; INSERT INTO inventory_balances (sku_id,warehouse_id,total_quantity,available_quantity) SELECT '$otherSku',id,9,9 FROM warehouses WHERE code='WH_001'" | Out-Null
     $result = Seed $catalogA $guardInventory
-    Check ($result.newBalances -eq 9 -and $result.newMovements -eq 9) 'an existing demo balance is skipped and nine missing balances are seeded'
-    Check ((Sql $guardInventory "SELECT available_quantity FROM inventory_balances WHERE sku_id='$firstSku'") -eq '7') 'pre-existing demo quantity is unchanged'
+    Check ($result.newBalances -eq 10 -and $result.movedFromSharedWarehouses -eq 1 -and $result.newIntakes -eq 9) 'legacy WH_001 demo stock is moved and nine untouched SKUs get an intake'
+    Check ((Sql $guardInventory "SELECT available_quantity FROM inventory_balances WHERE sku_id='$firstSku' AND warehouse_id=$sellerWarehouse") -eq '7') 'the legacy demo quantity now sits in the seller warehouse'
+    Check ((Sql $guardInventory "SELECT total_quantity FROM inventory_balances b JOIN warehouses w ON w.id=b.warehouse_id WHERE b.sku_id='$firstSku' AND w.code='WH_001'") -eq '0') 'WH_001 keeps none of the moved units'
     Check ((Sql $guardInventory "SELECT available_quantity FROM inventory_balances WHERE sku_id='$otherSku'") -eq '9') 'unrelated SKU quantity is unchanged'
-    Check ((Sql $guardInventory "SELECT count(*) FROM inventory_movements WHERE sku_id='$firstSku' AND quantity=7") -eq '1') 'existing demo intake is preserved without another intake'
+    Check ((Sql $guardInventory "SELECT count(*) FROM inventory_movements WHERE sku_id='$firstSku' AND movement_type='INTAKE'") -eq '1') 'existing demo intake is preserved without another intake'
+    Check ((Sql $guardInventory "SELECT string_agg(quantity::text, ',' ORDER BY quantity) FROM inventory_movements WHERE sku_id='$firstSku' AND movement_type='TRANSFER'") -eq '-7,7') 'the move is one TRANSFER pair'
+    Check ((Sql $guardInventory "SELECT count(*) FROM inventory_balances b WHERE b.total_quantity <> COALESCE((SELECT sum(quantity) FROM inventory_movements m WHERE m.sku_id=b.sku_id AND m.warehouse_id=b.warehouse_id),0) AND b.sku_id <> '$otherSku'") -eq '0') 'every demo balance equals its ledger sum'
 
     Sql $catalogA "DELETE FROM skus WHERE id='$firstSku'" | Out-Null
     $before = StockSnapshot $guardInventory
@@ -148,16 +154,16 @@ try {
     try { Seed $catalogA $guardInventory | Out-Null } catch { $failed = $true }
     Check ($failed -and (StockSnapshot $guardInventory) -eq $before) 'missing catalogue variant aborts before any inventory write'
 
-    Sql $guardInventory "UPDATE warehouses SET status='INACTIVE' WHERE code='WH_001'" | Out-Null
+    Sql $guardInventory "UPDATE warehouses SET status='INACTIVE' WHERE seller_id='68000000-0000-4000-8000-000000000002'" | Out-Null
     $before = StockSnapshot $guardInventory
     $failed = $false
     try { Seed $catalogB $guardInventory | Out-Null } catch { $failed = $true }
-    Check ($failed -and (StockSnapshot $guardInventory) -eq $before) 'inactive warehouse rejects seed without changes'
-    $missingInventory = New-Database 'inv_missing' 'inventory-service'
-    Sql $missingInventory "DELETE FROM warehouses WHERE code='WH_001'" | Out-Null
-    $failed = $false
-    try { Seed $catalogB $missingInventory | Out-Null } catch { $failed = $true }
-    Check ($failed -and (Sql $missingInventory 'SELECT count(*) FROM inventory_balances') -eq '0') 'missing warehouse rejects seed without creating balances'
+    Check ($failed -and (StockSnapshot $guardInventory) -eq $before) 'an inactive seller warehouse rejects seed without changes'
+    $ownPickupInventory = New-Database 'inv_own_pickup' 'inventory-service'
+    Sql $ownPickupInventory "DELETE FROM warehouses WHERE seller_id IS NULL; INSERT INTO warehouses (code,name,address,province_code,ward_code,seller_id) VALUES ('SELLER-68000000000040008000000000000002','Own name','5 Nguyen Hue','1000001','1003504','68000000-0000-4000-8000-000000000002')" | Out-Null
+    $result = Seed $catalogB $ownPickupInventory
+    Check ($result.newBalances -eq 10 -and $result.newIntakes -eq 10) 'the seed needs no shared warehouse'
+    Check ((Sql $ownPickupInventory "SELECT name || '|' || address FROM warehouses WHERE seller_id='68000000-0000-4000-8000-000000000002'") -eq 'Own name|5 Nguyen Hue') 'a pickup the seller saved is kept'
 
     # Exercise the SQL template with a different input length to reject a constant result.
     $partialInventory = New-Database 'inv_partial' 'inventory-service'
@@ -165,7 +171,7 @@ try {
     $partialJson = (ConvertTo-Json -InputObject $partialIds -Compress).Replace("'", "''")
     $template = Get-Content -LiteralPath (Join-Path $backend 'infra/local-dev/sql/seed-demo-stock.sql') -Raw
     $partialResult = ConvertFrom-Json -InputObject (Sql $partialInventory ($template.Replace('__DEMO_SKU_IDS_JSON__', $partialJson)))
-    Check ($partialResult.demoSkus -eq 2 -and $partialResult.newBalances -eq 2 -and $partialResult.newMovements -eq 2) 'SQL demoSkus derives from the actual input length, not a constant ten'
+    Check ($partialResult.demoSkus -eq 2 -and $partialResult.newBalances -eq 2 -and $partialResult.newIntakes -eq 2) 'SQL demoSkus derives from the actual input length, not a constant ten'
     Write-Host "PASS: $checks checks against real PostgreSQL; temporary databases will be removed."
 } finally {
     foreach ($job in $jobs) { if ($job.State -eq 'Running') { Stop-Job $job }; Remove-Job $job -Force }

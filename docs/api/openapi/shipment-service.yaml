@@ -945,6 +945,7 @@ paths:
           - SHIPMENT_INVALID_REQUEST_BODY
           - SHIPMENT_INVALID_PARAMETER
           - SHIPMENT_INVALID_ADDRESS
+          - SHIPMENT_PICKUP_ADDRESS_CONFLICT
         '401':
           - SHIPMENT_UNAUTHENTICATED
           - UNAUTHENTICATED
@@ -2012,6 +2013,7 @@ components:
                       - SHIPMENT_INVALID_REQUEST_BODY
                       - SHIPMENT_INVALID_PARAMETER
                       - SHIPMENT_INVALID_ADDRESS
+                      - SHIPMENT_PICKUP_ADDRESS_CONFLICT
                       - SHIPMENT_INVALID_PERIOD
           examples:
             SHIPMENT_INVALID_REQUEST:
@@ -2063,6 +2065,15 @@ components:
                 detail: The locality code does not exist or does not belong to its parent
                 instance: /api/v1/shipping/quotes
                 code: SHIPMENT_INVALID_ADDRESS
+            SHIPMENT_PICKUP_ADDRESS_CONFLICT:
+              summary: The carrier rejected the pickup street for its ward (GHN FROM_ADDRESS_CONFLICT)
+              value:
+                type: urn:problem:domain-error
+                title: Bad Request
+                status: 400
+                detail: The pickup street address does not match the selected ward
+                instance: /api/v1/shipping/quotes
+                code: SHIPMENT_PICKUP_ADDRESS_CONFLICT
             insuranceValueAboveLimit:
               summary: Declared insurance value above the limit is rejected, not capped
               value:

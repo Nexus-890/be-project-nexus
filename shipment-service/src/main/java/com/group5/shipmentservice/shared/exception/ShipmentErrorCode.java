@@ -21,6 +21,7 @@ public enum ShipmentErrorCode implements ErrorCode {
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "Request validation failed"),
     INVALID_REQUEST_BODY(HttpStatus.BAD_REQUEST, "Invalid request body"),
     INVALID_ADDRESS(HttpStatus.BAD_REQUEST, "The locality code does not exist or does not belong to its parent"),
+    PICKUP_ADDRESS_CONFLICT(HttpStatus.BAD_REQUEST, "The pickup street address does not match the selected ward"),
     WAREHOUSE_NOT_FOUND(HttpStatus.NOT_FOUND, "The warehouse has no pickup address configured"),
     SKU_NOT_FOUND(HttpStatus.NOT_FOUND, "No SKU on sale was found"),
     NO_SERVICE(HttpStatus.UNPROCESSABLE_ENTITY, "No shipping service is available for this route"),
