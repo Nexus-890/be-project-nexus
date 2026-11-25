@@ -1,5 +1,8 @@
 package com.group5.inventoryservice.warehouse.controller;
 
+import com.group5.common_core.exception.DomainException;
+import com.group5.inventoryservice.shared.exception.InventoryErrorCode;
+import com.group5.inventoryservice.shared.shipment.ShipmentPickupAddresses;
 import jakarta.servlet.Filter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,7 +42,12 @@ import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.nullValue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -75,6 +83,7 @@ class WarehouseManagementIntegrationTest {
     @Autowired private PlatformTransactionManager transactionManager;
     @MockitoBean private JwtDecoder decoder;
     @MockitoBean private com.group5.inventoryservice.shared.catalog.CatalogSkuOwners skuOwners;
+    @MockitoBean private ShipmentPickupAddresses pickupAddresses;
     private MockMvc mvc;
     private UUID defaultWarehouse;
 
@@ -92,7 +101,7 @@ class WarehouseManagementIntegrationTest {
         jdbc.update("DELETE FROM inventory_reservations");
         jdbc.update("DELETE FROM warehouses");
         defaultWarehouse = insertWarehouse("WH_MGMT", "ACTIVE");
-        reset(decoder);
+        reset(decoder, pickupAddresses);
         when(decoder.decode("admin")).thenReturn(token("admin", ADMIN_ID, "ADMIN"));
         when(decoder.decode("support")).thenReturn(token("support", UUID.randomUUID(), "SUPPORT_STAFF"));
         when(decoder.decode("buyer")).thenReturn(token("buyer", UUID.randomUUID(), "BUYER"));
@@ -410,6 +419,7 @@ class WarehouseManagementIntegrationTest {
                     .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
         }
         request("buyer", get(pickup)).andExpect(jsonPath("$.data.line1").value("12 Kim Mã"));
+        verify(pickupAddresses).verify("201", "20309", "12 Kim Mã");
 
         jdbc.update("UPDATE warehouses SET status = 'MAINTENANCE' WHERE id = ?", warehouseId);
         request("buyer", get(pickup)).andExpect(status().isOk()).andExpect(jsonPath("$.data").value(nullValue()));
@@ -423,6 +433,49 @@ class WarehouseManagementIntegrationTest {
         request("admin", get(pickup)).andExpect(status().isForbidden());
         mvc.perform(get(pickup)).andExpect(status().isUnauthorized());
         request("buyer", get("/internal/v1/inventory/warehouses/pickup?sellerId=nope")).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void aPickupTheCarrierRejectsIsNotSavedAndAnUnchangedPickupIsNotCheckedAgain() throws Exception {
+        UUID sellerId = UUID.randomUUID();
+        when(decoder.decode("checked-seller")).thenReturn(token("checked-seller", sellerId, "SELLER"));
+        String accepted = "{\"name\":\"Kho Hoàn Kiếm\",\"address\":\"1 Trang Tien\",\"provinceCode\":\"201\",\"wardCode\":\"20301\"}";
+        request("checked-seller", put(PATH + "/me").contentType(MediaType.APPLICATION_JSON).content(accepted))
+                .andExpect(status().isOk());
+        verify(pickupAddresses).verify("201", "20301", "1 Trang Tien");
+
+        request("checked-seller", put(PATH + "/me").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Kho mới tên\",\"address\":\" 1 Trang Tien \",\"provinceCode\":\"201\",\"wardCode\":\"20301\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.name").value("Kho mới tên"));
+        verifyNoMoreInteractions(pickupAddresses);
+
+        doThrow(new DomainException(InventoryErrorCode.INVALID_PICKUP_ADDRESS,
+                "The carrier does not accept this house number and street for the selected ward"))
+                .when(pickupAddresses).verify(any(), any(), eq("25 Hang Bai"));
+        request("checked-seller", put(PATH + "/me").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Kho\",\"address\":\"25 Hang Bai\",\"provinceCode\":\"201\",\"wardCode\":\"20301\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("INVENTORY_INVALID_PICKUP_ADDRESS"))
+                .andExpect(jsonPath("$.detail").value("The carrier does not accept this house number and street for the selected ward"));
+
+        doThrow(new DomainException(InventoryErrorCode.PICKUP_CHECK_UNAVAILABLE))
+                .when(pickupAddresses).verify(any(), eq("20302"), any());
+        request("checked-seller", put(PATH + "/me").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Kho\",\"address\":\"1 Trang Tien\",\"provinceCode\":\"201\",\"wardCode\":\"20302\"}"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("INVENTORY_PICKUP_CHECK_UNAVAILABLE"));
+
+        assertThat(jdbc.queryForMap("SELECT name, address, ward_code FROM warehouses WHERE seller_id = ?", sellerId))
+                .containsEntry("name", "Kho mới tên").containsEntry("address", "1 Trang Tien")
+                .containsEntry("ward_code", "20301");
+
+        UUID newSeller = UUID.randomUUID();
+        when(decoder.decode("new-seller")).thenReturn(token("new-seller", newSeller, "SELLER"));
+        request("new-seller", put(PATH + "/me").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Kho\",\"address\":\"25 Hang Bai\",\"provinceCode\":\"201\",\"wardCode\":\"20301\"}"))
+                .andExpect(status().isUnprocessableEntity());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM warehouses WHERE seller_id = ?", Integer.class, newSeller))
+                .isZero();
     }
 
     @Test

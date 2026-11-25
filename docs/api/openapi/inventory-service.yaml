@@ -1725,7 +1725,10 @@ paths:
         address and pickup area. Code, status and owner are not request fields. A blank
         address is stored as null. With provinceCode and wardCode the address is the
         house number and street carriers collect from; without them orders ship from
-        the platform pickup. The gateway requires a valid token; the service requires the
+        the platform pickup. A new or changed pickup is checked with the carrier through
+        shipment-service before anything is saved: the ward must belong to the province
+        and the carrier must accept the street for that ward. An unchanged pickup is not
+        checked again. The gateway requires a valid token; the service requires the
         SELLER role.
       x-service: inventory-service
       x-actor-roles: [SELLER]
@@ -1755,8 +1758,31 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '422':
+          description: >-
+            INVENTORY_INVALID_PICKUP_ADDRESS. The detail says why: the carrier does not
+            accept this house number and street for the selected ward, the ward does not
+            belong to the province, or the carrier does not collect from the ward. Nothing
+            is saved.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: urn:problem:domain-error
+                title: Unprocessable Entity
+                status: 422
+                detail: The carrier does not accept this house number and street for the selected ward
+                instance: /api/v1/warehouses/me
+                code: INVENTORY_INVALID_PICKUP_ADDRESS
         '500':
           $ref: '#/components/responses/InternalError'
+        '503':
+          description: INVENTORY_PICKUP_CHECK_UNAVAILABLE. shipment-service or the carrier could not check the pickup; nothing is saved and the seller can retry.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/warehouses/{id}:
     parameters:
       - $ref: '#/components/parameters/WarehouseId'

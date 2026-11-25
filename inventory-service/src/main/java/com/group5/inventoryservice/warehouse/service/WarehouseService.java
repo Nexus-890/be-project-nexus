@@ -6,6 +6,7 @@ import com.group5.inventoryservice.warehouse.entity.Warehouse;
 import com.group5.inventoryservice.warehouse.enums.WarehouseStatus;
 import com.group5.inventoryservice.warehouse.repository.WarehouseRepository;
 import com.group5.inventoryservice.shared.exception.InventoryErrorCode;
+import com.group5.inventoryservice.shared.shipment.ShipmentPickupAddresses;
 import com.group5.inventoryservice.warehouse.dto.request.CreateWarehouseRequest;
 import com.group5.inventoryservice.warehouse.dto.request.UpdateOwnWarehouseRequest;
 import com.group5.inventoryservice.warehouse.dto.request.UpdateWarehouseRequest;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -27,12 +29,14 @@ public class WarehouseService {
     private final WarehouseRepository warehouses;
     private final SellerWarehouses sellerWarehouses;
     private final SkuWarehouses skuWarehouses;
+    private final ShipmentPickupAddresses pickupAddresses;
 
     public WarehouseService(WarehouseRepository warehouses, SellerWarehouses sellerWarehouses,
-                            SkuWarehouses skuWarehouses) {
+                            SkuWarehouses skuWarehouses, ShipmentPickupAddresses pickupAddresses) {
         this.warehouses = warehouses;
         this.sellerWarehouses = sellerWarehouses;
         this.skuWarehouses = skuWarehouses;
+        this.pickupAddresses = pickupAddresses;
     }
 
     @Transactional
@@ -77,6 +81,9 @@ public class WarehouseService {
     @Transactional
     public WarehouseResponse updateMine(UUID sellerId, UpdateOwnWarehouseRequest request) {
         String address = request.address() == null || request.address().isBlank() ? null : request.address().strip();
+        if (request.provinceCode() != null && pickupChanged(sellerId, request, address)) {
+            pickupAddresses.verify(request.provinceCode(), request.wardCode(), address);
+        }
         sellerWarehouses.ensure(sellerId, request.name().strip(), address);
         Warehouse warehouse = warehouses.findBySellerIdForUpdate(sellerId)
                 .orElseThrow(() -> new DomainException(InventoryErrorCode.DUPLICATE_WAREHOUSE_CODE));
@@ -85,6 +92,14 @@ public class WarehouseService {
         warehouse.setProvinceCode(request.provinceCode());
         warehouse.setWardCode(request.wardCode());
         return toResponse(warehouses.saveAndFlush(warehouse));
+    }
+
+    private boolean pickupChanged(UUID sellerId, UpdateOwnWarehouseRequest request, String address) {
+        return warehouses.findBySellerId(sellerId)
+                .map(saved -> !Objects.equals(saved.getProvinceCode(), request.provinceCode())
+                        || !Objects.equals(saved.getWardCode(), request.wardCode())
+                        || !Objects.equals(saved.getAddress(), address))
+                .orElse(true);
     }
 
     @Transactional(readOnly = true)

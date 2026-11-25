@@ -174,7 +174,8 @@ public class OrderShippingService {
             if (error.status() == 400 && "SHIPMENT_INVALID_ADDRESS".equals(problem.path("code").asString())) {
                 return new DomainException(CommerceErrorCode.INVALID_SHIPPING_ADDRESS);
             }
-            if (error.status() == 422 && "SHIPMENT_NO_SERVICE".equals(problem.path("code").asString())) {
+            if (error.status() == 422 && "SHIPMENT_NO_SERVICE".equals(problem.path("code").asString())
+                    || error.status() == 400 && "SHIPMENT_PICKUP_ADDRESS_CONFLICT".equals(problem.path("code").asString())) {
                 return new DomainException(CommerceErrorCode.SHIPPING_NOT_AVAILABLE);
             }
         } catch (RuntimeException ignored) {

@@ -2,8 +2,10 @@
 .SYNOPSIS
 Seed 20 units for each of the ten V4 demo SKUs, using their real catalogue UUIDs.
 .DESCRIPTION
-Run after catalog and inventory migrations. Reads catalog_db; writes only missing
-WH_001 balances and their INTAKE rows in one inventory_db transaction. Existing
+Run after catalog and inventory migrations. Reads catalog_db; in one inventory_db
+transaction creates the demo seller's warehouse (pickup 12 Le Loi, Ben Thanh, HCM),
+moves available stock of these SKUs out of shared warehouses with TRANSFER rows and
+gives 20 units with an INTAKE row only to SKUs that had no stock there yet. Existing
 stock, ledger rows and SKU identities are preserved, including after purchases.
 Use libpq password files/environment for credentials; do not put passwords in commands.
 .EXAMPLE

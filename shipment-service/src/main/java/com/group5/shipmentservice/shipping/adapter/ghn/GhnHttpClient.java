@@ -212,6 +212,9 @@ class GhnHttpClient {
         if (path.equals("/shiip/public-api/v2/shipping-order/create") && "TO_ADDRESS_CONFLICT".equals(code)) {
             return new GhnProviderException(ShipmentErrorCode.INVALID_ADDRESS, code, false);
         }
+        if ("FROM_ADDRESS_CONFLICT".equals(code)) {
+            return new DomainException(ShipmentErrorCode.PICKUP_ADDRESS_CONFLICT);
+        }
         if (path.equals("/shiip/public-api/v2/switch-status/cancel")) {
             return new DomainException(ShipmentErrorCode.CARRIER_CANCELLATION_REJECTED);
         }
