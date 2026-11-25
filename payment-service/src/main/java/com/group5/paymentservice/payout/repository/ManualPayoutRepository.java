@@ -74,4 +74,14 @@ public interface ManualPayoutRepository {
     List<UUID> expiring(UUID after, int limit);
 
     List<UUID> issuedBySeller(UUID sellerId);
+
+    Optional<Map<String, Object>> attemptByReference(String reference);
+
+    boolean bankTransactionSeen(String provider, String providerTransactionId);
+
+    boolean bankTransactionMatched(UUID attemptId);
+
+    void recordBankTransaction(Map<String, Object> row);
+
+    List<Map<String, Object>> bankTransactions(UUID attemptId);
 }

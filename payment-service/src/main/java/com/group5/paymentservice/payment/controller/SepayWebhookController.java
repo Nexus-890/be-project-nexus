@@ -6,6 +6,7 @@ import com.group5.paymentservice.payment.service.PaymentMatcher;
 import com.group5.paymentservice.payment.service.PaymentConfirmationService;
 import com.group5.paymentservice.payment.dto.request.SepayWebhookRequest;
 import com.group5.paymentservice.payment.provider.sepay.WebhookSignatureVerifier;
+import com.group5.paymentservice.payout.service.ManualPayoutBankReconciliationService;
 import com.group5.paymentservice.shared.exception.PaymentErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,15 +27,18 @@ public class SepayWebhookController {
     private final ObjectReader webhookReader;
     private final PaymentMatcher matcher;
     private final PaymentConfirmationService confirmation;
+    private final ManualPayoutBankReconciliationService payouts;
 
     public SepayWebhookController(WebhookSignatureVerifier verifier, JsonMapper json, PaymentMatcher matcher,
-                                  PaymentConfirmationService confirmation) {
+                                  PaymentConfirmationService confirmation,
+                                  ManualPayoutBankReconciliationService payouts) {
         this.verifier = verifier;
         // Chỉ webhook từ chối ID dạng số thực, tránh cắt phần thập phân trước khi kiểm tra nghiệp vụ.
         this.webhookReader = json.readerFor(SepayWebhookRequest.class)
                 .without(DeserializationFeature.ACCEPT_FLOAT_AS_INT);
         this.matcher = matcher;
         this.confirmation = confirmation;
+        this.payouts = payouts;
     }
 
     /** Trả ACK theo giao thức SePay; chỉ xử lý nghiệp vụ sau khi chữ ký và JSON hợp lệ. */
@@ -56,6 +60,10 @@ public class SepayWebhookController {
             throw new DomainException(PaymentErrorCode.INVALID_WEBHOOK_REQUEST);
         }
         if (request == null) throw new DomainException(PaymentErrorCode.INVALID_WEBHOOK_REQUEST);
+        if ("out".equalsIgnoreCase(request.transferType())) {
+            payouts.reconcile(request);
+            return new Acknowledgement(true);
+        }
 
         // Matcher chỉ tra cứu session; service bên dưới tự khóa và đọc lại dữ liệu trước khi xác nhận.
         String memo = matcher.memoOf(request);

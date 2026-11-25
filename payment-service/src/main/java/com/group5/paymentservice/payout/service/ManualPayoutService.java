@@ -11,6 +11,7 @@ import com.group5.paymentservice.payout.config.ManualPayoutProperties;
 import com.group5.paymentservice.payout.dto.request.ManualPayoutCommands.*;
 import com.group5.paymentservice.payout.dto.response.*;
 import com.group5.paymentservice.payout.evidence.*;
+import com.group5.paymentservice.payout.model.BankTransfer;
 import com.group5.paymentservice.payout.model.ManualTransferSnapshot;
 import com.group5.paymentservice.payout.qr.PayoutQrEncoder;
 import com.group5.paymentservice.payout.repository.*;
@@ -59,6 +60,9 @@ public class ManualPayoutService {
     private final Tracer tracer;
     private final org.springframework.transaction.PlatformTransactionManager transactionManager;
     private static final UUID SYSTEM = new UUID(0, 0);
+    private static final String MANUAL_SOURCE = "MANUAL_STAFF_CONFIRMED";
+    private static final String BANK_SOURCE = "BANK_VERIFIED";
+    private static final Duration BANK_CLOCK_SKEW = Duration.ofMinutes(2);
 
     @Transactional
     public ManualCommandResult execute(
@@ -789,6 +793,170 @@ public class ManualPayoutService {
                     "Reviewed bank changed after QR issuance");
     }
 
+    @Transactional
+    public String applyBankTransfer(UUID payoutId, UUID attemptId, BankTransfer transfer) {
+        var p = lock(payoutId);
+        if (repository.bankTransactionSeen(transfer.provider(), transfer.transactionId()))
+            return null;
+        var a =
+                repository
+                        .attempt(payoutId, attemptId)
+                        .orElseThrow(() -> new DomainException(MANUAL_PAYOUT_NOT_FOUND));
+        var actor = new CurrentUser(SYSTEM, Set.of("ADMIN"), Set.of());
+        BigDecimal net = (BigDecimal) a.get("net_amount");
+        boolean exact = transfer.amount() != null && transfer.amount().compareTo(net) == 0;
+        String summary = bankSummary(transfer);
+        String state = str(a, "state");
+        String outcome;
+        String detail = null;
+        if (repository.bankTransactionMatched(attemptId)) {
+            detail = "Another bank transfer already carried this payout reference";
+            outcome = bankException(p, a, actor, "DUPLICATE_BANK_TRANSFER", detail, summary);
+        } else if ("QR_ISSUED".equals(state)) {
+            String source = settings.sepaySourceAccount();
+            var at = transfer.transactionAt();
+            if (!exact) detail = "Bank transfer amount differs from the payout amount";
+            else if (at == null
+                    || at.isBefore(time(a, "qr_issued_at").minus(BANK_CLOCK_SKEW))
+                    || at.isAfter(now().plus(BANK_CLOCK_SKEW)))
+                detail = "Bank transfer time is outside the QR issuance window";
+            else if (at.isAfter(time(a, "qr_expires_at")))
+                detail = "Bank transfer was made after the QR deadline";
+            else if (blocked(p) != null || !sameBank(p, a))
+                detail = "Seller bank or funding changed before the bank transfer";
+            else if (source == null)
+                detail = "No platform source account is mapped to the SePay account";
+            if (detail == null) {
+                confirm(
+                        p,
+                        a,
+                        actor,
+                        source,
+                        net.setScale(2).toPlainString(),
+                        bankReference(transfer),
+                        at,
+                        List.of(),
+                        false,
+                        BANK_SOURCE,
+                        summary);
+                outcome = "CONFIRMED";
+            } else {
+                uncertain(p, a, actor, detail + ". " + summary);
+                outcome = "REVIEW_REQUIRED";
+            }
+        } else if ("CLAIMED".equals(state)) {
+            detail = "Bank transfer was made before the QR was issued";
+            uncertain(p, a, actor, detail + ". " + summary);
+            outcome = "REVIEW_REQUIRED";
+        } else if ("UNKNOWN".equals(state)) {
+            detail = exact ? null : "Bank transfer amount differs from the payout amount";
+            audit(
+                    p,
+                    attemptId,
+                    null,
+                    exact ? "BANK_MATCHED" : "BANK_MISMATCH",
+                    actor,
+                    detail == null ? summary : detail + ". " + summary,
+                    false);
+            outcome = exact ? "RECORDED" : "REVIEW_REQUIRED";
+        } else if ("SUCCEEDED".equals(state) && exact) {
+            audit(p, attemptId, null, "BANK_MATCHED", actor, summary, false);
+            outcome = "VERIFIED";
+        } else {
+            boolean succeeded = "SUCCEEDED".equals(state);
+            detail =
+                    succeeded
+                            ? "Bank transfer amount differs from the payout amount"
+                            : "Bank transfer seen for an attempt recorded as " + state;
+            outcome =
+                    bankException(
+                            p,
+                            a,
+                            actor,
+                            succeeded ? "BANK_AMOUNT_MISMATCH" : "UNEXPECTED_BANK_TRANSFER",
+                            detail,
+                            summary);
+        }
+        repository.recordBankTransaction(bankRow(transfer, payoutId, attemptId, outcome, detail));
+        return outcome;
+    }
+
+    private String bankException(
+            Map<String, Object> p,
+            Map<String, Object> a,
+            CurrentUser actor,
+            String reason,
+            String detail,
+            String summary) {
+        UUID review = UUID.randomUUID();
+        disputes.insertCase(
+                fields(
+                        "id",
+                        review,
+                        "payout_id",
+                        p.get("id"),
+                        "attempt_id",
+                        a.get("id"),
+                        "kind",
+                        "STAFF_EXCEPTION",
+                        "status",
+                        "OPEN",
+                        "reason",
+                        reason,
+                        "explanation",
+                        detail + ". " + summary,
+                        "reported_by",
+                        actor.id()));
+        audit(p, id(a, "id"), review, "BANK_MISMATCH", actor, detail + ". " + summary, false);
+        return "REVIEW_REQUIRED";
+    }
+
+    private static String bankSummary(BankTransfer transfer) {
+        return "SePay transaction "
+                + transfer.transactionId()
+                + (transfer.amount() == null
+                        ? ""
+                        : ", amount " + transfer.amount().stripTrailingZeros().toPlainString());
+    }
+
+    private static String bankReference(BankTransfer transfer) {
+        String reference = transfer.bankReference();
+        return reference != null && reference.matches("[A-Za-z0-9._/-]{1,120}")
+                ? reference
+                : "SEPAY-" + transfer.transactionId();
+    }
+
+    public static Map<String, Object> bankRow(
+            BankTransfer transfer, UUID payoutId, UUID attemptId, String outcome, String detail) {
+        return fields(
+                "provider",
+                transfer.provider(),
+                "provider_transaction_id",
+                transfer.transactionId(),
+                "account_number",
+                clip(transfer.accountNumber(), 32),
+                "amount",
+                transfer.amount(),
+                "content",
+                clip(transfer.content(), 500),
+                "bank_reference",
+                clip(transfer.bankReference(), 120),
+                "transaction_at",
+                transfer.transactionAt(),
+                "payout_id",
+                payoutId,
+                "attempt_id",
+                attemptId,
+                "outcome",
+                outcome,
+                "detail",
+                clip(detail, 200));
+    }
+
+    private static String clip(String value, int max) {
+        return value == null || value.length() <= max ? value : value.substring(0, max);
+    }
+
     private Map<String, Object> manual(UUID id) {
         return repository
                 .payout(id, false)
@@ -921,6 +1089,33 @@ public class ManualPayoutService {
             OffsetDateTime transferred,
             List<UUID> evidence,
             boolean resolution) {
+        confirm(
+                p,
+                a,
+                actor,
+                source,
+                amount,
+                reference,
+                transferred,
+                evidence,
+                resolution,
+                MANUAL_SOURCE,
+                resolution ? "Confirmed sent after reconciliation" : null);
+    }
+
+    private void confirm(
+            Map<String, Object> p,
+            Map<String, Object> a,
+            CurrentUser actor,
+            String source,
+            String amount,
+            String reference,
+            OffsetDateTime transferred,
+            List<UUID> evidence,
+            boolean resolution,
+            String confirmationSource,
+            String note) {
+        boolean bank = BANK_SOURCE.equals(confirmationSource);
         require(source != null && settings.isAuthorizedSourceAccount(source));
         require(
                 amount != null
@@ -932,10 +1127,11 @@ public class ManualPayoutService {
                         && reference.matches("[A-Za-z0-9._/-]{1,120}"));
         require(
                 transferred != null
-                        && !transferred.isAfter(now().plusSeconds(60))
                         && a.get("qr_issued_at") != null
-                        && !transferred.isBefore(time(a, "qr_issued_at")));
-        require(evidence != null && !evidence.isEmpty());
+                        && (bank
+                                || (!transferred.isAfter(now().plusSeconds(60))
+                                        && !transferred.isBefore(time(a, "qr_issued_at")))));
+        require(evidence != null && (bank || !evidence.isEmpty()));
         boundEvidence(id(p, "id"), id(a, "id"), evidence, actor, resolution);
         // The DB reserves the real bank reference. Its scope differs from the internal movement
         // identity.
@@ -966,22 +1162,15 @@ public class ManualPayoutService {
                         "transaction_id",
                         tx,
                         "confirmation_source",
-                        "MANUAL_STAFF_CONFIRMED",
+                        confirmationSource,
                         "succeeded_at",
                         now(),
                         "blocked_reason",
                         null,
                         "updated_by",
                         actor.id()));
-        audit(
-                p,
-                id(a, "id"),
-                null,
-                "MANUAL_CONFIRMED",
-                actor,
-                resolution ? "Confirmed sent after reconciliation" : null,
-                false);
-        publish(p, a, "PayoutSucceeded", tx);
+        audit(p, id(a, "id"), null, "MANUAL_CONFIRMED", actor, note, false);
+        publish(p, a, "PayoutSucceeded", tx, confirmationSource);
     }
 
     private void boundEvidence(
@@ -1090,6 +1279,15 @@ public class ManualPayoutService {
 
     private void publish(
             Map<String, Object> p, Map<String, Object> a, String event, UUID transaction) {
+        publish(p, a, event, transaction, MANUAL_SOURCE);
+    }
+
+    private void publish(
+            Map<String, Object> p,
+            Map<String, Object> a,
+            String event,
+            UUID transaction,
+            String confirmationSource) {
         var data =
                 fields(
                         "payoutId",
@@ -1111,7 +1309,7 @@ public class ManualPayoutService {
                         "simulated",
                         false,
                         "confirmationSource",
-                        "MANUAL_STAFF_CONFIRMED");
+                        confirmationSource);
         var span = tracer.nextSpan().name("manual-payout-transition").start();
         try (var scope = tracer.withSpan(span)) {
             outbox.write(

@@ -238,6 +238,9 @@ class SepayWebhookControllerTest {
     static class TestApplication {
         // Mock nghiệp vụ để các ca controller chỉ kiểm tra xác thực, memo và định dạng response.
         @Bean PaymentConfirmationService confirmation() { return mock(PaymentConfirmationService.class); }
+        @Bean com.group5.paymentservice.payout.service.ManualPayoutBankReconciliationService payouts() {
+            return mock(com.group5.paymentservice.payout.service.ManualPayoutBankReconciliationService.class);
+        }
         @Bean PaymentSessionRepository sessions() { return mock(PaymentSessionRepository.class); }
         @Bean Clock clock() { return Clock.fixed(NOW, ZoneOffset.UTC); }
         @Bean JwtDecoder jwtDecoder() { return token -> { throw new BadJwtException("No bearer expected for this webhook"); }; }

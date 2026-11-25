@@ -8,6 +8,7 @@ import com.group5.paymentservice.payment.provider.sepay.WebhookSignatureVerifier
 import com.group5.paymentservice.payment.repository.PaymentSessionRepository;
 import com.group5.paymentservice.payment.service.PaymentConfirmationService;
 import com.group5.paymentservice.payment.service.PaymentMatcher;
+import com.group5.paymentservice.payout.service.ManualPayoutBankReconciliationService;
 import com.group5.paymentservice.shared.config.SepayProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -56,6 +57,7 @@ class SepayWebhookReceiptIdUnitTest {
 
     @Mock private PaymentSessionRepository sessions;
     @Mock private PaymentConfirmationService confirmation;
+    @Mock private ManualPayoutBankReconciliationService payouts;
     private SepayWebhookController controller;
 
     /** Cố định thời gian để chữ ký luôn còn hạn, không phụ thuộc ngày giờ máy chạy test. */
@@ -64,7 +66,7 @@ class SepayWebhookReceiptIdUnitTest {
         var verifier = new WebhookSignatureVerifier(SECRET, Clock.fixed(NOW, ZoneOffset.UTC));
         var properties = new SepayProperties("970415", "0000015600", "UNIT TEST", "compact", "SEVQR");
         controller = new SepayWebhookController(verifier, JsonMapper.shared(),
-                new PaymentMatcher(sessions, properties), confirmation);
+                new PaymentMatcher(sessions, properties), confirmation, payouts);
     }
 
     /** Ký nguyên raw body chứa ID sai; không deserialize trước vì có thể che lỗi cắt phần lẻ. */

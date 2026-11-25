@@ -61,6 +61,10 @@ nexus:
       max-amount-vnd: ${PAYOUT_MANUAL_MAX_AMOUNT_VND:499999999}
       source-accounts: []
       source-accounts-json: ${PAYOUT_MANUAL_SOURCE_ACCOUNTS_JSON:}
+      sepay:
+        reconciliation-enabled: ${PAYOUT_MANUAL_SEPAY_RECONCILIATION_ENABLED:true}
+        bank-account: ${PAYOUT_MANUAL_SEPAY_BANK_ACCOUNT:}
+        source-account-id: ${PAYOUT_MANUAL_SEPAY_SOURCE_ACCOUNT_ID:}
       evidence:
         url: ${PAYOUT_EVIDENCE_SUPABASE_URL:}
         key: ${PAYOUT_EVIDENCE_SUPABASE_SERVER_KEY:}

@@ -54,7 +54,14 @@ paths:
         lookup. There is no arbitrary substring matching. Missing, invalid or
         unknown memos are accepted with one WARN naming the normalized memo.
         Unmatched memos return 200 without financial effects. Outgoing transfers
-        are acknowledged without funding a checkout. Matched incoming transfers
+        never fund a checkout; they reconcile manual payouts instead. An outgoing
+        transfer from the payout source account whose code, content or description
+        carries an attempt reference (NXP plus 20 hex, any case) is applied once per
+        SePay id: an exact-amount transfer inside the QR window settles a QR_ISSUED
+        attempt with confirmationSource BANK_VERIFIED, a staff-confirmed attempt is
+        marked bank-verified, and a wrong amount, late, early or repeated transfer
+        moves the attempt to UNKNOWN or opens a STAFF_EXCEPTION case. Every outgoing
+        transfer is recorded with its outcome. Matched incoming transfers
         require a positive provider transaction id and a nonnegative transferAmount
         within numeric(19,2) bounds. The provider id is stored as txnReference and
         globally deduplicated by a durable sepay:{id} identity. A duplicate returns
@@ -1934,7 +1941,7 @@ paths:
         - "ManualPayouts"
       operationId: "confirmManualPayoutTransfer"
       summary: "Record an external transfer attestation"
-      description: "Owning executor with valid QR_ISSUED attempt only. Requires exact frozen amount, configured source account, bank reference/time and bound proof. Atomically records one PAYOUT, history and outbox event, SUCCEEDED and AWAITING_CONFIRMATION. Confirmation source is MANUAL_STAFF_CONFIRMED, never BANK_VERIFIED. Bank-reference uniqueness is scoped by source account, bank business date and bank reference. Requires a UUID Idempotency-Key and the relevant expected version. Exact replay returns 200 with the original result and creates no duplicate financial movement; changed context conflicts. GET never performs this operation."
+      description: "Owning executor with valid QR_ISSUED attempt only. Requires exact frozen amount, configured source account, bank reference/time and bound proof. Atomically records one PAYOUT, history and outbox event, SUCCEEDED and AWAITING_CONFIRMATION. Confirmation source is MANUAL_STAFF_CONFIRMED. BANK_VERIFIED is set only by SePay outgoing-transfer reconciliation, which needs no proof upload. Bank-reference uniqueness is scoped by source account, bank business date and bank reference. Requires a UUID Idempotency-Key and the relevant expected version. Exact replay returns 200 with the original result and creates no duplicate financial movement; changed context conflicts. GET never performs this operation."
       security:
         -
           bearerAuth: []
@@ -3014,7 +3021,7 @@ components:
         confirmationSource:
           type: string
           nullable: true
-          description: MANUAL_STAFF_CONFIRMED records staff attestation, not bank credit.
+          description: MANUAL_STAFF_CONFIRMED records staff attestation, not bank credit. BANK_VERIFIED means the SePay outgoing transaction of the payout source account matched the attempt reference and amount.
         manual:
           type: "object"
           required:
@@ -3072,7 +3079,7 @@ components:
           format: "uuid"
         event:
           type: "string"
-          enum: ["CREATED","HELD","RELEASED","SENT","SUCCEEDED","FAILED","TIMED_OUT","RECONCILED","RETRIED","RETURNED","MANUAL_CLAIMED","QR_ISSUED","CLAIM_RELEASED","MANUAL_CONFIRMED","MANUAL_PROBLEM","MANUAL_RESOLVED","RECEIPT_CONFIRMED","RECEIPT_DISPUTED","DISPUTE_REVIEWED","CONFIRMATION_CORRECTED","READINESS_CHECKED","EVIDENCE_UPLOADED"]
+          enum: ["CREATED","HELD","RELEASED","SENT","SUCCEEDED","FAILED","TIMED_OUT","RECONCILED","RETRIED","RETURNED","MANUAL_CLAIMED","QR_ISSUED","CLAIM_RELEASED","MANUAL_CONFIRMED","MANUAL_PROBLEM","MANUAL_RESOLVED","RECEIPT_CONFIRMED","RECEIPT_DISPUTED","DISPUTE_REVIEWED","CONFIRMATION_CORRECTED","READINESS_CHECKED","EVIDENCE_UPLOADED","BANK_MATCHED","BANK_MISMATCH"]
         eventSeq:
           type: "integer"
           format: "int64"
@@ -3293,7 +3300,45 @@ components:
           type: "string"
           format: "date-time"
           nullable: true
+        bankMatch:
+          $ref: "#/components/schemas/ManualPayoutBankMatchView"
       nullable: true
+    ManualPayoutBankMatchView:
+      type: "object"
+      description: "First SePay outgoing transfer matched to this attempt. Staff detail only; absent when none matched and in queue rows and seller projections."
+      required:
+        - "provider"
+        - "transactionId"
+        - "amount"
+        - "transferredAt"
+        - "outcome"
+        - "transfers"
+      properties:
+        provider:
+          type: "string"
+          enum:
+            - "SEPAY"
+        transactionId:
+          type: "string"
+        amount:
+          type: "string"
+          nullable: true
+          pattern: "^[0-9]{1,17}\\.[0-9]{2}$"
+        transferredAt:
+          type: "string"
+          format: "date-time"
+          nullable: true
+        outcome:
+          type: "string"
+          enum:
+            - "CONFIRMED"
+            - "VERIFIED"
+            - "RECORDED"
+            - "REVIEW_REQUIRED"
+        transfers:
+          type: "integer"
+          minimum: 1
+          description: "Matched transfers for the attempt; more than one means a possible double payment."
     ManualPayoutEvidenceView:
       type: "object"
       required:
@@ -3436,6 +3481,7 @@ components:
           nullable: true
           enum:
             - "MANUAL_STAFF_CONFIRMED"
+            - "BANK_VERIFIED"
         orderAmount:
           type: "string"
           pattern: "^[0-9]{1,17}\\.[0-9]{2}$"

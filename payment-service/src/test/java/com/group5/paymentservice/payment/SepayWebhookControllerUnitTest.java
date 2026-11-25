@@ -8,6 +8,7 @@ import com.group5.paymentservice.payment.provider.sepay.WebhookSignatureVerifier
 import com.group5.paymentservice.payment.repository.PaymentSessionRepository;
 import com.group5.paymentservice.payment.service.PaymentConfirmationService;
 import com.group5.paymentservice.payment.service.PaymentMatcher;
+import com.group5.paymentservice.payout.service.ManualPayoutBankReconciliationService;
 import com.group5.paymentservice.shared.config.SepayProperties;
 import com.group5.paymentservice.shared.exception.PaymentErrorCode;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,6 +52,7 @@ class SepayWebhookControllerUnitTest {
 
     @Mock private PaymentSessionRepository sessions;
     @Mock private PaymentConfirmationService confirmation;
+    @Mock private ManualPayoutBankReconciliationService payouts;
     private SepayWebhookController controller;
 
     @BeforeEach
@@ -58,7 +60,7 @@ class SepayWebhookControllerUnitTest {
         var verifier = new WebhookSignatureVerifier(SECRET, Clock.fixed(NOW, ZoneOffset.UTC));
         var properties = new SepayProperties("970415", "0000015600", "UNIT TEST", "compact", "SEVQR");
         controller = new SepayWebhookController(verifier, JsonMapper.shared(),
-                new PaymentMatcher(sessions, properties), confirmation);
+                new PaymentMatcher(sessions, properties), confirmation, payouts);
     }
 
     @Test

@@ -89,7 +89,18 @@ public record ManualPayoutView(
             String reference,
             String receiptStatus,
             long receiptVersion,
-            OffsetDateTime sellerConfirmedAt) {}
+            OffsetDateTime sellerConfirmedAt,
+            @com.fasterxml.jackson.annotation.JsonInclude(
+                            com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                    BankMatch bankMatch) {}
+
+    public record BankMatch(
+            String provider,
+            String transactionId,
+            String amount,
+            OffsetDateTime transferredAt,
+            String outcome,
+            int transfers) {}
 
     public record Evidence(UUID id, String contentType, long size, OffsetDateTime createdAt) {}
 

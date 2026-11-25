@@ -47,6 +47,7 @@ public class ManualPayoutProperties {
     private List<SourceAccount> parsedSourceAccounts = List.of();
 
     @NotNull @Valid private Evidence evidence = new Evidence();
+    @NotNull private Sepay sepay = new Sepay();
 
     public record SourceAccount(@NotBlank String id, @NotBlank String alias) {}
 
@@ -133,9 +134,24 @@ public class ManualPayoutProperties {
                                         && ids.add(account.id()));
     }
 
+    public String sepaySourceAccount() {
+        String id = sepay.getSourceAccountId();
+        if (id != null && !id.isBlank()) return isAuthorizedSourceAccount(id) ? id : null;
+        var accounts = getSourceAccounts();
+        return accounts.size() == 1 ? accounts.get(0).id() : null;
+    }
+
     public boolean isAuthorizedSourceAccount(String id) {
         return id != null
                 && getSourceAccounts().stream().anyMatch(account -> account.id().equals(id));
+    }
+
+    @Getter
+    @Setter
+    public static class Sepay {
+        private boolean reconciliationEnabled = true;
+        private String bankAccount = "";
+        private String sourceAccountId = "";
     }
 
     @Getter

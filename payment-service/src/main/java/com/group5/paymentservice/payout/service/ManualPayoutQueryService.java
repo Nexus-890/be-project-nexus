@@ -144,7 +144,7 @@ public class ManualPayoutQueryService {
                 serverTime,
                 time(p, "created_at"),
                 time(p, "updated_at"),
-                attemptView(a),
+                attemptView(a, null),
                 List.of(),
                 summaries,
                 List.of(),
@@ -174,7 +174,7 @@ public class ManualPayoutQueryService {
                                                 && a.get("id").equals(c.get("attempt_id"))
                                                 && "SELLER_DISPUTE".equals(c.get("kind"))
                                                 && !"RESOLVED".equals(c.get("status")));
-        var attempt = attemptView(a);
+        var attempt = attemptView(a, sellerContext || a == null ? null : bankMatch(id(a, "id")));
         boolean privateAccess =
                 !sellerContext
                         && a != null
@@ -337,7 +337,21 @@ public class ManualPayoutQueryService {
         return OffsetDateTime.now(ZoneOffset.UTC);
     }
 
-    private static ManualPayoutView.Attempt attemptView(Map<String, Object> a) {
+    private ManualPayoutView.BankMatch bankMatch(UUID attemptId) {
+        var rows = repository.bankTransactions(attemptId);
+        if (rows.isEmpty()) return null;
+        var first = rows.get(0);
+        return new ManualPayoutView.BankMatch(
+                str(first, "provider"),
+                str(first, "provider_transaction_id"),
+                first.get("amount") == null ? null : money(first, "amount"),
+                time(first, "transaction_at"),
+                str(first, "outcome"),
+                rows.size());
+    }
+
+    private static ManualPayoutView.Attempt attemptView(
+            Map<String, Object> a, ManualPayoutView.BankMatch bankMatch) {
         return a == null
                 ? null
                 : new ManualPayoutView.Attempt(
@@ -351,7 +365,8 @@ public class ManualPayoutQueryService {
                         str(a, "reference"),
                         str(a, "receipt_status"),
                         number(a, "receipt_version").longValue(),
-                        time(a, "seller_confirmed_at"));
+                        time(a, "seller_confirmed_at"),
+                        bankMatch);
     }
 
     private static ManualPayoutView.Recipient recipient(

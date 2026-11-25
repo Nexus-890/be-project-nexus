@@ -458,6 +458,50 @@ ORDER BY payout_id LIMIT ?
                 sellerId);
     }
 
+    public Optional<Map<String, Object>> attemptByReference(String reference) {
+        return first(
+                jdbc.queryForList(
+                        "SELECT * FROM manual_payout_attempts WHERE reference=?", reference));
+    }
+
+    public boolean bankTransactionSeen(String provider, String providerTransactionId) {
+        return Boolean.TRUE.equals(
+                jdbc.queryForObject(
+                        "SELECT EXISTS(SELECT 1 FROM manual_payout_bank_transactions WHERE"
+                                + " provider=? AND provider_transaction_id=?)",
+                        Boolean.class,
+                        provider,
+                        providerTransactionId));
+    }
+
+    public boolean bankTransactionMatched(UUID attemptId) {
+        return Boolean.TRUE.equals(
+                jdbc.queryForObject(
+                        "SELECT EXISTS(SELECT 1 FROM manual_payout_bank_transactions WHERE"
+                                + " attempt_id=?)",
+                        Boolean.class,
+                        attemptId));
+    }
+
+    public void recordBankTransaction(Map<String, Object> row) {
+        var columns = new ArrayList<>(row.keySet());
+        new NamedParameterJdbcTemplate(jdbc)
+                .update(
+                        "INSERT INTO manual_payout_bank_transactions("
+                                + String.join(",", columns)
+                                + ") VALUES ("
+                                + String.join(",", columns.stream().map(c -> ":" + c).toList())
+                                + ") ON CONFLICT (provider,provider_transaction_id) DO NOTHING",
+                        row);
+    }
+
+    public List<Map<String, Object>> bankTransactions(UUID attemptId) {
+        return jdbc.queryForList(
+                "SELECT * FROM manual_payout_bank_transactions WHERE attempt_id=? ORDER BY"
+                        + " created_at,provider_transaction_id",
+                attemptId);
+    }
+
     private Optional<Map<String, Object>> first(List<Map<String, Object>> rows) {
         return rows.stream().findFirst();
     }

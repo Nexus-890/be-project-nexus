@@ -136,6 +136,7 @@ class ManualPayoutHttpTest {
                         "NXP01234567890123456789",
                         "AWAITING_CONFIRMATION",
                         0,
+                        null,
                         null);
         view =
                 new ManualPayoutView(

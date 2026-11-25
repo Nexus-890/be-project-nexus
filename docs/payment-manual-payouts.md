@@ -55,6 +55,26 @@ Safe release/lease expiry applies only before issuance. Once a QR has been issue
 
 Writes require a UUID `Idempotency-Key` and the relevant version. Replay recognition precedes rejection of a version advanced by that same command, but current authorization still applies. Keep the same key/body/version for a lost-response replay; new commands use refreshed versions. Bank references are reserved by source account + business date + bank reference. Application locks/idempotency prevent duplicate authorization/accounting; they cannot stop an independent second payment made in a bank app.
 
+## Bank reconciliation through SePay
+
+When the payout source account is linked to SePay, the bank itself confirms the transfer. SePay posts every outgoing transaction of that account to `POST /api/v1/webhooks/sepay` with `transferType=out`. Payment verifies the signature, then:
+
+1. Checks `accountNumber` against `PAYOUT_MANUAL_SEPAY_BANK_ACCOUNT` (blank reuses `SEPAY_BANK_ACCOUNT`). Other accounts are recorded as `WRONG_ACCOUNT` and ignored.
+2. Finds the attempt by the `NXP` reference in `code`, `content` or `description`, case-insensitively. A transfer without a known reference is recorded as `UNMATCHED`.
+3. Locks the payout like a staff command and records the SePay transaction id once; a redelivered webhook changes nothing.
+
+| Attempt state | Bank transfer | Result |
+| --- | --- | --- |
+| QR_ISSUED | exact amount, made between QR issuance (2 minutes skew) and the QR deadline, reviewed bank unchanged, funding ready | `CONFIRMED`: same settlement as a staff confirmation with `confirmationSource=BANK_VERIFIED`, SYSTEM actor, SePay `referenceCode` as bank reference (else `SEPAY-<id>`), no evidence upload |
+| QR_ISSUED | wrong amount, outside the window, bank/funding changed, or no source alias mapped | `REVIEW_REQUIRED`: attempt and payout become UNKNOWN with a reconciliation case |
+| CLAIMED | any | `REVIEW_REQUIRED`: money left before the QR was issued |
+| UNKNOWN | exact amount | `RECORDED`: `BANK_MATCHED` audit; ADMIN resolves with the bank facts shown on the attempt |
+| SUCCEEDED (staff-confirmed) | exact amount | `VERIFIED`: `BANK_MATCHED` audit, nothing financial changes |
+| SUCCEEDED, NOT_SENT, RETURNED, CONFIRMATION_CORRECTED | wrong amount or unexpected | `REVIEW_REQUIRED`: open `STAFF_EXCEPTION` and `BANK_MISMATCH` audit |
+| any | a second transfer with the same reference | `REVIEW_REQUIRED`: `DUPLICATE_BANK_TRANSFER` case, possible double payment |
+
+`PAYOUT_MANUAL_SEPAY_SOURCE_ACCOUNT_ID` names the source alias recorded for bank-verified confirmations; blank uses the only configured alias. `PAYOUT_MANUAL_SEPAY_RECONCILIATION_ENABLED=false` stops reconciliation. Every outgoing transaction is kept in `manual_payout_bank_transactions` with its outcome. Staff detail shows the first matched transfer as `currentAttempt.bankMatch`; seller projections never include it.
+
 ## Browser integration contract
 
 The canonical API is `api/openapi/payment-service.yaml`. The new staff base is `/api/v1/payments/manual-payouts`; owner receipt/dispute commands are under `/api/v1/payments/payouts/{payoutId}/manual-attempts/{attemptId}`. Preserve the original ADMIN-only lists and legacy numeric fields; new manual amounts are exact fixed-two-decimal strings.
