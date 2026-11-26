@@ -187,3 +187,16 @@ if [ -n "${CATALOG_RATING_CLIENT_SECRET:-}" ]; then
 else
   echo "Skipped client nexus-catalog-service: CATALOG_RATING_CLIENT_SECRET is empty"
 fi
+
+if [ -n "${ORDER_CATALOG_COST_CLIENT_SECRET:-}" ]; then
+  client="$(kc get clients -r nexus -q clientId=nexus-commerce-service --fields id --format csv --noquotes)"
+  if [ -z "$client" ]; then
+    client="$(kc create clients -r nexus -f /opt/nexus/commerce-cost-client.json -i)"
+  else
+    kc update "clients/$client" -r nexus -f /opt/nexus/commerce-cost-client.json -n
+  fi
+  kc update "clients/$client" -r nexus -s "secret=$ORDER_CATALOG_COST_CLIENT_SECRET" -n
+  echo "Seeded client nexus-commerce-service ($client)"
+else
+  echo "Skipped client nexus-commerce-service: ORDER_CATALOG_COST_CLIENT_SECRET is empty"
+fi

@@ -11089,12 +11089,24 @@ components:
         orderCount: {type: "integer", format: "int64", minimum: 0}
         paidOrderCount: {type: "integer", format: "int64", minimum: 0, description: "Orders in PAID, SHIPPED, DELIVERED or COMPLETED."}
         revenue: {type: "number", minimum: 0, description: "Sum of totalAmount of the paid orders, in VND."}
+        profit:
+          allOf: [{$ref: "#/components/schemas/SellerProfit"}]
+          description: "Present only in the caller's seller sales summary; omitted in managed summaries."
         statuses:
           type: "array"
           items: {$ref: "#/components/schemas/OrderSummaryStatusCount"}
         daily:
           type: "array"
           items: {$ref: "#/components/schemas/OrderSummaryDay"}
+      additionalProperties: false
+    SellerProfit:
+      type: object
+      required: [costOfGoods, grossProfit, coveredOrderCount, missingCostOrderCount]
+      properties:
+        costOfGoods: {type: number, minimum: 0, description: "Recorded unit costs times quantity for fully covered paid orders."}
+        grossProfit: {type: number, nullable: true, description: "Subtotal minus seller-funded voucher discounts minus cost of goods. May be negative; null when all paid orders lack costs. Excludes shipping, tax, fees and operating expenses."}
+        coveredOrderCount: {type: integer, format: int64, minimum: 0}
+        missingCostOrderCount: {type: integer, format: int64, minimum: 0}
       additionalProperties: false
     OrderSummaryStatusCount:
       type: "object"

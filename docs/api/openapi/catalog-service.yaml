@@ -22,6 +22,51 @@ security:
   -
     bearerAuth: []
 paths:
+  /internal/v1/catalog/sku-costs:
+    post:
+      tags: [SKUs]
+      operationId: getOrderSkuCosts
+      summary: Read private unit costs for Commerce order creation
+      description: "Direct service API, not routed by gateway. Requires CATALOG.COST.READ, service_account=true and azp=nexus-commerce-service. Returns identity and nullable current SKU cost; never exposed in public SKU/order responses. Missing SKU fails the entire batch."
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [skuIds]
+              properties:
+                skuIds:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  items: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Private costs, including explicit null for an unknown cost.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {type: integer, example: 0}
+                  message: {type: string}
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [skuId, productId, sellerId, unitCostPrice]
+                      properties:
+                        skuId: {type: string, format: uuid}
+                        productId: {type: string, format: uuid}
+                        sellerId: {type: string, format: uuid}
+                        unitCostPrice: {type: number, nullable: true, minimum: 0}
+        '400': {description: Empty/oversized batch or invalid UUID.}
+        '401': {description: Authentication required.}
+        '403': {description: Commerce machine identity or cost authority missing.}
+        '404': {description: CATALOG_SKU_NOT_FOUND.}
   /api/v1/categories:
     get:
       tags: [Categories]

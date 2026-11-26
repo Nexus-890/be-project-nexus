@@ -21,11 +21,17 @@ class AuctionOrderServiceUnitTest {
     private final OrderRepository orders = mock(OrderRepository.class);
     private final OrderStatusHistoryRepository history = mock(OrderStatusHistoryRepository.class);
     private final OrderEventPublisher events = mock(OrderEventPublisher.class);
-    private final AuctionOrderService service = new AuctionOrderService(groups, orders, history, events);
+    private final com.group5.commerceservice.order.service.PricingService pricing = mock(com.group5.commerceservice.order.service.PricingService.class);
+    private final AuctionOrderService service = new AuctionOrderService(groups, orders, history, events, pricing);
 
     @Test void createsOnePendingOrderFromImmutableWinningSnapshotWithoutPaymentRequest() {
         AuctionWon won = won();
         when(orders.nextOrderSequence()).thenReturn(172L);
+        doAnswer(call -> {
+            java.util.Collection<Order> batch = call.getArgument(0);
+            batch.forEach(order -> order.getItems().forEach(item -> item.setUnitCostPrice(new BigDecimal("700000"))));
+            return null;
+        }).when(pricing).snapshotCosts(any());
         service.create(won);
 
         var saved = ArgumentCaptor.forClass(OrderGroup.class);
@@ -55,6 +61,7 @@ class AuctionOrderServiceUnitTest {
         assertThat(item.getQuantity()).isEqualTo(1);
         assertThat(item.getUnitPrice()).isEqualByComparingTo(won.finalPrice());
         assertThat(item.getTotalPrice()).isEqualByComparingTo(won.finalPrice());
+        assertThat(item.getUnitCostPrice()).isEqualByComparingTo("700000");
         assertThat(item.getSkuCode()).isEqualTo("NX-ITEM-1");
         var sequence = inOrder(groups, orders, history, events);
         sequence.verify(groups).lockKey("auction-reference:" + won.auctionId());
@@ -73,7 +80,7 @@ class AuctionOrderServiceUnitTest {
         verify(groups).lockKey("auction-reference:" + won.auctionId());
         verify(groups, never()).saveAndFlush(any());
         verify(orders, never()).nextOrderSequence();
-        verifyNoInteractions(history, events);
+        verifyNoInteractions(history, events, pricing);
     }
 
     @Test void standardReferenceDoesNotSuppressAuctionCreation() {

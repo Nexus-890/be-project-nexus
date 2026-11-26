@@ -273,6 +273,7 @@ public class OrderService {
             item.setTotalPrice(money(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity()))));
             order.getItems().add(item);
         }
+        pricingService.snapshotCosts(sellers.values());
         // Báo giá tất cả shop trước khi giữ hàng: lỗi Shipping không tạo reservation.
         Map<UUID, OrderShippingService.Pickup> pickups = new HashMap<>();
         for (Order order : sellers.values()) {

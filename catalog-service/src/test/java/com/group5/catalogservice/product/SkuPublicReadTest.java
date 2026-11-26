@@ -74,6 +74,34 @@ class SkuPublicReadTest {
     void close() { context.close(); }
 
     @Test
+    void privateCostsRequireCommerceMachineIdentityAndAuthority() throws Exception {
+        var decoder = context.getBean(org.springframework.security.oauth2.jwt.JwtDecoder.class);
+        for (String token : List.of("buyer", "seller", "other-machine", "no-privilege", "commerce")) {
+            var jwt = org.springframework.security.oauth2.jwt.Jwt.withTokenValue(token).header("alg", "RS256")
+                    .subject(UUID.randomUUID().toString()).issuedAt(java.time.Instant.now())
+                    .expiresAt(java.time.Instant.now().plusSeconds(300))
+                    .claim("roles", List.of(token.equals("seller") ? "SELLER" : "BUYER"))
+                    .claim("service_account", List.of("commerce", "other-machine", "no-privilege").contains(token))
+                    .claim("azp", token.equals("other-machine") ? "nexus-catalog-service" : "nexus-commerce-service")
+                    .claim("privileges", List.of(token.equals("no-privilege") ? "ORDER.CREATE" : "CATALOG.COST.READ")).build();
+            when(decoder.decode(token)).thenReturn(jwt);
+        }
+        String body = "{\"skuIds\":[\"" + sku.getId() + "\"]}";
+        mvc.perform(post("/internal/v1/catalog/sku-costs").contentType("application/json").content(body))
+                .andExpect(status().isUnauthorized());
+        for (String token : List.of("buyer", "seller", "other-machine", "no-privilege"))
+            mvc.perform(post("/internal/v1/catalog/sku-costs").header("Authorization", "Bearer " + token)
+                    .contentType("application/json").content(body)).andExpect(status().isForbidden());
+        product.setSellerId(UUID.randomUUID()); sku.setCostPrice(new BigDecimal("90000"));
+        when(skus.findCostsByIdIn(List.of(sku.getId()))).thenReturn(List.of(sku));
+        mvc.perform(post("/internal/v1/catalog/sku-costs").header("Authorization", "Bearer commerce")
+                .contentType("application/json").content(body)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].unitCostPrice").value(90000));
+        mvc.perform(post("/internal/v1/catalog/sku-costs").header("Authorization", "Bearer commerce")
+                .contentType("application/json").content("{\"skuIds\":[]}")).andExpect(status().isBadRequest());
+    }
+
+    @Test
     void anonymousReadsReturnSkuData() throws Exception {
         mvc.perform(get("/api/v1/products/{id}/skus", product.getId()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(1))
@@ -144,6 +172,7 @@ class SkuPublicReadTest {
     @EnableWebSecurity
     @Import(SecurityAutoConfiguration.class)
     static class TestConfig {
+        @Bean @Primary org.springframework.security.oauth2.jwt.JwtDecoder decoder() { return mock(org.springframework.security.oauth2.jwt.JwtDecoder.class); }
         @Bean ProductRepository products() { return mock(ProductRepository.class); }
         @Bean SkuRepository skus() { return mock(SkuRepository.class); }
         @Bean SkuService service(SkuRepository skus, ProductRepository products) {

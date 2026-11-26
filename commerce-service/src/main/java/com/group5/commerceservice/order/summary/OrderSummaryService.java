@@ -58,16 +58,16 @@ public class OrderSummaryService {
     @Transactional(readOnly = true)
     public OrderSummaryResponse managed(CurrentUser user, UUID sellerId, int days) {
         requireAccess(user, "ADMIN", "SUPPORT_STAFF");
-        return summarize(sellerId, days);
+        return summarize(sellerId, days, false);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
     public OrderSummaryResponse sales(CurrentUser user, int days) {
         requireAccess(user, "SELLER");
-        return summarize(user.id(), days);
+        return summarize(user.id(), days, true);
     }
 
-    private OrderSummaryResponse summarize(UUID sellerId, int days) {
+    private OrderSummaryResponse summarize(UUID sellerId, int days, boolean includeProfit) {
         if (days < 1 || days > MAX_DAYS) {
             throw new DomainException(CommerceErrorCode.INVALID_ORDER_FILTER,
                     "days must be between 1 and " + MAX_DAYS);
@@ -118,7 +118,35 @@ public class OrderSummaryService {
                 .map(entry -> new OrderSummaryResponse.StatusCount(entry.getKey(), entry.getValue()))
                 .toList();
         return new OrderSummaryResponse(from, to, ZONE.getId(), orderCount, paidCount, money(revenue),
-                statuses, daily);
+                statuses, daily, includeProfit ? profit(sellerId, from, to) : null);
+    }
+
+    private OrderSummaryResponse.Profit profit(UUID seller, OffsetDateTime from, OffsetDateTime to) {
+        // Aggregate each child collection separately: joining items to vouchers would multiply both sums.
+        return jdbc.queryForObject("""
+                SELECT count(*) FILTER (WHERE c.complete) AS covered,
+                       count(*) FILTER (WHERE NOT c.complete) AS missing,
+                       coalesce(sum(c.cost) FILTER (WHERE c.complete), 0) AS cost,
+                       coalesce(sum(o.subtotal - coalesce(v.discount, 0) - c.cost)
+                                FILTER (WHERE c.complete), 0) AS profit
+                FROM orders o
+                LEFT JOIN LATERAL (
+                    SELECT count(*) > 0 AND count(unit_cost_price) = count(*) AS complete,
+                           sum(unit_cost_price * quantity) AS cost
+                    FROM order_items WHERE order_id = o.id
+                ) c ON true
+                LEFT JOIN LATERAL (
+                    SELECT sum(seller_funded_amount) AS discount
+                    FROM promo_voucher_usages WHERE order_id = o.id
+                ) v ON true
+                WHERE o.seller_id = ? AND o.created_at >= ? AND o.created_at < ?
+                  AND o.status IN ('PAID', 'SHIPPED', 'DELIVERED', 'COMPLETED')
+                """, (row, index) -> {
+            long covered = row.getLong("covered");
+            long missing = row.getLong("missing");
+            return new OrderSummaryResponse.Profit(money(row.getBigDecimal("cost")),
+                    covered == 0 && missing > 0 ? null : money(row.getBigDecimal("profit")), covered, missing);
+        }, seller, Timestamp.from(from.toInstant()), Timestamp.from(to.toInstant()));
     }
 
     private static BigDecimal money(BigDecimal value) {

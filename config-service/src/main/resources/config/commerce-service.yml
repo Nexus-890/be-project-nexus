@@ -47,6 +47,12 @@ nexus:
     free-shipping-threshold: ${FREE_SHIPPING_THRESHOLD:1000000}
   order:
     idempotency-enabled: ${ORDER_IDEMPOTENCY_ENABLED:true}
+    catalog-costs:
+      base-url: ${ORDER_CATALOG_COST_BASE_URL:}
+      token-uri: ${ORDER_CATALOG_COST_TOKEN_URI:${KEYCLOAK_ISSUER_URI:http://localhost:18080/realms/nexus}/protocol/openid-connect/token}
+      client-id: nexus-commerce-service
+      client-secret: ${ORDER_CATALOG_COST_CLIENT_SECRET:}
+      token-timeout-ms: 1200
     inventory-base-url: ${ORDER_INVENTORY_BASE_URL:}
     shipping-base-url: ${ORDER_SHIPPING_BASE_URL:}
     remote-timeout-ms: ${ORDER_REMOTE_TIMEOUT_MS:1800}

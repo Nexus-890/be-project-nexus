@@ -41,6 +41,9 @@ public class OrderItem {
     @Column(name = "unit_price", nullable = false, precision = 19, scale = 2)
     private BigDecimal unitPrice;
 
+    @Column(name = "unit_cost_price", precision = 19, scale = 2, updatable = false)
+    private BigDecimal unitCostPrice;
+
     @Column(name = "total_price", nullable = false, precision = 19, scale = 2)
     private BigDecimal totalPrice;
 }

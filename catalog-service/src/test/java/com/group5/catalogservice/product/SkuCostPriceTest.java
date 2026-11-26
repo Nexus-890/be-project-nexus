@@ -69,6 +69,21 @@ class SkuCostPriceTest {
     }
 
     @Test
+    void privateBatchReturnsIdentityAndPreservesUnknownAndZeroCosts() {
+        Skus sku = existingSku(BigDecimal.ZERO);
+        when(skus.findCostsByIdIn(List.of(sku.getId()))).thenReturn(List.of(sku));
+        assertThat(skuService.getCosts(List.of(sku.getId(), sku.getId()))).singleElement().satisfies(cost -> {
+            assertThat(cost.sellerId()).isEqualTo(sellerId);
+            assertThat(cost.productId()).isEqualTo(sku.getProduct().getId());
+            assertThat(cost.unitCostPrice()).isEqualByComparingTo(BigDecimal.ZERO);
+        });
+        sku.setCostPrice(null);
+        assertThat(skuService.getCosts(List.of(sku.getId())).getFirst().unitCostPrice()).isNull();
+        assertThatThrownBy(() -> skuService.getCosts(List.of(UUID.randomUUID())))
+                .isInstanceOf(com.group5.common_core.exception.DomainException.class);
+    }
+
+    @Test
     void publicSkuReadsNeverExposeTheCost() {
         Skus sku = existingSku(new BigDecimal("90000.00"));
         when(skus.findAllByProduct_Id(sku.getProduct().getId())).thenReturn(List.of(sku));

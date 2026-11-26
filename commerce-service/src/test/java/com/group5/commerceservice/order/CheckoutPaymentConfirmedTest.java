@@ -111,7 +111,16 @@ class CheckoutPaymentConfirmedTest {
     @Autowired private InventoryClient inventory;
     @Autowired private OrderShippingService shipping;
 
-    @BeforeEach void resetPublisher() { reset(publisher, catalog, inventory, shipping); }
+    @BeforeEach void resetPublisher() { reset(publisher, catalog, inventory, shipping);
+        org.mockito.Mockito.doAnswer(call -> {
+            CatalogClient.CostRequest request = call.getArgument(0);
+            return com.group5.common_core.model.ApiResponse.list(request.skuIds().stream().map(id -> {
+                var sku = catalog.getSkuById(id).data();
+                var product = catalog.getProductById(sku.getProductId()).data();
+                return new CatalogClient.Cost(id, sku.getProductId(), product.sellerId(), null);
+            }).toList());
+        }).when(catalog).getCosts(any());
+    }
 
     /** Snapshot hai cấp do checkout thật tạo phải thanh toán được và không nhân đôi event khi replay receipt. */
     @Test

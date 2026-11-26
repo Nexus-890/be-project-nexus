@@ -16,7 +16,6 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1")
 public class SkuController {
 
     private final SkuService skuService;
@@ -25,8 +24,18 @@ public class SkuController {
         this.skuService = skuService;
     }
 
+    @PostMapping("/internal/v1/catalog/sku-costs")
+    @PreAuthorize("hasAuthority('CATALOG.COST.READ') and authentication.tokenAttributes['service_account'] == true"
+            + " and authentication.tokenAttributes['azp'] == 'nexus-commerce-service'")
+    public ApiResponse<List<SkuService.Cost>> costs(@Valid @RequestBody CostRequest request) {
+        return ApiResponse.list(skuService.getCosts(request.skuIds()));
+    }
+
+    public record CostRequest(@jakarta.validation.constraints.NotEmpty @jakarta.validation.constraints.Size(max = 200)
+                              List<@jakarta.validation.constraints.NotNull UUID> skuIds) { }
+
     // Yêu cầu quyền PRODUCT.UPDATE và trả về mã 201 Created.
-    @PostMapping("/products/{productId}/skus")
+    @PostMapping("/api/v1/products/{productId}/skus")
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAuthority('PRODUCT.UPDATE')")
     public ApiResponse<SkuResponse> create(
@@ -38,7 +47,7 @@ public class SkuController {
     }
 
     // Yêu cầu quyền PRODUCT.UPDATE và trả về mã 200 OK.
-    @PutMapping("/skus/{id}")
+    @PutMapping("/api/v1/skus/{id}")
     @PreAuthorize("hasAuthority('PRODUCT.UPDATE')")
     public ApiResponse<SkuResponse> update(
             @PathVariable UUID id,
@@ -49,12 +58,12 @@ public class SkuController {
     }
 
     // Điểm cuối công khai khi được cấu hình bảo mật cho phép
-    @GetMapping("/skus/{id}")
+    @GetMapping("/api/v1/skus/{id}")
     public ApiResponse<SkuResponse> getById(@PathVariable UUID id) {
         return ApiResponse.of(skuService.getById(id));
     }
 
-    @GetMapping("/products/{productId}/skus")
+    @GetMapping("/api/v1/products/{productId}/skus")
     public ApiResponse<List<SkuResponse>> getByProductId(@PathVariable UUID productId) {
         return ApiResponse.list(skuService.getByProductId(productId));
     }

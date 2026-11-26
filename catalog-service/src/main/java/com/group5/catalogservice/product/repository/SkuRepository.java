@@ -15,6 +15,9 @@ import java.util.UUID;
 
 @Repository
 public interface SkuRepository extends JpaRepository<Skus, UUID> {
+    @Query("select s from Skus s join fetch s.product where s.id in :ids")
+    List<Skus> findCostsByIdIn(@Param("ids") List<UUID> ids);
+
     List<Skus> findAllByProduct_Id(UUID productId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

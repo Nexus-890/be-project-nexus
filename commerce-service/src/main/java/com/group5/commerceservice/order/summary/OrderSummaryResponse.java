@@ -15,7 +15,17 @@ public record OrderSummaryResponse(
         long paidOrderCount,
         BigDecimal revenue,
         List<StatusCount> statuses,
-        List<DailyPoint> daily) {
+        List<DailyPoint> daily,
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        Profit profit) {
+
+    public OrderSummaryResponse(OffsetDateTime from, OffsetDateTime to, String timeZone, long orderCount,
+                                long paidOrderCount, BigDecimal revenue, List<StatusCount> statuses, List<DailyPoint> daily) {
+        this(from, to, timeZone, orderCount, paidOrderCount, revenue, statuses, daily, null);
+    }
+
+    public record Profit(BigDecimal costOfGoods, BigDecimal grossProfit, long coveredOrderCount,
+                         long missingCostOrderCount) { }
 
     public record StatusCount(OrderStatus status, long count) {
     }

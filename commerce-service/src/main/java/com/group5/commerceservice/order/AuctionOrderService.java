@@ -4,6 +4,7 @@ import com.group5.common_events.AuctionWon;
 import com.group5.commerceservice.order.entity.*;
 import com.group5.commerceservice.order.event.OrderEventPublisher;
 import com.group5.commerceservice.order.repository.*;
+import com.group5.commerceservice.order.service.PricingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,7 +13,7 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 
-/** Tạo đơn chỉ từ snapshot đã thắng, không gọi Catalog/Auction hay giữ tồn kho lần nữa. */
+/** Winning data stays immutable; current private SKU cost is captured when the order is created. */
 @Service
 @RequiredArgsConstructor
 public class AuctionOrderService {
@@ -20,6 +21,7 @@ public class AuctionOrderService {
     private final OrderRepository orders;
     private final OrderStatusHistoryRepository history;
     private final OrderEventPublisher events;
+    private final PricingService pricing;
 
     @Transactional
     public void create(AuctionWon won) {
@@ -48,6 +50,7 @@ public class AuctionOrderService {
         item.setSkuCode(won.skuCode());
         item.setProductName(won.title()); item.setImageUrl(won.imageUrl()); item.setQuantity(won.quantity());
         item.setUnitPrice(amount); item.setTotalPrice(amount); order.getItems().add(item);
+        pricing.snapshotCosts(java.util.List.of(order));
         group.getOrders().add(order); groups.saveAndFlush(group);
         var entry = new OrderStatusHistory();
         entry.setOrderId(order.getId()); entry.setNewStatus(OrderStatus.PENDING);

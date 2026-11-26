@@ -78,6 +78,15 @@ class OrderReadTest {
     void restoreShippingFixture() {
         // Context dùng chung với test #138: mỗi test đọc đơn tự khôi phục fixture phí bằng 0.
         Mockito.reset(shipping);
+        org.mockito.Mockito.doAnswer(call -> {
+            CatalogClient.CostRequest request = call.getArgument(0);
+            return com.group5.common_core.model.ApiResponse.list(request.skuIds().stream().map(id -> {
+                var sku = catalogClient.getSkuById(id).data();
+                var product = catalogClient.getProductById(sku.getProductId()).data();
+                return new CatalogClient.Cost(id, sku.getProductId(), product.sellerId(), null);
+            }).toList());
+        }).when(catalogClient).getCosts(any());
+
         when(shipping.quote(any(), any())).thenReturn(new OrderShippingService.Quote(BigDecimal.ZERO,
                 new OrderShippingService.Parcel(1200, 30, 20, 15), "FAKE", "STANDARD",
                 java.time.OffsetDateTime.parse("2031-02-04T04:05:06Z")));

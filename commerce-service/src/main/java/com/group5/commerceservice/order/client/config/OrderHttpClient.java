@@ -50,7 +50,7 @@ public final class OrderHttpClient implements Client, AutoCloseable {
         Client transport = this::send;
         Client discovered = loadBalancer == null ? transport
                 : new FeignBlockingLoadBalancerClient(transport, loadBalancer, factory, transformers);
-        this.delegate = (request, options) -> Set.of("inventory-service", "shipment-service")
+        this.delegate = (request, options) -> Set.of("inventory-service", "shipment-service", "catalog-service")
                 .contains(URI.create(request.url()).getHost())
                 ? discovered.execute(request, options) : transport.execute(request, options);
     }

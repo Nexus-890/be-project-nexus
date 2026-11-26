@@ -288,10 +288,12 @@ services:
       KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET: ${KEYCLOAK_CONFIG_SERVICE_CLIENT_SECRET:-}
       AUCTION_RATING_CLIENT_SECRET: ${AUCTION_RATING_CLIENT_SECRET:-}
       CATALOG_RATING_CLIENT_SECRET: ${CATALOG_RATING_CLIENT_SECRET:-}
+      ORDER_CATALOG_COST_CLIENT_SECRET: ${ORDER_CATALOG_COST_CLIENT_SECRET:-}
     volumes:
       - ./keycloak/seed-users.sh:/opt/nexus/seed-users.sh:ro
       - ./keycloak/auction-rating-client.json:/opt/nexus/auction-rating-client.json:ro
       - ./keycloak/catalog-rating-client.json:/opt/nexus/catalog-rating-client.json:ro
+      - ./keycloak/commerce-cost-client.json:/opt/nexus/commerce-cost-client.json:ro
     depends_on:
       auth-service:
         condition: service_healthy

@@ -49,6 +49,14 @@ class OrderReservationIntegrationTest {
 
     @BeforeEach void dependencies() {
         reset(catalog, inventory, shipping, events);
+        org.mockito.Mockito.doAnswer(call -> {
+            CatalogClient.CostRequest request = call.getArgument(0);
+            return ApiResponse.list(request.skuIds().stream().map(id -> {
+                var sku = catalog.getSkuById(id).data();
+                var product = catalog.getProductById(sku.getProductId()).data();
+                return new CatalogClient.Cost(id, sku.getProductId(), product.sellerId(), null);
+            }).toList());
+        }).when(catalog).getCosts(any());
         expiry = OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(30).truncatedTo(ChronoUnit.MICROS);
         when(inventory.reserve(any(), anyList())).thenAnswer(call -> new InventoryClient.Reservation(
                 ((List<?>) call.getArgument(1)).stream().map(ignored -> UUID.randomUUID()).toList(), WAREHOUSE, expiry));

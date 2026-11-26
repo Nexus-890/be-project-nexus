@@ -194,7 +194,7 @@ neither merge nor the existing inventory stub proves stock availability.
 | `/api/v1/orders/manage` | GET | ORDER.LIST | #190 — All orders; service additionally requires ADMIN or SUPPORT_STAFF |
 | `/api/v1/orders/sales` | GET | ORDER.LIST | #190 — Seller orders; service additionally requires SELLER and JWT seller ownership |
 | `/api/v1/orders/manage/summary` | GET | ORDER.LIST | Backoffice dashboard — order counts and daily revenue for every seller; service additionally requires ADMIN or SUPPORT_STAFF |
-| `/api/v1/orders/sales/summary` | GET | ORDER.LIST | Seller dashboard — the caller's own order counts and daily revenue; service additionally requires SELLER |
+| `/api/v1/orders/sales/summary` | GET | ORDER.LIST | Seller dashboard — the caller's own order counts, daily revenue and snapshotted cost/gross profit with coverage counts; service additionally requires SELLER |
 | `/api/v1/orders/groups/{id}` | GET | ORDER.VIEW | #138 — The complete order group; service requires its buyer owner or ADMIN |
 | `/api/v1/orders/{id}` | GET | ORDER.VIEW | #117 — Order read endpoints; the owner or ADMIN |
 | `/api/v1/orders/{id}/invoice` | GET | ORDER.VIEW | #204 — Completed-order HTML receipt; the buyer owner only |
@@ -384,6 +384,17 @@ authorization. The unmerged #124 draft does not override #245's protected bounda
 `/internal/v1/**`, `/realms/**` and `/admin/realms/**` have no gateway route,
 including for authenticated callers. #238's merged auth cutover is retained: legacy login/JWKS policies are absent;
 Keycloak endpoints are accessed directly and are not gateway proxy routes.
+
+Commerce reads private SKU costs directly from Catalog when creating standard or
+auction orders. This endpoint remains outside gateway routing and public policies:
+
+| Method | Direct service path | Access | Success | Errors |
+| --- | --- | --- | --- | --- |
+| POST | `/internal/v1/catalog/sku-costs` | `CATALOG.COST.READ`, `service_account=true`, `azp=nexus-commerce-service` | 200 | 400, 401, 403, 404 |
+
+The Commerce machine token is provisioned by `commerce-cost-client.json` and the
+existing Keycloak seed command. Buyer and seller user tokens cannot read private
+costs, and public SKU/order responses do not include the cost snapshot.
 
 The gateway retains the merged #236/#237 realm, issuer/JWKS, flat claims and
 matching downstream trust configuration. #238's removal of legacy login/JWKS

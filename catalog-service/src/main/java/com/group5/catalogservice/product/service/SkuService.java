@@ -38,6 +38,17 @@ public class SkuService {
         this.productRepository = productRepository;
     }
 
+    @Transactional(readOnly = true)
+    public List<Cost> getCosts(List<UUID> ids) {
+        List<UUID> requested = ids.stream().distinct().sorted().toList();
+        var found = skuRepository.findCostsByIdIn(requested);
+        if (found.size() != requested.size()) throw new DomainException(CatalogErrorCode.SKU_NOT_FOUND);
+        return found.stream().map(sku -> new Cost(sku.getId(), sku.getProduct().getId(),
+                sku.getProduct().getSellerId(), sku.getCostPrice())).toList();
+    }
+
+    public record Cost(UUID skuId, UUID productId, UUID sellerId, BigDecimal unitCostPrice) { }
+
     // Tạo SKU sau khi kiểm tra quyền sở hữu sản phẩm và giá cả.
     @Transactional
     public SkuResponse create(

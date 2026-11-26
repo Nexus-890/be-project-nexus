@@ -10,15 +10,22 @@ import com.group5.common_core.model.ApiResponse;
 
 @FeignClient(
         name = "catalog-service",
-        path = "/api/v1"
+        url = "${nexus.order.catalog-costs.base-url:}",
+        configuration = com.group5.commerceservice.order.client.config.OrderFeignConfiguration.class
 )
 public interface CatalogClient {
 
-    @GetMapping("/skus/{id}")
+    @GetMapping("/api/v1/skus/{id}")
     ApiResponse<CatalogSkuResponse> getSkuById(@PathVariable("id") UUID id);
 
-    @GetMapping("/products/{id}")
+    @GetMapping("/api/v1/products/{id}")
     ApiResponse<ProductResponse> getProductById(@PathVariable("id") UUID id);
+
+    @org.springframework.web.bind.annotation.PostMapping("/internal/v1/catalog/sku-costs")
+    ApiResponse<List<Cost>> getCosts(@org.springframework.web.bind.annotation.RequestBody CostRequest request);
+
+    record CostRequest(List<UUID> skuIds) { }
+    record Cost(UUID skuId, UUID productId, UUID sellerId, java.math.BigDecimal unitCostPrice) { }
 
     record ProductResponse(UUID id, UUID sellerId, String name, String status, List<ImageResponse> images) { }
 

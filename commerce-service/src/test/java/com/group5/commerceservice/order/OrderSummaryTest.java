@@ -86,6 +86,42 @@ class OrderSummaryTest {
     }
 
     @Test
+    void profitUsesOrderCostSnapshotsAndCountsMissingCostsWithoutLeakingToManagers() {
+        var paid = jdbc().queryForList("SELECT id FROM orders WHERE seller_id=? AND status='PAID'", UUID.class, sellerA.id()).getFirst();
+        var completed = jdbc().queryForList("SELECT id FROM orders WHERE seller_id=? AND status='COMPLETED' AND created_at>'2026-11-01'", UUID.class, sellerA.id()).getFirst();
+        item(paid, 2, "70000"); item(paid, 1, "10000");
+        item(completed, 1, "0");
+        voucher(paid, "10000", "20000");
+        voucher(paid, "5000", "0");
+        var result = summaries.sales(sellerA, 7);
+        assertThat(result.profit().costOfGoods()).isEqualByComparingTo("150000");
+        assertThat(result.profit().grossProfit()).isEqualByComparingTo("185000");
+        assertThat(result.profit().coveredOrderCount()).isEqualTo(2);
+        assertThat(result.profit().missingCostOrderCount()).isEqualTo(1);
+        jdbc().update("UPDATE orders SET shipping_fee=25000, total_amount=subtotal+25000 WHERE id=?", paid);
+        assertThat(summaries.sales(sellerA,7).profit().grossProfit()).isEqualByComparingTo("185000");
+        assertThat(summaries.managed(ADMIN,null,7).profit()).isNull();
+        item(completed, 1, null);
+        var partial = summaries.sales(sellerA,7).profit();
+        assertThat(partial.grossProfit()).isEqualByComparingTo("-65000");
+        assertThat(partial.missingCostOrderCount()).isEqualTo(2);
+        assertThat(summaries.sales(sellerB,7).profit().grossProfit()).isNull();
+    }
+
+    private void voucher(UUID order, String sellerDiscount, String platformDiscount) {
+        var voucher=UUID.randomUUID(); var claim=UUID.randomUUID(); var customer=UUID.randomUUID();
+        jdbc().update("INSERT INTO promo_vouchers(id,code,name,source_type,discount_type,discount_value,funding_type,product_scope,claim_start_at,claim_end_at,valid_from,valid_until,status) VALUES (?,?, 'Profit fixture','SHOP','FIXED',100000,'CO_FUNDED','ALL',now(),now()+interval '1 day',now(),now()+interval '1 day','ACTIVE')",voucher,voucher.toString());
+        jdbc().update("INSERT INTO promo_customer_vouchers(id,customer_id,voucher_id,status,expires_at) VALUES (?,?,?,'CLAIMED',now()+interval '1 day')",claim,customer,voucher);
+        var seller=new BigDecimal(sellerDiscount); var platform=new BigDecimal(platformDiscount);
+        jdbc().update("INSERT INTO promo_voucher_usages(customer_voucher_id,order_id,idempotency_key,status,eligible_amount,discount_amount,seller_funded_amount,platform_funded_amount,voucher_snapshot,reserved_until) VALUES (?,?,?,'REDEEMED',100000,?,?,?,'{}',now()+interval '1 day')",claim,order,UUID.randomUUID().toString(),seller.add(platform),seller,platform);
+    }
+
+    private void item(UUID order, int quantity, String cost) {
+        jdbc().update("INSERT INTO order_items (order_id,product_id,sku_id,product_name,quantity,unit_price,total_price,unit_cost_price) VALUES (?,?,?,'Cost snapshot',?,1,?,?)",
+                order,UUID.randomUUID(),UUID.randomUUID(),quantity,quantity,cost==null?null:new BigDecimal(cost));
+    }
+
+    @Test
     void daysAreCutInVietnamTimeAndEmptyDaysStayInTheSeries() {
         OrderSummaryResponse summary = summaries.sales(sellerA, 7);
 
