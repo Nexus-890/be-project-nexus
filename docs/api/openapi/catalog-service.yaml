@@ -22,29 +22,21 @@ security:
   -
     bearerAuth: []
 paths:
-  /internal/v1/catalog/sku-costs:
-    post:
+  /internal/v1/catalog/skus/{id}:
+    get:
       tags: [SKUs]
-      operationId: getOrderSkuCosts
-      summary: Read private unit costs for Commerce order creation
-      description: "Direct service API, not routed by gateway. Requires CATALOG.COST.READ, service_account=true and azp=nexus-commerce-service. Returns identity and nullable current SKU cost; never exposed in public SKU/order responses. Missing SKU fails the entire batch."
+      operationId: getOrderSku
+      summary: Read SKU selling price and private cost together for order creation
+      description: "Direct service API, not routed by gateway. Requires CATALOG.COST.READ, service_account=true and azp=nexus-commerce-service. Returns SKU metadata and costPrice in one read; an omitted costPrice means unknown. Public SKU/order responses do not expose the cost. Existing auction snapshots may read the cost of an inactive SKU; normal checkout still validates SKU/product availability."
       security: [{bearerAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [skuIds]
-              properties:
-                skuIds:
-                  type: array
-                  minItems: 1
-                  maxItems: 200
-                  items: {type: string, format: uuid}
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
       responses:
         '200':
-          description: Private costs, including explicit null for an unknown cost.
+          description: SKU metadata, selling price and optional private costPrice.
           content:
             application/json:
               schema:
@@ -53,17 +45,8 @@ paths:
                 properties:
                   code: {type: integer, example: 0}
                   message: {type: string}
-                  data:
-                    type: array
-                    items:
-                      type: object
-                      required: [skuId, productId, sellerId, unitCostPrice]
-                      properties:
-                        skuId: {type: string, format: uuid}
-                        productId: {type: string, format: uuid}
-                        sellerId: {type: string, format: uuid}
-                        unitCostPrice: {type: number, nullable: true, minimum: 0}
-        '400': {description: Empty/oversized batch or invalid UUID.}
+                  data: {$ref: '#/components/schemas/Sku'}
+        '400': {description: Invalid UUID.}
         '401': {description: Authentication required.}
         '403': {description: Commerce machine identity or cost authority missing.}
         '404': {description: CATALOG_SKU_NOT_FOUND.}
@@ -8414,7 +8397,7 @@ components:
         costPrice:
           type: "number"
           minimum: 0
-          description: "Seller purchase cost for one unit. Returned only to the owning seller or an admin: on SKU create/update and on GET /api/v1/products/mine/{id}. Public reads omit it. Absent when the seller has not entered a cost."
+          description: "Seller purchase cost for one unit. Returned to the owning seller/admin on SKU writes and owner detail, or to the authorized Commerce machine through GET /internal/v1/catalog/skus/{id}. Public reads omit it. Absent when the seller has not entered a cost."
     ShippingParcel:
       type: "object"
       nullable: true

@@ -27,11 +27,7 @@ class AuctionOrderServiceUnitTest {
     @Test void createsOnePendingOrderFromImmutableWinningSnapshotWithoutPaymentRequest() {
         AuctionWon won = won();
         when(orders.nextOrderSequence()).thenReturn(172L);
-        doAnswer(call -> {
-            java.util.Collection<Order> batch = call.getArgument(0);
-            batch.forEach(order -> order.getItems().forEach(item -> item.setUnitCostPrice(new BigDecimal("700000"))));
-            return null;
-        }).when(pricing).snapshotCosts(any());
+        when(pricing.orderUnitCost(won.skuId(), won.productId())).thenReturn(new BigDecimal("700000"));
         service.create(won);
 
         var saved = ArgumentCaptor.forClass(OrderGroup.class);

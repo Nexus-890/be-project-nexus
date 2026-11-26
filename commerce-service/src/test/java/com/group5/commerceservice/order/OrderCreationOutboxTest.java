@@ -102,14 +102,6 @@ class OrderCreationOutboxTest {
         reset(publisher, catalogClient, inventoryClient);
         when(inventoryClient.reserve(any(), any())).thenReturn(new InventoryClient.Reservation(
                 List.of(UUID.randomUUID()), UUID.randomUUID(), java.time.OffsetDateTime.parse("2031-02-03T04:05:06.123456Z")));
-        org.mockito.Mockito.doAnswer(call -> {
-            CatalogClient.CostRequest request = call.getArgument(0);
-            return ApiResponse.list(request.skuIds().stream().map(id -> {
-                var sku = catalogClient.getSkuById(id).data();
-                var product = catalogClient.getProductById(sku.getProductId()).data();
-                return new CatalogClient.Cost(id, sku.getProductId(), product.sellerId(), new BigDecimal("25000.00"));
-            }).toList());
-        }).when(catalogClient).getCosts(any());
         outboxBefore = count("SELECT count(*) FROM outbox");
     }
 
@@ -120,7 +112,9 @@ class OrderCreationOutboxTest {
         var result = orderService.create(fixture.buyer(), key, REQUEST);
         var values = jdbc().queryForList("SELECT unit_cost_price FROM order_items i JOIN orders o ON i.order_id=o.id WHERE o.order_group_id=?", BigDecimal.class, result.response().orderGroupId());
         assertThat(values).hasSize(3).allSatisfy(cost -> assertThat(cost).isEqualByComparingTo("25000.00"));
-        org.mockito.Mockito.doThrow(new IllegalStateException("Replay must not call Catalog")).when(catalogClient).getCosts(any());
+        fixture.lines().forEach(line -> verify(catalogClient).getOrderSkuById(line.skuId()));
+        verify(catalogClient, Mockito.never()).getSkuById(any());
+        org.mockito.Mockito.doThrow(new IllegalStateException("Replay must not call Catalog")).when(catalogClient).getOrderSkuById(any());
         assertThat(orderService.create(fixture.buyer(), key, REQUEST).created()).isFalse();
         assertThat(jdbc().queryForList("SELECT unit_cost_price FROM order_items i JOIN orders o ON i.order_id=o.id WHERE o.order_group_id=?", BigDecimal.class, result.response().orderGroupId())).containsExactlyElementsOf(values);
         assertThatThrownBy(() -> jdbc().update("UPDATE order_items SET unit_cost_price=-1 WHERE order_id IN (SELECT id FROM orders WHERE order_group_id=?)", result.response().orderGroupId())).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
@@ -129,17 +123,17 @@ class OrderCreationOutboxTest {
     @Test
     void invalidPrivateCostsAbortBeforeOrdersOrReservationsAreCommitted() {
         var fixture=cart(false); var line=fixture.lines().getFirst();
-        var invalidCosts=List.of(
-                List.<CatalogClient.Cost>of(),
-                List.of(new CatalogClient.Cost(line.skuId(),line.productId(),UUID.randomUUID(),BigDecimal.ONE)),
-                List.of(new CatalogClient.Cost(line.skuId(),line.productId(),line.sellerId(),new BigDecimal("-1"))),
-                List.of(new CatalogClient.Cost(line.skuId(),line.productId(),line.sellerId(),new BigDecimal("0.001"))));
-        for(var costs:invalidCosts) {
-            org.mockito.Mockito.doReturn(ApiResponse.list(costs)).when(catalogClient).getCosts(any());
-            assertThatThrownBy(()->orderService.create(fixture.buyer(),UUID.randomUUID().toString(),REQUEST))
+        var sku = catalogClient.getOrderSkuById(line.skuId()).data();
+        for (var cost : List.of(new BigDecimal("-1"), new BigDecimal("0.001"), new BigDecimal("100000000000000000"))) {
+            sku.setCostPrice(cost);
+            assertThatThrownBy(() -> orderService.create(fixture.buyer(), UUID.randomUUID().toString(), REQUEST))
                     .isInstanceOf(DomainException.class).extracting("errorCode").isEqualTo("COMMERCE_INVALID_CATALOG_RESPONSE");
             assertNoCreation(fixture);
         }
+        org.mockito.Mockito.doReturn(ApiResponse.of(null)).when(catalogClient).getOrderSkuById(line.skuId());
+        assertThatThrownBy(() -> orderService.create(fixture.buyer(), UUID.randomUUID().toString(), REQUEST))
+                .isInstanceOf(DomainException.class).extracting("errorCode").isEqualTo("COMMERCE_INVALID_CATALOG_RESPONSE");
+        assertNoCreation(fixture);
         verify(inventoryClient,Mockito.never()).reserve(any(),any());
     }
 
@@ -542,8 +536,10 @@ class OrderCreationOutboxTest {
         sku.setId(line.skuId());
         sku.setProductId(line.productId());
         sku.setSkuCode("SKU-" + line.skuId());
+        sku.setCostPrice(new BigDecimal("25000.00"));
         sku.setPrice(price);
         sku.setStatus("ACTIVE");
+        when(catalogClient.getOrderSkuById(line.skuId())).thenReturn(ApiResponse.of(sku));
         when(catalogClient.getSkuById(line.skuId())).thenReturn(ApiResponse.of(sku));
     }
 

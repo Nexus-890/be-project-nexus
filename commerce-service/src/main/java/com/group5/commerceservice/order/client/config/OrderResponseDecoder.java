@@ -40,20 +40,17 @@ public final class OrderResponseDecoder implements Decoder {
             if (payload != null && (payload.hasRawClass(com.group5.commerceservice.cart.dto.CatalogSkuResponse.class)
                     || payload.hasRawClass(com.group5.commerceservice.cart.dto.CatalogClient.ProductResponse.class))) {
                 if (!data.isObject() || !data.path("id").isString()) throw invalid(response);
+                if (payload.hasRawClass(com.group5.commerceservice.cart.dto.CatalogSkuResponse.class)
+                        && !data.path("costPrice").isMissingNode() && !data.path("costPrice").isNull()
+                        && !data.path("costPrice").isNumber()) throw invalid(response);
                 return mapper.convertValue(root, mapper.constructType(type));
             }
             if (data.isArray()) {
                 var dataType = mapper.constructType(type).containedType(0);
                 boolean linkedReservations = dataType != null && dataType.getContentType() != null
                         && dataType.getContentType().hasRawClass(com.group5.commerceservice.order.client.InventoryReservationHttpClient.LinkedReservation.class);
-                boolean skuCosts = dataType != null && dataType.getContentType() != null
-                        && dataType.getContentType().hasRawClass(com.group5.commerceservice.cart.dto.CatalogClient.Cost.class);
                 for (JsonNode quote : data) {
-                    if (skuCosts) {
-                        if (!quote.isObject() || !quote.path("skuId").isString() || !quote.path("productId").isString()
-                                || !quote.path("sellerId").isString() || quote.path("unitCostPrice").isMissingNode()
-                                || !(quote.path("unitCostPrice").isNull() || quote.path("unitCostPrice").isNumber())) throw invalid(response);
-                    } else if (linkedReservations) {
+                    if (linkedReservations) {
                         if (!quote.isObject() || !quote.path("reservationId").isString()
                                 || !quote.path("warehouseId").isString() || !quote.path("status").isString()) throw invalid(response);
                     } else if (!quote.isObject() || !quote.path("fee").isNumber()

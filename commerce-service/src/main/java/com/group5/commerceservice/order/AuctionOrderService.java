@@ -50,7 +50,7 @@ public class AuctionOrderService {
         item.setSkuCode(won.skuCode());
         item.setProductName(won.title()); item.setImageUrl(won.imageUrl()); item.setQuantity(won.quantity());
         item.setUnitPrice(amount); item.setTotalPrice(amount); order.getItems().add(item);
-        pricing.snapshotCosts(java.util.List.of(order));
+        item.setUnitCostPrice(pricing.orderUnitCost(won.skuId(), won.productId()));
         group.getOrders().add(order); groups.saveAndFlush(group);
         var entry = new OrderStatusHistory();
         entry.setOrderId(order.getId()); entry.setNewStatus(OrderStatus.PENDING);

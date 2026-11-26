@@ -86,19 +86,21 @@ class SkuPublicReadTest {
                     .claim("privileges", List.of(token.equals("no-privilege") ? "ORDER.CREATE" : "CATALOG.COST.READ")).build();
             when(decoder.decode(token)).thenReturn(jwt);
         }
-        String body = "{\"skuIds\":[\"" + sku.getId() + "\"]}";
-        mvc.perform(post("/internal/v1/catalog/sku-costs").contentType("application/json").content(body))
-                .andExpect(status().isUnauthorized());
+        String path = "/internal/v1/catalog/skus/" + sku.getId();
+        mvc.perform(get(path)).andExpect(status().isUnauthorized());
         for (String token : List.of("buyer", "seller", "other-machine", "no-privilege"))
-            mvc.perform(post("/internal/v1/catalog/sku-costs").header("Authorization", "Bearer " + token)
-                    .contentType("application/json").content(body)).andExpect(status().isForbidden());
+            mvc.perform(get(path).header("Authorization", "Bearer " + token)).andExpect(status().isForbidden());
         product.setSellerId(UUID.randomUUID()); sku.setCostPrice(new BigDecimal("90000"));
-        when(skus.findCostsByIdIn(List.of(sku.getId()))).thenReturn(List.of(sku));
-        mvc.perform(post("/internal/v1/catalog/sku-costs").header("Authorization", "Bearer commerce")
-                .contentType("application/json").content(body)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].unitCostPrice").value(90000));
-        mvc.perform(post("/internal/v1/catalog/sku-costs").header("Authorization", "Bearer commerce")
-                .contentType("application/json").content("{\"skuIds\":[]}")).andExpect(status().isBadRequest());
+        mvc.perform(get(path).header("Authorization", "Bearer commerce")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.costPrice").value(90000))
+                .andExpect(jsonPath("$.data.price").value(150000))
+                .andExpect(jsonPath("$.data.shippingParcel.weightGrams").value(1200));
+        mvc.perform(get("/api/v1/skus/" + sku.getId())).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.costPrice").doesNotExist());
+        mvc.perform(get("/internal/v1/catalog/skus/invalid").header("Authorization", "Bearer commerce"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/internal/v1/catalog/skus/" + UUID.randomUUID()).header("Authorization", "Bearer commerce"))
+                .andExpect(status().isNotFound());
     }
 
     @Test

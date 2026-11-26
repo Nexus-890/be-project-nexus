@@ -78,14 +78,6 @@ class OrderReadTest {
     void restoreShippingFixture() {
         // Context dùng chung với test #138: mỗi test đọc đơn tự khôi phục fixture phí bằng 0.
         Mockito.reset(shipping);
-        org.mockito.Mockito.doAnswer(call -> {
-            CatalogClient.CostRequest request = call.getArgument(0);
-            return com.group5.common_core.model.ApiResponse.list(request.skuIds().stream().map(id -> {
-                var sku = catalogClient.getSkuById(id).data();
-                var product = catalogClient.getProductById(sku.getProductId()).data();
-                return new CatalogClient.Cost(id, sku.getProductId(), product.sellerId(), null);
-            }).toList());
-        }).when(catalogClient).getCosts(any());
 
         when(shipping.quote(any(), any())).thenReturn(new OrderShippingService.Quote(BigDecimal.ZERO,
                 new OrderShippingService.Parcel(1200, 30, 20, 15), "FAKE", "STANDARD",
@@ -228,7 +220,7 @@ class OrderReadTest {
             sku.setSkuCode("SKU-" + skuId.toString().substring(0, 8));
             sku.setPrice(price);
             sku.setStatus("ACTIVE");
-            when(catalogClient.getSkuById(skuId)).thenReturn(ApiResponse.of(sku));
+            when(catalogClient.getOrderSkuById(skuId)).thenReturn(ApiResponse.of(sku));
             when(catalogClient.getProductById(productId)).thenReturn(ApiResponse.of(new CatalogClient.ProductResponse(
                     productId, sellerId, "Product " + price, "ACTIVE", List.of())));
         }

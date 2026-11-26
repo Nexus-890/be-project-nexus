@@ -278,38 +278,59 @@ class OrderReservationHttpTest {
     @Test
     void catalogCostReadUsesCachedMachineTokenAndValidatesPrivatePayload() throws Exception {
         var tokenCalls = new AtomicInteger();
-        server.createContext("/token", exchange -> {
+        server.createContext("/realms/nexus/protocol/openid-connect/token", exchange -> {
             tokenCalls.incrementAndGet();
             byte[] json = "{\"access_token\":\"machine-token\",\"token_type\":\"Bearer\",\"expires_in\":300}".getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type","application/json");
             exchange.sendResponseHeaders(200,json.length); exchange.getResponseBody().write(json); exchange.close();
         });
-        var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
-        var tokens = new OrderFeignConfiguration.CatalogCostTokenProvider("http://127.0.0.1:"+server.getAddress().getPort()+"/token", "nexus-commerce-service", "test-machine-secret", 1000, beans.getBeanProvider(java.time.Clock.class));
+        var tokens = new OrderFeignConfiguration.CatalogCostTokenProvider(transport, "http://127.0.0.1:"+server.getAddress().getPort()+"/realms/nexus", "test-machine-secret");
         var http = Feign.builder().contract(new SpringMvcContract()).client(transport)
                 .encoder((body,type,template)->template.body(mapper.writeValueAsString(body)))
                 .decoder(new OrderResponseDecoder(mapper)).retryer(Retryer.NEVER_RETRY)
                 .requestInterceptor(new OrderFeignConfiguration().orderBearerRelay(tokens))
                 .target(com.group5.commerceservice.cart.dto.CatalogClient.class,"http://127.0.0.1:"+server.getAddress().getPort());
-        var product=UUID.randomUUID(); var seller=UUID.randomUUID();
+        var product=UUID.randomUUID();
         status=200;
-        reply="{\"code\":0,\"message\":\"response success\",\"data\":[{\"skuId\":\""+sku+"\",\"productId\":\""+product+"\",\"sellerId\":\""+seller+"\",\"unitCostPrice\":0}]}";
-        var request=new com.group5.commerceservice.cart.dto.CatalogClient.CostRequest(List.of(sku));
-        assertThat(http.getCosts(request).data().getFirst().unitCostPrice()).isZero();
+        reply="{\"code\":0,\"message\":\"response success\",\"data\":{\"id\":\""+sku+"\",\"productId\":\""+product+"\",\"price\":100,\"costPrice\":0}}";
+        assertThat(http.getOrderSkuById(sku).data().getCostPrice()).isZero();
+        assertThat(http.getOrderSkuById(sku).data().getPrice()).isEqualByComparingTo("100");
         assertThat(bearer).isEqualTo("Bearer machine-token");
-        reply=reply.replace("\"unitCostPrice\":0","\"unitCostPrice\":null");
-        assertThat(http.getCosts(request).data().getFirst().unitCostPrice()).isNull();
+        reply=reply.replace("\"costPrice\":0","\"costPrice\":null");
+        assertThat(http.getOrderSkuById(sku).data().getCostPrice()).isNull();
         assertThat(tokenCalls).hasValue(1);
-        reply=reply.replace(",\"unitCostPrice\":null","");
-        assertThatThrownBy(()->http.getCosts(request)).isInstanceOf(feign.codec.DecodeException.class);
+        reply=reply.replace("\"costPrice\":null","\"costPrice\":\"bad\"");
+        assertThatThrownBy(()->http.getOrderSkuById(sku)).isInstanceOf(feign.codec.DecodeException.class);
         reply="{\"code\":0,\"message\":\"response success\",\"data\":{\"id\":\""+sku+"\",\"price\":100}}";
         assertThat(http.getSkuById(sku).data().getId()).isEqualTo(sku);
         assertThat(bearer).isEqualTo("Bearer test-token");
         delay=1500;
-        tokens = new OrderFeignConfiguration.CatalogCostTokenProvider("http://127.0.0.1:"+server.getAddress().getPort()+"/slow-token", "nexus-commerce-service", "test-machine-secret", 1000, beans.getBeanProvider(java.time.Clock.class));
+        tokens = new OrderFeignConfiguration.CatalogCostTokenProvider(transport, "http://127.0.0.1:"+server.getAddress().getPort()+"/slow-token", "test-machine-secret");
         try(var budget=OrderRequestDeadline.start(50)) {
             assertThatThrownBy(tokens::accessToken).isInstanceOf(DomainException.class);
         }
+    }
+
+    @Test
+    void malformedTokensAndMissingSecretFailWithoutLeakingCredentials() {
+        status = 200;
+        for (String json : List.of("not json", "{}",
+                "{\"access_token\":123,\"expires_in\":300,\"token_type\":\"Bearer\"}",
+                "{\"access_token\":\"token\",\"expires_in\":0,\"token_type\":\"Bearer\"}",
+                "{\"access_token\":\"token\",\"expires_in\":300,\"token_type\":\"Basic\"}")) {
+            reply = json;
+            var tokens = new OrderFeignConfiguration.CatalogCostTokenProvider(transport,
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/issuer", "private-secret");
+            assertThatThrownBy(tokens::accessToken).isInstanceOfSatisfying(DomainException.class, error -> {
+                assertThat(error.getErrorCode()).isEqualTo("COMMERCE_CATALOG_UNAVAILABLE");
+                assertThat(error.getMessage()).doesNotContain("private-secret", json);
+            });
+        }
+        int sent = calls.get();
+        var missing = new OrderFeignConfiguration.CatalogCostTokenProvider(transport,
+                "http://127.0.0.1:" + server.getAddress().getPort() + "/issuer", "");
+        assertThatThrownBy(missing::accessToken).isInstanceOf(DomainException.class);
+        assertThat(calls).hasValue(sent);
     }
 
     private <T> T feign(Class<T> type) {

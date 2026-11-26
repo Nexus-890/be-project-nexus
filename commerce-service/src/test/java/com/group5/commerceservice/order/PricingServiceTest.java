@@ -46,7 +46,7 @@ class PricingServiceTest {
         assertThat(item.getUnitPrice()).isEqualByComparingTo("180000.00");
 
         assertThat(pricingService.revalidate(List.of(item))).containsEntry(item.getSkuId(), sku);
-        verify(catalogClient, times(2)).getSkuById(item.getSkuId());
+        verify(catalogClient, times(2)).getOrderSkuById(item.getSkuId());
     }
 
     @Test
@@ -57,7 +57,7 @@ class PricingServiceTest {
         assertThat(pricingService.revalidate(List.of(item))).containsExactlyEntriesOf(
                 Map.of(item.getSkuId(), sku));
         assertThat(item.getUnitPrice()).isEqualByComparingTo("150000.00");
-        verify(catalogClient).getSkuById(item.getSkuId());
+        verify(catalogClient).getOrderSkuById(item.getSkuId());
     }
 
     @Test
@@ -69,7 +69,7 @@ class PricingServiceTest {
         assertThat(pricingService.revalidate(List.of(item))).containsEntry(item.getSkuId(), sku);
 
         assertThat(item.getUnitPrice()).isEqualByComparingTo("150000.00");
-        verify(catalogClient).getSkuById(item.getSkuId());
+        verify(catalogClient).getOrderSkuById(item.getSkuId());
     }
 
     @Test
@@ -160,7 +160,7 @@ class PricingServiceTest {
         sku.setSkuCode("SKU-" + item.getSkuId());
         sku.setPrice(new BigDecimal(price));
         sku.setStatus("ACTIVE");
-        when(catalogClient.getSkuById(item.getSkuId())).thenReturn(ApiResponse.of(sku));
+        when(catalogClient.getOrderSkuById(item.getSkuId())).thenReturn(ApiResponse.of(sku));
         return sku;
     }
 }

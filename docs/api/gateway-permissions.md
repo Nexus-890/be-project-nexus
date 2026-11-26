@@ -385,12 +385,12 @@ authorization. The unmerged #124 draft does not override #245's protected bounda
 including for authenticated callers. #238's merged auth cutover is retained: legacy login/JWKS policies are absent;
 Keycloak endpoints are accessed directly and are not gateway proxy routes.
 
-Commerce reads private SKU costs directly from Catalog when creating standard or
-auction orders. This endpoint remains outside gateway routing and public policies:
+Commerce reads SKU metadata and private costs together from Catalog when creating
+standard or auction orders. This endpoint remains outside gateway routing and public policies:
 
 | Method | Direct service path | Access | Success | Errors |
 | --- | --- | --- | --- | --- |
-| POST | `/internal/v1/catalog/sku-costs` | `CATALOG.COST.READ`, `service_account=true`, `azp=nexus-commerce-service` | 200 | 400, 401, 403, 404 |
+| GET | `/internal/v1/catalog/skus/{id}` | `CATALOG.COST.READ`, `service_account=true`, `azp=nexus-commerce-service` | 200 | 400, 401, 403, 404 |
 
 The Commerce machine token is provisioned by `commerce-cost-client.json` and the
 existing Keycloak seed command. Buyer and seller user tokens cannot read private

@@ -78,18 +78,6 @@ class OrderStatusFlowTest {
     @Autowired private DataSource dataSource;
     @Autowired private PlatformTransactionManager transactionManager;
 
-    @org.junit.jupiter.api.BeforeEach
-    void privateCostFixture() {
-        org.mockito.Mockito.doAnswer(call -> {
-            CatalogClient.CostRequest request=call.getArgument(0);
-            return ApiResponse.list(request.skuIds().stream().map(id -> {
-                var sku=catalogClient.getSkuById(id).data();
-                var product=catalogClient.getProductById(sku.getProductId()).data();
-                return new CatalogClient.Cost(id,sku.getProductId(),product.sellerId(),null);
-            }).toList());
-        }).when(catalogClient).getCosts(any());
-    }
-
     static Stream<Arguments> everyPair() {
         return Arrays.stream(OrderStatus.values())
                 .flatMap(from -> Arrays.stream(OrderStatus.values()).map(to -> Arguments.of(from, to)));
@@ -202,7 +190,7 @@ class OrderStatusFlowTest {
         sku.setSkuCode("SKU-" + skuId.toString().substring(0, 8));
         sku.setPrice(new BigDecimal("150000.00"));
         sku.setStatus("ACTIVE");
-        when(catalogClient.getSkuById(skuId)).thenReturn(ApiResponse.of(sku));
+        when(catalogClient.getOrderSkuById(skuId)).thenReturn(ApiResponse.of(sku));
         when(catalogClient.getProductById(productId)).thenReturn(ApiResponse.of(new CatalogClient.ProductResponse(
                 productId, UUID.randomUUID(), "Phone", "ACTIVE", List.of())));
         when(inventoryClient.reserve(any(), any())).thenReturn(new InventoryClient.Reservation(

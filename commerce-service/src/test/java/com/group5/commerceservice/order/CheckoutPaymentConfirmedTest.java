@@ -112,14 +112,6 @@ class CheckoutPaymentConfirmedTest {
     @Autowired private OrderShippingService shipping;
 
     @BeforeEach void resetPublisher() { reset(publisher, catalog, inventory, shipping);
-        org.mockito.Mockito.doAnswer(call -> {
-            CatalogClient.CostRequest request = call.getArgument(0);
-            return com.group5.common_core.model.ApiResponse.list(request.skuIds().stream().map(id -> {
-                var sku = catalog.getSkuById(id).data();
-                var product = catalog.getProductById(sku.getProductId()).data();
-                return new CatalogClient.Cost(id, sku.getProductId(), product.sellerId(), null);
-            }).toList());
-        }).when(catalog).getCosts(any());
     }
 
     /** Snapshot hai cấp do checkout thật tạo phải thanh toán được và không nhân đôi event khi replay receipt. */
@@ -279,7 +271,7 @@ class CheckoutPaymentConfirmedTest {
             sku.setPrice(new BigDecimal("150000.00"));
             sku.setStatus("ACTIVE");
             sku.setShippingParcel(new CatalogSkuResponse.ShippingParcel(1000, 20, 15, 10));
-            when(catalog.getSkuById(skuId)).thenReturn(ApiResponse.of(sku));
+            when(catalog.getOrderSkuById(skuId)).thenReturn(ApiResponse.of(sku));
             when(catalog.getProductById(product)).thenReturn(ApiResponse.of(new CatalogClient.ProductResponse(
                     product, UUID.randomUUID(), "Stored product " + index, "ACTIVE", List.of())));
             skus.add(skuId);

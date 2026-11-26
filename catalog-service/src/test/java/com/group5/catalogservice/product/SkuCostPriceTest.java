@@ -69,17 +69,15 @@ class SkuCostPriceTest {
     }
 
     @Test
-    void privateBatchReturnsIdentityAndPreservesUnknownAndZeroCosts() {
+    void orderReadReturnsSellingPriceAndCostTogetherWithoutChangingPublicReads() {
         Skus sku = existingSku(BigDecimal.ZERO);
-        when(skus.findCostsByIdIn(List.of(sku.getId()))).thenReturn(List.of(sku));
-        assertThat(skuService.getCosts(List.of(sku.getId(), sku.getId()))).singleElement().satisfies(cost -> {
-            assertThat(cost.sellerId()).isEqualTo(sellerId);
-            assertThat(cost.productId()).isEqualTo(sku.getProduct().getId());
-            assertThat(cost.unitCostPrice()).isEqualByComparingTo(BigDecimal.ZERO);
-        });
+        var result = skuService.getForOrder(sku.getId());
+        assertThat(result.getProductId()).isEqualTo(sku.getProduct().getId());
+        assertThat(result.getPrice()).isEqualByComparingTo(sku.getPrice());
+        assertThat(result.getCostPrice()).isZero();
         sku.setCostPrice(null);
-        assertThat(skuService.getCosts(List.of(sku.getId())).getFirst().unitCostPrice()).isNull();
-        assertThatThrownBy(() -> skuService.getCosts(List.of(UUID.randomUUID())))
+        assertThat(skuService.getForOrder(sku.getId()).getCostPrice()).isNull();
+        assertThatThrownBy(() -> skuService.getForOrder(UUID.randomUUID()))
                 .isInstanceOf(com.group5.common_core.exception.DomainException.class);
     }
 

@@ -52,14 +52,6 @@ class OrderPriceRevalidationTest {
         when(shipping.quote(any(), any())).thenReturn(new com.group5.commerceservice.order.service.OrderShippingService.Quote(
                 BigDecimal.ZERO, new com.group5.commerceservice.order.service.OrderShippingService.Parcel(1200, 30, 20, 15),
                 "FAKE", "STANDARD", java.time.OffsetDateTime.parse("2031-02-04T04:05:06Z")));
-        org.mockito.Mockito.doAnswer(call -> {
-            CatalogClient.CostRequest request = call.getArgument(0);
-            return ApiResponse.list(request.skuIds().stream().map(id -> {
-                var sku = catalogClient.getSkuById(id).data();
-                var product = catalogClient.getProductById(sku.getProductId()).data();
-                return new CatalogClient.Cost(id, sku.getProductId(), product.sellerId(), null);
-            }).toList());
-        }).when(catalogClient).getCosts(any());
         ReflectionTestUtils.setField(pricingService, "priceRevalidation", true);
         clearInvocations(catalogClient, inventoryClient);
         when(inventoryClient.reserve(any(), any())).thenReturn(new InventoryClient.Reservation(
@@ -192,7 +184,7 @@ class OrderPriceRevalidationTest {
         sku.setSkuCode("SKU-" + line.skuId());
         sku.setPrice(new BigDecimal(price));
         sku.setStatus("ACTIVE");
-        when(catalogClient.getSkuById(line.skuId())).thenReturn(ApiResponse.of(sku));
+        when(catalogClient.getOrderSkuById(line.skuId())).thenReturn(ApiResponse.of(sku));
     }
 
     private void assertNoOrders(Fixture fixture) {

@@ -16,6 +16,7 @@ public class CatalogSkuResponse {
     private String color;
     private String size;
     private BigDecimal price;
+    private BigDecimal costPrice;
     private String status;
     private ShippingParcel shippingParcel;
 

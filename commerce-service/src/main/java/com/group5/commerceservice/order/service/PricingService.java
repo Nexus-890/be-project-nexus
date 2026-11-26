@@ -13,8 +13,6 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.Comparator;
-import java.util.Collection;
-import com.group5.commerceservice.order.entity.Order;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,40 +25,11 @@ public class PricingService {
     private final OrderShippingService shipping;
     private final InventoryClient inventory;
 
-    public void snapshotCosts(Collection<Order> orders) {
-        List<UUID> ids = orders.stream().flatMap(order -> order.getItems().stream())
-                .map(item -> item.getSkuId()).distinct().sorted().toList();
-        if (ids.isEmpty()) return;
-        var costs = readCosts(ids);
-        for (var order : orders) {
-            for (var item : order.getItems()) {
-                var cost = costs.get(item.getSkuId());
-                if (!order.getSellerId().equals(cost.sellerId()) || !item.getProductId().equals(cost.productId())) throw invalidCost();
-                item.setUnitCostPrice(cost.unitCostPrice() == null ? null : cost.unitCostPrice().setScale(2));
-            }
-        }
+    public BigDecimal orderUnitCost(UUID skuId, UUID productId) {
+        CatalogSkuResponse sku = readOrderSku(skuId);
+        if (!productId.equals(sku.getProductId())) throw new DomainException(CommerceErrorCode.INVALID_CATALOG_RESPONSE);
+        return sku.getCostPrice();
     }
-
-    private Map<UUID, CatalogClient.Cost> readCosts(List<UUID> ids) {
-        try {
-            var response = catalogClient.getCosts(new CatalogClient.CostRequest(ids));
-            if (response == null || response.code() != 0 || response.data() == null) throw invalidCost();
-            var indexed = new HashMap<UUID, CatalogClient.Cost>();
-            for (var cost : response.data()) {
-                if (cost == null || cost.skuId() == null || cost.productId() == null || cost.sellerId() == null
-                        || !ids.contains(cost.skuId()) || indexed.putIfAbsent(cost.skuId(), cost) != null) throw invalidCost();
-                if (cost.unitCostPrice() != null && (cost.unitCostPrice().signum() < 0
-                        || cost.unitCostPrice().stripTrailingZeros().scale() > 2
-                        || cost.unitCostPrice().setScale(2).precision() > 19)) throw invalidCost();
-            }
-            if (indexed.size() != ids.size()) throw invalidCost();
-            return indexed;
-        } catch (FeignException failure) {
-            throw new DomainException(CommerceErrorCode.CATALOG_UNAVAILABLE);
-        }
-    }
-
-    private static DomainException invalidCost() { return new DomainException(CommerceErrorCode.INVALID_CATALOG_RESPONSE); }
 
     @Value("${nexus.checkout.free-shipping-threshold:1000000}")
     private BigDecimal freeShippingThreshold = new BigDecimal("1000000");
@@ -156,18 +125,30 @@ public class PricingService {
     }
 
     private CatalogSkuResponse readSku(CartItem line) {
+        CatalogSkuResponse sku = readOrderSku(line.getSkuId());
+        if (!line.getProductId().equals(sku.getProductId()) || !"ACTIVE".equals(sku.getStatus())
+                || sku.getPrice() == null || sku.getPrice().signum() < 0) {
+            throw new DomainException(CommerceErrorCode.ITEM_UNAVAILABLE, "A cart item is no longer available");
+        }
+        return sku;
+    }
+
+    private CatalogSkuResponse readOrderSku(UUID id) {
         CatalogSkuResponse sku;
         try {
-            var response = catalogClient.getSkuById(line.getSkuId());
-            sku = response == null ? null : response.data();
+            var response = catalogClient.getOrderSkuById(id);
+            sku = response == null || response.code() != 0 ? null : response.data();
         } catch (FeignException.NotFound exception) {
             throw new DomainException(CommerceErrorCode.ITEM_UNAVAILABLE, "A cart item is no longer available");
         } catch (FeignException exception) {
-            throw new DomainException(CommerceErrorCode.CATALOG_UNAVAILABLE, "Catalog is unavailable; retry placing the order later");
+            throw new DomainException(CommerceErrorCode.CATALOG_UNAVAILABLE);
         }
-        if (sku == null || !line.getSkuId().equals(sku.getId()) || !line.getProductId().equals(sku.getProductId())
-                || !"ACTIVE".equals(sku.getStatus()) || sku.getPrice() == null || sku.getPrice().signum() < 0) {
-            throw new DomainException(CommerceErrorCode.ITEM_UNAVAILABLE, "A cart item is no longer available");
+        if (sku == null || !id.equals(sku.getId())) throw new DomainException(CommerceErrorCode.INVALID_CATALOG_RESPONSE);
+        BigDecimal cost = sku.getCostPrice();
+        if (cost != null) {
+            if (cost.signum() < 0 || cost.stripTrailingZeros().scale() > 2 || cost.setScale(2).precision() > 19)
+                throw new DomainException(CommerceErrorCode.INVALID_CATALOG_RESPONSE);
+            sku.setCostPrice(cost.setScale(2));
         }
         return sku;
     }

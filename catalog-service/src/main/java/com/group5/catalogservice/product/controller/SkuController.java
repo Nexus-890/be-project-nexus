@@ -24,15 +24,12 @@ public class SkuController {
         this.skuService = skuService;
     }
 
-    @PostMapping("/internal/v1/catalog/sku-costs")
+    @GetMapping("/internal/v1/catalog/skus/{id}")
     @PreAuthorize("hasAuthority('CATALOG.COST.READ') and authentication.tokenAttributes['service_account'] == true"
             + " and authentication.tokenAttributes['azp'] == 'nexus-commerce-service'")
-    public ApiResponse<List<SkuService.Cost>> costs(@Valid @RequestBody CostRequest request) {
-        return ApiResponse.list(skuService.getCosts(request.skuIds()));
+    public ApiResponse<SkuResponse> getForOrder(@PathVariable UUID id) {
+        return ApiResponse.of(skuService.getForOrder(id));
     }
-
-    public record CostRequest(@jakarta.validation.constraints.NotEmpty @jakarta.validation.constraints.Size(max = 200)
-                              List<@jakarta.validation.constraints.NotNull UUID> skuIds) { }
 
     // Yêu cầu quyền PRODUCT.UPDATE và trả về mã 201 Created.
     @PostMapping("/api/v1/products/{productId}/skus")
