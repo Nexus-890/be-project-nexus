@@ -24,6 +24,8 @@ import java.util.concurrent.TimeoutException;
 
 /** Giới hạn cả chọn instance, kết nối và đọc hết body; không để timeout treo transaction checkout. */
 public final class OrderHttpClient implements Client, AutoCloseable {
+    static final long DEFAULT_MAX_TIMEOUT_MILLIS = 2200;
+    static final long SHIPPING_MAX_TIMEOUT_MILLIS = 4000;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final HttpClient http;
     private final Client delegate;
@@ -31,18 +33,24 @@ public final class OrderHttpClient implements Client, AutoCloseable {
 
     public OrderHttpClient(LoadBalancerClient loadBalancer, LoadBalancerClientFactory factory,
                            List<LoadBalancerFeignRequestTransformer> transformers, long timeoutMillis) {
-        this(timeoutMillis, loadBalancer, factory, transformers);
+        this(timeoutMillis, DEFAULT_MAX_TIMEOUT_MILLIS, loadBalancer, factory, transformers);
+    }
+
+    public OrderHttpClient(LoadBalancerClient loadBalancer, LoadBalancerClientFactory factory,
+                           List<LoadBalancerFeignRequestTransformer> transformers, long timeoutMillis,
+                           long maxTimeoutMillis) {
+        this(timeoutMillis, maxTimeoutMillis, loadBalancer, factory, transformers);
     }
 
     /** Dùng transport thật nhưng không discovery trong HTTP contract tests. */
     public OrderHttpClient(long timeoutMillis) {
-        this(timeoutMillis, null, null, List.of());
+        this(timeoutMillis, DEFAULT_MAX_TIMEOUT_MILLIS, null, null, List.of());
     }
 
-    private OrderHttpClient(long timeoutMillis, LoadBalancerClient loadBalancer, LoadBalancerClientFactory factory,
-                            List<LoadBalancerFeignRequestTransformer> transformers) {
-        if (timeoutMillis < 1 || timeoutMillis > 2200) {
-            throw new IllegalArgumentException("Order remote timeout must be between 1 and 2200 milliseconds");
+    private OrderHttpClient(long timeoutMillis, long maxTimeoutMillis, LoadBalancerClient loadBalancer,
+                            LoadBalancerClientFactory factory, List<LoadBalancerFeignRequestTransformer> transformers) {
+        if (timeoutMillis < 1 || timeoutMillis > maxTimeoutMillis) {
+            throw new IllegalArgumentException("Order remote timeout must be between 1 and " + maxTimeoutMillis + " milliseconds");
         }
         this.timeoutMillis = timeoutMillis;
         this.http = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(timeoutMillis))

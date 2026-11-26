@@ -50,6 +50,7 @@ nexus:
     inventory-base-url: ${ORDER_INVENTORY_BASE_URL:}
     shipping-base-url: ${ORDER_SHIPPING_BASE_URL:}
     remote-timeout-ms: ${ORDER_REMOTE_TIMEOUT_MS:1800}
+    shipping-timeout-ms: ${ORDER_SHIPPING_TIMEOUT_MS:3500}
     remote-breaker-failure-threshold: ${ORDER_REMOTE_BREAKER_FAILURE_THRESHOLD:5}
     remote-breaker-open-ms: ${ORDER_REMOTE_BREAKER_OPEN_MS:30000}
     shipment-retry-interval: ${ORDER_SHIPMENT_RETRY_INTERVAL:5s}

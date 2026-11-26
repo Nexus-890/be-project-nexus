@@ -98,7 +98,8 @@ Config Server `commerce-service.yml`:
 | --- | --- | --- |
 | `nexus.order.inventory-base-url` | rỗng | Discovery `inventory-service`; URL override phục vụ môi trường/test |
 | `nexus.order.shipping-base-url` | rỗng | Discovery `shipment-service`; URL override phục vụ môi trường/test |
-| `nexus.order.remote-timeout-ms` | 1800 | Timeout một lời gọi, giới hạn cấu hình tối đa 2200 ms; mọi quote/reserve dùng chung ngân sách checkout 2600 ms |
+| `nexus.order.remote-timeout-ms` | 1800 | Timeout một lời gọi inventory, giới hạn cấu hình tối đa 2200 ms; mọi quote/reserve dùng chung ngân sách checkout 2600 ms |
+| `nexus.order.shipping-timeout-ms` | 3500 | Timeout một lời gọi quote sang shipment-service (tối đa 4000 ms), dài hơn ngân sách nội bộ 3000 ms của shipment; trong checkout vẫn bị cắt bởi ngân sách chung 2600 ms |
 | `nexus.order.remote-breaker-failure-threshold` | 5 | Số failure khả dụng trước khi mở circuit riêng theo dependency |
 | `nexus.order.remote-breaker-open-ms` | 30000 | Thời gian mở circuit trước probe |
 

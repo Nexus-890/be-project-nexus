@@ -1,7 +1,7 @@
 package com.group5.commerceservice.order.client;
 
 import com.group5.common_core.model.ApiResponse;
-import com.group5.commerceservice.order.client.config.OrderFeignConfiguration;
+import com.group5.commerceservice.order.client.config.ShippingQuoteFeignConfiguration;
 import com.group5.commerceservice.order.service.OrderShippingService.Parcel;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.UUID;
 
 @FeignClient(name = "shipment-service", contextId = "orderShipping",
-        url = "${nexus.order.shipping-base-url:}", configuration = OrderFeignConfiguration.class)
+        url = "${nexus.order.shipping-base-url:}", configuration = ShippingQuoteFeignConfiguration.class)
 public interface ShippingQuoteHttpClient {
     @PostMapping("/api/v1/shipping/quotes")
     ApiResponse<List<Response>> quote(@RequestBody Request request);
