@@ -3560,7 +3560,23 @@ components:
             holderName:
               type: "string"
           nullable: true
-          description: "Masked recipient: current attempt frozen destination when an attempt exists; otherwise the currently reviewed bank, or null. Bank changes do not silently replace an issued destination. No full account number or ciphertext."
+          description: "Masked recipient: the current attempt's frozen destination while that attempt is in progress or awaiting reconciliation; while the payout is PENDING or ON_HOLD, the currently reviewed default bank the next claim will use, or null. Bank changes do not silently replace an issued destination. No full account number or ciphertext."
+        sellerDefaultRecipient:
+          type: "object"
+          required:
+            - "bankCode"
+            - "accountLast4"
+            - "holderName"
+          properties:
+            bankCode:
+              type: "string"
+              pattern: "^[0-9]{6}$"
+            accountLast4:
+              type: "string"
+              pattern: "^[0-9]{4}$"
+            holderName:
+              type: "string"
+          description: "Detail only. The seller's current reviewed default bank when it differs from the current attempt's frozen destination (the seller switched or edited the account after the claim). Omitted otherwise. The issued QR keeps paying the frozen destination; the new account is used only after the attempt is reconciled as not sent and an admin authorizes a retry."
       description: "Authoritative MANUAL state. Payout, attempt and seller receipt/dispute states are independent. A staff attestation does not certify bank credit. All ordinary bank data stays masked."
     ManualPayoutCapabilities:
       type: "object"

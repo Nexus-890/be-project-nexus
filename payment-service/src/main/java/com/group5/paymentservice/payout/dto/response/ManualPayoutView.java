@@ -28,7 +28,10 @@ public record ManualPayoutView(
         List<History> history,
         @com.fasterxml.jackson.annotation.JsonInclude(
                         com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
-                Recipient recipient) {
+                Recipient recipient,
+        @com.fasterxml.jackson.annotation.JsonInclude(
+                        com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                Recipient sellerDefaultRecipient) {
     public ManualPayoutView(
             UUID id,
             UUID orderId,
@@ -73,6 +76,7 @@ public record ManualPayoutView(
                 evidence,
                 cases,
                 history,
+                null,
                 null);
     }
 

@@ -148,7 +148,8 @@ public class ManualPayoutQueryService {
                 List.of(),
                 summaries,
                 List.of(),
-                recipient(a, bank));
+                recipient(p, a, bank),
+                null);
     }
 
     ManualPayoutView view(CurrentUser actor, UUID payoutId, boolean sellerContext) {
@@ -255,8 +256,7 @@ public class ManualPayoutQueryService {
                                                                 : null,
                                                         time(h, "occurred_at")))
                                 .toList();
-        var bank = a == null ? repository.bank(id(p, "seller_id")).orElse(null) : null;
-        var recipient = recipient(a, bank);
+        var bank = repository.bank(id(p, "seller_id")).orElse(null);
         var allowed =
                 new ArrayList<>(
                         sellerContext
@@ -289,7 +289,8 @@ public class ManualPayoutQueryService {
                 evidence,
                 visibleCases,
                 history,
-                recipient);
+                recipient(p, a, bank),
+                changedDefault(p, a, bank));
     }
 
     public ManualReceiptView sellerProjection(CurrentUser actor, UUID payoutId) {
@@ -369,19 +370,37 @@ public class ManualPayoutQueryService {
                         bankMatch);
     }
 
+    private static boolean awaitingClaim(Map<String, Object> payout) {
+        return Set.of("PENDING", "ON_HOLD").contains(str(payout, "status"));
+    }
+
     private static ManualPayoutView.Recipient recipient(
-            Map<String, Object> attempt, Map<String, Object> bank) {
-        return attempt != null
+            Map<String, Object> payout, Map<String, Object> attempt, Map<String, Object> bank) {
+        return attempt != null && !awaitingClaim(payout)
                 ? new ManualPayoutView.Recipient(
                         str(attempt, "bank_code"),
                         str(attempt, "account_last4"),
                         str(attempt, "holder_name"))
-                : bank == null
-                        ? null
-                        : new ManualPayoutView.Recipient(
-                                str(bank, "bank_code"),
-                                str(bank, "account_last4"),
-                                str(bank, "account_holder_name"));
+                : bankRecipient(bank);
+    }
+
+    private static ManualPayoutView.Recipient changedDefault(
+            Map<String, Object> payout, Map<String, Object> attempt, Map<String, Object> bank) {
+        if (attempt == null || bank == null || awaitingClaim(payout)) return null;
+        boolean same =
+                bank.get("id").equals(attempt.get("seller_bank_id"))
+                        && number(bank, "version").longValue()
+                                == number(attempt, "bank_version").longValue();
+        return same ? null : bankRecipient(bank);
+    }
+
+    private static ManualPayoutView.Recipient bankRecipient(Map<String, Object> bank) {
+        return bank == null
+                ? null
+                : new ManualPayoutView.Recipient(
+                        str(bank, "bank_code"),
+                        str(bank, "account_last4"),
+                        str(bank, "account_holder_name"));
     }
 
     private static void applyReadinessActions(
