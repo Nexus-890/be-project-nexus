@@ -23,6 +23,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AuctionPaymentTimeoutHandler {
     public static final String CONSUMER = "auction-payment-timeout";
+    public static final String PAYMENT_DEADLINE_EXPIRED = "PAYMENT_DEADLINE_EXPIRED";
+    public static final String BUYER_CANCELLED = "BUYER_CANCELLED";
     private final IdempotentConsumer idempotent;
     private final AuctionRepository auctions;
     private final AuctionStateMachine states;
@@ -37,7 +39,7 @@ public class AuctionPaymentTimeoutHandler {
         var event = record.value();
         if (!"OrderCancelled".equals(event.eventType())
                 || !"AUCTION".equals(event.payload().path("orderType").asString())
-                || !"PAYMENT_DEADLINE_EXPIRED".equals(event.payload().path("reason").asString())) return;
+                || !(deadline(event.payload()) || buyerCancelled(event.payload()))) return;
         UUID order = uuid(event.payload(), "orderId");
         if (!order.toString().equals(event.aggregateId()) || !event.aggregateId().equals(record.key()))
             throw new IllegalArgumentException("Order identity mismatch");
@@ -66,11 +68,15 @@ public class AuctionPaymentTimeoutHandler {
         if (!auction.getWinnerId().equals(uuid(payload, "buyerId"))
                 || !auction.getSellerId().equals(uuid(payload, "sellerId")))
             throw new IllegalArgumentException("Timeout parties do not match the settled auction");
-        Instant cancelledAt = Instant.parse(payload.path("cancelledAt").asString());
-        if (cancelledAt.isBefore(auction.getPaymentDueAt()))
-            throw new IllegalArgumentException("Payment cancellation precedes the deadline");
+        boolean deadline = deadline(payload);
+        if (!deadline && !buyerCancelled(payload)) return;
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        if (now.isBefore(auction.getPaymentDueAt())) throw new IllegalStateException("Payment deadline is still in the future");
+        if (deadline) {
+            Instant cancelledAt = Instant.parse(payload.path("cancelledAt").asString());
+            if (cancelledAt.isBefore(auction.getPaymentDueAt()))
+                throw new IllegalArgumentException("Payment cancellation precedes the deadline");
+            if (now.isBefore(auction.getPaymentDueAt())) throw new IllegalStateException("Payment deadline is still in the future");
+        }
         states.transition(auction, AuctionStatus.PAYMENT_TIMEOUT);
         auctions.saveAndFlush(auction);
         jdbc.update("""
@@ -81,7 +87,7 @@ public class AuctionPaymentTimeoutHandler {
         outbox.write("Auction", Topics.AUCTION, envelopes.create("AuctionPaymentTimeout", auctionId.toString(), Map.of(
                 "auctionId", auctionId, "orderId", order, "winnerId", auction.getWinnerId(),
                 "sellerId", auction.getSellerId(), "paymentDueAt", auction.getPaymentDueAt(), "timedOutAt", now,
-                "reason", "PAYMENT_DEADLINE_EXPIRED", "auctionVersion", auction.getVersion())));
+                "reason", deadline ? PAYMENT_DEADLINE_EXPIRED : BUYER_CANCELLED, "auctionVersion", auction.getVersion())));
         jdbc.update("DELETE FROM auction_pending_timeouts WHERE order_id=?", order);
     }
 
@@ -94,6 +100,16 @@ public class AuctionPaymentTimeoutHandler {
     private boolean exists(UUID order) {
         return Boolean.TRUE.equals(jdbc.queryForObject(
                 "SELECT EXISTS(SELECT 1 FROM auction_payment_timeouts WHERE order_id=?)", Boolean.class, order));
+    }
+
+    private static boolean deadline(JsonNode payload) {
+        return PAYMENT_DEADLINE_EXPIRED.equals(payload.path("reason").asString());
+    }
+
+    private static boolean buyerCancelled(JsonNode payload) {
+        String buyer = payload.path("buyerId").asString();
+        return !buyer.isEmpty() && buyer.equals(payload.path("actorId").asString())
+                && new java.math.BigDecimal(payload.path("paidAmount").asString("0")).signum() == 0;
     }
 
     static UUID uuid(JsonNode node, String name) { return UUID.fromString(node.path(name).asString()); }

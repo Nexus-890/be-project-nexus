@@ -228,8 +228,8 @@ class EmailDeliveryIntegrationTest {
                 .containsExactlyInAnyOrder(BUYER_EMAIL, SELLER_EMAIL);
         for (JsonNode summary : inbox) {
             JsonNode email = message(summary);
-            assertThat(email.get("Subject").asString()).isEqualTo("Auction payment deadline passed");
-            assertThat(email.get("Text").asString()).contains(AUCTION.toString(), ORDER.toString(), "deadline");
+            assertThat(email.get("Subject").asString()).isEqualTo("Auction order closed without payment");
+            assertThat(email.get("Text").asString()).contains(AUCTION.toString(), ORDER.toString(), "without payment");
         }
         assertThat(job.runOnce()).isZero();
         assertThat(messages()).hasSize(2);

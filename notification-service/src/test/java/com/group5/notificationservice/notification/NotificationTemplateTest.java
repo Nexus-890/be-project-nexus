@@ -172,7 +172,7 @@ class NotificationTemplateTest {
                         + "\"sellerId\":\"00000000-0000-4000-8000-000000000004\"}", 2, "Policy violation"),
                 Arguments.of("AuctionPaymentTimeout", "{\"auctionId\":\"auction-259\"," + order
                         + ",\"winnerId\":\"00000000-0000-4000-8000-000000000002\","
-                        + "\"sellerId\":\"00000000-0000-4000-8000-000000000004\"}", 2, "payment deadline"));
+                        + "\"sellerId\":\"00000000-0000-4000-8000-000000000004\"}", 2, "closed without payment"));
     }
 
     // Trường người nhận gốc vẫn bắt buộc; chỉ field additive của v1 lịch sử mới được bỏ qua.

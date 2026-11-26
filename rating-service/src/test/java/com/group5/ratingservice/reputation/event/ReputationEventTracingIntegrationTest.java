@@ -110,6 +110,21 @@ class ReputationEventTracingIntegrationTest extends RatingPostgresIntegrationTes
     }
 
     @Test
+    void buyerCancelledAuctionOrderAppliesNoPenalty() {
+        var record = input("AuctionPaymentTimeout", UUID.randomUUID(), UUID.randomUUID());
+        var payload = (tools.jackson.databind.node.ObjectNode) record.value().payload().deepCopy();
+        payload.put("reason", "BUYER_CANCELLED");
+        var cancelled = new EventEnvelope<>(UUID.randomUUID(), "AuctionPaymentTimeout", record.value().aggregateId(),
+                Instant.now(), "input", (JsonNode) payload);
+
+        consumer.auction(new ConsumerRecord<>(Topics.AUCTION, 0, 0, record.key(), cancelled));
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM reputation_history", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM user_reputations", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox", Long.class)).isZero();
+    }
+
+    @Test
     void failedListenerWithoutAParentDoesNotLeakItsSpanOrProcessedMarker() {
         var record = input("UserRated", UUID.randomUUID(), UUID.randomUUID());
         UUID userId = UUID.fromString(record.value().payload().path("toUserId").asString());

@@ -77,6 +77,21 @@ class SecondChanceOfferIntegrationTest {
         timeouts.receive(cancel(UUID.randomUUID(),"AUCTION","PAYMENT_DEADLINE_EXPIRED"));
         assertThat(state()).isEqualTo("SETTLED");assertThat(events("AuctionPaymentTimeout")).isZero();
     }
+    @Test void unpaidBuyerCancelBeforeTheDeadlineLetsTheSellerOfferTheNextBidder() {
+        jdbc.update("UPDATE auctions SET payment_due_at=now()+interval '1 day' WHERE id=?",auction);
+        timeouts.receive(cancelBy(first,"0.00","Scam"));
+        assertThat(state()).isEqualTo("PAYMENT_TIMEOUT");assertThat(events("AuctionPaymentTimeout")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT payload->'payload'->>'reason' FROM outbox WHERE aggregate_id=? AND event_type='AuctionPaymentTimeout'",
+                String.class,auction.toString())).isEqualTo("BUYER_CANCELLED");
+        UUID b=UUID.randomUUID();bid(b,480,"PLACED");
+        assertThat(send().bidderId()).isEqualTo(b);assertThat(events("SecondChanceOffered")).isEqualTo(1);
+    }
+    @Test void staffCancelAndPaidBuyerCancelKeepTheAuctionSettled() {
+        jdbc.update("UPDATE auctions SET payment_due_at=now()+interval '1 day' WHERE id=?",auction);
+        timeouts.receive(cancelBy(UUID.randomUUID(),"0.00","Fraud check"));
+        timeouts.receive(cancelBy(first,"500.00","Changed my mind"));
+        assertThat(state()).isEqualTo("SETTLED");assertThat(events("AuctionPaymentTimeout")).isZero();
+    }
     @Test void timeoutAndProcessedMarkerRollbackTogether() {
         var event=cancel(order,"AUCTION","PAYMENT_DEADLINE_EXPIRED");
         new TransactionTemplate(transactions).executeWithoutResult(tx->{timeouts.receive(event);tx.setRollbackOnly();});
@@ -284,6 +299,7 @@ class SecondChanceOfferIntegrationTest {
     private CurrentUser user(UUID id,String role){return new CurrentUser(id,Set.of(role),Set.of());}
     private void jwt(String token,UUID id,String role,List<String> privileges){when(decoder.decode(token)).thenReturn(Jwt.withTokenValue(token).header("alg","RS256").subject(id.toString()).claim("roles",List.of(role)).claim("privileges",privileges).build());}
     private ConsumerRecord<String,EventEnvelope<JsonNode>> cancel(UUID orderId,String type,String reason){return record(Topics.COMMERCE,"OrderCancelled",orderId,Map.of("orderId",orderId,"referenceId",auction,"buyerId",first,"sellerId",seller,"orderType",type,"reason",reason,"cancelledAt",Instant.now().toString()));}
+    private ConsumerRecord<String,EventEnvelope<JsonNode>> cancelBy(UUID actor,String paid,String reason){return record(Topics.COMMERCE,"OrderCancelled",order,Map.of("orderId",order,"referenceId",auction,"buyerId",first,"sellerId",seller,"actorId",actor,"paidAmount",paid,"orderType","AUCTION","reason",reason,"cancelledAt",Instant.now().toString()));}
     private ConsumerRecord<String,EventEnvelope<JsonNode>> created(UUID id,UUID offer){var p=new HashMap<String,Object>();p.put("orderId",id);p.put("referenceId",auction);p.put("orderType","AUCTION");p.put("offerId",offer);return record(Topics.COMMERCE,"OrderCreated",id,p);}
     private ConsumerRecord<String,EventEnvelope<JsonNode>> record(String topic,String type,UUID id,Map<String,Object> p){return new ConsumerRecord<>(topic,0,0,id.toString(),new EventEnvelope<>(UUID.randomUUID(),type,id.toString(),Instant.now(),"208-proof",JsonMapper.shared().valueToTree(p)));}
 }

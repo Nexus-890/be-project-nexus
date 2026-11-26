@@ -53,7 +53,8 @@ public class ReputationEventConsumer {
             containerFactory = EventKafka.LISTENER_CONTAINER_FACTORY, properties = "auto.offset.reset=earliest")
     public void auction(ConsumerRecord<String, EventEnvelope<JsonNode>> record) {
         EventEnvelope<JsonNode> event = required(record);
-        if (!"AuctionPaymentTimeout".equals(event.eventType())) return;
+        if (!"AuctionPaymentTimeout".equals(event.eventType())
+                || "BUYER_CANCELLED".equals(event.payload().path("reason").asString())) return;
         var input = ReputationInputs.Timeout.from(event.payload());
         verify(record, Topics.AUCTION, input.auctionId().toString(), input.auctionId().toString());
         handle(TIMEOUT, event, envelope -> reputations.timeout(input, envelope.eventId()));
