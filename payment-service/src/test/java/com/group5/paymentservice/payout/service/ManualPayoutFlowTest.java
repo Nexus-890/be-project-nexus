@@ -354,6 +354,64 @@ class ManualPayoutFlowTest extends PaymentDatabaseTestSupport {
     }
 
     @Test
+    void aDefaultBankSwitchAfterQrShowsTheNewAccountAndPaysItOnlyAfterNotSentAndRetry() {
+        Fixture f = funded();
+        var ready = evidence(f, support, issue(f, support, claim(f, support)));
+        var other =
+                banks.create(
+                        f.seller(),
+                        new BankAccountRequest(
+                                "970436", "000000005678", "TEST SELLER", true, true));
+        banks.verify(
+                admin, other.id(), new BankVerificationRequest("VERIFIED", null, other.version()));
+        var unknown = detail(f);
+        assertThat(unknown.status()).isEqualTo("UNKNOWN");
+        assertThat(unknown.allowedActions()).doesNotContain("ISSUE_QR", "CLAIM");
+        assertThat(unknown.recipient().accountLast4()).isEqualTo("1234");
+        assertThat(unknown.sellerDefaultRecipient().accountLast4()).isEqualTo("5678");
+        var review = unknown.cases().getFirst();
+        var failed =
+                command(
+                                admin,
+                                f,
+                                unknown.currentAttempt().id(),
+                                "RESOLVE",
+                                new ResolutionCommand(
+                                        unknown.version(),
+                                        unknown.currentAttempt().version(),
+                                        review.version(),
+                                        review.id(),
+                                        ResolutionOutcome.CONFIRMED_NOT_SENT,
+                                        "Seller changed bank, nothing was sent",
+                                        ready.evidence().stream()
+                                                .map(ManualPayoutView.Evidence::id)
+                                                .toList(),
+                                        null,
+                                        null,
+                                        null,
+                                        null))
+                        .result();
+        assertThat(failed.status()).isEqualTo("FAILED");
+        assertThat(failed.allowedActions()).contains("RETRY");
+        assertThat(failed.sellerDefaultRecipient().accountLast4()).isEqualTo("5678");
+        var pending =
+                command(
+                                admin,
+                                f,
+                                null,
+                                "RETRY",
+                                new PayoutVersionCommand(failed.version(), "Pay the new account"))
+                        .result();
+        assertThat(pending.status()).isEqualTo("PENDING");
+        assertThat(pending.recipient().accountLast4()).isEqualTo("5678");
+        assertThat(pending.sellerDefaultRecipient()).isNull();
+        var next = claim(f, support);
+        assertThat(next.recipient().accountLast4()).isEqualTo("5678");
+        assertThat(next.sellerDefaultRecipient()).isNull();
+        assertThat(movements(f, "PAYOUT")).isZero();
+    }
+
+    @Test
     void adminConfirmedSentSettlesAnUnknownAttemptExactlyOnce() {
         Fixture f = funded();
         var ready = evidence(f, support, issue(f, support, claim(f, support)));
